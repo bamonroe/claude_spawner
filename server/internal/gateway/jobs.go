@@ -61,9 +61,10 @@ func (j *sessionJob) finish(final map[string]any) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	j.running = false
-	j.final = final
 	if j.live != nil && j.live(final) {
-		j.delivered = true
+		j.delivered = true // reached a live client; no need to buffer it
+	} else {
+		j.final = final // nobody attached — buffer for the next reconnect
 	}
 }
 
@@ -93,6 +94,7 @@ func (s *Server) startTurn(sess *session.Session, text string, live func(any) bo
 				j.emit(msgActivity(toolActivity(t.Name)))
 			}
 		}
+		wasStarted := sess.Started // Turn flips Started true on the first success
 		reply, err := s.driver.Turn(context.Background(), sess, text, onTool)
 		if len(changed) > 0 {
 			j.emit(msgFiles(sortedKeys(changed))) // persistent "edited: …" chip
@@ -103,7 +105,12 @@ func (s *Server) startTurn(sess *session.Session, text string, live func(any) bo
 			return
 		}
 		log.Printf("turn[%s] reply: %q", sess.Name, logField(reply))
-		_ = s.store.Put(sess) // persist Started flip for --resume
+		if !wasStarted {
+			// Only the first turn changes the record (Started false->true, for
+			// --resume). Later turns leave it identical, so skip re-serializing and
+			// rewriting the whole store to disk on every turn.
+			_ = s.store.Put(sess)
+		}
 		j.finish(msgOutput(sess.Name, reply, false))
 	}()
 	return true
@@ -172,6 +179,7 @@ func (s *Server) bindJob(sessName string, live func(any) bool, silent bool) {
 	case !j.delivered && j.final != nil:
 		if live(j.final) {
 			j.delivered = true
+			j.final = nil // free the buffered reply once it's delivered
 		}
 	}
 }
