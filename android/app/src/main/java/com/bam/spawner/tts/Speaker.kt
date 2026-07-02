@@ -13,8 +13,9 @@ import java.util.concurrent.atomic.AtomicInteger
  *
  * For the hands-free path: TTS is routed through VOICE_COMMUNICATION audio
  * attributes so the platform echo canceler can cancel it from the mic (the
- * default MUSIC stream often isn't cancelled), and [isSpeaking] tracks playback
- * so the recorder can raise its VAD bar / gate barge-in while Claude is talking.
+ * default MUSIC stream often isn't cancelled), and the onSpeakingChanged callback
+ * tracks playback so the recorder can raise its VAD bar / gate barge-in while
+ * Claude is talking.
  */
 class Speaker(context: Context) {
     private var ready = false
@@ -24,8 +25,6 @@ class Speaker(context: Context) {
     // Number of utterances started but not yet finished/stopped.
     private val outstanding = AtomicInteger(0)
     @Volatile private var speakingCb: ((Boolean) -> Unit)? = null
-
-    val isSpeaking: Boolean get() = outstanding.get() > 0
 
     /** Notified when speaking starts (true) and stops (false). */
     fun onSpeakingChanged(cb: (Boolean) -> Unit) { speakingCb = cb }

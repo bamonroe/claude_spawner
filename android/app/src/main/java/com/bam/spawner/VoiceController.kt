@@ -7,7 +7,6 @@ import com.bam.spawner.audio.OpusRecorder
 import com.bam.spawner.net.Outbound
 import com.bam.spawner.net.ServerMsg
 import com.bam.spawner.net.DiscoveredInfo
-import com.bam.spawner.net.SessionInfo
 import com.bam.spawner.net.SpawnerClient
 import com.bam.spawner.tts.Markdown
 import com.bam.spawner.tts.Speaker
@@ -76,9 +75,6 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     val hasMoreHistory: StateFlow<Boolean> = _hasMoreHistory.asStateFlow()
     private val _scrollTick = MutableStateFlow(0)
     val scrollTick: StateFlow<Int> = _scrollTick.asStateFlow()
-
-    private val _sessions = MutableStateFlow<List<SessionInfo>>(emptyList())
-    val sessions: StateFlow<List<SessionInfo>> = _sessions.asStateFlow()
 
     // Claude sessions found on disk (from `discover`) that can be adopted.
     private val _discovered = MutableStateFlow<List<DiscoveredInfo>>(emptyList())
@@ -163,7 +159,6 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     private fun scrollToBottom() { _scrollTick.value = _scrollTick.value + 1 }
 
     // --- Sidebar actions ---
-    fun refreshSessions() = client?.send(Outbound.listSessions())
 
     /** Ask the server for all Claude sessions on disk (spawner-created or not). */
     fun discover() = client?.send(Outbound.discover())
@@ -194,11 +189,6 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
 
     fun detach() = client?.send(Outbound.detach())
 
-    fun renameSession(old: String, newName: String) =
-        client?.send(Outbound.rename(old, newName))
-
-    fun deleteSession(name: String) = client?.send(Outbound.delete(name))
-
     // --- Visual directory browser (New session) ---
     fun browse(path: String) = client?.send(Outbound.browse(path))
 
@@ -210,7 +200,6 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     private var handsFree: HandsFreeRecorder? = null
     @Volatile private var hfOn = false
 
-    val handsFreeOn: Boolean get() = hfOn
 
     private fun vadConfig() = com.bam.spawner.audio.VadConfig(
         rmsThreshold = settings.vadThreshold.toDouble(),
@@ -495,7 +484,6 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
             }
             is ServerMsg.History -> onHistory(msg)
             is ServerMsg.ReadLast -> onReadLast(msg.count)
-            is ServerMsg.SessionList -> _sessions.value = msg.sessions
             is ServerMsg.Discovered -> { _discovered.value = msg.sessions; _discoverError.value = "" }
             is ServerMsg.Listing -> _listing.value = msg
             is ServerMsg.Err -> {

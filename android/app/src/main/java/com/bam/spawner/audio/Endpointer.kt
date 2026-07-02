@@ -31,7 +31,7 @@ class Endpointer(
     /** frame is PCM16LE bytes for ~[frameMs] of audio. */
     fun feed(frame: ByteArray, frameMs: Int) {
         if (fired) return
-        val loud = rms(frame) >= rmsThreshold
+        val loud = pcm16Rms(frame, frame.size) >= rmsThreshold
         if (!speechStarted) {
             // Idle: require a sustained run of speech before declaring onset.
             if (loud) {
@@ -54,16 +54,4 @@ class Endpointer(
         }
     }
 
-    private fun rms(frame: ByteArray): Double {
-        if (frame.size < 2) return 0.0
-        var sum = 0.0
-        var i = 0
-        val n = frame.size - 1
-        while (i < n) {
-            val sample = (frame[i].toInt() and 0xff) or (frame[i + 1].toInt() shl 8)
-            sum += (sample * sample).toDouble()
-            i += 2
-        }
-        return Math.sqrt(sum / (frame.size / 2))
-    }
 }

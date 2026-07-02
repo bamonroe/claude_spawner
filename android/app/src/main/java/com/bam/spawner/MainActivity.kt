@@ -82,7 +82,6 @@ import androidx.core.view.WindowCompat
 import kotlin.math.log10
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.bam.spawner.net.DiscoveredInfo
-import com.bam.spawner.net.SessionInfo
 import com.bam.spawner.ui.MarkdownText
 import com.bam.spawner.ui.SpawnerTheme
 import com.bam.spawner.ui.ThemeMode

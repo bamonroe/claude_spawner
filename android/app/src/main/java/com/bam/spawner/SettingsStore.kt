@@ -2,7 +2,7 @@ package com.bam.spawner
 
 import android.content.Context
 
-/** Persists the server URL, auth token, and (future) Picovoice key. */
+/** Persists the server URL, auth token, and per-connection voice settings. */
 class SettingsStore(context: Context) {
     private val prefs = context.getSharedPreferences("spawner", Context.MODE_PRIVATE)
 
@@ -13,10 +13,6 @@ class SettingsStore(context: Context) {
     var token: String
         get() = prefs.getString("token", DEFAULT_TOKEN) ?: DEFAULT_TOKEN
         set(v) = prefs.edit().putString("token", v).apply()
-
-    var picovoiceKey: String
-        get() = prefs.getString("pvkey", "") ?: ""
-        set(v) = prefs.edit().putString("pvkey", v).apply()
 
     /** Stable per-install id so the server can resume our state on reconnect. */
     val clientId: String

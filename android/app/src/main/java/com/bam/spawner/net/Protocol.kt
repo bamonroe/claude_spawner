@@ -21,7 +21,6 @@ sealed interface ServerMsg {
     data class Output(val name: String, val text: String) : ServerMsg
     data class History(val name: String, val messages: List<HistMsg>, val more: Boolean) : ServerMsg
     data class ReadLast(val count: Int) : ServerMsg
-    data class SessionList(val sessions: List<SessionInfo>) : ServerMsg
     data class Discovered(val sessions: List<DiscoveredInfo>) : ServerMsg
     data class Err(val code: String, val message: String) : ServerMsg
     data class TurnInterrupted(val name: String, val reason: String) : ServerMsg
@@ -46,21 +45,12 @@ sealed interface ServerMsg {
                 "output" -> Output(o.optString("name"), o.optString("text"))
                 "history" -> History(o.optString("name"), readHist(o.optJSONArray("messages")), o.optBoolean("more"))
                 "read_last" -> ReadLast(o.optInt("count", 1))
-                "session_list" -> SessionList(readSessions(o.optJSONArray("sessions")))
                 "discovered" -> Discovered(readDiscovered(o.optJSONArray("sessions")))
                 "error" -> Err(o.optString("code"), o.optString("message"))
                 "turn_interrupted" -> TurnInterrupted(o.optString("name"), o.optString("reason"))
                 "stop_speaking" -> StopSpeaking
                 "listing" -> Listing(o.optString("path"), o.optString("parent"), readEntries(o.optJSONArray("entries")))
                 else -> Unknown(o.optString("type"))
-            }
-        }
-
-        private fun readSessions(arr: JSONArray?): List<SessionInfo> {
-            if (arr == null) return emptyList()
-            return (0 until arr.length()).map {
-                val s = arr.getJSONObject(it)
-                SessionInfo(s.optString("name"), s.optString("dir"))
             }
         }
 
@@ -100,9 +90,6 @@ sealed interface ServerMsg {
 
 /** One past message from a session's server-served history. */
 data class HistMsg(val index: Int, val role: String, val text: String)
-
-/** A session as listed for the sidebar. */
-data class SessionInfo(val name: String, val dir: String)
 
 /** A Claude session found on disk (via `discover`); may be adopted into the app. */
 data class DiscoveredInfo(
@@ -149,7 +136,6 @@ object Outbound {
         if (before != null) o.put("before", before)
         return o.toString()
     }
-    fun listSessions() = JSONObject().put("type", "list_sessions").toString()
     fun discover() = JSONObject().put("type", "discover").toString()
     fun adopt(sessionId: String, dir: String) =
         JSONObject().put("type", "adopt").put("session_id", sessionId).put("path", dir).toString()
@@ -158,10 +144,6 @@ object Outbound {
     fun renameDiscovered(sessionId: String, dir: String, newName: String) =
         JSONObject().put("type", "rename_discovered").put("session_id", sessionId)
             .put("path", dir).put("new_name", newName).toString()
-    fun rename(name: String, newName: String) =
-        JSONObject().put("type", "rename").put("name", name).put("new_name", newName).toString()
-    fun delete(name: String) = JSONObject().put("type", "delete").put("name", name).toString()
     fun browse(path: String) = JSONObject().put("type", "browse").put("path", path).toString()
     fun spawnAt(path: String) = JSONObject().put("type", "spawn_at").put("path", path).toString()
-    fun ping() = JSONObject().put("type", "ping").toString()
 }
