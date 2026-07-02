@@ -417,7 +417,12 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     }
 
     private fun armLostTurnWatchdog() {
-        lostTurnWatchdog?.cancel()
+        // Idempotent: count the grace window from the FIRST disconnect. Auto-reconnect
+        // calls onConnected(false) on every failed retry (backoff caps at 30s < the
+        // 45s grace), so re-arming here would reset the timer each retry and it would
+        // never fire while the server stays down — the crash case this exists for. A
+        // resolving event (activity/reply/error/turn_interrupted) cancels it instead.
+        if (lostTurnWatchdog?.isActive == true) return
         lostTurnWatchdog = scope.launch {
             delay(lostTurnGraceMs)
             if (turnInFlight) {
