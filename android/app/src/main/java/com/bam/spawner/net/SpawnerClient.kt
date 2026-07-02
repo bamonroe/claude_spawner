@@ -3,6 +3,7 @@ package com.bam.spawner.net
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
@@ -91,5 +92,12 @@ class SpawnerClient(
         active = false
         ws?.close(1000, "bye")
         ws = null
+        // This client is single-use — the controller builds a fresh SpawnerClient
+        // on every reconnect / settings change. Release the coroutine scope (kills
+        // any pending reconnect) and OkHttp's thread + connection pools so the old
+        // client doesn't leak them.
+        scope.cancel()
+        http.dispatcher.executorService.shutdown()
+        http.connectionPool.evictAll()
     }
 }
