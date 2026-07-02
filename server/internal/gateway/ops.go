@@ -266,7 +266,7 @@ func (c *conn) doAttach(name string, silent bool) {
 	c.attached = s
 	c.send(msgAttached(s.Name))
 	if !silent {
-		c.send(msgSay("attached to session."))
+		c.send(msgSay("attached to " + s.Name + "."))
 	}
 	// Catch up on a job that may still be running (or finished while we were gone).
 	c.srv.bindJob(s.Name, c.jobSink(), silent)
