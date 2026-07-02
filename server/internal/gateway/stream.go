@@ -61,7 +61,16 @@ func (c *conn) commitMessage() {
 	}
 	before, after, hadWake := command.SplitWake(msg)
 	if !hadWake {
-		c.dictate(msg) // pure dictation
+		if c.attached == nil {
+			// Detached "safe mode": no session to dictate to, so the whole
+			// utterance is a command — no "hey buddy" needed, and nothing can
+			// leak into a Claude session.
+			if !c.runCommand(command.Parse(command.ApplyAliases(msg, c.aliases))) {
+				c.send(msgSay("not a command, bud — try 'list sessions' or 'attach to a session'."))
+			}
+			return
+		}
+		c.dictate(msg) // attached: pure dictation
 		return
 	}
 	// "<dictation> hey buddy <command>": process the command first.
@@ -71,7 +80,7 @@ func (c *conn) commitMessage() {
 		return
 	}
 	c.runCommand(intent) // unknown command is a no-op
-	if before = strings.TrimSpace(before); before != "" {
+	if before = strings.TrimSpace(before); before != "" && c.attached != nil {
 		c.dictate(before)
 	}
 }

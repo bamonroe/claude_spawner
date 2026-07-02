@@ -252,6 +252,7 @@ private fun MainScreen(
                 onMenu = { scope.launch { drawerState.open() } },
                 onSettings = onOpenSettings,
             )
+            if (attached == null) DetachedBanner()
             ChatList(chat, hasMoreHistory, scrollTick, controller::loadOlder, Modifier.weight(1f).fillMaxWidth())
             if (activity.isNotBlank()) ActivityIndicator(activity)
             if (pending.isNotBlank()) DraftLine(pending)
@@ -326,6 +327,20 @@ private fun MainScreen(
                 }) { Text("Save") }
             },
             dismissButton = { TextButton(onClick = { renameTarget = null }) { Text("Cancel") } },
+        )
+    }
+}
+
+/** Shown when no session is attached: a safe "command mode" — utterances are
+ * commands (no "hey buddy" needed) and nothing reaches a Claude session. */
+@Composable
+private fun DetachedBanner() {
+    Surface(color = Color(0xFF2E7D32), contentColor = Color.White, modifier = Modifier.fillMaxWidth()) {
+        Text(
+            "🔓 Detached — command mode. Speak commands directly (no \"hey buddy\" needed); " +
+                "nothing goes to a Claude session.",
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.bodySmall,
         )
     }
 }
