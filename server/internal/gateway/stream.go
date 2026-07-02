@@ -21,6 +21,19 @@ func (c *conn) gatedChunk(pcm []byte) {
 	}
 	c.buffer = append(c.buffer, chunk)
 	joined := strings.Join(c.buffer, " ")
+	// Instant barge-in: a pure "hey buddy stop" (nothing dictated before it) halts
+	// the TTS the moment it shows up in the live draft — no end token required.
+	// Guarded to a pure command so "…hey buddy stop the build" (dictation) isn't
+	// swallowed; that still commits normally and routes as a Claude turn.
+	if before, after, found := command.SplitWake(joined); found && strings.TrimSpace(before) == "" {
+		if command.Parse(command.ApplyAliases(after, c.aliases)).Kind == command.Stop {
+			c.send(msgStopSpeaking())
+			c.buffer = nil
+			c.audioPCM = nil
+			c.send(msgPending(""))
+			return
+		}
+	}
 	if _, _, found := splitEndToken(joined, c.endToken); !found {
 		c.send(msgPending(joined))
 		return
