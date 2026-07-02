@@ -118,6 +118,14 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     private var meter: LevelMeter? = null
     private var commitTimer: Job? = null
 
+    // A dictation turn is "in flight" from the server's first activity breadcrumb
+    // until its reply/error. If the connection drops mid-turn and nothing resolves
+    // it within the grace window, we warn the user rather than spin forever — a
+    // turn that dies with a server restart/crash otherwise gives no notice.
+    @Volatile private var turnInFlight = false
+    private var lostTurnWatchdog: Job? = null
+    private val lostTurnGraceMs = 45_000L
+
     init {
         // While Claude's reply is spoken, raise the recorder's VAD bar (echo) and
         // reflect SPEAKING; when it finishes, return to LISTENING.
@@ -402,6 +410,31 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     private fun onConnected(up: Boolean) {
         _connected.value = up
         _status.value = if (up) "connected" else "reconnecting…"
+        // Dropped mid-turn: arm the watchdog. If the server is alive it'll re-deliver
+        // the reply (or a "still working" breadcrumb) on reconnect and disarm this;
+        // if it crashed/restarted, nothing comes and we warn when the grace elapses.
+        if (!up && turnInFlight) armLostTurnWatchdog()
+    }
+
+    private fun armLostTurnWatchdog() {
+        lostTurnWatchdog?.cancel()
+        lostTurnWatchdog = scope.launch {
+            delay(lostTurnGraceMs)
+            if (turnInFlight) {
+                turnInFlight = false
+                _activity.value = ""
+                if (hfOn) _voiceState.value = VoiceState.LISTENING
+                val note = "⚠️ lost the connection while working — that turn may have been interrupted. Try again if you don't hear back."
+                addChat(Role.SYSTEM, note)
+                speaker.speak("that turn may have been interrupted, bud. try again if you don't hear back.")
+            }
+        }
+    }
+
+    private fun clearTurnInFlight() {
+        turnInFlight = false
+        lostTurnWatchdog?.cancel()
+        lostTurnWatchdog = null
     }
 
     private fun onMessage(msg: ServerMsg) {
@@ -415,10 +448,17 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
             }
             is ServerMsg.Say -> { addChat(Role.SYSTEM, msg.text); speaker.speak(Markdown.toSpeech(msg.text)) }
             is ServerMsg.Output -> {
+                clearTurnInFlight()
                 _activity.value = "" // reply arrived — stop the thinking indicator
                 addChat(Role.CLAUDE, msg.text); speaker.speak(Markdown.toSpeech(msg.text))
             }
-            is ServerMsg.Activity -> _activity.value = msg.text
+            is ServerMsg.Activity -> {
+                // A live breadcrumb means the turn is running server-side; mark it in
+                // flight and disarm any interruption watchdog (it survived a reconnect).
+                turnInFlight = true
+                lostTurnWatchdog?.cancel(); lostTurnWatchdog = null
+                _activity.value = msg.text
+            }
             is ServerMsg.Files -> if (msg.files.isNotEmpty()) addChat(Role.SYSTEM, "📝 changed: " + msg.files.joinToString(", "))
             is ServerMsg.Transcript -> {
                 addChat(Role.USER, msg.text); _mic.value = ""
@@ -454,6 +494,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
             is ServerMsg.Discovered -> { _discovered.value = msg.sessions; _discoverError.value = "" }
             is ServerMsg.Listing -> _listing.value = msg
             is ServerMsg.Err -> {
+                if (msg.code == "turn_failed") clearTurnInFlight()
                 _activity.value = ""
                 // Discover/adopt/delete errors surface on the Discover screen; the
                 // rest go to the chat log.
@@ -462,6 +503,13 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
                 } else {
                     addChat(Role.SYSTEM, "⚠️ ${msg.code}: ${msg.message}")
                 }
+            }
+            is ServerMsg.TurnInterrupted -> {
+                clearTurnInFlight()
+                _activity.value = ""
+                if (hfOn) _voiceState.value = VoiceState.LISTENING
+                addChat(Role.SYSTEM, "⚠️ turn interrupted (${msg.reason}) — say it again, bud.")
+                speaker.speak("that turn got interrupted, bud — the server restarted. say it again.")
             }
             is ServerMsg.Unknown -> {}
         }

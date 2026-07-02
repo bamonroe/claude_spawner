@@ -24,6 +24,7 @@ sealed interface ServerMsg {
     data class SessionList(val sessions: List<SessionInfo>) : ServerMsg
     data class Discovered(val sessions: List<DiscoveredInfo>) : ServerMsg
     data class Err(val code: String, val message: String) : ServerMsg
+    data class TurnInterrupted(val name: String, val reason: String) : ServerMsg
     data object StopSpeaking : ServerMsg
     data class Listing(val path: String, val parent: String, val entries: List<BrowseEntry>) : ServerMsg
     data class Unknown(val type: String) : ServerMsg
@@ -48,6 +49,7 @@ sealed interface ServerMsg {
                 "session_list" -> SessionList(readSessions(o.optJSONArray("sessions")))
                 "discovered" -> Discovered(readDiscovered(o.optJSONArray("sessions")))
                 "error" -> Err(o.optString("code"), o.optString("message"))
+                "turn_interrupted" -> TurnInterrupted(o.optString("name"), o.optString("reason"))
                 "stop_speaking" -> StopSpeaking
                 "listing" -> Listing(o.optString("path"), o.optString("parent"), readEntries(o.optJSONArray("entries")))
                 else -> Unknown(o.optString("type"))
