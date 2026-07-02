@@ -43,6 +43,8 @@ Every JSON message has a `type`. Optional `id` correlates request/response. `ts`
 | `attach`        | `{ "name": "<session>", "silent": false }`| request attach. `silent: true` suppresses the spoken "attached… go ahead, bud." confirmation (used for the app's auto re-attach on reconnect); a finished turn's buffered result is still delivered. |
 | `detach`        | `{}`                                      | leave passthrough                             |
 | `list_sessions` | `{}`                                      | request the session list (quiet; for the sidebar) -> `session_list` |
+| `discover`      | `{}`                                      | scan `~/.claude/projects` for ALL Claude sessions (spawner-created or not, e.g. interactive `claude` in tmux) -> `discovered` |
+| `adopt`         | `{ "session_id": "<uuid>", "path": "<dir>" }` | register a discovered session into the store and attach to it (so the app can view/drive it via `--resume`) -> `attached` + `session_list` |
 | `rename`        | `{ "name": "<old>", "new_name": "<new>" }`| rename a session (keeps its session_id) -> `session_list` |
 | `delete`        | `{ "name": "<session>" }`                 | delete a session record -> `session_list`     |
 | `browse`        | `{ "path": "<dir or empty>" }`            | list a directory for the New-session picker (empty = roots) -> `listing` |
@@ -90,6 +92,7 @@ capped at ~120 s.
 | `output`        | `{ "name": "...", "text": "...", "chunk": true }`     | clean session output (for display + TTS) |
 | `history`       | `{ "name": "...", "messages": [{ "index", "role": "user"\|"claude", "text" }], "more": true }` | a page of past conversation (oldest→newest); `more` = older messages remain to page in. Response to `history`. |
 | `read_last`     | `{ "count": <int> }`                                 | app re-reads (TTS) + scrolls to the last `count` Claude replies in the current session (from the `read last X` command) |
+| `discovered`    | `{ "sessions": [{ "name", "dir", "session_id", "last_active": <unix s>, "active": <bool>, "registered": <bool> }] }` | all Claude sessions found on disk (one per dir, newest first). `active` = an interactive `claude` is open in tmux at that dir (driving it then risks a two-writer conflict); `registered` = already in the store. Response to `discover`. |
 | `error`         | `{ "code": "...", "message": "..." }`                 | spoken/displayed error feedback          |
 | `pong`          | `{}`                                                  | keepalive reply                          |
 

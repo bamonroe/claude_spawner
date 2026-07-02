@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/bam/claude_spawner/server/internal/command"
 	"github.com/bam/claude_spawner/server/internal/session"
@@ -59,6 +60,61 @@ func (c *conn) runCommand(intent command.Intent) bool {
 		return false
 	}
 	return true
+}
+
+// doDiscover scans ~/.claude/projects for all Claude sessions (spawner-created
+// or not) and returns them, flagged with whether they're already registered and
+// whether an interactive claude is live in tmux at that directory.
+func (c *conn) doDiscover() {
+	found, err := session.DiscoverSessions()
+	if err != nil {
+		c.send(msgError("discover_failed", err.Error()))
+		return
+	}
+	active := c.srv.babysit.ClaudeDirs(c.ctx)
+	// index registry by session_id so we can mark/keep existing names
+	byID := map[string]string{}
+	for _, s := range c.srv.store.List() {
+		byID[s.SessionID] = s.Name
+	}
+	views := make([]discoveredView, 0, len(found))
+	for _, d := range found {
+		name, registered := byID[d.SessionID], false
+		if name != "" {
+			registered = true
+		} else {
+			name = "claude-" + sanitizeName(filepath.Base(d.Dir))
+		}
+		views = append(views, discoveredView{
+			Name: name, Dir: d.Dir, SessionID: d.SessionID,
+			LastActive: d.LastActive, Active: active[d.Dir], Registered: registered,
+		})
+	}
+	c.send(msgDiscovered(views))
+}
+
+// doAdopt registers a discovered Claude session (by session_id + dir) into the
+// spawner store and attaches to it, so the app can drive/view it via --resume.
+// If the session_id is already registered, it just attaches.
+func (c *conn) doAdopt(sessionID, dir string) {
+	if sessionID == "" || dir == "" {
+		c.send(msgError("bad_adopt", "adopt needs session_id and dir"))
+		return
+	}
+	for _, s := range c.srv.store.List() {
+		if s.SessionID == sessionID {
+			c.doAttach(s.Name, false)
+			return
+		}
+	}
+	name := c.srv.uniqueName("claude-" + sanitizeName(filepath.Base(dir)))
+	rec := &session.Session{Name: name, Dir: dir, SessionID: sessionID, Started: true}
+	if err := c.srv.store.Put(rec); err != nil {
+		c.send(msgError("internal", err.Error()))
+		return
+	}
+	c.sendSessionList()
+	c.doAttach(name, false)
 }
 
 // serveHistory returns a page of a session's past conversation, read from

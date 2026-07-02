@@ -67,6 +67,26 @@ func (m *Manager) List(ctx context.Context) ([]string, error) {
 	return names, nil
 }
 
+// ClaudeDirs returns the set of working directories that currently have an
+// interactive `claude` running in a tmux pane (any session, not just babysit
+// panes). Used to warn before the spawner drives a session headlessly — two
+// writers on the same session conflict. Best-effort: returns empty on any error.
+func (m *Manager) ClaudeDirs(ctx context.Context) map[string]bool {
+	dirs := map[string]bool{}
+	cmd := exec.CommandContext(ctx, m.Bin, "list-panes", "-a", "-F", "#{pane_current_command}\t#{pane_current_path}")
+	out, err := cmd.Output()
+	if err != nil {
+		return dirs
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) == 2 && strings.Contains(parts[0], "claude") {
+			dirs[parts[1]] = true
+		}
+	}
+	return dirs
+}
+
 // Exists reports whether a babysit pane with the given name is open.
 func (m *Manager) Exists(ctx context.Context, name string) (bool, error) {
 	names, err := m.List(ctx)

@@ -251,6 +251,10 @@ func (c *conn) loop() {
 			c.doDetach()
 		case "list_sessions":
 			c.sendSessionList()
+		case "discover":
+			c.doDiscover()
+		case "adopt":
+			c.doAdopt(in.SessionID, in.Path)
 		case "rename":
 			c.doRename(in.Name, in.NewName)
 		case "delete":

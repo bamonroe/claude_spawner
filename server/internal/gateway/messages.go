@@ -28,6 +28,7 @@ type inbound struct {
 	Before     *int              `json:"before"`      // on `history`: page cursor (exclusive index); nil = most recent
 	Limit      int               `json:"limit"`       // on `history`: page size (default 30)
 	Silent     bool              `json:"silent"`      // on `attach`: suppress the spoken "attached…" confirmation (reconnect auto-attach)
+	SessionID  string            `json:"session_id"`  // on `adopt`: the discovered Claude session_id to register
 }
 
 func msgHelloOK(sessionID string) map[string]any {
@@ -97,6 +98,25 @@ func msgHistory(name string, messages []session.Message, more bool) map[string]a
 		messages = []session.Message{}
 	}
 	return map[string]any{"type": "history", "name": name, "messages": messages, "more": more}
+}
+
+// discoveredView is a Claude session found on disk (see session.Discovered),
+// annotated with whether it's already in the registry and whether it looks live
+// in tmux (adopting + driving it then risks a two-writer conflict).
+type discoveredView struct {
+	Name       string `json:"name"`
+	Dir        string `json:"dir"`
+	SessionID  string `json:"session_id"`
+	LastActive int64  `json:"last_active"` // unix seconds
+	Active     bool   `json:"active"`      // interactive claude open in tmux at this dir
+	Registered bool   `json:"registered"`  // already in the spawner registry
+}
+
+func msgDiscovered(items []discoveredView) map[string]any {
+	if items == nil {
+		items = []discoveredView{}
+	}
+	return map[string]any{"type": "discovered", "sessions": items}
 }
 
 // msgReadLast tells the app to re-read (TTS) and scroll to the last `count`
