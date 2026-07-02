@@ -233,13 +233,42 @@ func (c *conn) sendSessionList() {
 // doList is the spoken "list sessions" voice command.
 func (c *conn) doList() {
 	c.sendSessionList()
-	switch sessions := c.srv.store.List(); len(sessions) {
+	// Speak the names from the unified (all-machine) list, newest first, using
+	// custom registry names where set. Cap the spoken count so a machine with
+	// dozens of sessions doesn't read a novel.
+	found, err := session.DiscoverSessions()
+	if err != nil {
+		c.send(msgSay("couldn't list sessions, bud."))
+		return
+	}
+	byDir := map[string]string{}
+	for _, s := range c.srv.store.List() {
+		byDir[s.Dir] = s.Name
+	}
+	names := make([]string, 0, len(found))
+	for _, d := range found {
+		if n, ok := byDir[d.Dir]; ok {
+			names = append(names, n)
+		} else {
+			names = append(names, sanitizeName(filepath.Base(d.Dir)))
+		}
+	}
+	switch len(names) {
 	case 0:
 		c.send(msgSay("no sessions yet, bud."))
 	case 1:
-		c.send(msgSay("one session: " + sessions[0].Name + "."))
+		c.send(msgSay("one session: " + names[0] + "."))
 	default:
-		c.send(msgSay(fmt.Sprintf("%d sessions.", len(sessions))))
+		const maxSpoken = 8
+		spoken, more := names, 0
+		if len(spoken) > maxSpoken {
+			more, spoken = len(spoken)-maxSpoken, spoken[:maxSpoken]
+		}
+		msg := fmt.Sprintf("%d sessions: %s", len(names), strings.Join(spoken, ", "))
+		if more > 0 {
+			msg += fmt.Sprintf(", and %d more", more)
+		}
+		c.send(msgSay(msg + "."))
 	}
 }
 
