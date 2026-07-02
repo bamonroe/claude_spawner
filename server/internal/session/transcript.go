@@ -1,7 +1,6 @@
 package session
 
 import (
-	"bufio"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -91,8 +90,7 @@ func ReadTranscript(path string) ([]Message, error) {
 	}
 	defer f.Close()
 
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 1<<20), 1<<24) // tool inputs can exceed 64KB
+	sc := newLineScanner(f)
 	var out []Message
 	idx := 0
 	for sc.Scan() {

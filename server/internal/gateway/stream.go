@@ -12,7 +12,10 @@ import (
 // until the end token — then the WHOLE buffered audio is re-transcribed at once
 // (with the user's chosen model) so whisper sees full context, not fragments.
 func (c *conn) gatedChunk(pcm []byte) {
-	c.audioPCM = append(c.audioPCM, pcm...)
+	if len(c.audioPCM)+len(pcm) <= maxHandsFreePCM {
+		c.audioPCM = append(c.audioPCM, pcm...)
+	} // else: end token never fired — stop growing; commit still uses what we have
+
 
 	chunk, err := c.fastTranscriber().Transcribe(c.ctx, transcribe.PCM16WAV(pcm, audioSampleRate, audioChannels),
 		transcribe.Options{Mode: "fixed", Model: "tiny"})

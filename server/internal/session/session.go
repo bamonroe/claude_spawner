@@ -12,8 +12,19 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os/exec"
 )
+
+// newLineScanner returns a bufio.Scanner for newline-delimited JSON. It starts
+// with a modest 64 KB buffer but allows lines to grow to 16 MB, since a single
+// tool-use event's input can far exceed bufio's default 64 KB line cap. Shared
+// by the stream-json parser and the transcript/discover readers.
+func newLineScanner(r io.Reader) *bufio.Scanner {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 64<<10), 16<<20)
+	return sc
+}
 
 // Session is a durable record. There is no long-lived process: the conversation
 // state lives on disk under SessionID and is reattached via `claude --resume`.
@@ -109,9 +120,7 @@ type streamEvent struct {
 
 // parseStream reads NDJSON until EOF, returning the final result text.
 func parseStream(r interface{ Read([]byte) (int, error) }, onTool func(ToolUse)) (string, error) {
-	sc := bufio.NewScanner(r)
-	// Events (especially tool inputs) can exceed the default 64KB line cap.
-	sc.Buffer(make([]byte, 0, 1<<20), 1<<24)
+	sc := newLineScanner(r)
 
 	var result string
 	var gotResult, isError bool

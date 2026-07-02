@@ -11,6 +11,11 @@ const (
 	audioChannels   = 1
 	// Cap a single utterance to ~120s of audio to bound memory (16k * 2 bytes/s).
 	maxAudioBytes = audioSampleRate * 2 * 120
+	// Cap the hands-free accumulation buffer to ~5 min. Hands-free appends every
+	// gated clip's PCM until the end token is spoken; if the token is never
+	// recognized (the runaway that end-token calibration guards against) this
+	// would otherwise grow without bound at ~32 KB/s.
+	maxHandsFreePCM = audioSampleRate * 2 * 300
 )
 
 // startAudio begins recording an utterance. codec is "ogg_opus" (the app's

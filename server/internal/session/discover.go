@@ -1,7 +1,6 @@
 package session
 
 import (
-	"bufio"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -68,8 +67,7 @@ func TranscriptCwd(path string) string {
 		return ""
 	}
 	defer f.Close()
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 1<<20), 1<<24)
+	sc := newLineScanner(f)
 	for i := 0; i < 40 && sc.Scan(); i++ {
 		var ev struct {
 			Cwd string `json:"cwd"`
