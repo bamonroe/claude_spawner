@@ -1,0 +1,65 @@
+# Dev orchestration for the claude_spawner server.
+#
+#   docker compose up --build          # build image + run the server on :8080
+#   docker compose run --rm spawner bash   # shell into the environment
+#
+# Source is bind-mounted from ./server, so edit on the host and `go run` picks it
+# up. The `claude` CLI inside the container authenticates using your host's
+# credentials, mounted below.
+
+services:
+  # Resident whisper.cpp server on the AMD GPU (Vulkan/RX 550). The native
+  # server + app point at http://localhost:8571. Run standalone with:
+  #   docker compose up -d whisper
+  # Measured on the RX 550: medium.en ~4.8s/clip, large-v3 ~10.5s, small.en ~2-3s
+  # (vs CPU: ~18s / ~30s / ~5s). Swap the model by changing `command:` — options
+  # in /models: ggml-medium.en.bin, ggml-large-v3.bin, ggml-small.en.bin.
+  # (A CPU-only build lives in ./whisper/Dockerfile if the GPU is ever unavailable.)
+  whisper:
+    build:
+      context: ./whisper
+      dockerfile: Dockerfile.vulkan
+    volumes:
+      - ${HOME}/.local/share/whisper:/models:ro      # ggml model files (only mount)
+    devices:
+      - /dev/dri:/dev/dri                            # AMD GPU render nodes
+    group_add:
+      - "989"   # render
+      - "985"   # video
+    environment:
+      # Force the AMD RADV driver (hide the Intel iGPU's ICD).
+      VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/radeon_icd.x86_64.json
+    command: ["-m", "/models/ggml-medium.en.bin"]
+    ports:
+      - "8571:8571"
+    restart: unless-stopped
+
+  spawner:
+    build:
+      context: ./server
+      args:
+        # base.en (~142MB, faster build) or small.en (~466MB, more accurate).
+        WHISPER_MODEL: small.en
+    working_dir: /app
+    volumes:
+      - ./server:/app                     # live source
+      - gomodcache:/go/pkg/mod            # cached Go deps
+      - workspace:/workspace              # where sessions are spawned (persisted)
+      # Claude Code auth from the host (OAuth), into the non-root user's home.
+      # Adjust if your creds live elsewhere.
+      - ${HOME}/.claude:/home/dev/.claude
+      - ${HOME}/.claude.json:/home/dev/.claude.json
+    environment:
+      SPAWNER_TOKEN: ${SPAWNER_TOKEN:-devsecret}
+      SPAWNER_ADDR: ":8080"
+      SPAWNER_ROOT: /workspace
+      SPAWNER_STATE: /workspace/sessions.json
+      # If you prefer an API key over mounted OAuth creds, set it in your shell:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    ports:
+      # Host port is configurable (default 8080) to avoid conflicts; container port stays 8080.
+      - "${SPAWNER_HOST_PORT:-8080}:8080"
+
+volumes:
+  gomodcache:
+  workspace:

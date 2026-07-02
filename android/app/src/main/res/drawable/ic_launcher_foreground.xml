@@ -1,0 +1,33 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- antenna knob -->
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M50,24 a4,4 0 1,1 8,0 a4,4 0 1,1 -8,0 z" />
+    <!-- antenna stalk -->
+    <path android:fillColor="#FFFFFF" android:pathData="M52,27 h4 v9 h-4 z" />
+
+    <!-- ears -->
+    <path android:fillColor="#FFFFFF" android:pathData="M23,49 h7 v12 h-7 z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M78,49 h7 v12 h-7 z" />
+
+    <!-- head -->
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M40,34 h28 a10,10 0 0 1 10,10 v28 a10,10 0 0 1 -10,10 h-28 a10,10 0 0 1 -10,-10 v-28 a10,10 0 0 1 10,-10 z" />
+
+    <!-- eyes -->
+    <path android:fillColor="#22D3EE"
+        android:pathData="M38,52 a6,6 0 1,1 12,0 a6,6 0 1,1 -12,0 z" />
+    <path android:fillColor="#22D3EE"
+        android:pathData="M58,52 a6,6 0 1,1 12,0 a6,6 0 1,1 -12,0 z" />
+
+    <!-- mouth -->
+    <path android:fillColor="#37474F"
+        android:pathData="M44,64 h20 a2,2 0 0 1 2,2 v3 a2,2 0 0 1 -2,2 h-20 a2,2 0 0 1 -2,-2 v-3 a2,2 0 0 1 2,-2 z" />
+    <!-- mouth teeth (gaps) -->
+    <path android:fillColor="#FFFFFF" android:pathData="M50,64 h1.5 v7 h-1.5 z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M56.5,64 h1.5 v7 h-1.5 z" />
+</vector>

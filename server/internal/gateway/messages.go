@@ -1,0 +1,130 @@
+package gateway
+
+import "github.com/bam/claude_spawner/server/internal/session"
+
+// Wire types for the WebSocket protocol (see docs/protocol.md). Inbound JSON is
+// decoded into `inbound`; outbound messages are plain maps built by the helpers
+// below so each carries only the fields it needs.
+
+const serverVersion = "0.1.0"
+
+// inbound is the union of fields any app->server message may carry.
+type inbound struct {
+	Type       string            `json:"type"`
+	Token      string            `json:"token"`
+	Text       string            `json:"text"`        // utterance / dialog reply text
+	Name       string            `json:"name"`        // session name for attach/kill/rename
+	NewName    string            `json:"new_name"`    // target name for rename
+	Path       string            `json:"path"`        // directory for browse / spawn_at
+	Codec      string            `json:"codec"`       // audio codec on wake: "ogg_opus" | "pcm16"
+	ClientID   string            `json:"client_id"`   // stable per-app id, for reconnect/resume
+	HandsFree  bool              `json:"hands_free"`  // set on `wake` when the clip is VAD-gated (hands-free)
+	EndToken   string            `json:"end_token"`   // on `hello`: the spoken word that commits a message
+	SttMode    string            `json:"stt_mode"`    // on `hello`: "dynamic" | "fixed"
+	SttModel   string            `json:"stt_model"`   // on `hello`: fixed model "tiny" | "base" | "small"
+	Calibrate  bool              `json:"calibrate"`   // on `wake`: transcribe (fast model) and return, don't dispatch
+	Aliases    map[string]string `json:"aliases"`     // on `hello`: mis-transcription -> canonical command word
+	WhisperURL string            `json:"whisper_url"` // on `hello`: resident whisper server URL (overrides the default)
+	Before     *int              `json:"before"`      // on `history`: page cursor (exclusive index); nil = most recent
+	Limit      int               `json:"limit"`       // on `history`: page size (default 30)
+}
+
+func msgHelloOK(sessionID string) map[string]any {
+	return map[string]any{"type": "hello_ok", "server_version": serverVersion, "session_id": sessionID}
+}
+
+func msgSay(text string) map[string]any {
+	return map[string]any{"type": "say", "text": text}
+}
+
+// msgPending shows the live hands-free buffer as a draft (uncommitted) so the
+// user sees what's captured before speaking the end token. Empty text clears it.
+func msgPending(text string) map[string]any {
+	return map[string]any{"type": "pending", "text": text}
+}
+
+// msgCalibration returns what the fast (detection) model heard for a calibration
+// sample, so the app can measure end-token recognition reliability.
+func msgCalibration(text string) map[string]any {
+	return map[string]any{"type": "calibration", "text": text}
+}
+
+// msgActivity is a live "what Claude is doing now" indicator (thinking / running
+// a tool / editing a file). Not spoken; replaced by the reply when it arrives.
+func msgActivity(text string) map[string]any {
+	return map[string]any{"type": "activity", "text": text}
+}
+
+// msgFiles lists the files Claude changed during the turn (basenames).
+func msgFiles(files []string) map[string]any {
+	return map[string]any{"type": "files", "files": files}
+}
+
+func msgTranscript(text string, final bool) map[string]any {
+	return map[string]any{"type": "transcript", "text": text, "final": final}
+}
+
+func msgDialog(state, prompt string) map[string]any {
+	return map[string]any{"type": "dialog", "state": state, "prompt": prompt}
+}
+
+func msgAttached(name string) map[string]any {
+	return map[string]any{"type": "attached", "name": name}
+}
+
+func msgDetached() map[string]any {
+	return map[string]any{"type": "detached"}
+}
+
+func msgOutput(name, text string, chunk bool) map[string]any {
+	return map[string]any{"type": "output", "name": name, "text": text, "chunk": chunk}
+}
+
+func msgError(code, message string) map[string]any {
+	return map[string]any{"type": "error", "code": code, "message": message}
+}
+
+func msgPong() map[string]any { return map[string]any{"type": "pong"} }
+
+// msgStopSpeaking tells the app to stop any in-progress text-to-speech (barge-in).
+func msgStopSpeaking() map[string]any { return map[string]any{"type": "stop_speaking"} }
+
+// msgHistory returns a page of a session's past conversation (older-to-newer),
+// with `more` telling the app whether even-older messages remain to page in.
+func msgHistory(name string, messages []session.Message, more bool) map[string]any {
+	if messages == nil {
+		messages = []session.Message{}
+	}
+	return map[string]any{"type": "history", "name": name, "messages": messages, "more": more}
+}
+
+// msgReadLast tells the app to re-read (TTS) and scroll to the last `count`
+// Claude replies in the current session's log.
+func msgReadLast(count int) map[string]any {
+	if count < 1 {
+		count = 1
+	}
+	return map[string]any{"type": "read_last", "count": count}
+}
+
+func msgSessionList(sessions []sessionView) map[string]any {
+	return map[string]any{"type": "session_list", "sessions": sessions}
+}
+
+type sessionView struct {
+	Name string `json:"name"`
+	Dir  string `json:"dir"`
+}
+
+// listingEntry is one directory in a browse listing.
+type listingEntry struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+	Repo bool   `json:"repo"` // true if it's a git repo
+}
+
+// msgListing is the response to a `browse`: the directory's subfolders, plus the
+// parent path for "up" ("" means the parent is the roots view).
+func msgListing(path, parent string, entries []listingEntry) map[string]any {
+	return map[string]any{"type": "listing", "path": path, "parent": parent, "entries": entries}
+}

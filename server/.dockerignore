@@ -1,0 +1,4 @@
+# The dev image only needs go.mod/go.sum at build time (source is bind-mounted).
+*
+!go.mod
+!go.sum

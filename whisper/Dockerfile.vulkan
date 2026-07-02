@@ -1,0 +1,29 @@
+# whisper.cpp server built with the Vulkan backend, so it runs on the AMD GPU
+# (RX 550 via Mesa RADV). Same /inference API as the CPU image.
+FROM debian:bookworm-slim AS build
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git cmake g++ make ca-certificates libvulkan-dev glslc glslang-tools spirv-headers spirv-tools \
+    && rm -rf /var/lib/apt/lists/*
+# Debian's Vulkan-Hpp headers (1.3.239) lack VK_EXT_layer_settings that current
+# whisper.cpp uses — install newer Khronos headers and point cmake at them.
+RUN git clone --depth 1 -b v1.3.290 https://github.com/KhronosGroup/Vulkan-Headers /vh \
+    && cmake -S /vh -B /vh/b -DCMAKE_INSTALL_PREFIX=/usr/local >/dev/null \
+    && cmake --install /vh/b >/dev/null
+RUN git clone --depth 1 https://github.com/ggml-org/whisper.cpp /src \
+    && cmake -S /src -B /src/build -DCMAKE_BUILD_TYPE=Release -DGGML_VULKAN=1 -DVulkan_INCLUDE_DIR=/usr/local/include \
+    && cmake --build /src/build -j --target whisper-server \
+    && mkdir -p /out/lib \
+    && cp /src/build/bin/whisper-server /out/ \
+    && find /src/build -name '*.so*' -exec cp -av {} /out/lib/ \;
+
+FROM debian:bookworm-slim
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libvulkan1 mesa-vulkan-drivers libgomp1 libstdc++6 ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=build /out/whisper-server /usr/local/bin/whisper-server
+COPY --from=build /out/lib/ /usr/local/lib/
+RUN ldconfig
+
+EXPOSE 8571
+ENTRYPOINT ["whisper-server", "--host", "0.0.0.0", "--port", "8571", "-t", "4"]
+CMD ["-m", "/models/ggml-small.en.bin"]

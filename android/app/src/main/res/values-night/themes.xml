@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark window chrome in system night mode; Compose draws the actual UI. -->
+    <style name="Theme.Spawner" parent="android:Theme.Material.NoActionBar" />
+</resources>

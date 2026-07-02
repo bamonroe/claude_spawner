@@ -1,0 +1,22 @@
+# Go
+/server/spawner
+/server/*.test
+*.out
+
+# Android
+/android/.gradle/
+/android/build/
+/android/app/build/
+/android/local.properties
+/android/.idea/
+*.apk
+*.keystore
+
+# Secrets / config
+.env
+*.ppn
+
+# Editor / OS
+.DS_Store
+*.swp
+server/spawner
