@@ -161,7 +161,12 @@ func (s *Server) bindJob(sessName string, live func(any) bool, silent bool) {
 	j.live = live
 	switch {
 	case j.running:
-		if !silent { // reconnect auto-attach stays quiet; a finished result still delivers below
+		if silent {
+			// Reconnect auto-attach: no spoken line, but send a silent breadcrumb so
+			// the app knows the turn survived the disconnect (and its interruption
+			// watchdog resets) rather than assuming the turn was lost.
+			live(msgActivity("🤔 still working…"))
+		} else {
 			live(msgSay("still working on it, bud — one sec."))
 		}
 	case !j.delivered && j.final != nil:

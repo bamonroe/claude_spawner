@@ -42,6 +42,9 @@ type Server struct {
 	jobsMu sync.Mutex
 	jobs   map[string]*sessionJob // running/last dictation turn, keyed by session name
 
+	connsMu sync.Mutex
+	conns   map[*conn]bool // currently-connected apps, for shutdown broadcasts
+
 	whisperMu     sync.Mutex // guards the resident whisper server's currently-loaded model
 	whisperLoaded string     // "<url>|<model>" last hot-loaded, to skip redundant /load calls
 }
@@ -108,6 +111,7 @@ func New(cfg *config.Config, store *session.Store, driver *session.Driver, babys
 		projects: proj,
 		clients:  map[string]*clientState{},
 		jobs:     map[string]*sessionJob{},
+		conns:    map[*conn]bool{},
 		up: websocket.Upgrader{
 			// The app authenticates with a token in the hello message, so origin
 			// checks add little; the network boundary (Tailscale/proxy) is the gate.
@@ -135,6 +139,8 @@ func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
 	if !c.authenticate() {
 		return
 	}
+	s.register(c)
+	defer s.unregister(c)
 	c.restoreState() // re-attach / resume dialog from a previous connection
 	c.loop()
 
@@ -145,6 +151,46 @@ func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
 		c.srv.unbindJob(c.attached.Name)
 	}
 	c.saveState() // stash state so the next reconnect can resume
+}
+
+func (s *Server) register(c *conn) {
+	s.connsMu.Lock()
+	s.conns[c] = true
+	s.connsMu.Unlock()
+}
+
+func (s *Server) unregister(c *conn) {
+	s.connsMu.Lock()
+	delete(s.conns, c)
+	s.connsMu.Unlock()
+}
+
+// NotifyShutdown tells every connected app that the server is going down, so any
+// in-flight dictation turn (which dies with this process — turns aren't persisted
+// across a restart) surfaces as an interruption instead of the app waiting on a
+// reply that will never come. Best-effort: called just before the HTTP shutdown.
+func (s *Server) NotifyShutdown() {
+	s.connsMu.Lock()
+	cs := make([]*conn, 0, len(s.conns))
+	for c := range s.conns {
+		cs = append(cs, c)
+	}
+	s.connsMu.Unlock()
+	for _, c := range cs {
+		if c.attached == nil {
+			continue
+		}
+		if j := s.job(c.attached.Name); j != nil && j.isRunning() {
+			c.send(msgTurnInterrupted(c.attached.Name, "server restarting"))
+		}
+	}
+}
+
+// job returns the session job for a name, if any.
+func (s *Server) job(name string) *sessionJob {
+	s.jobsMu.Lock()
+	defer s.jobsMu.Unlock()
+	return s.jobs[name]
 }
 
 // jobSink returns a sink for session-job events that reports whether it actually

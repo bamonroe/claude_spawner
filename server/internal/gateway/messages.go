@@ -89,6 +89,13 @@ func msgError(code, message string) map[string]any {
 
 func msgPong() map[string]any { return map[string]any{"type": "pong"} }
 
+// msgTurnInterrupted tells the app that an in-flight dictation turn was abandoned
+// server-side (the server is shutting down / restarting), so the app can clear
+// its "thinking…" state and prompt the user to resend instead of waiting forever.
+func msgTurnInterrupted(name, reason string) map[string]any {
+	return map[string]any{"type": "turn_interrupted", "name": name, "reason": reason}
+}
+
 // msgStopSpeaking tells the app to stop any in-progress text-to-speech (barge-in).
 func msgStopSpeaking() map[string]any { return map[string]any{"type": "stop_speaking"} }
 
