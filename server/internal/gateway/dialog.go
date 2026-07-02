@@ -401,6 +401,23 @@ func (s *Server) uniqueName(base string) string {
 	}
 }
 
+// registerDiscovered creates and persists a store record for a discovered
+// Claude session (session_id + dir) that isn't in the registry yet, giving it a
+// unique auto-name from the directory basename. Shared by adopt / rename / fuzzy
+// voice-attach, which all "adopt" an on-disk session the same way.
+func (s *Server) registerDiscovered(sessionID, dir string) (*session.Session, error) {
+	rec := &session.Session{
+		Name:      s.uniqueName(sanitizeName(filepath.Base(dir))),
+		Dir:       dir,
+		SessionID: sessionID,
+		Started:   true,
+	}
+	if err := s.store.Put(rec); err != nil {
+		return nil, err
+	}
+	return rec, nil
+}
+
 // sanitizeName keeps a session name to safe characters.
 func sanitizeName(s string) string {
 	s = strings.ToLower(s)

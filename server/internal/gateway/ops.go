@@ -73,10 +73,11 @@ func (c *conn) doDiscover() {
 		return
 	}
 	active := c.srv.babysit.ClaudeDirs(c.ctx)
+	registered := c.srv.store.List()
 	// index registry by DIRECTORY so custom (renamed) names carry over even if the
 	// dir's newest session_id differs from the pinned one.
 	byDir := map[string]*session.Session{}
-	for _, s := range c.srv.store.List() {
+	for _, s := range registered {
 		byDir[s.Dir] = s
 	}
 	views := make([]discoveredView, 0, len(found)+1)
@@ -94,7 +95,7 @@ func (c *conn) doDiscover() {
 	}
 	// Include registered sessions that have no transcript yet (just-spawned) so
 	// the merged list is complete.
-	for _, s := range c.srv.store.List() {
+	for _, s := range registered {
 		if !seenDir[s.Dir] {
 			views = append(views, discoveredView{
 				Name: s.Name, Dir: s.Dir, SessionID: s.SessionID,
@@ -112,17 +113,10 @@ func (c *conn) doRenameDiscovered(sessionID, dir, newName string) {
 		c.send(msgError("bad_rename", "need dir and a valid new_name"))
 		return
 	}
-	var rec *session.Session
-	for _, s := range c.srv.store.List() {
-		if s.Dir == dir {
-			rec = s
-			break
-		}
-	}
+	rec := c.srv.store.GetByDir(dir)
 	if rec == nil {
-		name := c.srv.uniqueName(sanitizeName(filepath.Base(dir)))
-		rec = &session.Session{Name: name, Dir: dir, SessionID: sessionID, Started: true}
-		if err := c.srv.store.Put(rec); err != nil {
+		var err error
+		if rec, err = c.srv.registerDiscovered(sessionID, dir); err != nil {
 			c.send(msgError("internal", err.Error()))
 			return
 		}
@@ -139,20 +133,17 @@ func (c *conn) doAdopt(sessionID, dir string) {
 		c.send(msgError("bad_adopt", "adopt needs session_id and dir"))
 		return
 	}
-	for _, s := range c.srv.store.List() {
-		if s.SessionID == sessionID {
-			c.doAttach(s.Name, false)
-			return
-		}
+	if s := c.srv.store.GetBySessionID(sessionID); s != nil {
+		c.doAttach(s.Name, false)
+		return
 	}
-	name := c.srv.uniqueName(sanitizeName(filepath.Base(dir)))
-	rec := &session.Session{Name: name, Dir: dir, SessionID: sessionID, Started: true}
-	if err := c.srv.store.Put(rec); err != nil {
+	rec, err := c.srv.registerDiscovered(sessionID, dir)
+	if err != nil {
 		c.send(msgError("internal", err.Error()))
 		return
 	}
 	c.sendSessionList()
-	c.doAttach(name, false)
+	c.doAttach(rec.Name, false)
 }
 
 // doDeleteDiscovered PERMANENTLY deletes a discovered session's Claude
@@ -334,9 +325,7 @@ func (c *conn) resolveSession(spoken string) *session.Session {
 	found, _ := session.DiscoverSessions()
 	for _, d := range found {
 		if matchKey(filepath.Base(d.Dir)) == key {
-			name := c.srv.uniqueName(sanitizeName(filepath.Base(d.Dir)))
-			rec := &session.Session{Name: name, Dir: d.Dir, SessionID: d.SessionID, Started: true}
-			if c.srv.store.Put(rec) == nil {
+			if rec, err := c.srv.registerDiscovered(d.SessionID, d.Dir); err == nil {
 				c.sendSessionList()
 				return rec
 			}

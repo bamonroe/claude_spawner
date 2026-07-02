@@ -45,6 +45,34 @@ func (s *Store) Get(name string) *Session {
 	return s.byName[name]
 }
 
+// GetByDir returns the registered session for a directory, or nil. If several
+// records share a directory, the lexicographically-first by name is returned
+// (matching the old List()-and-break callers).
+func (s *Store) GetByDir(dir string) *Session {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var best *Session
+	for _, rec := range s.byName {
+		if rec.Dir == dir && (best == nil || rec.Name < best.Name) {
+			best = rec
+		}
+	}
+	return best
+}
+
+// GetBySessionID returns the registered session with the given session_id, or
+// nil. session_ids are globally unique, so at most one record matches.
+func (s *Store) GetBySessionID(id string) *Session {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, rec := range s.byName {
+		if rec.SessionID == id {
+			return rec
+		}
+	}
+	return nil
+}
+
 // List returns all sessions sorted by name.
 func (s *Store) List() []*Session {
 	s.mu.RLock()
