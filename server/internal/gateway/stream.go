@@ -14,7 +14,7 @@ import (
 func (c *conn) gatedChunk(pcm []byte) {
 	c.audioPCM = append(c.audioPCM, pcm...)
 
-	chunk, err := c.transcriber().Transcribe(c.ctx, transcribe.PCM16WAV(pcm, audioSampleRate, audioChannels),
+	chunk, err := c.fastTranscriber().Transcribe(c.ctx, transcribe.PCM16WAV(pcm, audioSampleRate, audioChannels),
 		transcribe.Options{Mode: "fixed", Model: "tiny"})
 	if err != nil || strings.TrimSpace(chunk) == "" {
 		return

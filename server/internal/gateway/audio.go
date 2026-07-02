@@ -76,7 +76,7 @@ func (c *conn) endAudio() {
 	// Calibration: transcribe with the fast (detection) model and just report
 	// what it heard — this measures exactly what end-token detection sees.
 	if c.calibrate {
-		text, _ := c.transcriber().Transcribe(c.ctx, transcribe.PCM16WAV(pcm, audioSampleRate, audioChannels),
+		text, _ := c.fastTranscriber().Transcribe(c.ctx, transcribe.PCM16WAV(pcm, audioSampleRate, audioChannels),
 			transcribe.Options{Mode: "fixed", Model: "tiny"})
 		c.send(msgCalibration(text))
 		return

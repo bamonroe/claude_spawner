@@ -30,6 +30,10 @@ type Config struct {
 	// http://localhost:8571). When set, transcription goes there instead of
 	// forking whisper-cli locally.
 	WhisperURL string
+	// WhisperFastURL points at a second, fast whisper server (e.g. base.en) used
+	// only for the live hands-free draft + end-token detection, so those don't
+	// queue behind the accurate model. Empty → drafts use the main server.
+	WhisperFastURL string
 	// WhisperModel is the path to a ggml model file. Empty disables transcription
 	// (the audio path returns not_implemented; text utterances still work).
 	WhisperModel string
@@ -55,6 +59,7 @@ func Load() (*Config, error) {
 		ClaudeBin:        env("SPAWNER_CLAUDE_BIN", "claude"),
 		WhisperBin:       env("SPAWNER_WHISPER_BIN", "whisper-cli"),
 		WhisperURL:       os.Getenv("SPAWNER_WHISPER_URL"),
+		WhisperFastURL:   os.Getenv("SPAWNER_WHISPER_FAST_URL"),
 		WhisperModel:     os.Getenv("SPAWNER_WHISPER_MODEL"),
 		WhisperModelFast: os.Getenv("SPAWNER_WHISPER_MODEL_FAST"),
 		WhisperModelBase: os.Getenv("SPAWNER_WHISPER_MODEL_BASE"),

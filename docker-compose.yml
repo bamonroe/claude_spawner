@@ -34,6 +34,26 @@ services:
       - "8571:8571"
     restart: unless-stopped
 
+  # Fast draft/detection model (base.en) on :8572 — used for the live hands-free
+  # draft + end-token detection, so those don't clog the accurate model on :8571.
+  whisper-fast:
+    build:
+      context: ./whisper
+      dockerfile: Dockerfile.vulkan
+    volumes:
+      - ${HOME}/.local/share/whisper:/models:ro
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - "989"   # render
+      - "985"   # video
+    environment:
+      VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/radeon_icd.x86_64.json
+    command: ["-m", "/models/ggml-base.en.bin"]
+    ports:
+      - "8572:8571"
+    restart: unless-stopped
+
   spawner:
     build:
       context: ./server
