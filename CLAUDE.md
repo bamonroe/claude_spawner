@@ -223,6 +223,19 @@ jail), `SPAWNER_STATE` (`sessions.json`), `SPAWNER_CLAUDE_BIN` (`claude`), `SPAW
 - When you change the architecture or make a design decision (especially the TUI-capture
   question above), record it in this file and the README so it isn't re-litigated.
 
+### Git: commit after every change, atomically
+
+This repo is under version control (remote `origin` = `git@github:bamonroe/claude_spawner`, using
+the `github` SSH host alias). **Commit after every major OR minor change** — don't let work pile up
+uncommitted (a whole session was once built with no repo at all; never again).
+
+- **Atomic commits**: one logical change per commit. A bug fix, a feature, a doc update, and a
+  refactor are separate commits — don't bundle unrelated changes. Commit the smallest coherent unit
+  that builds/tests clean.
+- Make the change → build/vet/test it (`go build ./... && go test ./...`, or the APK build) → commit.
+- Write a concise imperative subject (`fix: input bar behind nav bar`, `feat: read-last command`).
+- Prefer many small commits over one large one; it keeps history bisectable and easy to revert.
+
 ## Current status
 
 Greenfield. Nothing is built yet — see the **To-Do / Roadmap** in `README.md` for the plan and
