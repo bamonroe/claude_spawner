@@ -34,6 +34,10 @@ func logField(s string) string {
 // The `live` sink returns true only if it actually reached a connected client —
 // so if the app drops right as the turn finishes, the result stays undelivered
 // and is replayed when the app comes back.
+// Lock ordering: emit/finish/bindJob call the live sink (conn.jobSink -> conn.send)
+// while holding j.mu, and conn.send takes conn.wmu — so the order is ALWAYS
+// j.mu -> conn.wmu, never the reverse. The sink must not call back into the job
+// (it would re-enter j.mu and deadlock); it only does a websocket write.
 type sessionJob struct {
 	mu        sync.Mutex
 	running   bool

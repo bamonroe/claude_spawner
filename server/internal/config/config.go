@@ -107,7 +107,13 @@ func (c *Config) ValidateSpawnDir(dir string) (string, error) {
 	return "", fmt.Errorf("path %q is outside the allowed roots %v", abs, c.SpawnRoots)
 }
 
-// under reports whether abs is root itself or nested within it.
+// under reports whether abs is root itself or nested within it. This is the
+// path-traversal jail check for spawn dirs, so each clause matters:
+//   - rel == "."                     → abs IS root (allowed)
+//   - rel == ".." or "../…"          → abs escapes upward out of root (rejected)
+//   - filepath.IsAbs(rel)            → different volume/root entirely (rejected;
+//     Rel returns an absolute path when the two share no common base)
+// Everything else is a genuine descendant of root.
 func under(root, abs string) bool {
 	rel, err := filepath.Rel(root, abs)
 	if err != nil {
