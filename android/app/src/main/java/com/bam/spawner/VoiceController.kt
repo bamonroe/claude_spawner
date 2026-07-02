@@ -84,6 +84,11 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     private val _discovered = MutableStateFlow<List<DiscoveredInfo>>(emptyList())
     val discovered: StateFlow<List<DiscoveredInfo>> = _discovered.asStateFlow()
 
+    // Last error from a discover/adopt/delete action, shown on the Discover
+    // screen (otherwise it would go to the hidden chat log). "" = none.
+    private val _discoverError = MutableStateFlow("")
+    val discoverError: StateFlow<String> = _discoverError.asStateFlow()
+
     private val _attachedName = MutableStateFlow<String?>(null)
     val attachedName: StateFlow<String?> = _attachedName.asStateFlow()
 
@@ -436,9 +441,18 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
             is ServerMsg.History -> onHistory(msg)
             is ServerMsg.ReadLast -> onReadLast(msg.count)
             is ServerMsg.SessionList -> _sessions.value = msg.sessions
-            is ServerMsg.Discovered -> _discovered.value = msg.sessions
+            is ServerMsg.Discovered -> { _discovered.value = msg.sessions; _discoverError.value = "" }
             is ServerMsg.Listing -> _listing.value = msg
-            is ServerMsg.Err -> { _activity.value = ""; addChat(Role.SYSTEM, "⚠️ ${msg.code}: ${msg.message}") }
+            is ServerMsg.Err -> {
+                _activity.value = ""
+                // Discover/adopt/delete errors surface on the Discover screen; the
+                // rest go to the chat log.
+                if (msg.code in setOf("session_active", "not_found", "bad_delete", "bad_adopt", "discover_failed")) {
+                    _discoverError.value = msg.message
+                } else {
+                    addChat(Role.SYSTEM, "⚠️ ${msg.code}: ${msg.message}")
+                }
+            }
             is ServerMsg.Unknown -> {}
         }
     }

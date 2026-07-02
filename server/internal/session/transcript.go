@@ -48,19 +48,31 @@ func TranscriptPathByID(sessionID string) string {
 	return ""
 }
 
-// DeleteTranscript permanently removes a Claude session's transcript from disk
-// (by session_id). After this, `claude --resume <id>` no longer works — the
-// conversation is gone. Returns nil if there was nothing to delete.
-func DeleteTranscript(sessionID string) error {
-	path := TranscriptPathByID(sessionID)
+// DeleteSessionsForDir permanently removes EVERY Claude transcript whose working
+// directory is `dir` — because Discover shows one entry per directory, deleting
+// that entry should clear all of the directory's sessions (otherwise the entry
+// reappears with the next-newest session, looking like a failed delete).
+// anySessionID is any session known to live in that dir, used to locate the
+// project folder. Returns how many transcripts were deleted.
+func DeleteSessionsForDir(anySessionID, dir string) (int, error) {
+	path := TranscriptPathByID(anySessionID)
 	if path == "" {
-		return nil
+		return 0, nil
 	}
-	err := os.Remove(path)
-	if os.IsNotExist(err) {
-		return nil
+	// All sessions for a given cwd live in the same ~/.claude/projects/<enc>/
+	// folder; match on cwd too, in case two paths encode to the same folder.
+	matches, _ := filepath.Glob(filepath.Join(filepath.Dir(path), "*.jsonl"))
+	n := 0
+	for _, f := range matches {
+		if TranscriptCwd(f) != dir {
+			continue
+		}
+		if err := os.Remove(f); err != nil && !os.IsNotExist(err) {
+			return n, err
+		}
+		n++
 	}
-	return err
+	return n, nil
 }
 
 // ReadTranscript parses a transcript JSONL into ordered user/claude prose

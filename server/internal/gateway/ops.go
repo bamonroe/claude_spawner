@@ -131,27 +131,27 @@ func (c *conn) doDeleteDiscovered(sessionID string) {
 		c.send(msgError("not_found", "no transcript for that session"))
 		return
 	}
-	if c.srv.babysit.ClaudeDirs(c.ctx)[session.TranscriptCwd(path)] {
+	dir := session.TranscriptCwd(path)
+	if c.srv.babysit.ClaudeDirs(c.ctx)[dir] {
 		c.send(msgError("session_active", "that session is live in a terminal — close it there first"))
 		return
 	}
-	if err := session.DeleteTranscript(sessionID); err != nil {
+	if _, err := session.DeleteSessionsForDir(sessionID, dir); err != nil {
 		c.send(msgError("internal", err.Error()))
 		return
 	}
-	// If it was also registered, drop the record (and detach if attached).
+	// Drop any registry records for this directory too (detach if attached).
 	for _, s := range c.srv.store.List() {
-		if s.SessionID == sessionID {
+		if s.Dir == dir {
 			if c.attached != nil && c.attached.Name == s.Name {
 				c.doDetach()
 			}
 			_ = c.srv.store.Delete(s.Name)
 			c.srv.dropJob(s.Name)
-			break
 		}
 	}
 	c.sendSessionList()
-	c.doDiscover() // refreshed list (the deleted one is gone)
+	c.doDiscover() // refreshed list (the whole directory is gone now)
 }
 
 // serveHistory returns a page of a session's past conversation, read from

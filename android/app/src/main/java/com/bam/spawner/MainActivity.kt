@@ -498,6 +498,7 @@ private fun Sidebar(
 @Composable
 private fun DiscoverScreen(controller: VoiceController, onAdopted: () -> Unit, onBack: () -> Unit) {
     val discovered by controller.discovered.collectAsStateWithLifecycle()
+    val discoverError by controller.discoverError.collectAsStateWithLifecycle()
     var confirm by remember { mutableStateOf<DiscoveredInfo?>(null) }
     var deleteTarget by remember { mutableStateOf<DiscoveredInfo?>(null) }
     val open = { d: DiscoveredInfo -> controller.adopt(d.sessionId, d.dir); onAdopted() }
@@ -508,6 +509,10 @@ private fun DiscoverScreen(controller: VoiceController, onAdopted: () -> Unit, o
                 "⚠️ means a live session is open in a terminal; dictating to it from here can conflict.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
         )
+        if (discoverError.isNotBlank()) {
+            Text("⚠️ $discoverError", color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
+        }
         if (discovered.isEmpty()) {
             Text("Scanning… (or none found)", style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(top = 12.dp))
@@ -564,8 +569,9 @@ private fun DiscoverScreen(controller: VoiceController, onAdopted: () -> Unit, o
                 onDismissRequest = { deleteTarget = null },
                 title = { Text("Delete permanently?") },
                 text = {
-                    Text("This deletes the Claude transcript for:\n\n${d.dir}\n\n" +
-                        "The conversation is removed from disk for good — this can't be undone.")
+                    Text("This deletes ALL Claude conversations for:\n\n${d.dir}\n\n" +
+                        "Every session's transcript in this directory is removed from disk for good — " +
+                        "this can't be undone.")
                 },
                 confirmButton = {
                     TextButton(onClick = { controller.deleteDiscovered(d.sessionId); deleteTarget = null }) {
