@@ -26,22 +26,41 @@ type transcriptLine struct {
 	} `json:"message"`
 }
 
-// TranscriptPath locates a session's Claude transcript. The file is named
+// TranscriptPath locates a session's Claude transcript.
+func (s *Session) TranscriptPath() string { return TranscriptPathByID(s.SessionID) }
+
+// TranscriptPathByID finds a Claude transcript by session_id. The file is named
 // <session_id>.jsonl under ~/.claude/projects/<encoded-dir>/, but the dir
 // encoding is fiddly — the session_id is globally unique, so we glob for it.
-func (s *Session) TranscriptPath() string {
-	if s.SessionID == "" {
+// Returns "" if not found.
+func TranscriptPathByID(sessionID string) string {
+	if sessionID == "" {
 		return ""
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	matches, _ := filepath.Glob(filepath.Join(home, ".claude", "projects", "*", s.SessionID+".jsonl"))
+	matches, _ := filepath.Glob(filepath.Join(home, ".claude", "projects", "*", sessionID+".jsonl"))
 	if len(matches) > 0 {
 		return matches[0]
 	}
 	return ""
+}
+
+// DeleteTranscript permanently removes a Claude session's transcript from disk
+// (by session_id). After this, `claude --resume <id>` no longer works — the
+// conversation is gone. Returns nil if there was nothing to delete.
+func DeleteTranscript(sessionID string) error {
+	path := TranscriptPathByID(sessionID)
+	if path == "" {
+		return nil
+	}
+	err := os.Remove(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
 }
 
 // ReadTranscript parses a transcript JSONL into ordered user/claude prose

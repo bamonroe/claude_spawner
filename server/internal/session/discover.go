@@ -34,7 +34,7 @@ func DiscoverSessions() ([]Discovered, error) {
 		if !looksLikeUUID(id) || seen[id] {
 			continue
 		}
-		dir := transcriptCwd(p)
+		dir := TranscriptCwd(p)
 		if dir == "" {
 			continue
 		}
@@ -60,9 +60,9 @@ func DiscoverSessions() ([]Discovered, error) {
 	return deduped, nil
 }
 
-// transcriptCwd returns the first `cwd` recorded in a transcript (present on
+// TranscriptCwd returns the first `cwd` recorded in a transcript (present on
 // most events). Reads only the head of the file, not the whole thing.
-func transcriptCwd(path string) string {
+func TranscriptCwd(path string) string {
 	f, err := os.Open(path)
 	if err != nil {
 		return ""
