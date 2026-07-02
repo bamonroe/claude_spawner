@@ -122,6 +122,7 @@ data class HelloConfig(
     val sttModel: String,
     val aliases: Map<String, String>,
     val whisperUrl: String,
+    val whisperModel: String,
 )
 
 /** app -> server message builders. */
@@ -130,6 +131,7 @@ object Outbound {
         JSONObject().put("type", "hello").put("token", token).put("client_id", clientId)
             .put("end_token", cfg.endToken).put("stt_mode", cfg.sttMode).put("stt_model", cfg.sttModel)
             .put("aliases", JSONObject(cfg.aliases)).put("whisper_url", cfg.whisperUrl)
+            .put("whisper_model", cfg.whisperModel)
             .toString()
     fun utterance(text: String) = JSONObject().put("type", "utterance").put("text", text).toString()
     fun wake(codec: String, handsFree: Boolean = false, calibrate: Boolean = false) =

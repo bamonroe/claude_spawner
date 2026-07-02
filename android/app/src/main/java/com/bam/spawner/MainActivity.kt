@@ -808,8 +808,7 @@ private fun AudioSettings(
     var endTok by rememberSaveable { mutableStateOf(settings.endToken) }
     var calibrating by remember { mutableStateOf(false) }
     var silence by remember { mutableStateOf(if (settings.silenceCommitSeconds <= 0f) "" else settings.silenceCommitSeconds.toString()) }
-    var sttMode by remember { mutableStateOf(settings.sttMode) }
-    var sttModel by remember { mutableStateOf(settings.sttModel) }
+    var whisperModel by remember { mutableStateOf(settings.whisperModel) }
     var whisperUrl by remember { mutableStateOf(settings.whisperUrl) }
 
     SettingsScaffold("Audio", onBack) {
@@ -847,21 +846,18 @@ private fun AudioSettings(
         Text("Commits after this much quiet. Blank/0 = only the end token commits.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
 
         HorizontalDivider()
-        Text("Transcription (Whisper)", style = MaterialTheme.typography.titleMedium)
+        Text("Whisper model", style = MaterialTheme.typography.titleMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ThemeChoice("Dynamic", sttMode == "dynamic") { sttMode = "dynamic"; settings.sttMode = "dynamic"; onSttChanged() }
-            ThemeChoice("Fixed", sttMode == "fixed") { sttMode = "fixed"; settings.sttMode = "fixed"; onSttChanged() }
-        }
-        if (sttMode == "fixed") {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ThemeChoice("Fast", sttModel == "tiny") { sttModel = "tiny"; settings.sttModel = "tiny"; onSttChanged() }
-                ThemeChoice("Balanced", sttModel == "base") { sttModel = "base"; settings.sttModel = "base"; onSttChanged() }
-                ThemeChoice("Accurate", sttModel == "small") { sttModel = "small"; settings.sttModel = "small"; onSttChanged() }
-            }
+            ThemeChoice("Fast", whisperModel == "small.en") { whisperModel = "small.en"; settings.whisperModel = "small.en"; onSttChanged() }
+            ThemeChoice("Balanced", whisperModel == "medium.en") { whisperModel = "medium.en"; settings.whisperModel = "medium.en"; onSttChanged() }
+            ThemeChoice("Accurate", whisperModel == "large-v3") { whisperModel = "large-v3"; settings.whisperModel = "large-v3"; onSttChanged() }
         }
         Text(
-            if (sttMode == "dynamic") "Short clips use the fast model, longer clips the accurate one."
-            else "Every clip uses the chosen model (Accurate = best, slowest).",
+            when (whisperModel) {
+                "small.en" -> "small.en — fastest (~2–3s on the GPU), fine for short commands."
+                "large-v3" -> "large-v3 — most accurate, slowest (~10s+); best for hard audio / long dictation."
+                else -> "medium.en — balanced (~5s), the default sweet spot."
+            } + " Changing it hot-swaps the resident model (a few seconds to load).",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
         )
 

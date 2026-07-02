@@ -131,7 +131,8 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
         client?.close()
         _status.value = "connecting…"
         val hello = com.bam.spawner.net.HelloConfig(
-            settings.endToken, settings.sttMode, settings.sttModel, settings.aliasMap(), settings.whisperUrl,
+            settings.endToken, settings.sttMode, settings.sttModel, settings.aliasMap(),
+            settings.whisperUrl, settings.whisperModel,
         )
         client = SpawnerClient(url, token, settings.clientId, hello, ::onMessage, ::onConnected)
             .also { it.connect() }

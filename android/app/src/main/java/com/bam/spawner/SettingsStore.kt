@@ -62,6 +62,11 @@ class SettingsStore(context: Context) {
         get() = prefs.getString("whisper_url", DEFAULT_WHISPER_URL) ?: DEFAULT_WHISPER_URL
         set(v) = prefs.edit().putString("whisper_url", v).apply()
 
+    /** Resident whisper model to hot-load (ggml name, e.g. "medium.en"). */
+    var whisperModel: String
+        get() = prefs.getString("whisper_model", "medium.en") ?: "medium.en"
+        set(v) = prefs.edit().putString("whisper_model", v).apply()
+
     /** Command aliases as "misheard = command" lines (fixes whisper mistakes). */
     var commandAliases: String
         get() = prefs.getString("cmd_aliases", DEFAULT_ALIASES) ?: DEFAULT_ALIASES
