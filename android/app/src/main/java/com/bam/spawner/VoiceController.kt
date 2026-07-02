@@ -146,8 +146,12 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
         val t = text.trim()
         if (t.isEmpty()) return
         addChat(Role.USER, t)
+        scrollToBottom() // typed message → jump to the latest
         client?.send(Outbound.utterance(t))
     }
+
+    /** Nudge the chat view to scroll to the newest message. */
+    private fun scrollToBottom() { _scrollTick.value = _scrollTick.value + 1 }
 
     // --- Sidebar actions ---
     fun refreshSessions() = client?.send(Outbound.listSessions())
@@ -475,11 +479,13 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
         currentKey = key
         _chat.value = logs[key] ?: emptyList()
         _hasMoreHistory.value = hasMore[key] ?: false
+        scrollToBottom() // attaching / switching → show the latest (history refresh re-scrolls)
     }
 
     // onHistory merges a server-served page of OLDER messages into the session's
     // log (prepended, ahead of any live messages), and updates the paging cursor.
     private fun onHistory(msg: ServerMsg.History) {
+        val wasLoadOlder = msg.name in loadingOlder // else it's the initial page (on attach)
         val hist = msg.messages.map { ChatMessage(roleOf(it.role), it.text, it.index) }
         val histIdx = hist.mapNotNull { if (it.index >= 0) it.index else null }.toSet()
         // keep live messages (index < 0) and any already-loaded page not in this one
@@ -491,6 +497,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
         if (msg.name == currentKey) {
             _chat.value = logs[msg.name] ?: emptyList()
             _hasMoreHistory.value = msg.more
+            if (!wasLoadOlder) scrollToBottom() // initial load → newest in view; load-older stays put
         }
     }
 

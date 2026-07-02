@@ -445,16 +445,19 @@ private fun ChatList(
     modifier: Modifier,
 ) {
     val listState = rememberLazyListState()
+    // Bottom item index accounts for the "load older" header (item 0) when present,
+    // so we land on the actual newest message, not one above it.
+    val bottom = (messages.size - 1 + if (hasMore) 1 else 0).coerceAtLeast(0)
     // Auto-scroll to the newest message on append. Keyed on the LAST message so
     // paging OLDER messages in (which doesn't change the last one) never yanks the
     // view to the bottom.
     val last = messages.lastOrNull()
     LaunchedEffect(last) {
-        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
+        if (messages.isNotEmpty()) listState.animateScrollToItem(bottom)
     }
-    // read-last: force-scroll to the bottom so the re-read messages are in view.
+    // Explicit scroll-to-bottom (attach, typed send, read-last).
     LaunchedEffect(scrollTick) {
-        if (scrollTick > 0 && messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
+        if (scrollTick > 0 && messages.isNotEmpty()) listState.animateScrollToItem(bottom)
     }
     // LazyColumn is the direct weighted child (wrapping it in a SelectionContainer
     // distorted the Column's height and pushed the input bar off-screen). Selection
