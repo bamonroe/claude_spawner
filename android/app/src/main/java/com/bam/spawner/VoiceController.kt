@@ -340,7 +340,8 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     // Called on the capture thread when the user starts speaking.
     private fun onHandsFreeSpeechStart() {
         cancelSilenceCommit() // still talking — don't silence-commit
-        speaker.stop() // local barge-in: cut off Claude's reply the moment you talk
+        // No auto barge-in: speaking does NOT cut off Claude's reply. Only the
+        // explicit "hey buddy stop" command halts speech (see ServerMsg.StopSpeaking).
         _voiceState.value = VoiceState.CAPTURING
     }
 
