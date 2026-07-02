@@ -6,6 +6,7 @@ import com.bam.spawner.audio.LevelMeter
 import com.bam.spawner.audio.OpusRecorder
 import com.bam.spawner.net.Outbound
 import com.bam.spawner.net.ServerMsg
+import com.bam.spawner.net.DiscoveredInfo
 import com.bam.spawner.net.SessionInfo
 import com.bam.spawner.net.SpawnerClient
 import com.bam.spawner.tts.Markdown
@@ -79,6 +80,10 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     private val _sessions = MutableStateFlow<List<SessionInfo>>(emptyList())
     val sessions: StateFlow<List<SessionInfo>> = _sessions.asStateFlow()
 
+    // Claude sessions found on disk (from `discover`) that can be adopted.
+    private val _discovered = MutableStateFlow<List<DiscoveredInfo>>(emptyList())
+    val discovered: StateFlow<List<DiscoveredInfo>> = _discovered.asStateFlow()
+
     private val _attachedName = MutableStateFlow<String?>(null)
     val attachedName: StateFlow<String?> = _attachedName.asStateFlow()
 
@@ -141,6 +146,12 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
 
     // --- Sidebar actions ---
     fun refreshSessions() = client?.send(Outbound.listSessions())
+
+    /** Ask the server for all Claude sessions on disk (spawner-created or not). */
+    fun discover() = client?.send(Outbound.discover())
+
+    /** Adopt a discovered session into the registry and attach to it. */
+    fun adopt(sessionId: String, dir: String) = client?.send(Outbound.adopt(sessionId, dir))
 
     fun attachTo(name: String) {
         showLog(name) // switch to that session's log immediately (cached if we have it)
@@ -422,6 +433,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
             is ServerMsg.History -> onHistory(msg)
             is ServerMsg.ReadLast -> onReadLast(msg.count)
             is ServerMsg.SessionList -> _sessions.value = msg.sessions
+            is ServerMsg.Discovered -> _discovered.value = msg.sessions
             is ServerMsg.Listing -> _listing.value = msg
             is ServerMsg.Err -> { _activity.value = ""; addChat(Role.SYSTEM, "⚠️ ${msg.code}: ${msg.message}") }
             is ServerMsg.Unknown -> {}

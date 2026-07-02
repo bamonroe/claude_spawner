@@ -22,6 +22,7 @@ sealed interface ServerMsg {
     data class History(val name: String, val messages: List<HistMsg>, val more: Boolean) : ServerMsg
     data class ReadLast(val count: Int) : ServerMsg
     data class SessionList(val sessions: List<SessionInfo>) : ServerMsg
+    data class Discovered(val sessions: List<DiscoveredInfo>) : ServerMsg
     data class Err(val code: String, val message: String) : ServerMsg
     data object StopSpeaking : ServerMsg
     data class Listing(val path: String, val parent: String, val entries: List<BrowseEntry>) : ServerMsg
@@ -45,6 +46,7 @@ sealed interface ServerMsg {
                 "history" -> History(o.optString("name"), readHist(o.optJSONArray("messages")), o.optBoolean("more"))
                 "read_last" -> ReadLast(o.optInt("count", 1))
                 "session_list" -> SessionList(readSessions(o.optJSONArray("sessions")))
+                "discovered" -> Discovered(readDiscovered(o.optJSONArray("sessions")))
                 "error" -> Err(o.optString("code"), o.optString("message"))
                 "stop_speaking" -> StopSpeaking
                 "listing" -> Listing(o.optString("path"), o.optString("parent"), readEntries(o.optJSONArray("entries")))
@@ -57,6 +59,17 @@ sealed interface ServerMsg {
             return (0 until arr.length()).map {
                 val s = arr.getJSONObject(it)
                 SessionInfo(s.optString("name"), s.optString("dir"))
+            }
+        }
+
+        private fun readDiscovered(arr: JSONArray?): List<DiscoveredInfo> {
+            if (arr == null) return emptyList()
+            return (0 until arr.length()).map {
+                val s = arr.getJSONObject(it)
+                DiscoveredInfo(
+                    s.optString("name"), s.optString("dir"), s.optString("session_id"),
+                    s.optLong("last_active"), s.optBoolean("active"), s.optBoolean("registered"),
+                )
             }
         }
 
@@ -88,6 +101,16 @@ data class HistMsg(val index: Int, val role: String, val text: String)
 
 /** A session as listed for the sidebar. */
 data class SessionInfo(val name: String, val dir: String)
+
+/** A Claude session found on disk (via `discover`); may be adopted into the app. */
+data class DiscoveredInfo(
+    val name: String,
+    val dir: String,
+    val sessionId: String,
+    val lastActive: Long,   // unix seconds
+    val active: Boolean,    // interactive claude open in a terminal at this dir
+    val registered: Boolean, // already in the spawner registry
+)
 
 /** A directory in the "new session" browser. */
 data class BrowseEntry(val name: String, val path: String, val repo: Boolean)
@@ -123,6 +146,9 @@ object Outbound {
         return o.toString()
     }
     fun listSessions() = JSONObject().put("type", "list_sessions").toString()
+    fun discover() = JSONObject().put("type", "discover").toString()
+    fun adopt(sessionId: String, dir: String) =
+        JSONObject().put("type", "adopt").put("session_id", sessionId).put("path", dir).toString()
     fun rename(name: String, newName: String) =
         JSONObject().put("type", "rename").put("name", name).put("new_name", newName).toString()
     fun delete(name: String) = JSONObject().put("type", "delete").put("name", name).toString()

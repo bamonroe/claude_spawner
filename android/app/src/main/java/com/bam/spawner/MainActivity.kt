@@ -80,6 +80,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import kotlin.math.log10
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.bam.spawner.net.DiscoveredInfo
 import com.bam.spawner.net.SessionInfo
 import com.bam.spawner.ui.MarkdownText
 import com.bam.spawner.ui.SpawnerTheme
@@ -172,12 +173,18 @@ private fun AppRoot(
             onStarted = { screen = "main" },
             onBack = { screen = "main" },
         )
+        "discover" -> DiscoverScreen(
+            controller = controller,
+            onAdopted = { screen = "main" },
+            onBack = { screen = "main" },
+        )
         else -> MainScreen(
             controller,
             handsFreeInitial = settings.handsFree,
             onToggleHandsFree = onToggleHandsFree,
             onOpenSettings = { screen = "settings" },
             onNewSession = { controller.browse(""); screen = "browse" },
+            onDiscover = { controller.discover(); screen = "discover" },
         )
     }
 }
@@ -189,6 +196,7 @@ private fun MainScreen(
     onToggleHandsFree: (Boolean) -> Unit,
     onOpenSettings: () -> Unit,
     onNewSession: () -> Unit,
+    onDiscover: () -> Unit,
 ) {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -217,6 +225,7 @@ private fun MainScreen(
                     sessions = sessions,
                     attached = attached,
                     onNew = { onNewSession(); scope.launch { drawerState.close() } },
+                    onDiscover = { onDiscover(); scope.launch { drawerState.close() } },
                     onRefresh = { controller.refreshSessions() },
                     onAttach = { controller.attachTo(it); scope.launch { drawerState.close() } },
                     onRename = { old, new -> controller.renameSession(old, new) },
@@ -458,6 +467,7 @@ private fun Sidebar(
     sessions: List<SessionInfo>,
     attached: String?,
     onNew: () -> Unit,
+    onDiscover: () -> Unit,
     onRefresh: () -> Unit,
     onAttach: (String) -> Unit,
     onRename: (String, String) -> Unit,
@@ -468,7 +478,8 @@ private fun Sidebar(
         Text("Sessions", style = MaterialTheme.typography.titleLarge)
         Row {
             TextButton(onClick = onNew) { Text("＋ New") }
-            TextButton(onClick = onRefresh) { Text("⟳ Refresh") }
+            TextButton(onClick = onDiscover) { Text("🔍 Discover") }
+            TextButton(onClick = onRefresh) { Text("⟳") }
         }
         HorizontalDivider()
         LazyColumn(Modifier.weight(1f)) {
@@ -480,6 +491,76 @@ private fun Sidebar(
             HorizontalDivider()
             TextButton(onClick = onDetach) { Text("Detach from $attached") }
         }
+    }
+}
+
+/** Lists all Claude sessions found on disk; tap one to adopt + open it. */
+@Composable
+private fun DiscoverScreen(controller: VoiceController, onAdopted: () -> Unit, onBack: () -> Unit) {
+    val discovered by controller.discovered.collectAsStateWithLifecycle()
+    var confirm by remember { mutableStateOf<DiscoveredInfo?>(null) }
+    val open = { d: DiscoveredInfo -> controller.adopt(d.sessionId, d.dir); onAdopted() }
+
+    SettingsScaffold("Discover sessions", onBack) {
+        Text(
+            "Claude sessions found on this machine — tap to open one in the app. " +
+                "⚠️ means a live session is open in a terminal; dictating to it from here can conflict.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
+        )
+        if (discovered.isEmpty()) {
+            Text("Scanning… (or none found)", style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(top = 12.dp))
+        }
+        // A plain Column (not LazyColumn) because SettingsScaffold already wraps
+        // its content in a verticalScroll — nesting a LazyColumn in that crashes.
+        Column(Modifier.fillMaxWidth()) {
+            discovered.forEach { d ->
+                Column(
+                    Modifier.fillMaxWidth().clickable { if (d.active) confirm = d else open(d) }
+                        .padding(vertical = 8.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (d.active) Text("⚠️ ", style = MaterialTheme.typography.bodyMedium)
+                        Text(d.dir.substringAfterLast('/').ifEmpty { d.dir },
+                            style = MaterialTheme.typography.titleSmall)
+                        if (d.registered) Text("  · in app", style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary)
+                    }
+                    Text(d.dir, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(relativeTime(d.lastActive) + if (d.active) " · live in terminal" else "",
+                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                }
+                HorizontalDivider()
+            }
+        }
+    }
+
+    confirm?.let { d ->
+        AlertDialog(
+            onDismissRequest = { confirm = null },
+            title = { Text("Live in a terminal") },
+            text = {
+                Text("An interactive claude is running at:\n\n${d.dir}\n\n" +
+                    "Opening + dictating from the app drives the same session and can interleave " +
+                    "with your terminal. View/history is safe; avoid dictating to both at once.")
+            },
+            confirmButton = { TextButton(onClick = { confirm = null; open(d) }) { Text("Open anyway") } },
+            dismissButton = { TextButton(onClick = { confirm = null }) { Text("Cancel") } },
+        )
+    }
+}
+
+/** Coarse "2h ago" / "3d ago" from a unix-seconds timestamp. */
+private fun relativeTime(unixSeconds: Long): String {
+    if (unixSeconds <= 0) return ""
+    val secs = System.currentTimeMillis() / 1000 - unixSeconds
+    return when {
+        secs < 60 -> "just now"
+        secs < 3600 -> "${secs / 60}m ago"
+        secs < 86400 -> "${secs / 3600}h ago"
+        secs < 86400 * 30 -> "${secs / 86400}d ago"
+        else -> "${secs / (86400 * 30)}mo ago"
     }
 }
 
