@@ -169,9 +169,14 @@ func Parse(text string) Intent {
 	case first == "kill" && n <= 3, contains(t, "kill session", "stop session", "end session", "close session"):
 		return Intent{Kind: Kill, Arg: argAfter(t, "session", "kill")}
 
-	// Attach: "attach to <name>".
-	case first == "attach" && word2 == "to" && n <= 5, contains(t, "attach to"):
-		return Intent{Kind: Attach, Arg: argAfter(t, "to", "attach")}
+	// Attach: "attach to <name>" — capture everything after "to" (multi-word dir
+	// names) and let the server fuzzy-match it.
+	case first == "attach" && word2 == "to" && n <= 8, contains(t, "attach to"):
+		arg := afterAny(t, "to")
+		if arg == "" {
+			arg = afterAny(t, "attach")
+		}
+		return Intent{Kind: Attach, Arg: arg}
 
 	// List: "list" optionally followed by a session qualifier.
 	case first == "list" && (n == 1 || listQualifiers[word2]),

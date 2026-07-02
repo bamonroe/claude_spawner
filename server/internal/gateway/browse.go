@@ -49,7 +49,7 @@ func (c *conn) doSpawnAt(path string) {
 		c.send(msgError("bad_path", "not a directory"))
 		return
 	}
-	sess, err := c.newSession("claude-"+sanitizeName(filepath.Base(abs)), abs)
+	sess, err := c.newSession(sanitizeName(filepath.Base(abs)), abs)
 	if err != nil {
 		c.send(msgError("internal", err.Error()))
 		return

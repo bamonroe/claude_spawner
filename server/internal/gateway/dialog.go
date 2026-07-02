@@ -347,7 +347,7 @@ func (c *conn) isRoot(dir string) bool {
 // and moves to the attach question. The record is only persisted once the user
 // answers, so "cancel" leaves no junk behind.
 func (c *conn) beginAttachQuestion(dir, prompt string) {
-	base := "claude-" + sanitizeName(filepath.Base(dir))
+	base := sanitizeName(filepath.Base(dir))
 	sess, err := c.newSession(base, dir)
 	if err != nil {
 		c.send(msgError("internal", err.Error()))

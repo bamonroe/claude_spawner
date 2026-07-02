@@ -3,6 +3,7 @@ package gateway
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/bam/claude_spawner/server/internal/command"
 	"github.com/bam/claude_spawner/server/internal/session"
@@ -82,7 +83,7 @@ func (c *conn) doDiscover() {
 	seenDir := map[string]bool{}
 	for _, d := range found {
 		seenDir[d.Dir] = true
-		name, registered := "claude-"+sanitizeName(filepath.Base(d.Dir)), false
+		name, registered := sanitizeName(filepath.Base(d.Dir)), false
 		if s := byDir[d.Dir]; s != nil {
 			name, registered = s.Name, true
 		}
@@ -119,7 +120,7 @@ func (c *conn) doRenameDiscovered(sessionID, dir, newName string) {
 		}
 	}
 	if rec == nil {
-		name := c.srv.uniqueName("claude-" + sanitizeName(filepath.Base(dir)))
+		name := c.srv.uniqueName(sanitizeName(filepath.Base(dir)))
 		rec = &session.Session{Name: name, Dir: dir, SessionID: sessionID, Started: true}
 		if err := c.srv.store.Put(rec); err != nil {
 			c.send(msgError("internal", err.Error()))
@@ -144,7 +145,7 @@ func (c *conn) doAdopt(sessionID, dir string) {
 			return
 		}
 	}
-	name := c.srv.uniqueName("claude-" + sanitizeName(filepath.Base(dir)))
+	name := c.srv.uniqueName(sanitizeName(filepath.Base(dir)))
 	rec := &session.Session{Name: name, Dir: dir, SessionID: sessionID, Started: true}
 	if err := c.srv.store.Put(rec); err != nil {
 		c.send(msgError("internal", err.Error()))
@@ -251,10 +252,10 @@ func (c *conn) doAttach(name string, silent bool) {
 		c.send(msgSay("which session, bud?"))
 		return
 	}
-	s := c.srv.store.Get(name)
+	s := c.resolveSession(name)
 	if s == nil {
 		if !silent {
-			c.send(msgError("no_session", "no session named "+name))
+			c.send(msgSay("no session named " + name + ", bud."))
 		}
 		return
 	}
@@ -269,6 +270,50 @@ func (c *conn) doAttach(name string, silent bool) {
 	}
 	// Catch up on a job that may still be running (or finished while we were gone).
 	c.srv.bindJob(s.Name, c.jobSink(), silent)
+}
+
+// matchKey normalizes a spoken/stored name or dir for fuzzy voice matching:
+// lowercase, drop a leading "claude-", keep only letters+digits (so "attach to
+// bam store" → "bamstore" matches a session named "bam-store" or "claude-bam-store").
+func matchKey(s string) string {
+	s = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(s)), "claude-")
+	var b strings.Builder
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// resolveSession finds the session a spoken name refers to: an exact/fuzzy match
+// in the registry (by name or dir basename), else a fuzzy match against sessions
+// on disk — which it adopts into the registry so it can be driven. nil if none.
+func (c *conn) resolveSession(spoken string) *session.Session {
+	key := matchKey(spoken)
+	if key == "" {
+		return nil
+	}
+	if s := c.srv.store.Get(spoken); s != nil { // exact first
+		return s
+	}
+	for _, s := range c.srv.store.List() {
+		if matchKey(s.Name) == key || matchKey(filepath.Base(s.Dir)) == key {
+			return s
+		}
+	}
+	found, _ := session.DiscoverSessions()
+	for _, d := range found {
+		if matchKey(filepath.Base(d.Dir)) == key {
+			name := c.srv.uniqueName(sanitizeName(filepath.Base(d.Dir)))
+			rec := &session.Session{Name: name, Dir: d.Dir, SessionID: d.SessionID, Started: true}
+			if c.srv.store.Put(rec) == nil {
+				c.sendSessionList()
+				return rec
+			}
+		}
+	}
+	return nil
 }
 
 func (c *conn) doDetach() {

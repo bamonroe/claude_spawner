@@ -152,8 +152,8 @@ func TestSpawnDialogAndDictation(t *testing.T) {
 	send(t, ws, map[string]any{"type": "utterance", "text": "yes"})
 	a := readUntil(t, ws, "attached")
 	name, _ := a["name"].(string)
-	if !strings.HasPrefix(name, "claude-") {
-		t.Fatalf("unexpected session name %q", name)
+	if name == "" {
+		t.Fatalf("expected a session name, got empty")
 	}
 
 	// Dictate -> fake claude returns "pong".
