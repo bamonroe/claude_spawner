@@ -373,7 +373,7 @@ func (c *conn) spawnAwaitAttach(text string) {
 		c.dlg = nil
 		c.attached = sess
 		c.send(msgAttached(sess.Name))
-		c.send(msgSay("attached to " + sess.Name + ". go ahead, bud."))
+		c.send(msgSay("attached to session."))
 	case negative(text):
 		sess := c.dlg.sess
 		if perr := c.srv.store.Put(sess); perr != nil {
