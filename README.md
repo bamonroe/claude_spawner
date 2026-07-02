@@ -144,7 +144,7 @@ Requires the `claude` CLI and `tmux` on the host. Transcription is **off** unles
 ### Phase 2 — Transcription & dialog
 - [x] Command parser: control command vs passthrough dictation (`internal/command`)
 - [x] Dialog state machine (the "ok bud, where?" → "want to attach?" flow, `internal/gateway`)
-- [x] Spoken-path normalization (`internal/pathspeak`; note: lowercases — see CLAUDE.md)
+- [x] Spoken-path normalization (fuzzy dir matching in `internal/projects`; STT is lowercase — see CLAUDE.md)
 - [x] Audio-stream ingest: `wake` + binary PCM16 frames + `audio_end` → WAV → transcript → `utterance`
 - [x] Whisper integration behind a `Transcriber` interface (`internal/transcribe`, whisper.cpp shell-out)
 - [x] Dockerized dev environment (Go + tmux + claude CLI + whisper.cpp + model)

@@ -145,14 +145,6 @@ var filler = map[string]bool{
 	"for": true, "one": true, "called": true, "named": true,
 }
 
-// Search ranks the whole index against the spoken query.
-func (i *Index) Search(query string) []Dir {
-	i.mu.RLock()
-	dirs := i.dirs
-	i.mu.RUnlock()
-	return Rank(query, dirs)
-}
-
 // Children returns the immediate (non-hidden, non-noise) subdirectories of dir,
 // case-insensitively sorted by name.
 func Children(dir string) []Dir {

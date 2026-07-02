@@ -48,8 +48,8 @@ func (f *fakeSTT) Transcribe(_ context.Context, wav []byte, _ transcribe.Options
 
 func newTestServer(t *testing.T, stt transcribe.Transcriber) (*httptest.Server, string) {
 	t.Helper()
-	// Use an all-lowercase temp root: pathspeak lowercases spoken paths (speech is
-	// lowercase), so a root with capitals (as t.TempDir produces) can't be spoken back.
+	// Use an all-lowercase temp root: STT output is lowercase, so a root with
+	// capitals (as t.TempDir produces) can't be matched from a spoken path.
 	root, err := os.MkdirTemp("", "spawner")
 	if err != nil {
 		t.Fatal(err)

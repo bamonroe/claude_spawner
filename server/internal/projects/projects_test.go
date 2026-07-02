@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestSearch(t *testing.T) {
+func TestRank(t *testing.T) {
 	root := t.TempDir()
 	// Git repos (a ".git" marker makes a dir a "project").
 	for _, repo := range []string{
@@ -38,13 +38,13 @@ func TestSearch(t *testing.T) {
 		{"askii", "askii"},
 	}
 	for _, c := range cases {
-		got := idx.Search(c.query)
+		got := Rank(c.query, idx.List(1000))
 		if len(got) == 0 {
-			t.Errorf("Search(%q) returned nothing", c.query)
+			t.Errorf("Rank(%q) returned nothing", c.query)
 			continue
 		}
 		if got[0].Name != c.wantName {
-			t.Errorf("Search(%q) top = %q, want %q (all: %v)", c.query, got[0].Name, c.wantName, names(got))
+			t.Errorf("Rank(%q) top = %q, want %q (all: %v)", c.query, got[0].Name, c.wantName, names(got))
 		}
 	}
 
@@ -56,7 +56,7 @@ func TestSearch(t *testing.T) {
 	}
 
 	// A nonsense query yields no match.
-	if got := idx.Search("zzzznotathing"); len(got) != 0 {
+	if got := Rank("zzzznotathing", idx.List(1000)); len(got) != 0 {
 		t.Errorf("expected no match, got %v", names(got))
 	}
 }

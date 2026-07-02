@@ -146,7 +146,6 @@ writer per session at a time** — don't run a headless turn and a babysit pane 
   internal/session/session.go   headless claude driver: Driver.Turn (stream-json), NewSessionID
   internal/session/store.go     durable session registry (file-backed, atomic writes)
   internal/command/command.go   utterance -> intent parser + StripWake
-  internal/pathspeak/           spoken path -> filesystem path normalizer
   internal/transcribe/          Transcriber interface + whisper.cpp shell-out + PCM16->WAV
   internal/tmux/tmux.go         OPTIONAL human-babysit pane (Babysit/List/Exists/Close)
   internal/config/config.go     env config + spawn-path validation
@@ -181,9 +180,8 @@ depends only on the `Transcriber` interface, so swapping to faster-whisper or a 
 Groq large-v3-turbo) is a one-file change. Disabled unless `SPAWNER_WHISPER_MODEL` is set; when
 disabled the audio path returns `not_implemented` but text utterances still work.
 
-Known limitation: `pathspeak` lowercases spoken paths (STT output is lowercase), so sessions
-can't be created in directories with uppercase letters by voice. Acceptable; documented in
-docs/commands.md.
+Known limitation: STT output is all-lowercase, so sessions can't be created in directories with
+uppercase letters by voice. Acceptable; documented in docs/commands.md.
 
 ### Build & run the server
 

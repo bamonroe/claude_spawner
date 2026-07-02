@@ -94,16 +94,11 @@ func (w *WhisperCPP) Transcribe(ctx context.Context, wav []byte, opt Options) (s
 	if w.Model == "" {
 		return "", fmt.Errorf("no whisper model configured")
 	}
-	f, err := os.CreateTemp("", "utterance-*.wav")
+	path, cleanup, err := writeTempFile("utterance-*.wav", wav)
 	if err != nil {
 		return "", err
 	}
-	defer os.Remove(f.Name())
-	if _, err := f.Write(wav); err != nil {
-		f.Close()
-		return "", err
-	}
-	f.Close()
+	defer cleanup()
 
 	bin := w.Bin
 	if bin == "" {
@@ -111,7 +106,7 @@ func (w *WhisperCPP) Transcribe(ctx context.Context, wav []byte, opt Options) (s
 	}
 	model := w.chooseModel(wav, opt)
 	log.Printf("whisper: %.1fs clip -> %s (%s)", float64(len(wav))/32000.0, filepath.Base(model), modeLabel(opt))
-	args := []string{"-m", model, "-f", f.Name(), "-nt", "-np"}
+	args := []string{"-m", model, "-f", path, "-nt", "-np"}
 	if w.Lang != "" {
 		args = append(args, "-l", w.Lang)
 	}
@@ -147,28 +142,25 @@ func clean(s string) string {
 	return strings.TrimSpace(s)
 }
 
-// OggOpusToWAV decodes an Ogg/Opus clip (what the app records over cellular) to
-// a 16 kHz mono PCM16 WAV via ffmpeg, so whisper (which can't read Opus) accepts
-// it. Opus is ~10x smaller than raw PCM for speech.
-func OggOpusToWAV(ffmpegBin string, ogg []byte) ([]byte, error) {
+// OggOpusToPCM decodes an Ogg/Opus clip (what the app records over cellular) to
+// raw little-endian PCM16 (16 kHz mono) — no WAV header — so chunks can be
+// concatenated and transcribed as one whole-message clip. whisper can't read
+// Opus, and Opus is ~10x smaller than raw PCM for speech. Wrap the result with
+// PCM16WAV to get a WAV for whisper.
+func OggOpusToPCM(ffmpegBin string, ogg []byte) ([]byte, error) {
 	if ffmpegBin == "" {
 		ffmpegBin = "ffmpeg"
 	}
-	f, err := os.CreateTemp("", "utterance-*.ogg")
+	path, cleanup, err := writeTempFile("utterance-*.ogg", ogg)
 	if err != nil {
 		return nil, err
 	}
-	defer os.Remove(f.Name())
-	if _, err := f.Write(ogg); err != nil {
-		f.Close()
-		return nil, err
-	}
-	f.Close()
+	defer cleanup()
 
 	cmd := exec.Command(ffmpegBin,
 		"-hide_banner", "-loglevel", "error",
-		"-i", f.Name(),
-		"-ar", "16000", "-ac", "1", "-f", "wav", "pipe:1",
+		"-i", path,
+		"-ar", "16000", "-ac", "1", "-f", "s16le", "pipe:1",
 	)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -179,36 +171,22 @@ func OggOpusToWAV(ffmpegBin string, ogg []byte) ([]byte, error) {
 	return out, nil
 }
 
-// OggOpusToPCM decodes an Ogg/Opus clip to raw little-endian PCM16 (16 kHz
-// mono) — no WAV header — so chunks can be concatenated and transcribed as one
-// whole-message clip.
-func OggOpusToPCM(ffmpegBin string, ogg []byte) ([]byte, error) {
-	if ffmpegBin == "" {
-		ffmpegBin = "ffmpeg"
-	}
-	f, err := os.CreateTemp("", "utterance-*.ogg")
+// writeTempFile writes data to a fresh temp file (named by pattern) and returns
+// its path plus a cleanup func that removes it. The file is closed before
+// returning, so path is safe to hand to an exec'd process; cleanup also runs if
+// the write itself fails.
+func writeTempFile(pattern string, data []byte) (path string, cleanup func(), err error) {
+	f, err := os.CreateTemp("", pattern)
 	if err != nil {
-		return nil, err
+		return "", func() {}, err
 	}
-	defer os.Remove(f.Name())
-	if _, err := f.Write(ogg); err != nil {
+	if _, err := f.Write(data); err != nil {
 		f.Close()
-		return nil, err
+		os.Remove(f.Name())
+		return "", func() {}, err
 	}
 	f.Close()
-
-	cmd := exec.Command(ffmpegBin,
-		"-hide_banner", "-loglevel", "error",
-		"-i", f.Name(),
-		"-ar", "16000", "-ac", "1", "-f", "s16le", "pipe:1",
-	)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("ffmpeg opus decode: %w: %s", err, strings.TrimSpace(stderr.String()))
-	}
-	return out, nil
+	return f.Name(), func() { os.Remove(f.Name()) }, nil
 }
 
 // PCM16WAV wraps raw little-endian PCM16 samples in a canonical 44-byte WAV
