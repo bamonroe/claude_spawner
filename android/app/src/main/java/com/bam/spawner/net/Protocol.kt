@@ -149,6 +149,8 @@ object Outbound {
     fun discover() = JSONObject().put("type", "discover").toString()
     fun adopt(sessionId: String, dir: String) =
         JSONObject().put("type", "adopt").put("session_id", sessionId).put("path", dir).toString()
+    fun deleteDiscovered(sessionId: String) =
+        JSONObject().put("type", "delete_discovered").put("session_id", sessionId).toString()
     fun rename(name: String, newName: String) =
         JSONObject().put("type", "rename").put("name", name).put("new_name", newName).toString()
     fun delete(name: String) = JSONObject().put("type", "delete").put("name", name).toString()

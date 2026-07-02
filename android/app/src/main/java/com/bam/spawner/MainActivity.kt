@@ -499,6 +499,7 @@ private fun Sidebar(
 private fun DiscoverScreen(controller: VoiceController, onAdopted: () -> Unit, onBack: () -> Unit) {
     val discovered by controller.discovered.collectAsStateWithLifecycle()
     var confirm by remember { mutableStateOf<DiscoveredInfo?>(null) }
+    var deleteTarget by remember { mutableStateOf<DiscoveredInfo?>(null) }
     val open = { d: DiscoveredInfo -> controller.adopt(d.sessionId, d.dir); onAdopted() }
 
     SettingsScaffold("Discover sessions", onBack) {
@@ -515,21 +516,21 @@ private fun DiscoverScreen(controller: VoiceController, onAdopted: () -> Unit, o
         // its content in a verticalScroll — nesting a LazyColumn in that crashes.
         Column(Modifier.fillMaxWidth()) {
             discovered.forEach { d ->
-                Column(
-                    Modifier.fillMaxWidth().clickable { if (d.active) confirm = d else open(d) }
-                        .padding(vertical = 8.dp),
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (d.active) Text("⚠️ ", style = MaterialTheme.typography.bodyMedium)
-                        Text(d.dir.substringAfterLast('/').ifEmpty { d.dir },
-                            style = MaterialTheme.typography.titleSmall)
-                        if (d.registered) Text("  · in app", style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary)
+                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f).clickable { if (d.active) confirm = d else open(d) }) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (d.active) Text("⚠️ ", style = MaterialTheme.typography.bodyMedium)
+                            Text(d.dir.substringAfterLast('/').ifEmpty { d.dir },
+                                style = MaterialTheme.typography.titleSmall)
+                            if (d.registered) Text("  · in app", style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary)
+                        }
+                        Text(d.dir, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(relativeTime(d.lastActive) + if (d.active) " · live in terminal" else "",
+                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
                     }
-                    Text(d.dir, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(relativeTime(d.lastActive) + if (d.active) " · live in terminal" else "",
-                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                    TextButton(onClick = { deleteTarget = d }) { Text("🗑") }
                 }
                 HorizontalDivider()
             }
@@ -548,6 +549,32 @@ private fun DiscoverScreen(controller: VoiceController, onAdopted: () -> Unit, o
             confirmButton = { TextButton(onClick = { confirm = null; open(d) }) { Text("Open anyway") } },
             dismissButton = { TextButton(onClick = { confirm = null }) { Text("Cancel") } },
         )
+    }
+
+    deleteTarget?.let { d ->
+        if (d.active) {
+            AlertDialog(
+                onDismissRequest = { deleteTarget = null },
+                title = { Text("Live in a terminal") },
+                text = { Text("Close the terminal session at ${d.dir} first — a session that's currently running can't be deleted.") },
+                confirmButton = { TextButton(onClick = { deleteTarget = null }) { Text("OK") } },
+            )
+        } else {
+            AlertDialog(
+                onDismissRequest = { deleteTarget = null },
+                title = { Text("Delete permanently?") },
+                text = {
+                    Text("This deletes the Claude transcript for:\n\n${d.dir}\n\n" +
+                        "The conversation is removed from disk for good — this can't be undone.")
+                },
+                confirmButton = {
+                    TextButton(onClick = { controller.deleteDiscovered(d.sessionId); deleteTarget = null }) {
+                        Text("Delete", color = MaterialTheme.colorScheme.error)
+                    }
+                },
+                dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("Cancel") } },
+            )
+        }
     }
 }
 

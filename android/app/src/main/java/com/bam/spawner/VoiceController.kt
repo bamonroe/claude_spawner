@@ -153,6 +153,9 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     /** Adopt a discovered session into the registry and attach to it. */
     fun adopt(sessionId: String, dir: String) = client?.send(Outbound.adopt(sessionId, dir))
 
+    /** Permanently delete a discovered session's transcript from disk. */
+    fun deleteDiscovered(sessionId: String) = client?.send(Outbound.deleteDiscovered(sessionId))
+
     fun attachTo(name: String) {
         showLog(name) // switch to that session's log immediately (cached if we have it)
         client?.send(Outbound.attach(name))
