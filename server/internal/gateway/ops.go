@@ -40,7 +40,7 @@ func (c *conn) runCommand(intent command.Intent) bool {
 	case command.List:
 		c.doList()
 	case command.Attach:
-		c.doAttach(intent.Arg)
+		c.doAttach(intent.Arg, false) // voice attach announces
 	case command.Detach:
 		c.doDetach()
 	case command.Kill:
@@ -112,14 +112,20 @@ func (c *conn) doList() {
 	}
 }
 
-func (c *conn) doAttach(name string) {
+// doAttach attaches to a session. silent suppresses the spoken confirmation and
+// the "still working" catch-up nudge — used for the app's auto-attach on
+// reconnect, so a network blip doesn't re-announce "attached… go ahead, bud."
+// (a finished turn's buffered result is still delivered regardless).
+func (c *conn) doAttach(name string, silent bool) {
 	if name == "" {
 		c.send(msgSay("which session, bud?"))
 		return
 	}
 	s := c.srv.store.Get(name)
 	if s == nil {
-		c.send(msgError("no_session", "no session named "+name))
+		if !silent {
+			c.send(msgError("no_session", "no session named "+name))
+		}
 		return
 	}
 	if c.attached != nil {
@@ -128,9 +134,11 @@ func (c *conn) doAttach(name string) {
 	c.clearBuffer() // fresh message buffer for the new session
 	c.attached = s
 	c.send(msgAttached(s.Name))
-	c.send(msgSay("attached to " + s.Name + ". go ahead, bud."))
+	if !silent {
+		c.send(msgSay("attached to " + s.Name + ". go ahead, bud."))
+	}
 	// Catch up on a job that may still be running (or finished while we were gone).
-	c.srv.bindJob(s.Name, c.jobSink())
+	c.srv.bindJob(s.Name, c.jobSink(), silent)
 }
 
 func (c *conn) doDetach() {

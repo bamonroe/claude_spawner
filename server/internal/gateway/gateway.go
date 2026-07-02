@@ -246,7 +246,7 @@ func (c *conn) loop() {
 			c.gated = false // typed/explicit text is never background-gated
 			c.handleUtterance(in.Text)
 		case "attach":
-			c.doAttach(in.Name)
+			c.doAttach(in.Name, in.Silent)
 		case "detach":
 			c.doDetach()
 		case "list_sessions":

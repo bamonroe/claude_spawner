@@ -27,6 +27,7 @@ type inbound struct {
 	WhisperURL string            `json:"whisper_url"` // on `hello`: resident whisper server URL (overrides the default)
 	Before     *int              `json:"before"`      // on `history`: page cursor (exclusive index); nil = most recent
 	Limit      int               `json:"limit"`       // on `history`: page size (default 30)
+	Silent     bool              `json:"silent"`      // on `attach`: suppress the spoken "attached…" confirmation (reconnect auto-attach)
 }
 
 func msgHelloOK(sessionID string) map[string]any {

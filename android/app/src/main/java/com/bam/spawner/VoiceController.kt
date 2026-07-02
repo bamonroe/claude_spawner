@@ -381,7 +381,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
                 _status.value = "connected"
                 refreshSessions()
                 settings.lastSession.takeIf { it.isNotEmpty() }?.let {
-                    client?.send(Outbound.attach(it))
+                    client?.send(Outbound.attach(it, silent = true)) // reconnect: re-attach quietly
                 }
             }
             is ServerMsg.Say -> { addChat(Role.SYSTEM, msg.text); speaker.speak(Markdown.toSpeech(msg.text)) }

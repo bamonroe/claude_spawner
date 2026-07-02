@@ -114,7 +114,8 @@ object Outbound {
             .put("hands_free", handsFree).put("calibrate", calibrate).toString()
     fun audioEnd() = JSONObject().put("type", "audio_end").toString()
     fun commit() = JSONObject().put("type", "commit").toString() // silence-timeout commit
-    fun attach(name: String) = JSONObject().put("type", "attach").put("name", name).toString()
+    fun attach(name: String, silent: Boolean = false) =
+        JSONObject().put("type", "attach").put("name", name).put("silent", silent).toString()
     fun detach() = JSONObject().put("type", "detach").toString()
     fun history(name: String, before: Int?, limit: Int = 30): String {
         val o = JSONObject().put("type", "history").put("name", name).put("limit", limit)

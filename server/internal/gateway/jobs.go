@@ -149,7 +149,7 @@ func sortedKeys(m map[string]bool) []string {
 // bindJob wires a newly-attached connection's sink to the session's job (if any)
 // and catches it up: a running job says "still working", a finished-but-
 // undelivered job delivers its buffered result.
-func (s *Server) bindJob(sessName string, live func(any) bool) {
+func (s *Server) bindJob(sessName string, live func(any) bool, silent bool) {
 	s.jobsMu.Lock()
 	j := s.jobs[sessName]
 	s.jobsMu.Unlock()
@@ -161,7 +161,9 @@ func (s *Server) bindJob(sessName string, live func(any) bool) {
 	j.live = live
 	switch {
 	case j.running:
-		live(msgSay("still working on it, bud — one sec."))
+		if !silent { // reconnect auto-attach stays quiet; a finished result still delivers below
+			live(msgSay("still working on it, bud — one sec."))
+		}
 	case !j.delivered && j.final != nil:
 		if live(j.final) {
 			j.delivered = true

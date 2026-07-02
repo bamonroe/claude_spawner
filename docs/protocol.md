@@ -40,7 +40,7 @@ Every JSON message has a `type`. Optional `id` correlates request/response. `ts`
 | `audio_end`     | `{}`                                      | end of utterance; server finalizes transcript |
 | `utterance`     | `{ "text": "<what the user said>" }`      | **the text seam** — a complete utterance as text (post-STT or typed). Implemented today; the audio path above produces one of these server-side once Whisper lands. |
 | `reply`         | `{ "text": "<user reply>" }`              | alias of `utterance` for dialog replies       |
-| `attach`        | `{ "name": "<session>" }`                 | request attach                                |
+| `attach`        | `{ "name": "<session>", "silent": false }`| request attach. `silent: true` suppresses the spoken "attached… go ahead, bud." confirmation (used for the app's auto re-attach on reconnect); a finished turn's buffered result is still delivered. |
 | `detach`        | `{}`                                      | leave passthrough                             |
 | `list_sessions` | `{}`                                      | request the session list (quiet; for the sidebar) -> `session_list` |
 | `rename`        | `{ "name": "<old>", "new_name": "<new>" }`| rename a session (keeps its session_id) -> `session_list` |
