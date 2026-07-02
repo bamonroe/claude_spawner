@@ -72,25 +72,62 @@ func (c *conn) doDiscover() {
 		return
 	}
 	active := c.srv.babysit.ClaudeDirs(c.ctx)
-	// index registry by session_id so we can mark/keep existing names
-	byID := map[string]string{}
+	// index registry by DIRECTORY so custom (renamed) names carry over even if the
+	// dir's newest session_id differs from the pinned one.
+	byDir := map[string]*session.Session{}
 	for _, s := range c.srv.store.List() {
-		byID[s.SessionID] = s.Name
+		byDir[s.Dir] = s
 	}
-	views := make([]discoveredView, 0, len(found))
+	views := make([]discoveredView, 0, len(found)+1)
+	seenDir := map[string]bool{}
 	for _, d := range found {
-		name, registered := byID[d.SessionID], false
-		if name != "" {
-			registered = true
-		} else {
-			name = "claude-" + sanitizeName(filepath.Base(d.Dir))
+		seenDir[d.Dir] = true
+		name, registered := "claude-"+sanitizeName(filepath.Base(d.Dir)), false
+		if s := byDir[d.Dir]; s != nil {
+			name, registered = s.Name, true
 		}
 		views = append(views, discoveredView{
 			Name: name, Dir: d.Dir, SessionID: d.SessionID,
 			LastActive: d.LastActive, Active: active[d.Dir], Registered: registered,
 		})
 	}
+	// Include registered sessions that have no transcript yet (just-spawned) so
+	// the merged list is complete.
+	for _, s := range c.srv.store.List() {
+		if !seenDir[s.Dir] {
+			views = append(views, discoveredView{
+				Name: s.Name, Dir: s.Dir, SessionID: s.SessionID,
+				LastActive: 0, Active: active[s.Dir], Registered: true,
+			})
+		}
+	}
 	c.send(msgDiscovered(views))
+}
+
+// doRenameDiscovered gives a discovered session a custom name: registers it (by
+// dir, without attaching) if needed, then renames the record. Refreshes lists.
+func (c *conn) doRenameDiscovered(sessionID, dir, newName string) {
+	if dir == "" || sanitizeName(newName) == "" {
+		c.send(msgError("bad_rename", "need dir and a valid new_name"))
+		return
+	}
+	var rec *session.Session
+	for _, s := range c.srv.store.List() {
+		if s.Dir == dir {
+			rec = s
+			break
+		}
+	}
+	if rec == nil {
+		name := c.srv.uniqueName("claude-" + sanitizeName(filepath.Base(dir)))
+		rec = &session.Session{Name: name, Dir: dir, SessionID: sessionID, Started: true}
+		if err := c.srv.store.Put(rec); err != nil {
+			c.send(msgError("internal", err.Error()))
+			return
+		}
+	}
+	c.doRename(rec.Name, newName)
+	c.doDiscover()
 }
 
 // doAdopt registers a discovered Claude session (by session_id + dir) into the

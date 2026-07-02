@@ -45,7 +45,8 @@ Every JSON message has a `type`. Optional `id` correlates request/response. `ts`
 | `list_sessions` | `{}`                                      | request the session list (quiet; for the sidebar) -> `session_list` |
 | `discover`      | `{}`                                      | scan `~/.claude/projects` for ALL Claude sessions (spawner-created or not, e.g. interactive `claude` in tmux) -> `discovered` |
 | `adopt`         | `{ "session_id": "<uuid>", "path": "<dir>" }` | register a discovered session into the store and attach to it (so the app can view/drive it via `--resume`) -> `attached` + `session_list` |
-| `delete_discovered` | `{ "session_id": "<uuid>" }`          | PERMANENTLY delete a session's Claude transcript from disk (and its registry record, if any). Refused with `session_active` if the session is live in a terminal. -> refreshed `discovered` + `session_list` |
+| `delete_discovered` | `{ "session_id": "<uuid>" }`          | PERMANENTLY delete ALL transcripts for the session's directory (and its registry records). Refused with `session_active` if live in a terminal. -> refreshed `discovered` + `session_list` |
+| `rename_discovered` | `{ "session_id": "<uuid>", "path": "<dir>", "new_name": "<name>" }` | give a discovered session a custom name (registers it by dir if needed, without attaching). -> refreshed `discovered` + `session_list` |
 | `rename`        | `{ "name": "<old>", "new_name": "<new>" }`| rename a session (keeps its session_id) -> `session_list` |
 | `delete`        | `{ "name": "<session>" }`                 | delete a session record -> `session_list`     |
 | `browse`        | `{ "path": "<dir or empty>" }`            | list a directory for the New-session picker (empty = roots) -> `listing` |

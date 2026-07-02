@@ -257,6 +257,8 @@ func (c *conn) loop() {
 			c.doAdopt(in.SessionID, in.Path)
 		case "delete_discovered":
 			c.doDeleteDiscovered(in.SessionID)
+		case "rename_discovered":
+			c.doRenameDiscovered(in.SessionID, in.Path, in.NewName)
 		case "rename":
 			c.doRename(in.Name, in.NewName)
 		case "delete":
