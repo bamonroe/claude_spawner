@@ -10,25 +10,26 @@ const serverVersion = "0.1.0"
 
 // inbound is the union of fields any app->server message may carry.
 type inbound struct {
-	Type       string            `json:"type"`
-	Token      string            `json:"token"`
-	Text       string            `json:"text"`        // utterance / dialog reply text
-	Name       string            `json:"name"`        // session name for attach/kill/rename
-	NewName    string            `json:"new_name"`    // target name for rename
-	Path       string            `json:"path"`        // directory for browse / spawn_at
-	Codec      string            `json:"codec"`       // audio codec on wake: "ogg_opus" | "pcm16"
-	ClientID   string            `json:"client_id"`   // stable per-app id, for reconnect/resume
-	HandsFree  bool              `json:"hands_free"`  // set on `wake` when the clip is VAD-gated (hands-free)
-	EndToken   string            `json:"end_token"`   // on `hello`: the spoken word that commits a message
-	SttMode    string            `json:"stt_mode"`    // on `hello`: "dynamic" | "fixed"
-	SttModel   string            `json:"stt_model"`   // on `hello`: fixed model "tiny" | "base" | "small"
-	Calibrate  bool              `json:"calibrate"`   // on `wake`: transcribe (fast model) and return, don't dispatch
-	Aliases    map[string]string `json:"aliases"`     // on `hello`: mis-transcription -> canonical command word
-	WhisperURL string            `json:"whisper_url"` // on `hello`: resident whisper server URL (overrides the default)
-	Before     *int              `json:"before"`      // on `history`: page cursor (exclusive index); nil = most recent
-	Limit      int               `json:"limit"`       // on `history`: page size (default 30)
-	Silent     bool              `json:"silent"`      // on `attach`: suppress the spoken "attached…" confirmation (reconnect auto-attach)
-	SessionID  string            `json:"session_id"`  // on `adopt`: the discovered Claude session_id to register
+	Type         string            `json:"type"`
+	Token        string            `json:"token"`
+	Text         string            `json:"text"`          // utterance / dialog reply text
+	Name         string            `json:"name"`          // session name for attach/kill/rename
+	NewName      string            `json:"new_name"`      // target name for rename
+	Path         string            `json:"path"`          // directory for browse / spawn_at
+	Codec        string            `json:"codec"`         // audio codec on wake: "ogg_opus" | "pcm16"
+	ClientID     string            `json:"client_id"`     // stable per-app id, for reconnect/resume
+	HandsFree    bool              `json:"hands_free"`    // set on `wake` when the clip is VAD-gated (hands-free)
+	EndToken     string            `json:"end_token"`     // on `hello`: the spoken word that commits a message
+	SttMode      string            `json:"stt_mode"`      // on `hello`: "dynamic" | "fixed"
+	SttModel     string            `json:"stt_model"`     // on `hello`: fixed model "tiny" | "base" | "small"
+	Calibrate    bool              `json:"calibrate"`     // on `wake`: transcribe (fast model) and return, don't dispatch
+	Aliases      map[string]string `json:"aliases"`       // on `hello`: mis-transcription -> canonical command word
+	WhisperURL   string            `json:"whisper_url"`   // on `hello`: resident whisper server URL (overrides the default)
+	WhisperModel string            `json:"whisper_model"` // on `hello`: ggml model to hot-load on the resident server (e.g. "medium.en")
+	Before       *int              `json:"before"`        // on `history`: page cursor (exclusive index); nil = most recent
+	Limit        int               `json:"limit"`         // on `history`: page size (default 30)
+	Silent       bool              `json:"silent"`        // on `attach`: suppress the spoken "attached…" confirmation (reconnect auto-attach)
+	SessionID    string            `json:"session_id"`    // on `adopt`: the discovered Claude session_id to register
 }
 
 func msgHelloOK(sessionID string) map[string]any {

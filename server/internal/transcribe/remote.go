@@ -16,6 +16,31 @@ import (
 // defaultRemoteClient bounds a hung whisper server from stalling a turn forever.
 var defaultRemoteClient = &http.Client{Timeout: 120 * time.Second}
 
+// LoadRemoteModel hot-swaps a resident whisper.cpp server to a different ggml
+// model via its /load endpoint (no container restart). modelPath is the path as
+// the whisper server sees it (e.g. /models/ggml-medium.en.bin).
+func LoadRemoteModel(ctx context.Context, url, modelPath string) error {
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	_ = mw.WriteField("model", modelPath)
+	mw.Close()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(url, "/")+"/load", &body)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	resp, err := defaultRemoteClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("whisper load: %w", err)
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("whisper load %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+	}
+	return nil
+}
+
 // RemoteWhisper transcribes by POSTing the WAV to a resident whisper.cpp server
 // (its /inference endpoint), instead of forking whisper-cli per utterance. The
 // server keeps the model loaded, so there's no per-call reload — same model,

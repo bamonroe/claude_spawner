@@ -40,6 +40,7 @@ func main() {
 	calibrate := flag.Bool("calibrate", false, "send the clip as an end-token calibration sample")
 	aliasFrom := flag.String("alias", "", "one alias \"from=to\" to send in hello")
 	whisperURL := flag.String("whisperurl", "", "whisper_url to send in hello")
+	whisperModel := flag.String("whispermodel", "", "whisper_model to send in hello")
 	flag.Parse()
 
 	token := os.Getenv("SPAWNER_TOKEN")
@@ -54,7 +55,7 @@ func main() {
 	defer ws.Close()
 
 	if err := ws.WriteJSON(map[string]any{
-		"type": "hello", "token": token, "stt_mode": *sttMode, "stt_model": *sttModel, "aliases": aliasesFromFlag(*aliasFrom), "whisper_url": *whisperURL,
+		"type": "hello", "token": token, "stt_mode": *sttMode, "stt_model": *sttModel, "aliases": aliasesFromFlag(*aliasFrom), "whisper_url": *whisperURL, "whisper_model": *whisperModel,
 	}); err != nil {
 		log.Fatal(err)
 	}

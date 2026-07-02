@@ -40,6 +40,46 @@ type Server struct {
 
 	jobsMu sync.Mutex
 	jobs   map[string]*sessionJob // running/last dictation turn, keyed by session name
+
+	whisperMu     sync.Mutex // guards the resident whisper server's currently-loaded model
+	whisperLoaded string     // "<url>|<model>" last hot-loaded, to skip redundant /load calls
+}
+
+// ensureWhisperModel hot-swaps the resident whisper server (at url) to `name`
+// via /load, unless it's already loaded. name maps to /models/ggml-<name>.bin.
+// Best-effort and safe to call from a goroutine.
+func (s *Server) ensureWhisperModel(url, name string) {
+	if url == "" || !validModelName(name) {
+		return
+	}
+	s.whisperMu.Lock()
+	defer s.whisperMu.Unlock()
+	key := url + "|" + name
+	if s.whisperLoaded == key {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	if err := transcribe.LoadRemoteModel(ctx, url, "/models/ggml-"+name+".bin"); err != nil {
+		log.Printf("whisper: load %q failed: %v", name, err)
+		return
+	}
+	s.whisperLoaded = key
+	log.Printf("whisper: model -> %s", name)
+}
+
+// validModelName guards the model path against injection (letters, digits, dot,
+// dash, underscore only).
+func validModelName(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '.' || r == '-' || r == '_') {
+			return false
+		}
+	}
+	return true
 }
 
 // clientState is what we stash when a connection drops, to resume on reconnect:
@@ -178,8 +218,13 @@ func (c *conn) authenticate() bool {
 	c.sttMode = in.SttMode
 	c.sttModel = in.SttModel
 	c.aliases = in.Aliases
+	whisperURL := c.srv.cfg.WhisperURL
 	if u := strings.TrimSpace(in.WhisperURL); u != "" {
 		c.stt = &transcribe.RemoteWhisper{URL: u} // app-chosen resident whisper server
+		whisperURL = u
+	}
+	if m := strings.TrimSpace(in.WhisperModel); m != "" && whisperURL != "" {
+		go c.srv.ensureWhisperModel(whisperURL, m) // hot-load the app's chosen model
 	}
 	c.send(msgHelloOK("ws"))
 	return true
