@@ -173,18 +173,12 @@ private fun AppRoot(
             onStarted = { screen = "main" },
             onBack = { screen = "main" },
         )
-        "discover" -> DiscoverScreen(
-            controller = controller,
-            onAdopted = { screen = "main" },
-            onBack = { screen = "main" },
-        )
         else -> MainScreen(
             controller,
             handsFreeInitial = settings.handsFree,
             onToggleHandsFree = onToggleHandsFree,
             onOpenSettings = { screen = "settings" },
             onNewSession = { controller.browse(""); screen = "browse" },
-            onDiscover = { controller.discover(); screen = "discover" },
         )
     }
 }
@@ -196,7 +190,6 @@ private fun MainScreen(
     onToggleHandsFree: (Boolean) -> Unit,
     onOpenSettings: () -> Unit,
     onNewSession: () -> Unit,
-    onDiscover: () -> Unit,
 ) {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -206,8 +199,16 @@ private fun MainScreen(
     val chat by controller.chat.collectAsStateWithLifecycle()
     val hasMoreHistory by controller.hasMoreHistory.collectAsStateWithLifecycle()
     val scrollTick by controller.scrollTick.collectAsStateWithLifecycle()
-    val sessions by controller.sessions.collectAsStateWithLifecycle()
+    val discovered by controller.discovered.collectAsStateWithLifecycle()
+    val discoverError by controller.discoverError.collectAsStateWithLifecycle()
     val attached by controller.attachedName.collectAsStateWithLifecycle()
+    // Hoisted dialogs for the drawer's session list.
+    var confirmOpen by remember { mutableStateOf<DiscoveredInfo?>(null) }
+    var deleteTarget by remember { mutableStateOf<DiscoveredInfo?>(null) }
+    var renameTarget by remember { mutableStateOf<DiscoveredInfo?>(null) }
+    val openSession = { d: DiscoveredInfo ->
+        controller.adopt(d.sessionId, d.dir); scope.launch { drawerState.close() }; Unit
+    }
     val mic by controller.mic.collectAsStateWithLifecycle()
     val voiceState by controller.voiceState.collectAsStateWithLifecycle()
     val pending by controller.pending.collectAsStateWithLifecycle()
@@ -222,14 +223,14 @@ private fun MainScreen(
         drawerContent = {
             ModalDrawerSheet {
                 Sidebar(
-                    sessions = sessions,
+                    discovered = discovered,
+                    discoverError = discoverError,
                     attached = attached,
                     onNew = { onNewSession(); scope.launch { drawerState.close() } },
-                    onDiscover = { onDiscover(); scope.launch { drawerState.close() } },
-                    onRefresh = { controller.refreshSessions() },
-                    onAttach = { controller.attachTo(it); scope.launch { drawerState.close() } },
-                    onRename = { old, new -> controller.renameSession(old, new) },
-                    onDelete = { controller.deleteSession(it) },
+                    onRefresh = { controller.discover() },
+                    onOpen = { d -> if (d.active) confirmOpen = d else openSession(d) },
+                    onRename = { renameTarget = it },
+                    onDelete = { deleteTarget = it },
                     onDetach = { controller.detach() },
                 )
             }
@@ -271,6 +272,61 @@ private fun MainScreen(
                 onSend = { controller.sendText(it) },
             )
         }
+    }
+
+    // --- session-list dialogs (hoisted out of the drawer so they overlay) ---
+    confirmOpen?.let { d ->
+        AlertDialog(
+            onDismissRequest = { confirmOpen = null },
+            title = { Text("Live in a terminal") },
+            text = {
+                Text("An interactive claude is running at:\n\n${d.dir}\n\nOpening + dictating drives " +
+                    "the same session and can interleave with your terminal. View/history is safe; " +
+                    "avoid dictating to both at once.")
+            },
+            confirmButton = { TextButton(onClick = { confirmOpen = null; openSession(d) }) { Text("Open anyway") } },
+            dismissButton = { TextButton(onClick = { confirmOpen = null }) { Text("Cancel") } },
+        )
+    }
+    deleteTarget?.let { d ->
+        if (d.active) {
+            AlertDialog(
+                onDismissRequest = { deleteTarget = null },
+                title = { Text("Live in a terminal") },
+                text = { Text("Close the terminal session at ${d.dir} first — a running session can't be deleted.") },
+                confirmButton = { TextButton(onClick = { deleteTarget = null }) { Text("OK") } },
+            )
+        } else {
+            AlertDialog(
+                onDismissRequest = { deleteTarget = null },
+                title = { Text("Delete permanently?") },
+                text = {
+                    Text("This deletes ALL Claude conversations for:\n\n${d.dir}\n\nEvery session's " +
+                        "transcript in this directory is removed from disk for good — this can't be undone.")
+                },
+                confirmButton = {
+                    TextButton(onClick = { controller.deleteDiscovered(d.sessionId); deleteTarget = null }) {
+                        Text("Delete", color = MaterialTheme.colorScheme.error)
+                    }
+                },
+                dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("Cancel") } },
+            )
+        }
+    }
+    renameTarget?.let { d ->
+        var newName by remember(d) { mutableStateOf(d.name) }
+        AlertDialog(
+            onDismissRequest = { renameTarget = null },
+            title = { Text("Rename session") },
+            text = { OutlinedTextField(newName, { newName = it }, singleLine = true, label = { Text("Name") }) },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (newName.isNotBlank()) controller.renameDiscovered(d.sessionId, d.dir, newName)
+                    renameTarget = null
+                }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { renameTarget = null }) { Text("Cancel") } },
+        )
     }
 }
 
@@ -462,124 +518,60 @@ private fun InputBar(
     }
 }
 
+/** The drawer's session list: EVERY Claude session on the machine (discovery),
+ * with registry names/attach merged in. Tap to open; ✏️ rename; 🗑 delete. */
 @Composable
 private fun Sidebar(
-    sessions: List<SessionInfo>,
+    discovered: List<DiscoveredInfo>,
+    discoverError: String,
     attached: String?,
     onNew: () -> Unit,
-    onDiscover: () -> Unit,
     onRefresh: () -> Unit,
-    onAttach: (String) -> Unit,
-    onRename: (String, String) -> Unit,
-    onDelete: (String) -> Unit,
+    onOpen: (DiscoveredInfo) -> Unit,
+    onRename: (DiscoveredInfo) -> Unit,
+    onDelete: (DiscoveredInfo) -> Unit,
     onDetach: () -> Unit,
 ) {
     Column(Modifier.fillMaxHeight().statusBarsPadding().padding(12.dp)) {
         Text("Sessions", style = MaterialTheme.typography.titleLarge)
         Row {
             TextButton(onClick = onNew) { Text("＋ New") }
-            TextButton(onClick = onDiscover) { Text("🔍 Discover") }
-            TextButton(onClick = onRefresh) { Text("⟳") }
+            TextButton(onClick = onRefresh) { Text("⟳ Refresh") }
+        }
+        if (discoverError.isNotBlank()) {
+            Text("⚠️ $discoverError", color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall)
         }
         HorizontalDivider()
         LazyColumn(Modifier.weight(1f)) {
-            items(sessions) { s ->
-                SessionRow(s, attached == s.name, { onAttach(s.name) }, { onRename(s.name, it) }, { onDelete(s.name) })
+            items(discovered) { d ->
+                val isAttached = d.registered && d.name == attached
+                Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f).clickable { onOpen(d) }) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (d.active) Text("⚠️ ")
+                            Text(d.name, style = MaterialTheme.typography.titleSmall,
+                                color = if (isAttached) MaterialTheme.colorScheme.primary else Color.Unspecified,
+                                fontWeight = if (isAttached) FontWeight.Bold else null)
+                        }
+                        Text(d.dir, style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        val parts = mutableListOf<String>()
+                        if (isAttached) parts.add("attached")
+                        if (d.active) parts.add("live in terminal")
+                        else relativeTime(d.lastActive).let { if (it.isNotEmpty()) parts.add(it) }
+                        if (parts.isNotEmpty()) Text(parts.joinToString(" · "),
+                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                    }
+                    Text("✏️", Modifier.clickable { onRename(d) }.padding(8.dp))
+                    Text("🗑", Modifier.clickable { onDelete(d) }.padding(8.dp))
+                }
+                HorizontalDivider()
             }
         }
         if (attached != null) {
             HorizontalDivider()
             TextButton(onClick = onDetach) { Text("Detach from $attached") }
-        }
-    }
-}
-
-/** Lists all Claude sessions found on disk; tap one to adopt + open it. */
-@Composable
-private fun DiscoverScreen(controller: VoiceController, onAdopted: () -> Unit, onBack: () -> Unit) {
-    val discovered by controller.discovered.collectAsStateWithLifecycle()
-    val discoverError by controller.discoverError.collectAsStateWithLifecycle()
-    var confirm by remember { mutableStateOf<DiscoveredInfo?>(null) }
-    var deleteTarget by remember { mutableStateOf<DiscoveredInfo?>(null) }
-    val open = { d: DiscoveredInfo -> controller.adopt(d.sessionId, d.dir); onAdopted() }
-
-    SettingsScaffold("Discover sessions", onBack) {
-        Text(
-            "Claude sessions found on this machine — tap to open one in the app. " +
-                "⚠️ means a live session is open in a terminal; dictating to it from here can conflict.",
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
-        )
-        if (discoverError.isNotBlank()) {
-            Text("⚠️ $discoverError", color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
-        }
-        if (discovered.isEmpty()) {
-            Text("Scanning… (or none found)", style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(top = 12.dp))
-        }
-        // A plain Column (not LazyColumn) because SettingsScaffold already wraps
-        // its content in a verticalScroll — nesting a LazyColumn in that crashes.
-        Column(Modifier.fillMaxWidth()) {
-            discovered.forEach { d ->
-                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f).clickable { if (d.active) confirm = d else open(d) }) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (d.active) Text("⚠️ ", style = MaterialTheme.typography.bodyMedium)
-                            Text(d.dir.substringAfterLast('/').ifEmpty { d.dir },
-                                style = MaterialTheme.typography.titleSmall)
-                            if (d.registered) Text("  · in app", style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary)
-                        }
-                        Text(d.dir, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(relativeTime(d.lastActive) + if (d.active) " · live in terminal" else "",
-                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
-                    }
-                    TextButton(onClick = { deleteTarget = d }) { Text("🗑") }
-                }
-                HorizontalDivider()
-            }
-        }
-    }
-
-    confirm?.let { d ->
-        AlertDialog(
-            onDismissRequest = { confirm = null },
-            title = { Text("Live in a terminal") },
-            text = {
-                Text("An interactive claude is running at:\n\n${d.dir}\n\n" +
-                    "Opening + dictating from the app drives the same session and can interleave " +
-                    "with your terminal. View/history is safe; avoid dictating to both at once.")
-            },
-            confirmButton = { TextButton(onClick = { confirm = null; open(d) }) { Text("Open anyway") } },
-            dismissButton = { TextButton(onClick = { confirm = null }) { Text("Cancel") } },
-        )
-    }
-
-    deleteTarget?.let { d ->
-        if (d.active) {
-            AlertDialog(
-                onDismissRequest = { deleteTarget = null },
-                title = { Text("Live in a terminal") },
-                text = { Text("Close the terminal session at ${d.dir} first — a session that's currently running can't be deleted.") },
-                confirmButton = { TextButton(onClick = { deleteTarget = null }) { Text("OK") } },
-            )
-        } else {
-            AlertDialog(
-                onDismissRequest = { deleteTarget = null },
-                title = { Text("Delete permanently?") },
-                text = {
-                    Text("This deletes ALL Claude conversations for:\n\n${d.dir}\n\n" +
-                        "Every session's transcript in this directory is removed from disk for good — " +
-                        "this can't be undone.")
-                },
-                confirmButton = {
-                    TextButton(onClick = { controller.deleteDiscovered(d.sessionId); deleteTarget = null }) {
-                        Text("Delete", color = MaterialTheme.colorScheme.error)
-                    }
-                },
-                dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("Cancel") } },
-            )
         }
     }
 }
@@ -594,60 +586,6 @@ private fun relativeTime(unixSeconds: Long): String {
         secs < 86400 -> "${secs / 3600}h ago"
         secs < 86400 * 30 -> "${secs / 86400}d ago"
         else -> "${secs / (86400 * 30)}mo ago"
-    }
-}
-
-@Composable
-private fun SessionRow(
-    s: SessionInfo,
-    isAttached: Boolean,
-    onAttach: () -> Unit,
-    onRename: (String) -> Unit,
-    onDelete: () -> Unit,
-) {
-    var renaming by remember { mutableStateOf(false) }
-    var deleting by remember { mutableStateOf(false) }
-    Row(
-        Modifier.fillMaxWidth().clickable { onAttach() }.padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            Modifier.size(8.dp)
-                .background(
-                    if (isAttached) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
-                    CircleShape,
-                ),
-        )
-        Column(Modifier.weight(1f).padding(start = 10.dp)) {
-            Text(s.name, fontWeight = if (isAttached) FontWeight.Bold else FontWeight.Normal)
-            Text(
-                s.dir, style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.outline, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            )
-        }
-        TextButton(onClick = { renaming = true }) { Text("✎") }
-        TextButton(onClick = { deleting = true }) { Text("🗑") }
-    }
-    if (renaming) {
-        var newName by remember { mutableStateOf(s.name) }
-        AlertDialog(
-            onDismissRequest = { renaming = false },
-            title = { Text("Rename session") },
-            text = {
-                OutlinedTextField(newName, { newName = it }, singleLine = true, label = { Text("Name") })
-            },
-            confirmButton = { TextButton(onClick = { onRename(newName); renaming = false }) { Text("Rename") } },
-            dismissButton = { TextButton(onClick = { renaming = false }) { Text("Cancel") } },
-        )
-    }
-    if (deleting) {
-        AlertDialog(
-            onDismissRequest = { deleting = false },
-            title = { Text("Delete session?") },
-            text = { Text("Remove \"${s.name}\"? This deletes the session record (the directory is left untouched).") },
-            confirmButton = { TextButton(onClick = { onDelete(); deleting = false }) { Text("Delete") } },
-            dismissButton = { TextButton(onClick = { deleting = false }) { Text("Cancel") } },
-        )
     }
 }
 

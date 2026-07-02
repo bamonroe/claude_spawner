@@ -161,6 +161,10 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     /** Permanently delete a discovered session's transcript from disk. */
     fun deleteDiscovered(sessionId: String) = client?.send(Outbound.deleteDiscovered(sessionId))
 
+    /** Give a discovered session a custom name (registers it by dir if needed). */
+    fun renameDiscovered(sessionId: String, dir: String, newName: String) =
+        client?.send(Outbound.renameDiscovered(sessionId, dir, newName))
+
     fun attachTo(name: String) {
         showLog(name) // switch to that session's log immediately (cached if we have it)
         client?.send(Outbound.attach(name))
@@ -398,7 +402,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
         when (msg) {
             is ServerMsg.HelloOk -> {
                 _status.value = "connected"
-                refreshSessions()
+                discover() // the drawer lists ALL machine sessions (discovery is the source)
                 settings.lastSession.takeIf { it.isNotEmpty() }?.let {
                     client?.send(Outbound.attach(it, silent = true)) // reconnect: re-attach quietly
                 }
