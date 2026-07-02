@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts.RequestPermission
 import androidx.compose.material3.Switch
@@ -153,6 +154,10 @@ private fun AppRoot(
     var screen by rememberSaveable { mutableStateOf("main") }
     // Reconnect re-sends hello (end token / stt / aliases).
     val reconnect = { controller.connect(settings.url, settings.token) }
+    // System back: settings sub-pages pop to the hub; hub/browse pop to main.
+    BackHandler(enabled = screen != "main") {
+        screen = if (screen.startsWith("set_")) "settings" else "main"
+    }
     when (screen) {
         "settings" -> SettingsHub(onOpen = { screen = it }, onBack = { screen = "main" })
         "set_server" -> ServerSettings(
@@ -193,6 +198,8 @@ private fun MainScreen(
 ) {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    // System back closes the open drawer instead of leaving the app.
+    BackHandler(enabled = drawerState.isOpen) { scope.launch { drawerState.close() } }
 
     val status by controller.status.collectAsStateWithLifecycle()
     val connected by controller.connected.collectAsStateWithLifecycle()
