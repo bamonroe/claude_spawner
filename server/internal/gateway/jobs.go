@@ -26,24 +26,27 @@ func logField(s string) string {
 	return string(out)
 }
 
-// sessionJob is a dictation turn that runs independently of any WebSocket
-// connection, so a long Claude job survives the app disconnecting. Live events
-// (tool breadcrumbs, the final result) go to the attached connection if there is
-// one; the final result is buffered and delivered on the next reconnect if not.
+// sessionJob is a per-session hub for a dictation turn, running independently of
+// any WebSocket connection so a long Claude job survives the app disconnecting.
+// It fans out live events (tool breadcrumbs, the final result) to EVERY currently
+// attached connection's sink — so several devices watching the same session all
+// see the turn live — and buffers the final result if nobody is attached when the
+// turn finishes, for delivery on the next reconnect.
 //
-// The `live` sink returns true only if it actually reached a connected client —
-// so if the app drops right as the turn finishes, the result stays undelivered
-// and is replayed when the app comes back.
-// Lock ordering: emit/finish/bindJob call the live sink (conn.jobSink -> conn.send)
+// The hub persists across turns (it holds the sink set + any buffered result)
+// until the session is deleted. Sinks are maintained by bindJob/unbindJob as
+// connections attach/detach, independent of which one dictated the turn.
+//
+// Lock ordering: emit/finish/bindJob call the sinks (conn.jobSink -> conn.send)
 // while holding j.mu, and conn.send takes conn.wmu — so the order is ALWAYS
-// j.mu -> conn.wmu, never the reverse. The sink must not call back into the job
+// j.mu -> conn.wmu, never the reverse. A sink must not call back into the job
 // (it would re-enter j.mu and deadlock); it only does a websocket write.
 type sessionJob struct {
 	mu        sync.Mutex
 	running   bool
-	final     map[string]any // result or error message, once done
-	delivered bool           // was `final` delivered to a live connection?
-	live      func(any) bool // current attached connection's sink, or nil
+	final     map[string]any           // last turn's result, buffered until delivered
+	delivered bool                     // was `final` delivered to at least one live sink?
+	sinks     map[*conn]func(any) bool // every attached connection's sink
 }
 
 func (j *sessionJob) isRunning() bool {
@@ -52,38 +55,65 @@ func (j *sessionJob) isRunning() bool {
 	return j.running
 }
 
-// emit sends a live-only event (e.g. a tool breadcrumb); dropped if nobody's attached.
+// broadcast sends msg to every attached sink, returning true if at least one
+// reached a live client. Call with j.mu held.
+func (j *sessionJob) broadcast(msg any) bool {
+	reached := false
+	for _, sink := range j.sinks {
+		if sink(msg) {
+			reached = true
+		}
+	}
+	return reached
+}
+
+// emit fans out a live-only event (e.g. a tool breadcrumb) to every attached
+// connection; dropped for any that are gone / if nobody's attached.
 func (j *sessionJob) emit(msg map[string]any) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	if j.live != nil {
-		j.live(msg)
-	}
+	j.broadcast(msg)
 }
 
 func (j *sessionJob) finish(final map[string]any) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	j.running = false
-	if j.live != nil && j.live(final) {
-		j.delivered = true // reached a live client; no need to buffer it
+	if j.broadcast(final) {
+		j.delivered = true // reached at least one live client; no need to buffer
 	} else {
 		j.final = final // nobody attached — buffer for the next reconnect
 	}
 }
 
-// startTurn launches a dictation turn for the session in the background (so it
-// outlives the connection) and streams events to `live`. Returns false if a turn
-// is already running for that session.
-func (s *Server) startTurn(sess *session.Session, text string, live func(any) bool) bool {
+// jobFor returns the session's job hub, creating it if absent. The hub persists
+// across turns (it holds the attached-connection sinks and any buffered result)
+// until the session is deleted (dropJob).
+func (s *Server) jobFor(name string) *sessionJob {
 	s.jobsMu.Lock()
-	if j := s.jobs[sess.Name]; j != nil && j.isRunning() {
-		s.jobsMu.Unlock()
+	defer s.jobsMu.Unlock()
+	j := s.jobs[name]
+	if j == nil {
+		j = &sessionJob{}
+		s.jobs[name] = j
+	}
+	return j
+}
+
+// startTurn launches a dictation turn for the session in the background (so it
+// outlives the connection) and fans events out to every attached connection.
+// Returns false if a turn is already running for that session.
+func (s *Server) startTurn(sess *session.Session, text string) bool {
+	j := s.jobFor(sess.Name)
+	j.mu.Lock()
+	if j.running {
+		j.mu.Unlock()
 		return false
 	}
-	j := &sessionJob{running: true, live: live}
-	s.jobs[sess.Name] = j
-	s.jobsMu.Unlock()
+	j.running = true
+	j.final = nil // a fresh turn supersedes any prior buffered result
+	j.delivered = false
+	j.mu.Unlock()
 
 	log.Printf("turn[%s] input: %q", sess.Name, logField(text))
 	go func() {
@@ -157,47 +187,61 @@ func sortedKeys(m map[string]bool) []string {
 	return ks
 }
 
-// bindJob wires a newly-attached connection's sink to the session's job (if any)
-// and catches it up: a running job says "still working", a finished-but-
-// undelivered job delivers its buffered result.
-func (s *Server) bindJob(sessName string, live func(any) bool, silent bool) {
-	s.jobsMu.Lock()
-	j := s.jobs[sessName]
-	s.jobsMu.Unlock()
-	if j == nil {
-		return
-	}
+// bindJob adds a newly-attached connection to the session's job (creating the hub
+// if needed, so future turns fan out to this connection) and catches it up: a
+// running job sends this one connection a "still working" nudge; a finished-but-
+// undelivered job hands it the buffered result.
+func (s *Server) bindJob(c *conn, sessName string, silent bool) {
+	j := s.jobFor(sessName)
+	sink := c.jobSink()
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	j.live = live
+	if j.sinks == nil {
+		j.sinks = map[*conn]func(any) bool{}
+	}
+	j.sinks[c] = sink
 	switch {
 	case j.running:
+		// Catch up just this new connection (not a fan-out). Silent reconnect
+		// auto-attach gets a quiet breadcrumb (so the app knows the turn survived
+		// and its interruption watchdog resets); a voice attach gets a spoken nudge.
 		if silent {
-			// Reconnect auto-attach: no spoken line, but send a silent breadcrumb so
-			// the app knows the turn survived the disconnect (and its interruption
-			// watchdog resets) rather than assuming the turn was lost.
-			live(msgActivity("🤔 still working…"))
+			sink(msgActivity("🤔 still working…"))
 		} else {
-			live(msgSay("still working on it, bud — one sec."))
+			sink(msgSay("still working on it, bud — one sec."))
 		}
 	case !j.delivered && j.final != nil:
-		if live(j.final) {
+		// A turn finished with nobody attached; hand the buffered result to the
+		// first connection back, then free it.
+		if sink(j.final) {
 			j.delivered = true
-			j.final = nil // free the buffered reply once it's delivered
+			j.final = nil
 		}
 	}
 }
 
-// unbindJob clears a session job's live sink (on disconnect/detach) so a job that
-// finishes while nobody is attached buffers its result for the next reconnect.
-func (s *Server) unbindJob(sessName string) {
+// unbindJob removes a connection's sink from the session job (on disconnect or
+// detach). The hub and any buffered result survive so a turn that finishes while
+// nobody is attached is still delivered on the next reconnect.
+func (s *Server) unbindJob(c *conn, sessName string) {
 	s.jobsMu.Lock()
 	j := s.jobs[sessName]
 	s.jobsMu.Unlock()
 	if j != nil {
 		j.mu.Lock()
-		j.live = nil
+		delete(j.sinks, c)
 		j.mu.Unlock()
+	}
+}
+
+// renameJob re-keys a session's job hub when the session is renamed, so its
+// sinks, in-flight turn, and buffered result carry over to the new name.
+func (s *Server) renameJob(old, newName string) {
+	s.jobsMu.Lock()
+	defer s.jobsMu.Unlock()
+	if j := s.jobs[old]; j != nil {
+		delete(s.jobs, old)
+		s.jobs[newName] = j
 	}
 }
 

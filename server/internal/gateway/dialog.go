@@ -371,7 +371,11 @@ func (c *conn) spawnAwaitAttach(text string) {
 			return
 		}
 		c.dlg = nil
+		if c.attached != nil {
+			c.srv.unbindJob(c, c.attached.Name)
+		}
 		c.attached = sess
+		c.srv.bindJob(c, sess.Name, true) // register for live turn fan-out (fresh session: no catch-up)
 		c.send(msgAttached(sess.Name))
 		c.send(msgSay("attached to " + sess.Name + "."))
 	case negative(text):

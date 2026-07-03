@@ -164,6 +164,44 @@ func TestSpawnDialogAndDictation(t *testing.T) {
 	}
 }
 
+// TestMultiDeviceLiveFanout: two connections attached to the same session both
+// receive a dictated turn's reply live (not just the one that dictated).
+func TestMultiDeviceLiveFanout(t *testing.T) {
+	ts, root := newTestServer(t, nil)
+	if err := os.MkdirAll(filepath.Join(root, "myproj"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Device A: spawn + attach.
+	a := dial(t, ts)
+	send(t, a, map[string]any{"type": "hello", "token": "secret"})
+	readUntil(t, a, "hello_ok")
+	send(t, a, map[string]any{"type": "utterance", "text": "hey buddy spawn a new session"})
+	readUntil(t, a, "dialog") // await_root
+	send(t, a, map[string]any{"type": "utterance", "text": filepath.Base(root)})
+	readUntil(t, a, "dialog") // await_child
+	send(t, a, map[string]any{"type": "utterance", "text": "myproj"})
+	readUntil(t, a, "dialog") // await_attach
+	send(t, a, map[string]any{"type": "utterance", "text": "yes"})
+	name := readUntil(t, a, "attached")["name"].(string)
+
+	// Device B: attach to the SAME session (passive watcher).
+	b := dial(t, ts)
+	send(t, b, map[string]any{"type": "hello", "token": "secret"})
+	readUntil(t, b, "hello_ok")
+	send(t, b, map[string]any{"type": "attach", "name": name})
+	readUntil(t, b, "attached") // ensures B's sink is registered before A dictates
+
+	// Device A dictates -> both A and B must receive the reply live.
+	send(t, a, map[string]any{"type": "utterance", "text": "say pong"})
+	if out := readUntil(t, a, "output"); out["text"] != "pong" {
+		t.Fatalf("device A: expected 'pong', got %v", out["text"])
+	}
+	if out := readUntil(t, b, "output"); out["text"] != "pong" {
+		t.Fatalf("device B (fan-out): expected 'pong', got %v", out["text"])
+	}
+}
+
 func TestSpawnCreatesNewFolder(t *testing.T) {
 	ts, root := newTestServer(t, nil)
 	// Root needs a child so it prompts (await_child) rather than using itself.

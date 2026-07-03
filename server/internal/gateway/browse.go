@@ -58,7 +58,11 @@ func (c *conn) doSpawnAt(path string) {
 		c.send(msgError("internal", perr.Error()))
 		return
 	}
+	if c.attached != nil {
+		c.srv.unbindJob(c, c.attached.Name)
+	}
 	c.attached = sess
+	c.srv.bindJob(c, sess.Name, true) // register for live turn fan-out (fresh session: no catch-up)
 	c.send(msgAttached(sess.Name))
 	c.sendSessionList()
 }

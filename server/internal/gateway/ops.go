@@ -280,7 +280,7 @@ func (c *conn) doAttach(name string, silent bool) {
 		return
 	}
 	if c.attached != nil {
-		c.srv.unbindJob(c.attached.Name)
+		c.srv.unbindJob(c, c.attached.Name)
 	}
 	c.clearBuffer() // fresh message buffer for the new session
 	c.attached = s
@@ -289,7 +289,7 @@ func (c *conn) doAttach(name string, silent bool) {
 		c.send(msgSay("attached to " + s.Name + "."))
 	}
 	// Catch up on a job that may still be running (or finished while we were gone).
-	c.srv.bindJob(s.Name, c.jobSink(), silent)
+	c.srv.bindJob(c, s.Name, silent)
 }
 
 // matchKey normalizes a spoken/stored name or dir for fuzzy voice matching:
@@ -339,7 +339,7 @@ func (c *conn) doDetach() {
 		c.send(msgSay("you're not attached to anything, bud."))
 		return
 	}
-	c.srv.unbindJob(c.attached.Name)
+	c.srv.unbindJob(c, c.attached.Name)
 	c.clearBuffer()
 	c.attached = nil
 	c.send(msgDetached())
@@ -397,8 +397,10 @@ func (c *conn) doRename(old, newName string) {
 		c.send(msgError("rename_failed", err.Error()))
 		return
 	}
-	// Follow the rename if we're attached to it.
+	// Follow the rename if we're attached to it. The job hub is keyed by name, so
+	// re-key it too (preserving its sinks + any in-flight turn/buffered result).
 	if c.attached != nil && c.attached.Name == old {
+		c.srv.renameJob(old, newName)
 		c.attached = c.srv.store.Get(newName)
 	}
 	c.sendSessionList() // push the refreshed list back to the app (quietly)
@@ -420,7 +422,7 @@ func (c *conn) dictate(text string) {
 		c.send(msgSay("attach to a session first, bud."))
 		return
 	}
-	if !c.srv.startTurn(c.attached, text, c.jobSink()) {
+	if !c.srv.startTurn(c.attached, text) {
 		c.send(msgSay("still working on the last one, bud."))
 	}
 }

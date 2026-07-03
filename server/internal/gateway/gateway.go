@@ -148,7 +148,7 @@ func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
 	// buffers its result for the next reconnect instead of dropping it).
 	c.closed = true
 	if c.attached != nil {
-		c.srv.unbindJob(c.attached.Name)
+		c.srv.unbindJob(c, c.attached.Name)
 	}
 	c.saveState() // stash state so the next reconnect can resume
 }
