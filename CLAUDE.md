@@ -45,6 +45,11 @@ The user speaks; the app transcribes (via server-side Whisper); the text is eith
 as a **reserved control command** or passed through to the currently attached Claude Code
 session. Claude Code's output is streamed back to the phone and read aloud (TTS).
 
+**The tool is self-hosting.** The user develops claude_spawner *through* claude_spawner — the
+Pixel 8a runs the app attached to the very Claude Code session doing the work, so a build you ship
+becomes the client you're talking to. Expect to see your own messages appear in the app's chat log,
+and remember that an Android change you push can affect the live client mid-conversation.
+
 ## The "hey buddy" command grammar
 
 Every control command is prefixed with the wake word **"hey buddy"**. Anything spoken while
