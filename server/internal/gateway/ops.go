@@ -93,6 +93,7 @@ func (c *conn) doDiscover() {
 		views = append(views, discoveredView{
 			Name: name, Dir: d.Dir, SessionID: d.SessionID,
 			LastActive: d.LastActive, Active: active[d.Dir], Registered: registered,
+			Busy: registered && c.srv.isBusy(name),
 		})
 	}
 	// Include registered sessions that have no transcript yet (just-spawned) so
@@ -102,6 +103,7 @@ func (c *conn) doDiscover() {
 			views = append(views, discoveredView{
 				Name: s.Name, Dir: s.Dir, SessionID: s.SessionID,
 				LastActive: 0, Active: active[s.Dir], Registered: true,
+				Busy: c.srv.isBusy(s.Name),
 			})
 		}
 	}
@@ -436,7 +438,10 @@ func (c *conn) dictate(text string) {
 	}
 	if !c.srv.startTurn(c.attached, text) {
 		c.send(msgSay("still working on the last one, bud."))
+		return
 	}
+	// Mirror the prompt onto any other devices attached to this session.
+	c.srv.echoUserPrompt(c.attached.Name, text, c)
 }
 
 // affirmative / negative recognize yes/no style dialog replies.

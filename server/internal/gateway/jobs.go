@@ -69,6 +69,17 @@ func (j *sessionJob) broadcast(msg any) bool {
 	return reached
 }
 
+// broadcastExcept sends msg to every attached sink except `origin`'s.
+func (j *sessionJob) broadcastExcept(origin *conn, msg any) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	for c, sink := range j.sinks {
+		if c != origin {
+			sink(msg)
+		}
+	}
+}
+
 // emit fans out a live-only event (e.g. a tool breadcrumb) to every attached
 // connection; dropped for any that are gone / if nobody's attached.
 func (j *sessionJob) emit(msg map[string]any) {
@@ -266,6 +277,26 @@ func (s *Server) renameJob(old, newName string) {
 	if j := s.jobs[old]; j != nil {
 		delete(s.jobs, old)
 		s.jobs[newName] = j
+	}
+}
+
+// isBusy reports whether a dictation turn is running for the session now.
+func (s *Server) isBusy(name string) bool {
+	s.jobsMu.Lock()
+	j := s.jobs[name]
+	s.jobsMu.Unlock()
+	return j != nil && j.isRunning()
+}
+
+// echoUserPrompt shows a just-dictated prompt on the OTHER devices attached to a
+// session (the dictating one already displayed it), so multi-device views stay
+// in sync live rather than only on the next history reload.
+func (s *Server) echoUserPrompt(name, text string, origin *conn) {
+	s.jobsMu.Lock()
+	j := s.jobs[name]
+	s.jobsMu.Unlock()
+	if j != nil {
+		j.broadcastExcept(origin, msgTranscript(text, true))
 	}
 }
 

@@ -125,6 +125,7 @@ type discoveredView struct {
 	LastActive int64  `json:"last_active"` // unix seconds
 	Active     bool   `json:"active"`      // interactive claude open in tmux at this dir
 	Registered bool   `json:"registered"`  // already in the spawner registry
+	Busy       bool   `json:"busy"`        // a dictation turn is running for this session now
 }
 
 func msgDiscovered(items []discoveredView) map[string]any {
