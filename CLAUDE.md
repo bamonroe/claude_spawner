@@ -211,6 +211,14 @@ jail), `SPAWNER_STATE` (`sessions.json`), `SPAWNER_CLAUDE_BIN` (`claude`), `SPAW
 
 - Keep the **command grammar** and the **WebSocket message protocol** in `/docs` as the single
   source of truth; both client and server reference it.
+- The **command set** has a code source of truth: `server/internal/command.Registry` (a list of
+  `Command{Kind, Title, Aliases, Description, Example}` structs). Adding/changing a "hey buddy"
+  command means editing that registry — tests enforce it (every `Example` must `Parse` to its
+  `Kind`, and every user-facing `Kind` must be registered). Regenerate the shared artifact with
+  `go run ./cmd/gencommands` (writes `docs/commands.json`); a drift test fails if it's stale. The
+  Android build's `generateCommands` Gradle task turns that JSON into the app's alphabetical
+  `COMMANDS` list at build time, so the app can never drift or ship an undocumented command. Do
+  **not** hand-maintain a command list in the app.
 - Server: idiomatic Go, `gofmt`, errors wrapped with context. Keep tmux interaction behind one
   package so the shell-out details are isolated and testable.
 - Android: Kotlin, keep audio/wake-word, networking, and UI in separate modules/packages.
