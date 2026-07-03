@@ -8,7 +8,8 @@ import org.json.JSONObject
  * built-in org.json to avoid a serialization dependency.
  */
 sealed interface ServerMsg {
-    data class HelloOk(val serverVersion: String) : ServerMsg
+    data class HelloOk(val serverVersion: String, val whisperModel: String) : ServerMsg
+    data class WhisperModel(val model: String) : ServerMsg // resident server's current model (server-global)
     data class Say(val text: String) : ServerMsg
     data class Transcript(val text: String, val final: Boolean) : ServerMsg
     data class Pending(val text: String) : ServerMsg // live hands-free draft buffer
@@ -35,7 +36,8 @@ sealed interface ServerMsg {
         fun parse(raw: String): ServerMsg {
             val o = JSONObject(raw)
             return when (o.optString("type")) {
-                "hello_ok" -> HelloOk(o.optString("server_version"))
+                "hello_ok" -> HelloOk(o.optString("server_version"), o.optString("whisper_model"))
+                "whisper_model" -> WhisperModel(o.optString("model"))
                 "say" -> Say(o.optString("text"))
                 "transcript" -> Transcript(o.optString("text"), o.optBoolean("final", true))
                 "pending" -> Pending(o.optString("text"))
@@ -134,7 +136,6 @@ data class HelloConfig(
     val sttModel: String,
     val aliases: Map<String, String>,
     val whisperUrl: String,
-    val whisperModel: String,
     val brief: Boolean,
     val interactive: Boolean,
 )
@@ -145,11 +146,12 @@ object Outbound {
         JSONObject().put("type", "hello").put("token", token).put("client_id", clientId)
             .put("end_token", cfg.endToken).put("stt_mode", cfg.sttMode).put("stt_model", cfg.sttModel)
             .put("aliases", JSONObject(cfg.aliases)).put("whisper_url", cfg.whisperUrl)
-            .put("whisper_model", cfg.whisperModel).put("brief", cfg.brief)
-            .put("interactive", cfg.interactive)
+            .put("brief", cfg.brief).put("interactive", cfg.interactive)
             .toString()
     fun utterance(text: String) = JSONObject().put("type", "utterance").put("text", text).toString()
     fun abort() = JSONObject().put("type", "abort").toString() // cancel the running turn
+    fun setWhisperModel(model: String) =
+        JSONObject().put("type", "set_whisper_model").put("whisper_model", model).toString()
     fun wake(codec: String, handsFree: Boolean = false, calibrate: Boolean = false) =
         JSONObject().put("type", "wake").put("codec", codec)
             .put("hands_free", handsFree).put("calibrate", calibrate).toString()

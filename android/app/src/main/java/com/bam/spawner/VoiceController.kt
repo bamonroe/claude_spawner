@@ -122,6 +122,11 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     private val _speaking = MutableStateFlow(false)
     val speaking: StateFlow<Boolean> = _speaking.asStateFlow()
 
+    // The resident whisper model the SERVER currently has (server-global). Read on
+    // connect; changed only via setWhisperModel. "" until the server reports it.
+    private val _whisperModel = MutableStateFlow(settings.whisperModel)
+    val whisperModel: StateFlow<String> = _whisperModel.asStateFlow()
+
     // Pending clarification questions (interactive mode); null when none.
     private val _ask = MutableStateFlow<List<com.bam.spawner.net.AskQuestion>?>(null)
     val ask: StateFlow<List<com.bam.spawner.net.AskQuestion>?> = _ask.asStateFlow()
@@ -189,7 +194,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
         _status.value = "connecting…"
         val hello = com.bam.spawner.net.HelloConfig(
             settings.endToken, settings.sttMode, settings.sttModel, settings.aliasMap(),
-            settings.whisperUrl, settings.whisperModel, settings.brief, settings.interactive,
+            settings.whisperUrl, settings.brief, settings.interactive,
         )
         client = SpawnerClient(url, token, settings.clientId, hello, ::onMessage, ::onConnected)
             .also { it.connect() }
@@ -325,6 +330,10 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
 
     /** Stop the TTS readout (the on-screen tap-to-stop). */
     fun stopSpeaking() = speaker.stop()
+
+    /** Change the resident whisper model (server-global; the server broadcasts the
+     *  new value back to every client). */
+    fun setWhisperModel(model: String) = client?.send(Outbound.setWhisperModel(model))
 
     // --- Live level meter (Audio settings page) ---
     /** Start a standalone meter unless hands-free is already feeding the level. */
@@ -514,10 +523,17 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
         when (msg) {
             is ServerMsg.HelloOk -> {
                 _status.value = "connected"
+                if (msg.whisperModel.isNotBlank()) { // adopt the server's current model
+                    _whisperModel.value = msg.whisperModel
+                    settings.whisperModel = msg.whisperModel
+                }
                 discover() // the drawer lists ALL machine sessions (discovery is the source)
                 settings.lastSession.takeIf { it.isNotEmpty() }?.let {
                     client?.send(Outbound.attach(it, silent = true)) // reconnect: re-attach quietly
                 }
+            }
+            is ServerMsg.WhisperModel -> {
+                if (msg.model.isNotBlank()) { _whisperModel.value = msg.model; settings.whisperModel = msg.model }
             }
             is ServerMsg.Say -> { addChat(Role.SYSTEM, msg.text); speaker.speak(Markdown.toSpeech(msg.text)) }
             is ServerMsg.Output -> {

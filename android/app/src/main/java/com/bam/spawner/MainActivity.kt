@@ -199,7 +199,7 @@ private fun AppRoot(
     when (screen) {
         "settings" -> SettingsHub(onOpen = { screen = it }, onBack = { screen = "main" })
         "set_server" -> ServerSettings(
-            settings,
+            settings, controller,
             onSaveConnect = { url, token -> controller.connect(url, token); screen = "settings" },
             onBack = { screen = "settings" },
         )
@@ -812,9 +812,20 @@ private fun SettingsRow(title: String, subtitle: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun ServerSettings(settings: SettingsStore, onSaveConnect: (String, String) -> Unit, onBack: () -> Unit) {
+private fun ServerSettings(
+    settings: SettingsStore,
+    controller: VoiceController,
+    onSaveConnect: (String, String) -> Unit,
+    onBack: () -> Unit,
+) {
     var url by rememberSaveable { mutableStateOf(settings.url) }
     var token by rememberSaveable { mutableStateOf(settings.token) }
+    // The whisper model is server-global: read the current one, pick a new one,
+    // then push it. Re-sync the picker whenever the server reports a change (even
+    // one made from another device).
+    val current by controller.whisperModel.collectAsStateWithLifecycle()
+    var picked by remember { mutableStateOf(current) }
+    LaunchedEffect(current) { picked = current }
     SettingsScaffold("Server", onBack) {
         OutlinedTextField(url, { url = it }, label = { Text("Server URL") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(token, { token = it }, label = { Text("Token") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -822,6 +833,28 @@ private fun ServerSettings(settings: SettingsStore, onSaveConnect: (String, Stri
             Text("Save & Connect")
         }
         Text("Client ID: ${settings.clientId}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+
+        HorizontalDivider()
+        Text("Whisper model", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Shared by every device — this is the model loaded on the server. Changing it hot-swaps "
+                + "it for everyone (a few seconds to load).",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ThemeChoice("Fast", picked == "small.en") { picked = "small.en" }
+            ThemeChoice("Balanced", picked == "medium.en") { picked = "medium.en" }
+            ThemeChoice("Accurate", picked == "large-v3") { picked = "large-v3" }
+        }
+        Text(
+            "current: ${current.ifBlank { "unknown" }}" +
+                if (picked.isNotBlank() && picked != current) "  →  $picked (not applied)" else "",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
+        )
+        Button(
+            onClick = { controller.setWhisperModel(picked) },
+            enabled = picked.isNotBlank() && picked != current,
+        ) { Text("Apply Whisper Model") }
     }
 }
 
@@ -964,7 +997,6 @@ private fun AudioSettings(
     var endTok by rememberSaveable { mutableStateOf(settings.endToken) }
     var calibrating by remember { mutableStateOf(false) }
     var silence by remember { mutableStateOf(if (settings.silenceCommitSeconds <= 0f) "" else settings.silenceCommitSeconds.toString()) }
-    var whisperModel by remember { mutableStateOf(settings.whisperModel) }
     var whisperUrl by remember { mutableStateOf(settings.whisperUrl) }
 
     SettingsScaffold("Audio", onBack) {
@@ -1022,21 +1054,6 @@ private fun AudioSettings(
         Text("Commits after this much quiet. Blank/0 = only the end token commits.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
 
         HorizontalDivider()
-        Text("Whisper model", style = MaterialTheme.typography.titleMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ThemeChoice("Fast", whisperModel == "small.en") { whisperModel = "small.en"; settings.whisperModel = "small.en"; onSttChanged() }
-            ThemeChoice("Balanced", whisperModel == "medium.en") { whisperModel = "medium.en"; settings.whisperModel = "medium.en"; onSttChanged() }
-            ThemeChoice("Accurate", whisperModel == "large-v3") { whisperModel = "large-v3"; settings.whisperModel = "large-v3"; onSttChanged() }
-        }
-        Text(
-            when (whisperModel) {
-                "small.en" -> "small.en — fastest (~2–3s on the GPU), fine for short commands."
-                "large-v3" -> "large-v3 — most accurate, slowest (~10s+); best for hard audio / long dictation."
-                else -> "medium.en — balanced (~5s), the default sweet spot."
-            } + " Changing it hot-swaps the resident model (a few seconds to load).",
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
-        )
-
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(
                 whisperUrl, { whisperUrl = it; settings.whisperUrl = it },
