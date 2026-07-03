@@ -204,6 +204,12 @@ func (s *Server) startTurn(sess *session.Session, text string) bool {
 				j.emit(msgDiff(d))
 			}
 		}
+		if qs, ok := parseAsk(reply); ok {
+			// Interactive mode: Claude wants clarification — deliver the questions
+			// for the app to render/read, not as a final answer.
+			j.finish(msgAsk(sess.Name, qs))
+			return
+		}
 		j.finish(msgOutput(sess.Name, reply, false))
 	}()
 	return true

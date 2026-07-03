@@ -31,6 +31,7 @@ type inbound struct {
 	Silent       bool              `json:"silent"`        // on `attach`: suppress the spoken "attached…" confirmation (reconnect auto-attach)
 	SessionID    string            `json:"session_id"`    // on `adopt`: the discovered Claude session_id to register
 	Brief        bool              `json:"brief"`         // on `hello`: append a "reply briefly for TTS" hint to dictation
+	Interactive  bool              `json:"interactive"`   // on `hello`: let Claude ask clarifying questions mid-task
 }
 
 func msgHelloOK(sessionID string) map[string]any {
@@ -95,6 +96,12 @@ func msgPong() map[string]any { return map[string]any{"type": "pong"} }
 // its "thinking…" state and prompt the user to resend instead of waiting forever.
 func msgTurnInterrupted(name, reason string) map[string]any {
 	return map[string]any{"type": "turn_interrupted", "name": name, "reason": reason}
+}
+
+// msgAsk forwards Claude's mid-task clarification questions (interactive mode) to
+// the app, which renders them (chips / text fields) and reads them aloud.
+func msgAsk(name string, qs []askQuestion) map[string]any {
+	return map[string]any{"type": "ask", "name": name, "questions": qs}
 }
 
 // msgDiff carries a compact `git diff --stat` review summary after a turn that

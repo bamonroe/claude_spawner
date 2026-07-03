@@ -264,14 +264,15 @@ type conn struct {
 	gated      bool   // current utterance is hands-free (VAD-gated → accumulate)
 	calibrate  bool   // current utterance is an end-token calibration sample
 
-	buffer   []string               // hands-free rough draft (per-chunk fast transcripts, for detection)
-	audioPCM []byte                 // hands-free raw PCM of all chunks, re-transcribed as one on commit
-	brief    bool                   // append a "reply briefly for TTS" hint to dictation
-	endToken string                 // spoken word that commits the buffer (default "beep")
-	sttMode  string                 // "dynamic" | "fixed" whisper model selection
-	sttModel string                 // fixed-mode model: "tiny" | "base" | "small"
-	aliases  map[string]string      // mis-transcription -> canonical command word
-	stt      transcribe.Transcriber // per-conn override (app-set whisper URL); nil = server default
+	buffer      []string               // hands-free rough draft (per-chunk fast transcripts, for detection)
+	audioPCM    []byte                 // hands-free raw PCM of all chunks, re-transcribed as one on commit
+	brief       bool                   // append a "reply briefly for TTS" hint to dictation
+	interactive bool                   // let Claude ask clarifying questions mid-task
+	endToken    string                 // spoken word that commits the buffer (default "beep")
+	sttMode     string                 // "dynamic" | "fixed" whisper model selection
+	sttModel    string                 // fixed-mode model: "tiny" | "base" | "small"
+	aliases     map[string]string      // mis-transcription -> canonical command word
+	stt         transcribe.Transcriber // per-conn override (app-set whisper URL); nil = server default
 }
 
 // transcriber returns this connection's STT — an app-set override if present,
@@ -319,6 +320,7 @@ func (c *conn) authenticate() bool {
 	}
 	c.clientID = in.ClientID
 	c.brief = in.Brief
+	c.interactive = in.Interactive
 	c.endToken = strings.TrimSpace(in.EndToken)
 	if c.endToken == "" {
 		c.endToken = "beep"

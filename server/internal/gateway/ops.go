@@ -442,6 +442,9 @@ func (c *conn) dictate(text string) {
 		// to Claude carries the hint; the displayed/echoed transcript stays as spoken.
 		prompt += "\n\n(Reply briefly, in plain sentences suitable for text-to-speech.)"
 	}
+	if c.interactive {
+		prompt += askInstruction // let Claude ask instead of guessing (parsed back on reply)
+	}
 	if !c.srv.startTurn(c.attached, prompt) {
 		c.send(msgSay("still working on the last one, bud."))
 		return
