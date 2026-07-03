@@ -73,6 +73,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -197,8 +198,15 @@ private fun MainScreen(
 ) {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    val focus = LocalFocusManager.current
     // System back closes the open drawer instead of leaving the app.
     BackHandler(enabled = drawerState.isOpen) { scope.launch { drawerState.close() } }
+    // Opening the drawer dismisses the keyboard (clearing the input field's focus
+    // hides the IME) so it can't overlap the sidebar. targetValue fires as the open
+    // animation begins, not after it settles.
+    LaunchedEffect(drawerState.targetValue) {
+        if (drawerState.targetValue == DrawerValue.Open) focus.clearFocus()
+    }
 
     val status by controller.status.collectAsStateWithLifecycle()
     val connected by controller.connected.collectAsStateWithLifecycle()
