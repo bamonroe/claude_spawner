@@ -26,6 +26,7 @@ sealed interface ServerMsg {
     data class TurnInterrupted(val name: String, val reason: String) : ServerMsg
     data class TurnStopped(val name: String) : ServerMsg // a turn was deliberately aborted
     data class Diff(val text: String) : ServerMsg // post-turn `git diff --stat` review
+    data class Ask(val name: String, val questions: List<AskQuestion>) : ServerMsg // interactive clarification
     data object StopSpeaking : ServerMsg
     data class Listing(val path: String, val parent: String, val entries: List<BrowseEntry>) : ServerMsg
     data class Unknown(val type: String) : ServerMsg
@@ -52,6 +53,7 @@ sealed interface ServerMsg {
                 "turn_interrupted" -> TurnInterrupted(o.optString("name"), o.optString("reason"))
                 "turn_stopped" -> TurnStopped(o.optString("name"))
                 "diff" -> Diff(o.optString("text"))
+                "ask" -> Ask(o.optString("name"), readAsk(o.optJSONArray("questions")))
                 "stop_speaking" -> StopSpeaking
                 "listing" -> Listing(o.optString("path"), o.optString("parent"), readEntries(o.optJSONArray("entries")))
                 else -> Unknown(o.optString("type"))
@@ -66,6 +68,18 @@ sealed interface ServerMsg {
                     s.optString("name"), s.optString("dir"), s.optString("session_id"),
                     s.optLong("last_active"), s.optBoolean("active"), s.optBoolean("registered"),
                     s.optBoolean("busy"),
+                )
+            }
+        }
+
+        private fun readAsk(arr: JSONArray?): List<AskQuestion> {
+            if (arr == null) return emptyList()
+            return (0 until arr.length()).map {
+                val q = arr.getJSONObject(it)
+                val opts = q.optJSONArray("options")
+                AskQuestion(
+                    q.optString("q"),
+                    if (opts == null) emptyList() else (0 until opts.length()).map { i -> opts.optString(i) },
                 )
             }
         }
@@ -110,6 +124,9 @@ data class DiscoveredInfo(
 /** A directory in the "new session" browser. */
 data class BrowseEntry(val name: String, val path: String, val repo: Boolean)
 
+/** One clarification Claude asked (interactive mode). Empty options = free-text. */
+data class AskQuestion(val q: String, val options: List<String>)
+
 /** Per-connection preferences sent in the hello handshake. */
 data class HelloConfig(
     val endToken: String,
@@ -119,6 +136,7 @@ data class HelloConfig(
     val whisperUrl: String,
     val whisperModel: String,
     val brief: Boolean,
+    val interactive: Boolean,
 )
 
 /** app -> server message builders. */
@@ -128,6 +146,7 @@ object Outbound {
             .put("end_token", cfg.endToken).put("stt_mode", cfg.sttMode).put("stt_model", cfg.sttModel)
             .put("aliases", JSONObject(cfg.aliases)).put("whisper_url", cfg.whisperUrl)
             .put("whisper_model", cfg.whisperModel).put("brief", cfg.brief)
+            .put("interactive", cfg.interactive)
             .toString()
     fun utterance(text: String) = JSONObject().put("type", "utterance").put("text", text).toString()
     fun abort() = JSONObject().put("type", "abort").toString() // cancel the running turn

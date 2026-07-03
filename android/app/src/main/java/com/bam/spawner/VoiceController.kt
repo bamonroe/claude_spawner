@@ -3,6 +3,7 @@ package com.bam.spawner
 import android.content.Context
 import com.bam.spawner.audio.AudioOutput
 import com.bam.spawner.audio.AudioRouter
+import com.bam.spawner.net.AskQuestion
 import com.bam.spawner.audio.HandsFreeRecorder
 import com.bam.spawner.audio.LevelMeter
 import com.bam.spawner.audio.OpusRecorder
@@ -117,6 +118,10 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     private val _activity = MutableStateFlow("")
     val activity: StateFlow<String> = _activity.asStateFlow()
 
+    // Pending clarification questions (interactive mode); null when none.
+    private val _ask = MutableStateFlow<List<com.bam.spawner.net.AskQuestion>?>(null)
+    val ask: StateFlow<List<com.bam.spawner.net.AskQuestion>?> = _ask.asStateFlow()
+
     // Spoken-audio output routing (earpiece/speaker/bluetooth). `audioOutputs` is
     // what's currently selectable (bluetooth only when a headset is connected);
     // `audioOutput` is the active one.
@@ -177,7 +182,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
         _status.value = "connecting…"
         val hello = com.bam.spawner.net.HelloConfig(
             settings.endToken, settings.sttMode, settings.sttModel, settings.aliasMap(),
-            settings.whisperUrl, settings.whisperModel, settings.brief,
+            settings.whisperUrl, settings.whisperModel, settings.brief, settings.interactive,
         )
         client = SpawnerClient(url, token, settings.clientId, hello, ::onMessage, ::onConnected)
             .also { it.connect() }
@@ -232,6 +237,24 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
 
     /** Abort the running turn on the attached session (kills the claude child). */
     fun abortTurn() = client?.send(Outbound.abort())
+
+    /** Submit answers to the pending interactive questions (from the dialog). The
+     *  formatted text goes back as an ordinary turn — Claude has the questions in
+     *  context via --resume. */
+    fun submitAnswers(text: String) {
+        _ask.value = null
+        sendText(text)
+    }
+
+    /** Dismiss the questions without answering (they stay in the transcript). */
+    fun dismissAsk() { _ask.value = null }
+
+    private fun spokenQuestions(qs: List<AskQuestion>): String {
+        fun opts(q: AskQuestion) = if (q.options.isEmpty()) "" else " Options: " + q.options.joinToString(", ") + "."
+        if (qs.size == 1) return qs[0].q + opts(qs[0])
+        return "I have ${qs.size} questions. " +
+            qs.mapIndexed { i, q -> "${i + 1}: ${q.q}${opts(q)}" }.joinToString(" ")
+    }
 
     // --- Visual directory browser (New session) ---
     fun browse(path: String) = client?.send(Outbound.browse(path))
@@ -500,7 +523,16 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
             }
             is ServerMsg.Files -> if (msg.files.isNotEmpty()) addChat(Role.SYSTEM, "📝 changed: " + msg.files.joinToString(", "))
             is ServerMsg.Diff -> addChat(Role.SYSTEM, "📊 diff:\n${msg.text}") // review summary, not spoken
+            is ServerMsg.Ask -> {
+                clearTurnInFlight()
+                _activity.value = ""
+                if (hfOn) _voiceState.value = VoiceState.LISTENING
+                _ask.value = msg.questions
+                addChat(Role.SYSTEM, "❓ " + msg.questions.joinToString("  ") { it.q })
+                speaker.speak(spokenQuestions(msg.questions)) // read aloud so you can answer by voice
+            }
             is ServerMsg.Transcript -> {
+                _ask.value = null // a spoken/typed reply answers any pending questions
                 addChat(Role.USER, msg.text); _mic.value = ""
                 if (hfOn) _voiceState.value = VoiceState.THINKING
             }

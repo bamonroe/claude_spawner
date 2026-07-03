@@ -48,6 +48,11 @@ class SettingsStore(context: Context) {
         get() = prefs.getBoolean("brief", false)
         set(v) = prefs.edit().putBoolean("brief", v).apply()
 
+    /** Let Claude ask clarifying questions mid-task instead of guessing. */
+    var interactive: Boolean
+        get() = prefs.getBoolean("interactive", false)
+        set(v) = prefs.edit().putBoolean("interactive", v).apply()
+
     /** Spoken word that commits a hands-free message ("beep" by default). */
     var endToken: String
         get() = prefs.getString("end_token", "beep")?.ifBlank { "beep" } ?: "beep"

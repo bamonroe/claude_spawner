@@ -49,6 +49,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
@@ -84,7 +85,9 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import kotlin.math.log10
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.mutableStateListOf
 import com.bam.spawner.audio.AudioOutput
+import com.bam.spawner.net.AskQuestion
 import com.bam.spawner.net.DiscoveredInfo
 import com.bam.spawner.ui.MarkdownText
 import com.bam.spawner.ui.SpawnerTheme
@@ -263,6 +266,7 @@ private fun MainScreen(
     val mic by controller.mic.collectAsStateWithLifecycle()
     val voiceState by controller.voiceState.collectAsStateWithLifecycle()
     val audioOutput by controller.audioOutput.collectAsStateWithLifecycle()
+    val ask by controller.ask.collectAsStateWithLifecycle()
     val audioOutputs by controller.audioOutputs.collectAsStateWithLifecycle()
     val pending by controller.pending.collectAsStateWithLifecycle()
     val activity by controller.activity.collectAsStateWithLifecycle()
@@ -331,6 +335,9 @@ private fun MainScreen(
             )
         }
     }
+
+    // Interactive-mode questions overlay everything.
+    ask?.let { AskDialog(it, onSubmit = controller::submitAnswers, onDismiss = controller::dismissAsk) }
 
     // --- session-list dialogs (hoisted out of the drawer so they overlay) ---
     confirmOpen?.let { d ->
@@ -476,6 +483,52 @@ private fun ActivityIndicator(text: String, onAbort: () -> Unit) {
         }
         TextButton(onClick = onAbort) { Text("⏹ stop", fontSize = 13.sp) }
     }
+}
+
+/** Interactive-mode clarification questions: chips for multiple-choice, text
+ *  fields otherwise. Also read aloud, so you can just answer by voice (which
+ *  dismisses this). */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AskDialog(questions: List<AskQuestion>, onSubmit: (String) -> Unit, onDismiss: () -> Unit) {
+    val answers = remember(questions) { mutableStateListOf<String>().apply { repeat(questions.size) { add("") } } }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Claude needs input") },
+        text = {
+            Column(
+                Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                questions.forEachIndexed { i, q ->
+                    Text(q.q, style = MaterialTheme.typography.bodyLarge)
+                    if (q.options.isEmpty()) {
+                        OutlinedTextField(answers[i], { answers[i] = it }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    } else {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            q.options.forEach { opt ->
+                                FilterChip(selected = answers[i] == opt, onClick = { answers[i] = opt }, label = { Text(opt) })
+                            }
+                        }
+                    }
+                }
+                Text("…or just answer out loud.", style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline)
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val text = questions.mapIndexed { i, q ->
+                        "Q: ${q.q}\nA: ${answers[i].ifBlank { "(no preference)" }}"
+                    }.joinToString("\n\n")
+                    onSubmit(text)
+                },
+                enabled = answers.any { it.isNotBlank() },
+            ) { Text("Send") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Dismiss") } },
+    )
 }
 
 /** The live hands-free draft — captured-but-uncommitted text, shown greyed above
@@ -920,6 +973,15 @@ private fun AudioSettings(
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
             }
             Switch(checked = brief, onCheckedChange = { brief = it; settings.brief = it; onSttChanged() })
+        }
+        var interactive by remember { mutableStateOf(settings.interactive) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Ask before guessing", style = MaterialTheme.typography.titleMedium)
+                Text("Let Claude ask clarifying questions mid-task instead of guessing.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            }
+            Switch(checked = interactive, onCheckedChange = { interactive = it; settings.interactive = it; onSttChanged() })
         }
 
         HorizontalDivider()
