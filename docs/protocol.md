@@ -95,7 +95,7 @@ capped at ~120 s.
 | `session_list`  | `{ "sessions": [{ "name", "dir", "attached" }] }`    | response to `list`                       |
 | `attached`      | `{ "name": "claude-xyz" }`                            | now in passthrough mode                  |
 | `detached`      | `{}`                                                  | left passthrough mode                    |
-| `output`        | `{ "name": "...", "text": "...", "chunk": true }`     | clean session output (for display + TTS) |
+| `output`        | `{ "name": "...", "text": "...", "chunk": true }`     | clean session output (for display + TTS). Claude's prose **streams live**: one `chunk: true` message per assistant text message as it lands, then a final `chunk: false` closing the turn. A client that saw the stream shows/speaks the chunks and treats the final as an end marker; a client that missed it (a reply buffered while it was detached) gets only the final `chunk: false` and renders that. |
 | `history`       | `{ "name": "...", "messages": [{ "index", "role": "user"\|"claude", "text" }], "more": true }` | a page of past conversation (oldest→newest); `more` = older messages remain to page in. Response to `history`. |
 | `read_last`     | `{ "count": <int> }`                                 | app re-reads (TTS) + scrolls to the last `count` Claude replies in the current session (from the `read last X` command) |
 | `discovered`    | `{ "sessions": [{ "name", "dir", "session_id", "last_active": <unix s>, "active": <bool>, "registered": <bool>, "busy": <bool> }] }` | all Claude sessions found on disk (one per dir, newest first). `active` = an interactive `claude` is open in tmux at that dir (driving it then risks a two-writer conflict); `registered` = already in the store; `busy` = a dictation turn is running for it now. Response to `discover`. |
@@ -108,10 +108,18 @@ capped at ~120 s.
 
 ## Output path note
 
-`output` messages must carry **clean text only** — ANSI codes, spinners, and TUI redraws stripped
-server-side (see the TUI-capture decision in `CLAUDE.md`). The app should be able to feed
-`output.text` straight to TTS. Use `chunk: true` for incremental streaming and a final message
-with `chunk: false` to mark the end of a response turn.
+`output` messages carry **clean text only** — headless `stream-json` already yields clean prose,
+no ANSI/TUI scraping (see the TUI-capture decision in `CLAUDE.md`). The app feeds `output.text`
+straight to TTS.
+
+Claude's reply **streams**: the server emits one `chunk: true` message per assistant text message
+as `claude` produces it (whole messages, not token deltas — TTS wants whole sentences), then a
+single `chunk: false` message closes the turn. The closing message's `text` is the final `result`
+(the last assistant message). Clients dedupe by tracking whether they saw any `chunk: true` for the
+current turn: if so, the chunks were already shown/spoken and the `chunk: false` is just an
+end-of-turn marker; if not (the turn finished while the client was detached and its reply was
+buffered for reconnect), the client renders/speaks the `chunk: false` text. The interactive-mode
+ASK block is never streamed — it's withheld and delivered as a structured `ask` at turn end.
 
 ## Example: spawn dialog over the wire
 
