@@ -217,11 +217,12 @@ jail), `SPAWNER_STATE` (`sessions.json`), `SPAWNER_CLAUDE_BIN` (`claude`), `SPAW
 - When you change the architecture or make a design decision (especially the TUI-capture
   question above), record it in this file and the README so it isn't re-litigated.
 
-### Git: commit after every change, atomically
+### Git: commit atomically, at will and frequently
 
 This repo is under version control (remote `origin` = `git@github:bamonroe/claude_spawner`, using
-the `github` SSH host alias). **Commit after every major OR minor change** — don't let work pile up
-uncommitted (a whole session was once built with no repo at all; never again).
+the `github` SSH host alias). **Commit atomically, at will, and frequently.** You have standing
+authorization to commit your own work without asking first — don't wait to be told. Never let work
+pile up uncommitted (a whole session was once built with no repo at all; never again).
 
 - **Atomic commits**: one logical change per commit. A bug fix, a feature, a doc update, and a
   refactor are separate commits — don't bundle unrelated changes. Commit the smallest coherent unit
@@ -229,6 +230,18 @@ uncommitted (a whole session was once built with no repo at all; never again).
 - Make the change → build/vet/test it (`go build ./... && go test ./...`, or the APK build) → commit.
 - Write a concise imperative subject (`fix: input bar behind nav bar`, `feat: read-last command`).
 - Prefer many small commits over one large one; it keeps history bisectable and easy to revert.
+- Commit freely and often — committing your own changes is never something you need to ask about.
+
+### Document every feature immediately, in the same breath as writing it
+
+**A feature isn't done until it's documented.** Write the documentation *during* the feature work,
+or immediately after — never defer it to "later," and never ship code without it.
+
+- Every new feature gets full user-facing documentation in `README.md` as part of the same work.
+- Keep the single-source-of-truth docs in sync in the same pass: a new voice command goes in
+  `docs/commands.md`, a new WebSocket message goes in `docs/protocol.md`.
+- Docs land in the same commit as the feature (or an immediately-following commit) — a feature
+  commit with no accompanying documentation is incomplete.
 
 ## Current status
 
