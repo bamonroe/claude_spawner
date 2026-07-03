@@ -1,0 +1,105 @@
+{
+  "commands": [
+    {
+      "title": "abort",
+      "aliases": [
+        "stop the turn",
+        "cancel the turn",
+        "abort"
+      ],
+      "description": "Cancel the running Claude turn"
+    },
+    {
+      "title": "attach",
+      "aliases": [
+        "attach to <name>"
+      ],
+      "description": "Attach to a session by name"
+    },
+    {
+      "title": "cancel",
+      "aliases": [
+        "cancel",
+        "never mind"
+      ],
+      "description": "Discard the message you're composing"
+    },
+    {
+      "title": "clear",
+      "aliases": [
+        "clear context",
+        "clear session",
+        "reset context",
+        "start fresh"
+      ],
+      "description": "Start Claude fresh — keeps your history, stops re-reading it"
+    },
+    {
+      "title": "detach",
+      "aliases": [
+        "detach",
+        "stop dictating"
+      ],
+      "description": "Leave the current session"
+    },
+    {
+      "title": "help",
+      "aliases": [
+        "help",
+        "what can you do"
+      ],
+      "description": "Speak the list of commands"
+    },
+    {
+      "title": "kill",
+      "aliases": [
+        "kill session <name>"
+      ],
+      "description": "Delete a session by name"
+    },
+    {
+      "title": "list",
+      "aliases": [
+        "list sessions",
+        "what sessions"
+      ],
+      "description": "List your sessions"
+    },
+    {
+      "title": "read last",
+      "aliases": [
+        "read last",
+        "read last 3",
+        "say that again",
+        "repeat that"
+      ],
+      "description": "Re-read Claude's recent replies aloud"
+    },
+    {
+      "title": "spawn",
+      "aliases": [
+        "spawn a new session",
+        "spawn a session in <dir>",
+        "new project in <dir>"
+      ],
+      "description": "Start a new session or project"
+    },
+    {
+      "title": "status",
+      "aliases": [
+        "status",
+        "what's it doing"
+      ],
+      "description": "What the attached session is doing"
+    },
+    {
+      "title": "stop",
+      "aliases": [
+        "stop",
+        "quiet",
+        "stop talking"
+      ],
+      "description": "Barge-in: stop the voice reading aloud"
+    }
+  ]
+}
