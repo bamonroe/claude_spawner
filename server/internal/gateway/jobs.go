@@ -174,8 +174,18 @@ func (s *Server) startTurn(sess *session.Session, text string) bool {
 				j.emit(msgActivity(toolActivity(t.Name)))
 			}
 		}
+		// Stream Claude's prose live (chunk=true) as each assistant message lands, so
+		// the app shows/speaks it as it's produced rather than all at once at the end.
+		// The interactive-mode ASK sentinel is NOT streamed — it's delivered as a
+		// structured `ask` when the turn finishes (see parseAsk below).
+		onText := func(prose string) {
+			if strings.Contains(prose, "::ASK::") {
+				return
+			}
+			j.emit(msgOutput(sess.Name, prose, true))
+		}
 		wasStarted := sess.Started // Turn flips Started true on the first success
-		reply, err := s.driver.Turn(ctx, sess, text, onTool)
+		reply, err := s.driver.Turn(ctx, sess, text, onTool, onText)
 		if len(changed) > 0 {
 			j.emit(msgFiles(sortedKeys(changed))) // persistent "edited: …" chip
 		}

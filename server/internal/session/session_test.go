@@ -3,6 +3,7 @@ package session
 import (
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -19,6 +20,37 @@ func TestNewSessionID(t *testing.T) {
 	b, _ := NewSessionID()
 	if a == b {
 		t.Errorf("expected distinct ids, got %q twice", a)
+	}
+}
+
+// TestParseStreamStreamsProse checks that each assistant text message is
+// delivered live via onText (in order), tool_use blocks go to onTool, and the
+// final result is returned — so the caller can show Claude's prose as it lands
+// instead of all at once at turn end.
+func TestParseStreamStreamsProse(t *testing.T) {
+	const stream = `{"type":"system","subtype":"init"}
+{"type":"assistant","message":{"content":[{"type":"text","text":"Let me look."}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/tmp/foo.go"}}]}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"Found it."}]}}
+{"type":"result","subtype":"success","result":"Found it.","session_id":"x"}
+`
+	var texts []string
+	var tools []ToolUse
+	reply, err := parseStream(strings.NewReader(stream),
+		func(t ToolUse) { tools = append(tools, t) },
+		func(s string) { texts = append(texts, s) },
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reply != "Found it." {
+		t.Errorf("reply = %q, want %q", reply, "Found it.")
+	}
+	if want := []string{"Let me look.", "Found it."}; strings.Join(texts, "|") != strings.Join(want, "|") {
+		t.Errorf("streamed texts = %v, want %v", texts, want)
+	}
+	if len(tools) != 1 || tools[0].Name != "Read" || tools[0].FilePath != "/tmp/foo.go" {
+		t.Errorf("tools = %+v, want one Read of /tmp/foo.go", tools)
 	}
 }
 

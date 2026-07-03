@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strings"
 	"syscall"
 )
 
@@ -58,12 +59,15 @@ type ToolUse struct {
 // Turn sends one user message to the session and returns the assistant's final
 // prose (the stream-json `result` event). onTool, if non-nil, is called for each
 // tool Claude uses, so the caller can show activity ("thinking…", "editing
-// foo.go") separately from the answer.
+// foo.go") separately from the answer. onText, if non-nil, is called with each
+// assistant text message as it streams in (a whole message per call — we don't
+// request token deltas), so the caller can show Claude's prose live instead of
+// waiting for the whole turn to finish.
 //
 // The first turn (s.Started == false) creates the session with --session-id;
 // later turns reattach with --resume. Turn flips s.Started to true on success —
 // the caller is responsible for persisting the updated record.
-func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool func(ToolUse)) (string, error) {
+func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool func(ToolUse), onText func(string)) (string, error) {
 	if s.SessionID == "" {
 		return "", fmt.Errorf("session %q has no SessionID", s.Name)
 	}
@@ -97,7 +101,7 @@ func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool fun
 		return "", fmt.Errorf("start claude: %w", err)
 	}
 
-	reply, perr := parseStream(stdout, onTool)
+	reply, perr := parseStream(stdout, onTool, onText)
 	if werr := cmd.Wait(); werr != nil {
 		return "", fmt.Errorf("claude exited: %w", werr)
 	}
@@ -120,6 +124,7 @@ type streamEvent struct {
 	Message struct {
 		Content []struct {
 			Type  string `json:"type"` // "text" | "tool_use"
+			Text  string `json:"text"` // prose when Type=="text"
 			Name  string `json:"name"` // tool name when Type=="tool_use"
 			Input struct {
 				FilePath     string `json:"file_path"`
@@ -129,8 +134,10 @@ type streamEvent struct {
 	} `json:"message"`
 }
 
-// parseStream reads NDJSON until EOF, returning the final result text.
-func parseStream(r interface{ Read([]byte) (int, error) }, onTool func(ToolUse)) (string, error) {
+// parseStream reads NDJSON until EOF, returning the final result text. It calls
+// onTool per tool_use block and onText per assistant text message (in stream
+// order) so the caller can render tool breadcrumbs and Claude's prose live.
+func parseStream(r interface{ Read([]byte) (int, error) }, onTool func(ToolUse), onText func(string)) (string, error) {
 	sc := newLineScanner(r)
 
 	var result string
@@ -143,16 +150,31 @@ func parseStream(r interface{ Read([]byte) (int, error) }, onTool func(ToolUse))
 		}
 		switch ev.Type {
 		case "assistant":
-			if onTool != nil {
-				for _, b := range ev.Message.Content {
-					if b.Type == "tool_use" {
+			// One assistant event carries a whole message (text and/or tool_use
+			// blocks). Fan tool breadcrumbs out via onTool and the joined prose via
+			// onText, in the order the blocks appear.
+			var text strings.Builder
+			for _, b := range ev.Message.Content {
+				switch b.Type {
+				case "tool_use":
+					if onTool != nil {
 						path := b.Input.FilePath
 						if path == "" {
 							path = b.Input.NotebookPath
 						}
 						onTool(ToolUse{Name: b.Name, FilePath: path})
 					}
+				case "text":
+					if b.Text != "" {
+						if text.Len() > 0 {
+							text.WriteByte('\n')
+						}
+						text.WriteString(b.Text)
+					}
 				}
+			}
+			if onText != nil && text.Len() > 0 {
+				onText(text.String())
 			}
 		case "result":
 			result, gotResult = ev.Result, true
