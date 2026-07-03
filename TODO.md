@@ -32,6 +32,11 @@ Dates are `YYYY-MM-DD`.
 
 ## Done
 
+- [x] 2026-07-03 — `android/README.md` audited against the Kotlin source and corrected: fixed the
+      PCM16-vs-Opus codec contradiction (voice is captured as PCM16, encoded to Ogg/Opus on
+      device, sent as Opus); added 6 omitted source files + the `generateCommands` task to the
+      layout; documented the build-time-generated Commands screen; added the missing INTERNET /
+      FOREGROUND_SERVICE / FOREGROUND_SERVICE_MICROPHONE permissions.
 - [x] 2026-07-03 — Anti-drift consolidation: one authoritative home per fact (documentation map
       at the top of `CLAUDE.md`); status/tasks de-duplicated to `TODO.md` only (README roadmap is
       now history-only, CLAUDE.md status is a pointer); new `internal/docsync` test package fails
