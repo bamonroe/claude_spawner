@@ -158,27 +158,30 @@ Requires the `claude` CLI and `tmux` on the host. Transcription is **off** unles
 - [x] WebSocket client (OkHttp) speaking the protocol; hello/auth handshake
 - [x] Audio capture (PCM16/16k/mono) streamed over the voice path (wake→frames→audio_end)
 - [x] Receive transcripts / dialog / session output; TTS playback of say/output
-- [x] **Verified live on emulator**: app → server → real Claude reply, full spawn/attach/dictate
-- [ ] Porcupine "hey buddy" wake-word integration (stub in `wake/WakeWordController.kt`)
-- [ ] Move wake listener into `VoiceService` for background always-listening
+- [x] **Verified live on emulator + phone**: app → server → real Claude reply, full spawn/attach/dictate
+- [x] Always-listening **hands-free** mode (server-side wake-word detection in the transcript;
+      Porcupine on-device was dropped) via a mic `VoiceService`
+- [ ] Verify the hands-free voice model on a real device (built, not yet voice-tested)
 
-### Phase 4 — Passthrough & attach
-- [ ] Attach = bind voice I/O to a session; dictation becomes the prompt for `Driver.Turn`
-- [ ] Stream the `result` text (and tool breadcrumbs) back to the app as `output` messages
-- [ ] Detach / switch sessions (just changes which session_id turns target)
-- [ ] Read Claude's responses aloud (the `result` text is already clean)
+### Phase 4 — Passthrough & attach ✅
+- [x] Attach binds voice I/O to a session; dictation becomes the prompt for `Driver.Turn`
+- [x] Stream the `result` text + tool breadcrumbs back as `output`/`activity` messages
+- [x] Detach / switch sessions; **live fan-out to all devices** attached to a session
+- [x] Read Claude's responses aloud; **audio-output picker** (earpiece/speaker/Bluetooth)
 
 ### Phase 5 — Polish
-- [x] Auto-connect on launch + auto-reconnect with backoff; resume last session (client-driven,
-      survives server restart) and in-progress spawn dialog (server-side, keyed by `client_id`)
-- [x] Barge-in: push-to-talk / "hey bud stop" interrupts TTS; markdown stripped from speech
-- [ ] Multiple concurrent sessions + quick switching by voice
-- [ ] Error handling & spoken error feedback ("that directory doesn't exist, bud")
-- [ ] Barge-in (interrupt TTS by speaking)
+- [x] Auto-connect + auto-reconnect with backoff; resume last session / in-progress dialog
+- [x] Barge-in ("hey bud stop" / push-to-talk halts TTS); markdown stripped from speech
+- [x] Robust turns across disconnect + **server keepalive**; **abort a running turn**;
+      turns interrupted by a restart are flagged
+- [x] **Busy flags** + quick voice switching ("attach to X"); **post-turn diff summary**
+- [ ] More spoken error feedback ("that directory doesn't exist, bud")
 - [x] Persist session list across server restarts (durable `session_id`s in the store)
 
 ### Nice-to-have / later
-- [ ] Per-session naming by voice
-- [ ] Notifications when a backgrounded session finishes / needs input
+- [x] Whisper **vocab biasing** toward session names; **brief-reply** toggle for TTS
+- [x] **Notifications** when a backgrounded turn finishes
+- [ ] Per-session naming by voice (rename exists via the app UI)
+- [ ] TLS/mTLS (today: shared token, constant-time compared; Tailscale-fronted)
 - [ ] On-device fallback STT when offline
 - [ ] iOS app

@@ -48,6 +48,7 @@ Reject paths that escape the allowed root unless the user explicitly opts in.
 | `read_last`     | "read last" / "read last 3" / "read the last two" / "say that again" / "repeat that" | Re-reads aloud (TTS) + scrolls to the last N Claude replies in the current session (N defaults to 1; digit or number-word). |
 | `cancel`        | "cancel" / "never mind"                  | Aborts the current dialog                          |
 | `stop`          | "hey bud stop" / "stop talking" / "quiet"| Barge-in: stops TTS everywhere; never dictated. Also, pressing push-to-talk stops speech client-side. |
+| `abort_turn`    | "stop the turn" / "cancel the turn" / "abort" / "stop working" | Cancels the running Claude turn (kills the child). Distinct from `stop` (TTS) and `cancel` (discard a composing message). |
 
 ## Dialog: spawn a new session
 

@@ -53,6 +53,7 @@ Every JSON message has a `type`. Optional `id` correlates request/response. `ts`
 | `spawn_at`      | `{ "path": "<dir>" }`                     | create a session in `path` and attach -> `attached` + `session_list` |
 | `history`       | `{ "name": "<session>", "before": <int?>, "limit": <int> }` | request a page of that session's past conversation (from Claude's transcript). `before` = exclusive index cursor (omit for the most recent page; page older by passing the oldest index held). -> `history` |
 | `cancel`        | `{}`                                      | abort current dialog                          |
+| `abort`         | `{}`                                      | cancel the running dictation turn on the attached session (kills the claude child) -> `turn_stopped` |
 | `ping`          | `{}`                                      | keepalive                                     |
 
 Audio framing: client sends `wake` (with a `codec`, and optional `hands_free`), then binary audio,
@@ -69,7 +70,9 @@ hands_free = true    → streaming: APPEND the transcript to the per-connection 
                        first; "cancel message" discards the buffer), the rest is dictated.
 ```
 
-`hello` carries `end_token` (the word that commits a hands-free message). The server sends
+`hello` also carries optional flags: `end_token` (the word that commits a hands-free message),
+`stt_mode`/`stt_model`/`whisper_url`/`whisper_model` (transcription), `aliases` (misheard→command
+fixups), and `brief` (append a "reply briefly for TTS" hint to dictation). The server sends
 `pending {text}` as the buffer grows (empty `text` clears the draft). The app may also send
 `{"type":"commit"}` to force-commit the buffer (used by the optional client-side silence timeout);
 it's a no-op if the buffer is empty.
@@ -94,9 +97,11 @@ capped at ~120 s.
 | `output`        | `{ "name": "...", "text": "...", "chunk": true }`     | clean session output (for display + TTS) |
 | `history`       | `{ "name": "...", "messages": [{ "index", "role": "user"\|"claude", "text" }], "more": true }` | a page of past conversation (oldest→newest); `more` = older messages remain to page in. Response to `history`. |
 | `read_last`     | `{ "count": <int> }`                                 | app re-reads (TTS) + scrolls to the last `count` Claude replies in the current session (from the `read last X` command) |
-| `discovered`    | `{ "sessions": [{ "name", "dir", "session_id", "last_active": <unix s>, "active": <bool>, "registered": <bool> }] }` | all Claude sessions found on disk (one per dir, newest first). `active` = an interactive `claude` is open in tmux at that dir (driving it then risks a two-writer conflict); `registered` = already in the store. Response to `discover`. |
+| `discovered`    | `{ "sessions": [{ "name", "dir", "session_id", "last_active": <unix s>, "active": <bool>, "registered": <bool>, "busy": <bool> }] }` | all Claude sessions found on disk (one per dir, newest first). `active` = an interactive `claude` is open in tmux at that dir (driving it then risks a two-writer conflict); `registered` = already in the store; `busy` = a dictation turn is running for it now. Response to `discover`. |
 | `error`         | `{ "code": "...", "message": "..." }`                 | spoken/displayed error feedback          |
 | `turn_interrupted` | `{ "name": "...", "reason": "server restarting" }` | an in-flight dictation turn was abandoned server-side (turns don't survive a server restart). The app clears its "thinking…" state and prompts the user to resend, instead of waiting on a reply that will never arrive. |
+| `turn_stopped`  | `{ "name": "..." }`                                   | a running turn was deliberately aborted (the `abort` message / "stop the turn" command). The app clears its "thinking…" state without the "say it again" nudge. |
+| `diff`          | `{ "text": "..." }`                                   | a compact `git diff --stat` review summary after a turn that changed files; shown as a note, not spoken. |
 | `pong`          | `{}`                                                  | keepalive reply                          |
 
 ## Output path note

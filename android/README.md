@@ -6,36 +6,38 @@ The claude_spawner phone client. Talks the WebSocket protocol in
 
 ## What works today
 
-- **Connect** to the gateway (URL + token), with live status.
-- **Push-to-talk**: hold the button to stream mic audio → server transcribes (whisper.cpp) →
-  transcript + dialog come back.
-- **Type an utterance**: text box mirrors the `wsclient` tool — drive the whole spawn/attach/
-  dictate flow without a mic.
-- **Text-to-speech**: `say` prompts and Claude `output` are spoken.
-- Transcript/response **log** view.
+- **Connect** to the gateway (URL + token) with live status; auto-reconnect.
+- **Push-to-talk**: hold to stream Opus audio → server transcribes (whisper.cpp) → reply.
+- **Hands-free** (always-listening): a mic `VoiceService` streams VAD-gated speech; wake word and
+  end token are detected in the transcript (no on-device Porcupine). Draft shown live.
+- **Type an utterance** to drive the whole spawn/attach/dictate flow without a mic.
+- **Chat UI**: per-session logs + server-served history, drawer session list (with ⚙️ busy flags),
+  visual directory browser for new sessions, rename/delete.
+- **TTS**: replies read aloud, with an **audio-output picker** (earpiece/speaker/Bluetooth) and a
+  **brief-reply** toggle; "hey bud stop" barge-in.
+- **Turn controls**: abort a running turn (⏹), post-turn diff summary, and a notification when a
+  turn finishes while the app is backgrounded.
 
-## Not wired yet (stubs in place)
+## Remaining
 
-- **Wake word** "hey buddy" (`wake/WakeWordController.kt`) — push-to-talk is the current trigger.
-  Porcupine dependency is declared; needs a Picovoice access key + a custom `hey_buddy.ppn`.
-- **Background always-listening** (`service/VoiceService.kt`) — foreground-service plumbing is
-  there; the wake listener will move into it so it works with the screen off.
-- Automatic endpointing (`audio/Endpointer.kt`) exists for the wake path but PTT uses release.
+- Verify the hands-free voice model on a real device (built, not yet voice-tested end-to-end).
 
 ## Layout
 
 ```
 app/src/main/java/com/bam/spawner/
-  MainActivity.kt        Compose UI (connect, PTT, text input, log)
+  MainActivity.kt         Compose UI (chat, drawer, settings, browser)
   VoiceController.kt      orchestration: WS + audio + TTS -> UI state
-  SettingsStore.kt        server URL / token / picovoice key (SharedPreferences)
+  SettingsStore.kt        server URL / token / voice prefs (SharedPreferences)
+  Notifier.kt             backgrounded turn-completion notifications
   net/Protocol.kt         ServerMsg parsing + Outbound builders (org.json)
-  net/SpawnerClient.kt    OkHttp WebSocket transport
-  audio/AudioCapture.kt   AudioRecord -> PCM16 frames
-  audio/Endpointer.kt     RMS silence detection (wake path)
-  tts/Speaker.kt          TextToSpeech wrapper
-  wake/WakeWordController  Porcupine stub (TODO)
-  service/VoiceService.kt  foreground-service stub (TODO)
+  net/SpawnerClient.kt    OkHttp WebSocket transport (+ keepalive)
+  audio/HandsFreeRecorder.kt  always-listening VAD capture -> Opus clips
+  audio/OpusRecorder.kt   push-to-talk Opus capture
+  audio/Endpointer.kt     RMS VAD (onset/silence)
+  audio/AudioRouter.kt    earpiece/speaker/Bluetooth output routing
+  tts/Speaker.kt          TextToSpeech wrapper (VOICE_COMMUNICATION)
+  service/VoiceService.kt  foreground mic service for background listening
 ```
 
 ## Build
@@ -59,10 +61,12 @@ docker exec android-emulator adb install -r /tmp/app-debug.apk
 docker exec android-emulator adb shell monkey -p com.bam.spawner -c android.intent.category.LAUNCHER 1
 ```
 
-The default server URL is `ws://10.0.2.2:8080/ws` (`10.0.2.2` = host loopback from the emulator),
-token `devsecret`. Point it at the running server container's published port.
+The default server URL is `ws://100.64.0.2:8555/ws` (the host's tailnet IP), token `devsecret` —
+change it in Settings → Server. NOTE: from the Dockerized emulator the host is reachable at that
+tailnet IP, not `10.0.2.2` (which is the emulator's container).
 
 ## Config / permissions
 
-- Requires `RECORD_AUDIO` (requested on launch) for push-to-talk.
-- Audio format is fixed to PCM16LE / 16 kHz / mono to match the server.
+- `RECORD_AUDIO` (requested on launch) for the mic; `POST_NOTIFICATIONS` for turn notifications;
+  `BLUETOOTH_CONNECT` (requested when you pick Bluetooth output).
+- Push-to-talk / hands-free send Ogg/Opus; the server decodes to PCM16LE / 16 kHz / mono.

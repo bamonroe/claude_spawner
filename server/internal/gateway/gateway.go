@@ -1,9 +1,9 @@
 // Package gateway implements the WebSocket gateway: one authenticated connection
-// per app, carrying control commands and dictation. It wires the command parser
-// (internal/command), the spawn dialog FSM, and the headless session driver
-// (internal/session) together. The audio path (wake/binary/audio_end ->
-// server-side Whisper) is not yet implemented; for now the app sends already-
-// transcribed text as `utterance`/`reply` messages. See docs/protocol.md.
+// per app, carrying control commands, dictation, and audio. It wires the command
+// parser (internal/command), the spawn dialog FSM, the headless session driver
+// (internal/session), and server-side Whisper (internal/transcribe) together. The
+// app can send already-transcribed text as `utterance`, or stream audio
+// (wake/binary/audio_end) for the server to transcribe. See docs/protocol.md.
 package gateway
 
 import (
