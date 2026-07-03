@@ -169,20 +169,30 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
         val available = audioRouter.available()
         _audioOutputs.value = available
         val target = if (saved in available) saved else AudioOutput.EARPIECE
-        audioRouter.setOutput(target)
+        applyAudioOutput(target)
         _audioOutput.value = target
     }
+
+    // Apply an output: MUTE suppresses TTS (no device routing); anything else
+    // unmutes and routes the device. Returns whether it took effect.
+    private fun applyAudioOutput(out: AudioOutput): Boolean =
+        if (out == AudioOutput.MUTE) { speaker.setMuted(true); true }
+        else { speaker.setMuted(false); audioRouter.setOutput(out) }
 
     /** Re-scan available outputs (call when opening the picker to catch a
      *  just-connected/removed Bluetooth headset). */
     fun refreshAudioOutputs() {
-        _audioOutputs.value = audioRouter.available()
-        _audioOutput.value = audioRouter.current()
+        val avail = audioRouter.available()
+        _audioOutputs.value = avail
+        // If the selected device vanished (e.g. the Bluetooth headset disconnected),
+        // fall back to earpiece. MUTE is always available.
+        val cur = _audioOutput.value
+        if (cur != AudioOutput.MUTE && cur !in avail) setAudioOutput(AudioOutput.EARPIECE)
     }
 
-    /** Route the spoken audio to [out] and remember the choice. */
+    /** Route the spoken audio to [out] (or mute) and remember the choice. */
     fun setAudioOutput(out: AudioOutput) {
-        if (audioRouter.setOutput(out)) {
+        if (applyAudioOutput(out)) {
             _audioOutput.value = out
             settings.audioOutput = out.name.lowercase()
         }

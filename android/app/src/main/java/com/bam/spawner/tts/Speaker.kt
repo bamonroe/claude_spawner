@@ -22,6 +22,13 @@ class Speaker(context: Context) {
     private val pending = ArrayDeque<String>()
     private lateinit var tts: TextToSpeech
     @Volatile private var commMode = false // true = VOICE_COMMUNICATION (hands-free), false = MEDIA
+    @Volatile private var muted = false    // when true, speak() is a no-op (Mute output)
+
+    /** Suppress (or resume) all TTS. Muting also stops anything in progress. */
+    fun setMuted(on: Boolean) {
+        muted = on
+        if (on) stop()
+    }
 
     // Number of utterances started but not yet finished/stopped.
     private val outstanding = AtomicInteger(0)
@@ -73,7 +80,7 @@ class Speaker(context: Context) {
     }
 
     fun speak(text: String) {
-        if (text.isBlank()) return
+        if (muted || text.isBlank()) return
         if (ready) speakNow(text) else pending.addLast(text)
     }
 

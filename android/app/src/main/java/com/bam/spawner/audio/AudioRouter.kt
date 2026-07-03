@@ -5,11 +5,13 @@ import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.os.Build
 
-/** A selectable audio output for the spoken (TTS) path. */
+/** A selectable audio output for the spoken (TTS) path. MUTE isn't a device — it
+ *  suppresses TTS entirely (handled by the caller, not routed here). */
 enum class AudioOutput(val label: String, val icon: String) {
     EARPIECE("Earpiece", "📞"),
     SPEAKER("Speaker", "🔊"),
     BLUETOOTH("Bluetooth", "🔵"),
+    MUTE("Mute", "🔇"),
 }
 
 /**
@@ -37,6 +39,7 @@ class AudioRouter(context: Context) {
                 outs.add(AudioOutput.BLUETOOTH)
             }
         }
+        outs.add(AudioOutput.MUTE) // always offer mute
         return outs
     }
 
@@ -54,8 +57,10 @@ class AudioRouter(context: Context) {
         return if (am?.isSpeakerphoneOn == true) AudioOutput.SPEAKER else AudioOutput.EARPIECE
     }
 
-    /** Route the communication stream to [out]. Returns true if it took effect. */
+    /** Route the communication stream to [out]. Returns true if it took effect.
+     *  MUTE is not a device — the caller suppresses TTS instead of routing here. */
     fun setOutput(out: AudioOutput): Boolean {
+        if (out == AudioOutput.MUTE) return true
         val am = am ?: return false
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val dev = am.availableCommunicationDevices.firstOrNull {
@@ -63,6 +68,7 @@ class AudioRouter(context: Context) {
                     AudioOutput.EARPIECE -> it.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
                     AudioOutput.SPEAKER -> it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
                     AudioOutput.BLUETOOTH -> it.isBluetooth()
+                    AudioOutput.MUTE -> false // unreachable (guarded above)
                 }
             } ?: return false
             return try {
