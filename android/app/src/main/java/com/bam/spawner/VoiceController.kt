@@ -467,6 +467,13 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
             is ServerMsg.StopSpeaking -> speaker.stop()
             is ServerMsg.Dialog -> _status.value = "dialog: ${msg.state}"
             is ServerMsg.Attached -> {
+                // Fresh view of this session: drop any stale turn spinner/watchdog.
+                // If a turn is genuinely still running, the server's bindJob sends a
+                // "still working" breadcrumb right after this (which re-arms it); if
+                // the turn finished while we were away, nothing comes and the spinner
+                // correctly stays clear instead of hanging on "running the command".
+                clearTurnInFlight()
+                _activity.value = ""
                 _attachedName.value = msg.name
                 settings.lastSession = msg.name
                 _status.value = "attached: ${msg.name}"
