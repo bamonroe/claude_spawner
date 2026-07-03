@@ -188,8 +188,8 @@ human is editing live. (An earlier design had the server itself open a "babysit"
   cmd/gencommands/main.go       regenerate docs/commands.json from the command registry
   Dockerfile / .dockerignore    dev image: Go + tmux + claude CLI + whisper.cpp CLI + model
 docker-compose.yml              dev orchestration: spawner + resident whisper/whisper-fast servers
-/whisper                        Vulkan/CPU Dockerfiles for the resident whisper.cpp HTTP server
-/deploy                         host systemd unit + env example + claude-log helper
+/whisper                        Vulkan/CPU Dockerfiles for the resident whisper.cpp server (see whisper/README.md)
+/deploy                         host systemd unit + env example + claude-log helper (see deploy/README.md)
 /android                        Android app (Kotlin/Compose) — see android/README.md
 /docs
   protocol.md                   WebSocket message schema (single source of truth)

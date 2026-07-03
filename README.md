@@ -139,11 +139,12 @@ SPAWNER_TOKEN=secret SPAWNER_ROOT=/tmp/sandbox go run .          # text path onl
 ```
 
 Then in another terminal, `SPAWNER_TOKEN=secret go run ./cmd/wsclient` and type utterances.
-Requires the `claude` CLI and `tmux` on the host. Transcription is **off** unless
-`SPAWNER_WHISPER_MODEL` is set (text utterances work either way). Config vars:
-`SPAWNER_WHISPER_BIN` (default `whisper-cli`), `SPAWNER_WHISPER_MODEL`, `SPAWNER_WHISPER_LANG`
-(`en`). Audio in is PCM16LE / 16 kHz / mono (see `docs/protocol.md`). Engine rationale is in
-[`CLAUDE.md`](./CLAUDE.md).
+Requires the `claude` CLI and `tmux` on the host. Transcription is **off** unless a whisper model
+or URL is configured (text utterances work either way); the full config-var list lives in
+[`CLAUDE.md`](./CLAUDE.md). Audio in is PCM16LE / 16 kHz / mono (see `docs/protocol.md`).
+
+To run it as a long-lived service (systemd unit + the resident GPU whisper servers) instead of
+`go run`, see [`deploy/`](./deploy/README.md).
 
 ---
 

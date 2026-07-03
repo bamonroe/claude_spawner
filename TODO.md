@@ -32,6 +32,9 @@ Dates are `YYYY-MM-DD`.
 
 ## Done
 
+- [x] 2026-07-03 — Deploy docs: added `deploy/README.md` (systemd unit, env-file install steps,
+      `claude-log.sh` usage); linked from the root README's host section and the CLAUDE.md layout.
+      This completes documentation of the root-level tree.
 - [x] 2026-07-03 — Whisper docs: added `whisper/README.md` documenting the two resident-server
       images (Vulkan/GPU vs CPU), their `/inference` + `/load` API, port/model-mount contract, and
       the two deployment modes. Fixed a README inaccuracy that implied the Dockerized spawner uses
