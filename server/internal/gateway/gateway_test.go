@@ -202,6 +202,39 @@ func TestMultiDeviceLiveFanout(t *testing.T) {
 	}
 }
 
+// TestJobBuffersWhenSinkFails: if a turn finishes while its only sink's write
+// fails (a dropped socket the server hasn't noticed yet), the result must be
+// buffered (delivered=false) so it's delivered on reconnect — not treated as
+// delivered and lost, which left the app stuck on "running the command".
+func TestJobBuffersWhenSinkFails(t *testing.T) {
+	dead := &conn{}
+	j := &sessionJob{running: true, sinks: map[*conn]func(any) bool{
+		dead: func(any) bool { return false }, // simulate a failed write
+	}}
+	j.finish(map[string]any{"type": "output", "text": "done"})
+	if j.delivered {
+		t.Fatal("delivered should be false when the only sink's write failed")
+	}
+	if j.final == nil {
+		t.Fatal("result must be buffered for delivery on reconnect")
+	}
+
+	// A live sink attaching (reconnect) then gets the buffered result and frees it.
+	var got any
+	live := &conn{}
+	j.sinks[live] = func(v any) bool { got = v; return true }
+	// mimic bindJob's deliver-buffered branch
+	if !j.delivered && j.final != nil {
+		if j.sinks[live](j.final) {
+			j.delivered = true
+			j.final = nil
+		}
+	}
+	if got == nil || j.final != nil || !j.delivered {
+		t.Fatalf("buffered result not delivered on reconnect: got=%v final=%v delivered=%v", got, j.final, j.delivered)
+	}
+}
+
 func TestSpawnCreatesNewFolder(t *testing.T) {
 	ts, root := newTestServer(t, nil)
 	// Root needs a child so it prompts (await_child) rather than using itself.

@@ -122,6 +122,11 @@ func New(cfg *config.Config, store *session.Store, driver *session.Driver, tmuxM
 
 const handshakeTimeout = 10 * time.Second
 
+// writeWait bounds a single websocket write. Without it a write to a client that
+// dropped off the network (no FIN/RST yet) could block indefinitely; with it the
+// write fails, which lets a job buffer its result for delivery on reconnect.
+const writeWait = 10 * time.Second
+
 // HandleWS upgrades the request and runs the connection until it closes.
 func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
 	ws, err := s.up.Upgrade(w, r, nil)
@@ -194,14 +199,15 @@ func (s *Server) job(name string) *sessionJob {
 }
 
 // jobSink returns a sink for session-job events that reports whether it actually
-// reached this (still-connected) client.
+// reached this client — true only if the connection is open AND the write
+// succeeded. A failed write (dropped socket) returns false so the job buffers the
+// result for delivery on reconnect instead of treating it as delivered and lost.
 func (c *conn) jobSink() func(any) bool {
 	return func(v any) bool {
 		if c.closed {
 			return false
 		}
-		c.send(v)
-		return true
+		return c.send(v) == nil
 	}
 }
 
@@ -251,12 +257,17 @@ func (c *conn) fastTranscriber() transcribe.Transcriber {
 	return c.transcriber()
 }
 
-func (c *conn) send(v any) {
+// send writes a JSON message to the client, returning any write error (also used
+// by job sinks to tell a delivered result from one lost to a dropped socket).
+func (c *conn) send(v any) error {
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
+	_ = c.ws.SetWriteDeadline(time.Now().Add(writeWait))
 	if err := c.ws.WriteJSON(v); err != nil {
 		log.Printf("ws write: %v", err)
+		return err
 	}
+	return nil
 }
 
 // authenticate requires the first message to be a valid hello.
