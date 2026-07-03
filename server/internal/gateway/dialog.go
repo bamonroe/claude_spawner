@@ -57,7 +57,7 @@ func (c *conn) startSpawn(isNew bool, location string) {
 		example = " — then a folder, like '" + roots[0] + " " + verb + "'"
 	}
 	c.send(msgDialog("await_root", "where to?"))
-	c.send(msgSay("where to, bud? say " + orList(roots) + example + "."))
+	c.send(msgSay("where to? say " + orList(roots) + example + "."))
 }
 
 // arriveAt handles landing on a directory: in "new" mode ask for the new
@@ -82,7 +82,7 @@ func (c *conn) promptNewName(dir string) {
 func (c *conn) spawnAwaitNewName(text string) {
 	name := sanitizeName(strings.Join(projects.Terms(text), "-"))
 	if name == "" {
-		c.send(msgSay("what should I call it, bud?"))
+		c.send(msgSay("what should I call it?"))
 		return
 	}
 	dir := filepath.Join(c.dlg.browse, name)
@@ -100,7 +100,7 @@ func (c *conn) repromptDialog() {
 	switch c.dlg.state {
 	case "await_root":
 		c.send(msgDialog("await_root", "where to?"))
-		c.send(msgSay("where to, bud? say " + orList(c.rootNames()) + "."))
+		c.send(msgSay("where to? say " + orList(c.rootNames()) + "."))
 	case "await_child":
 		c.send(msgDialog("await_child", "which folder?"))
 		c.promptChildren(c.dlg.browse)
@@ -156,12 +156,12 @@ func (c *conn) handleDialog(text string) {
 func (c *conn) spawnAwaitRoot(text string) {
 	terms := projects.Terms(text)
 	if len(terms) == 0 {
-		c.send(msgSay("say " + orList(c.rootNames()) + ", bud."))
+		c.send(msgSay("say " + orList(c.rootNames()) + "."))
 		return
 	}
 	root := c.matchRoot(terms[0])
 	if root == "" {
-		c.send(msgSay("start with " + orList(c.rootNames()) + ", bud."))
+		c.send(msgSay("start with " + orList(c.rootNames()) + "."))
 		return
 	}
 	c.arriveAt(c.descend(root, terms[1:]))
@@ -183,7 +183,7 @@ func (c *conn) spawnAwaitChild(text string) {
 
 	terms := projects.Terms(text)
 	if len(terms) == 0 {
-		c.send(msgSay("say a folder in " + filepath.Base(c.dlg.browse) + ", bud, or 'here'."))
+		c.send(msgSay("say a folder in " + filepath.Base(c.dlg.browse) + ", or 'here'."))
 		return
 	}
 	if dir := c.descend(c.dlg.browse, terms); dir != c.dlg.browse {
@@ -196,7 +196,7 @@ func (c *conn) spawnAwaitChild(text string) {
 	c.dlg.dir = filepath.Join(c.dlg.browse, name)
 	c.dlg.state = "await_create"
 	c.send(msgDialog("await_create", "create it?"))
-	c.send(msgSay("no folder like that in " + filepath.Base(c.dlg.browse) + ", bud. create " + name + "? yes or no."))
+	c.send(msgSay("no folder like that in " + filepath.Base(c.dlg.browse) + ". create " + name + "? yes or no."))
 }
 
 // browseInto prompts for a subfolder when dir is a root or a namespace (a
@@ -222,7 +222,7 @@ func (c *conn) promptChildren(dir string) {
 	case len(kids) <= maxList:
 		c.send(msgSay("which folder in " + label + "? " + orList(names(kids)) + "."))
 	default:
-		c.send(msgSay(label + " has a lot of folders, bud. say a name, or 'list', 'list all', or 'list recent'."))
+		c.send(msgSay(label + " has a lot of folders. say a name, or 'list', 'list all', or 'list recent'."))
 	}
 }
 
@@ -239,7 +239,7 @@ func (c *conn) spawnAwaitCreate(text string) {
 	case negative(text):
 		c.cancelDialog()
 	default:
-		c.send(msgSay("yes or no, bud — create it?"))
+		c.send(msgSay("yes or no — create it?"))
 	}
 }
 
@@ -272,7 +272,7 @@ func listMode(text string) (all, recent bool) {
 func (c *conn) readChildren(dir string, all, recent bool) {
 	kids := projects.Children(dir) // alphabetical
 	if len(kids) == 0 {
-		c.send(msgSay("nothing in " + filepath.Base(dir) + ", bud."))
+		c.send(msgSay("nothing in " + filepath.Base(dir) + "."))
 		return
 	}
 	if recent {
@@ -386,9 +386,9 @@ func (c *conn) spawnAwaitAttach(text string) {
 			return
 		}
 		c.dlg = nil
-		c.send(msgSay(sess.Name + " is ready when you are, bud."))
+		c.send(msgSay(sess.Name + " is ready when you are."))
 	default:
-		c.send(msgSay("attach? yes or no, bud."))
+		c.send(msgSay("attach? yes or no."))
 	}
 }
 

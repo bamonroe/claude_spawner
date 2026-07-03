@@ -426,7 +426,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     fun startTalking() {
         val c = client
         if (c == null || !_connected.value) {
-            _mic.value = "⚠️ connect first, bud"
+            _mic.value = "⚠️ connect first"
             return
         }
         if (hfOn) return // hands-free owns the mic
@@ -487,7 +487,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
                 if (hfOn) _voiceState.value = VoiceState.LISTENING
                 val note = "⚠️ lost the connection while working — that turn may have been interrupted. Try again if you don't hear back."
                 addChat(Role.SYSTEM, note)
-                speaker.speak("that turn may have been interrupted, bud. try again if you don't hear back.")
+                speaker.speak("that turn may have been interrupted. try again if you don't hear back.")
             }
         }
     }
@@ -586,8 +586,8 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
                 clearTurnInFlight()
                 _activity.value = ""
                 if (hfOn) _voiceState.value = VoiceState.LISTENING
-                addChat(Role.SYSTEM, "⚠️ turn interrupted (${msg.reason}) — say it again, bud.")
-                speaker.speak("that turn got interrupted, bud — the server restarted. say it again.")
+                addChat(Role.SYSTEM, "⚠️ turn interrupted (${msg.reason}) — say it again.")
+                speaker.speak("that turn got interrupted — the server restarted. say it again.")
             }
             is ServerMsg.TurnStopped -> {
                 clearTurnInFlight()
@@ -641,7 +641,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     private fun onReadLast(count: Int) {
         val claude = _chat.value.filter { it.role == Role.CLAUDE }.takeLast(count.coerceAtLeast(1))
         if (claude.isEmpty()) {
-            speaker.speak("nothing to read yet, bud")
+            speaker.speak("nothing to read yet")
         } else {
             speaker.speak(claude.joinToString(". … ") { Markdown.toSpeech(it.text) })
         }

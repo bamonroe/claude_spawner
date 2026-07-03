@@ -355,7 +355,7 @@ func (c *conn) restoreState() {
 	}
 	// Resume an in-progress dialog where it left off.
 	c.dlg = st.dlg
-	c.send(msgSay("picking up where we left off, bud."))
+	c.send(msgSay("picking up where we left off."))
 	c.repromptDialog()
 }
 

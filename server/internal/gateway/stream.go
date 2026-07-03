@@ -82,7 +82,7 @@ func (c *conn) commitMessage() {
 			// utterance is a command — no "hey buddy" needed, and nothing can
 			// leak into a Claude session.
 			if !c.runCommand(command.Parse(command.ApplyAliases(msg, c.aliases))) {
-				c.send(msgSay("not a command, bud — try 'list sessions' or 'attach to a session'."))
+				c.send(msgSay("not a command — try 'list sessions' or 'attach to a session'."))
 			}
 			return
 		}
@@ -92,7 +92,7 @@ func (c *conn) commitMessage() {
 	// "<dictation> hey buddy <command>": process the command first.
 	intent := command.Parse(command.ApplyAliases(after, c.aliases))
 	if intent.Kind == command.Cancel {
-		c.send(msgSay("scrapped it, bud."))
+		c.send(msgSay("scrapped it."))
 		return
 	}
 	c.runCommand(intent) // unknown command is a no-op

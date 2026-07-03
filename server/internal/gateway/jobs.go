@@ -279,7 +279,7 @@ func (s *Server) bindJob(c *conn, sessName string, silent bool) {
 		if silent {
 			sink(msgActivity("🤔 still working…"))
 		} else {
-			sink(msgSay("still working on it, bud — one sec."))
+			sink(msgSay("still working on it — one sec."))
 		}
 	case !j.delivered && j.final != nil:
 		// A turn finished with nobody attached; hand the buffered result to the

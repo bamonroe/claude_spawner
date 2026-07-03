@@ -60,7 +60,7 @@ func (c *conn) endAudio() {
 	}
 	if len(c.audio) == 0 {
 		if !c.gated {
-			c.send(msgSay("didn't hear anything, bud."))
+			c.send(msgSay("didn't hear anything."))
 		}
 		return
 	}
@@ -102,7 +102,7 @@ func (c *conn) endAudio() {
 		return
 	}
 	if text == "" {
-		c.send(msgSay("didn't catch that, bud."))
+		c.send(msgSay("didn't catch that."))
 		return
 	}
 	c.send(msgTranscript(text, true))

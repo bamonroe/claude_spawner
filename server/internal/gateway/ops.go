@@ -28,7 +28,7 @@ func (c *conn) dispatch(text string) {
 	if c.attached != nil {
 		c.dictate(rest)
 	} else {
-		c.send(msgSay("didn't catch that, bud. try 'spawn a new session'."))
+		c.send(msgSay("didn't catch that. try 'spawn a new session'."))
 	}
 }
 
@@ -54,7 +54,7 @@ func (c *conn) runCommand(intent command.Intent) bool {
 	case command.AbortTurn:
 		c.abortTurn()
 	case command.Cancel:
-		c.send(msgSay("nothing to cancel, bud."))
+		c.send(msgSay("nothing to cancel."))
 	case command.Help:
 		c.send(msgSay(commandHelp))
 	case command.ReadLast:
@@ -210,7 +210,7 @@ func (c *conn) serveHistory(name string, before *int, limit int) {
 }
 
 // commandHelp is spoken + shown when the user asks "hey buddy help".
-const commandHelp = "here's what I know, bud: attach to a session, detach, list sessions, status, " +
+const commandHelp = "here's what I know: attach to a session, detach, list sessions, status, " +
 	"kill a session, spawn a session, spawn a new project, read last, stop the turn, cancel message, " +
 	"and help. say hey buddy, then the command, then your end token."
 
@@ -233,7 +233,7 @@ func (c *conn) doList() {
 	// dozens of sessions doesn't read a novel.
 	found, err := session.DiscoverSessions()
 	if err != nil {
-		c.send(msgSay("couldn't list sessions, bud."))
+		c.send(msgSay("couldn't list sessions."))
 		return
 	}
 	byDir := map[string]string{}
@@ -250,7 +250,7 @@ func (c *conn) doList() {
 	}
 	switch len(names) {
 	case 0:
-		c.send(msgSay("no sessions yet, bud."))
+		c.send(msgSay("no sessions yet."))
 	case 1:
 		c.send(msgSay("one session: " + names[0] + "."))
 	default:
@@ -269,17 +269,17 @@ func (c *conn) doList() {
 
 // doAttach attaches to a session. silent suppresses the spoken confirmation and
 // the "still working" catch-up nudge — used for the app's auto-attach on
-// reconnect, so a network blip doesn't re-announce "attached… go ahead, bud."
+// reconnect, so a network blip doesn't re-announce "attached… go ahead."
 // (a finished turn's buffered result is still delivered regardless).
 func (c *conn) doAttach(name string, silent bool) {
 	if name == "" {
-		c.send(msgSay("which session, bud?"))
+		c.send(msgSay("which session?"))
 		return
 	}
 	s := c.resolveSession(name)
 	if s == nil {
 		if !silent {
-			c.send(msgSay("no session named " + name + ", bud."))
+			c.send(msgSay("no session named " + name + "."))
 		}
 		return
 	}
@@ -342,15 +342,15 @@ func (c *conn) resolveSession(spoken string) *session.Session {
 // child). The turn's goroutine then delivers a `turn_stopped` to clear the app.
 func (c *conn) abortTurn() {
 	if c.attached != nil && c.srv.cancelTurn(c.attached.Name) {
-		c.send(msgSay("stopping that, bud."))
+		c.send(msgSay("stopping that."))
 		return
 	}
-	c.send(msgSay("nothing running to stop, bud."))
+	c.send(msgSay("nothing running to stop."))
 }
 
 func (c *conn) doDetach() {
 	if c.attached == nil {
-		c.send(msgSay("you're not attached to anything, bud."))
+		c.send(msgSay("you're not attached to anything."))
 		return
 	}
 	c.srv.unbindJob(c, c.attached.Name)
@@ -384,7 +384,7 @@ func (c *conn) removeSession(name string) bool {
 // doKill is the spoken "kill session" voice command.
 func (c *conn) doKill(name string) {
 	if name == "" {
-		c.send(msgSay("which session should I kill, bud?"))
+		c.send(msgSay("which session should I kill?"))
 		return
 	}
 	if c.removeSession(name) {
@@ -422,7 +422,7 @@ func (c *conn) doRename(old, newName string) {
 
 func (c *conn) doStatus() {
 	if c.attached == nil {
-		c.send(msgSay("you're not attached to anything, bud."))
+		c.send(msgSay("you're not attached to anything."))
 		return
 	}
 	c.send(msgSay("you're attached to " + c.attached.Name + " in " + c.attached.Dir + "."))
@@ -433,7 +433,7 @@ func (c *conn) doStatus() {
 // and its result is delivered on reconnect. Only one turn per session at a time.
 func (c *conn) dictate(text string) {
 	if c.attached == nil {
-		c.send(msgSay("attach to a session first, bud."))
+		c.send(msgSay("attach to a session first."))
 		return
 	}
 	prompt := text
@@ -446,7 +446,7 @@ func (c *conn) dictate(text string) {
 		prompt += askInstruction // let Claude ask instead of guessing (parsed back on reply)
 	}
 	if !c.srv.startTurn(c.attached, prompt) {
-		c.send(msgSay("still working on the last one, bud."))
+		c.send(msgSay("still working on the last one."))
 		return
 	}
 	// Mirror the prompt onto any other devices attached to this session.
