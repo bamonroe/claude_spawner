@@ -47,6 +47,8 @@ type sessionJob struct {
 	final     map[string]any           // last turn's result, buffered until delivered
 	delivered bool                     // was `final` delivered to at least one live sink?
 	sinks     map[*conn]func(any) bool // every attached connection's sink
+	cancel    context.CancelFunc       // aborts the running turn's claude child
+	aborted   bool                     // set when the current turn was cancelled on request
 }
 
 func (j *sessionJob) isRunning() bool {
@@ -79,6 +81,7 @@ func (j *sessionJob) finish(final map[string]any) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	j.running = false
+	j.cancel = nil
 	if j.broadcast(final) {
 		j.delivered = true // reached at least one live client; no need to buffer
 	} else {
@@ -110,9 +113,14 @@ func (s *Server) startTurn(sess *session.Session, text string) bool {
 		j.mu.Unlock()
 		return false
 	}
+	// Background-derived (so the turn outlives the connection) but cancelable, so
+	// "abort" can kill the claude child on demand.
+	ctx, cancel := context.WithCancel(context.Background())
 	j.running = true
 	j.final = nil // a fresh turn supersedes any prior buffered result
 	j.delivered = false
+	j.aborted = false
+	j.cancel = cancel
 	j.mu.Unlock()
 
 	log.Printf("turn[%s] input: %q", sess.Name, logField(text))
@@ -129,11 +137,19 @@ func (s *Server) startTurn(sess *session.Session, text string) bool {
 			}
 		}
 		wasStarted := sess.Started // Turn flips Started true on the first success
-		reply, err := s.driver.Turn(context.Background(), sess, text, onTool)
+		reply, err := s.driver.Turn(ctx, sess, text, onTool)
 		if len(changed) > 0 {
 			j.emit(msgFiles(sortedKeys(changed))) // persistent "edited: …" chip
 		}
 		if err != nil {
+			j.mu.Lock()
+			aborted := j.aborted
+			j.mu.Unlock()
+			if aborted {
+				log.Printf("turn[%s] stopped on request", sess.Name)
+				j.finish(msgTurnStopped(sess.Name))
+				return
+			}
 			log.Printf("turn[%s] error: %v", sess.Name, err)
 			j.finish(msgError("turn_failed", err.Error()))
 			return
@@ -243,6 +259,25 @@ func (s *Server) renameJob(old, newName string) {
 		delete(s.jobs, old)
 		s.jobs[newName] = j
 	}
+}
+
+// cancelTurn aborts a session's running turn (kills the claude child). Returns
+// true if a turn was running and got cancelled.
+func (s *Server) cancelTurn(name string) bool {
+	s.jobsMu.Lock()
+	j := s.jobs[name]
+	s.jobsMu.Unlock()
+	if j == nil {
+		return false
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if !j.running || j.cancel == nil {
+		return false
+	}
+	j.aborted = true
+	j.cancel()
+	return true
 }
 
 // dropJob forgets a session's job (e.g. when the session is deleted).

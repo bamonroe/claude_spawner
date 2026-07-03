@@ -56,6 +56,20 @@ func TestParseCancel(t *testing.T) {
 	}
 }
 
+func TestParseAbortTurn(t *testing.T) {
+	// Abort must win over Cancel/Kill for these "…the turn" phrasings.
+	for _, in := range []string{"abort", "abort the turn", "stop the turn", "stop the command",
+		"cancel the turn", "kill the turn", "stop working"} {
+		if got := Parse(in); got.Kind != AbortTurn {
+			t.Errorf("Parse(%q).Kind = %s, want abort_turn", in, got.Kind)
+		}
+	}
+	// A bare "cancel"/"kill" must NOT be read as abort.
+	if Parse("cancel").Kind != Cancel {
+		t.Errorf(`Parse("cancel") should stay Cancel`)
+	}
+}
+
 func TestApplyAliases(t *testing.T) {
 	al := map[string]string{"attached": "attach", "the tach": "detach", "listed": "list"}
 	cases := []struct{ in, want string }{

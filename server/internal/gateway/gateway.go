@@ -426,6 +426,8 @@ func (c *conn) loop() {
 			c.doSpawnAt(in.Path)
 		case "cancel":
 			c.cancelDialog()
+		case "abort":
+			c.abortTurn()
 		case "wake":
 			c.startAudio(in.Codec, in.HandsFree, in.Calibrate)
 		case "commit":

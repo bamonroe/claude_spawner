@@ -51,6 +51,8 @@ func (c *conn) runCommand(intent command.Intent) bool {
 		c.doStatus()
 	case command.Stop:
 		c.send(msgStopSpeaking())
+	case command.AbortTurn:
+		c.abortTurn()
 	case command.Cancel:
 		c.send(msgSay("nothing to cancel, bud."))
 	case command.Help:
@@ -207,8 +209,8 @@ func (c *conn) serveHistory(name string, before *int, limit int) {
 
 // commandHelp is spoken + shown when the user asks "hey buddy help".
 const commandHelp = "here's what I know, bud: attach to a session, detach, list sessions, status, " +
-	"kill a session, spawn a session, spawn a new project, read last, cancel message, and help. " +
-	"say hey buddy, then the command, then your end token."
+	"kill a session, spawn a session, spawn a new project, read last, stop the turn, cancel message, " +
+	"and help. say hey buddy, then the command, then your end token."
 
 // sendSessionList pushes the current sessions to the app without speaking (used
 // for the sidebar / silent refreshes).
@@ -332,6 +334,16 @@ func (c *conn) resolveSession(spoken string) *session.Session {
 		}
 	}
 	return nil
+}
+
+// abortTurn cancels the running turn on the attached session (kills the claude
+// child). The turn's goroutine then delivers a `turn_stopped` to clear the app.
+func (c *conn) abortTurn() {
+	if c.attached != nil && c.srv.cancelTurn(c.attached.Name) {
+		c.send(msgSay("stopping that, bud."))
+		return
+	}
+	c.send(msgSay("nothing running to stop, bud."))
 }
 
 func (c *conn) doDetach() {

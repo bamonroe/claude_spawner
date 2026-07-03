@@ -20,8 +20,9 @@ const (
 	Kill     Kind = "kill"
 	Status   Kind = "status"
 	Cancel   Kind = "cancel"
-	Stop     Kind = "stop"      // stop speaking (barge-in)
-	Help     Kind = "help"      // list available commands
+	Stop      Kind = "stop"       // stop speaking (barge-in)
+	AbortTurn Kind = "abort_turn" // cancel the running Claude turn
+	Help      Kind = "help"       // list available commands
 	ReadLast Kind = "read_last" // re-read the last N Claude replies aloud
 	Unknown  Kind = "unknown"
 )
@@ -138,6 +139,13 @@ func Parse(text string) Intent {
 	case t == "stop" || t == "quiet" || t == "hush" || t == "enough",
 		contains(t, "stop talking", "stop speaking", "stop reading", "be quiet", "shut up"):
 		return Intent{Kind: Stop}
+	// Abort the running turn (kill the claude child). Checked before Cancel/Kill so
+	// "cancel the turn" / "kill the turn" abort the turn, not the message/session.
+	case t == "abort" || first == "abort",
+		contains(t, "stop the turn", "stop the command", "stop the job", "stop the task",
+			"stop working", "cancel the turn", "cancel the command", "kill the turn",
+			"kill the command", "abort the turn", "halt the turn"):
+		return Intent{Kind: AbortTurn}
 	case t == "cancel" || first == "cancel" ||
 		contains(t, "cancel message", "cancel that", "never mind", "nevermind", "forget it", "scrap that", "scrap it"):
 		return Intent{Kind: Cancel}

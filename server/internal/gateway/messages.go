@@ -96,6 +96,13 @@ func msgTurnInterrupted(name, reason string) map[string]any {
 	return map[string]any{"type": "turn_interrupted", "name": name, "reason": reason}
 }
 
+// msgTurnStopped tells the app a running turn was deliberately aborted (via the
+// "abort" command / stop-turn button), so it clears the "thinking…" state
+// without the "say it again" nudge of an interruption.
+func msgTurnStopped(name string) map[string]any {
+	return map[string]any{"type": "turn_stopped", "name": name}
+}
+
 // msgStopSpeaking tells the app to stop any in-progress text-to-speech (barge-in).
 func msgStopSpeaking() map[string]any { return map[string]any{"type": "stop_speaking"} }
 
