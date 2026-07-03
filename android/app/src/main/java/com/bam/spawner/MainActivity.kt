@@ -47,6 +47,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
@@ -82,6 +84,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import kotlin.math.log10
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.bam.spawner.audio.AudioOutput
 import com.bam.spawner.net.DiscoveredInfo
 import com.bam.spawner.ui.MarkdownText
 import com.bam.spawner.ui.SpawnerTheme
@@ -96,6 +99,22 @@ class MainActivity : ComponentActivity() {
         if (granted && settings.handsFree) startHandsFreeService()
     }
     private val notifPermission = registerForActivityResult(RequestPermission()) {}
+    private val btPermission = registerForActivityResult(RequestPermission()) { granted ->
+        if (granted) controller.setAudioOutput(AudioOutput.BLUETOOTH)
+    }
+
+    /** Route the spoken audio, requesting BLUETOOTH_CONNECT first if Bluetooth is
+     *  chosen and not yet granted (needed to route to a Bluetooth headset). */
+    private fun selectAudioOutput(out: AudioOutput) {
+        if (out == AudioOutput.BLUETOOTH &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
+        ) {
+            btPermission.launch(Manifest.permission.BLUETOOTH_CONNECT)
+        } else {
+            controller.setAudioOutput(out)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -113,7 +132,11 @@ class MainActivity : ComponentActivity() {
                 // Surface provides the correct on-background content color (so text is
                 // light in dark mode, dark in light mode).
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    AppRoot(controller, settings, mode, onToggleHandsFree = ::setHandsFree) { newMode ->
+                    AppRoot(
+                        controller, settings, mode,
+                        onToggleHandsFree = ::setHandsFree,
+                        onSelectAudioOutput = ::selectAudioOutput,
+                    ) { newMode ->
                         settings.themeMode = newMode.name.lowercase()
                         mode = newMode
                     }
@@ -149,6 +172,7 @@ private fun AppRoot(
     settings: SettingsStore,
     themeMode: ThemeMode,
     onToggleHandsFree: (Boolean) -> Unit,
+    onSelectAudioOutput: (AudioOutput) -> Unit,
     onThemeChange: (ThemeMode) -> Unit,
 ) {
     var screen by rememberSaveable { mutableStateOf("main") }
@@ -182,6 +206,7 @@ private fun AppRoot(
             controller,
             handsFreeInitial = settings.handsFree,
             onToggleHandsFree = onToggleHandsFree,
+            onSelectAudioOutput = onSelectAudioOutput,
             onOpenSettings = { screen = "settings" },
             onNewSession = { controller.browse(""); screen = "browse" },
         )
@@ -193,6 +218,7 @@ private fun MainScreen(
     controller: VoiceController,
     handsFreeInitial: Boolean,
     onToggleHandsFree: (Boolean) -> Unit,
+    onSelectAudioOutput: (AudioOutput) -> Unit,
     onOpenSettings: () -> Unit,
     onNewSession: () -> Unit,
 ) {
@@ -225,6 +251,8 @@ private fun MainScreen(
     }
     val mic by controller.mic.collectAsStateWithLifecycle()
     val voiceState by controller.voiceState.collectAsStateWithLifecycle()
+    val audioOutput by controller.audioOutput.collectAsStateWithLifecycle()
+    val audioOutputs by controller.audioOutputs.collectAsStateWithLifecycle()
     val pending by controller.pending.collectAsStateWithLifecycle()
     val activity by controller.activity.collectAsStateWithLifecycle()
     var handsFree by remember { mutableStateOf(handsFreeInitial) }
@@ -265,6 +293,10 @@ private fun MainScreen(
                 onToggleHandsFree = { on -> handsFree = on; onToggleHandsFree(on) },
                 onMenu = { scope.launch { drawerState.open() } },
                 onSettings = onOpenSettings,
+                audioOutput = audioOutput,
+                audioOutputs = audioOutputs,
+                onSelectOutput = onSelectAudioOutput,
+                onOutputMenuOpened = controller::refreshAudioOutputs,
             )
             if (attached == null) DetachedBanner()
             ChatList(chat, hasMoreHistory, scrollTick, controller::loadOlder, Modifier.weight(1f).fillMaxWidth())
@@ -367,6 +399,10 @@ private fun TopBar(
     onToggleHandsFree: (Boolean) -> Unit,
     onMenu: () -> Unit,
     onSettings: () -> Unit,
+    audioOutput: AudioOutput,
+    audioOutputs: List<AudioOutput>,
+    onSelectOutput: (AudioOutput) -> Unit,
+    onOutputMenuOpened: () -> Unit,
 ) {
     Surface(tonalElevation = 2.dp) {
         Row(
@@ -378,9 +414,33 @@ private fun TopBar(
                 Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text("· $subtitle", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
             }
+            AudioOutputButton(audioOutput, audioOutputs, onSelectOutput, onOutputMenuOpened)
             Text("🎧", fontSize = 15.sp)
             Switch(checked = handsFree, onCheckedChange = onToggleHandsFree)
             TextButton(onClick = onSettings) { Text("⚙", fontSize = 20.sp) }
+        }
+    }
+}
+
+/** Top-bar button showing the current spoken-audio output; tap to pick another
+ *  (Bluetooth appears only while a headset is connected). */
+@Composable
+private fun AudioOutputButton(
+    current: AudioOutput,
+    outputs: List<AudioOutput>,
+    onSelect: (AudioOutput) -> Unit,
+    onOpened: () -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        TextButton(onClick = { onOpened(); open = true }) { Text(current.icon, fontSize = 18.sp) }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            outputs.forEach { out ->
+                DropdownMenuItem(
+                    text = { Text("${out.icon}  ${out.label}${if (out == current) "  ✓" else ""}") },
+                    onClick = { onSelect(out); open = false },
+                )
+            }
         }
     }
 }

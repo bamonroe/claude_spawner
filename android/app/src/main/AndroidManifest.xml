@@ -7,6 +7,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Route the spoken (TTS) audio to a connected Bluetooth headset. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
     <application
         android:allowBackup="true"

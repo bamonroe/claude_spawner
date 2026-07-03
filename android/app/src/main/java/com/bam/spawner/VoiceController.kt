@@ -1,6 +1,8 @@
 package com.bam.spawner
 
 import android.content.Context
+import com.bam.spawner.audio.AudioOutput
+import com.bam.spawner.audio.AudioRouter
 import com.bam.spawner.audio.HandsFreeRecorder
 import com.bam.spawner.audio.LevelMeter
 import com.bam.spawner.audio.OpusRecorder
@@ -110,6 +112,15 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     private val _activity = MutableStateFlow("")
     val activity: StateFlow<String> = _activity.asStateFlow()
 
+    // Spoken-audio output routing (earpiece/speaker/bluetooth). `audioOutputs` is
+    // what's currently selectable (bluetooth only when a headset is connected);
+    // `audioOutput` is the active one.
+    private val audioRouter = AudioRouter(app)
+    private val _audioOutputs = MutableStateFlow(listOf(AudioOutput.EARPIECE, AudioOutput.SPEAKER))
+    val audioOutputs: StateFlow<List<AudioOutput>> = _audioOutputs.asStateFlow()
+    private val _audioOutput = MutableStateFlow(AudioOutput.EARPIECE)
+    val audioOutput: StateFlow<AudioOutput> = _audioOutput.asStateFlow()
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var meter: LevelMeter? = null
     private var commitTimer: Job? = null
@@ -129,6 +140,31 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
             handsFree?.playbackActive = speaking
             if (hfOn) _voiceState.value = if (speaking) VoiceState.SPEAKING else VoiceState.LISTENING
         }
+        // Restore the saved output (falling back to earpiece if it's no longer
+        // available, e.g. the Bluetooth headset is off).
+        val saved = runCatching { AudioOutput.valueOf(settings.audioOutput.uppercase()) }
+            .getOrDefault(AudioOutput.EARPIECE)
+        val available = audioRouter.available()
+        _audioOutputs.value = available
+        val target = if (saved in available) saved else AudioOutput.EARPIECE
+        audioRouter.setOutput(target)
+        _audioOutput.value = target
+    }
+
+    /** Re-scan available outputs (call when opening the picker to catch a
+     *  just-connected/removed Bluetooth headset). */
+    fun refreshAudioOutputs() {
+        _audioOutputs.value = audioRouter.available()
+        _audioOutput.value = audioRouter.current()
+    }
+
+    /** Route the spoken audio to [out] and remember the choice. */
+    fun setAudioOutput(out: AudioOutput) {
+        if (audioRouter.setOutput(out)) {
+            _audioOutput.value = out
+            settings.audioOutput = out.name.lowercase()
+        }
+        _audioOutputs.value = audioRouter.available()
     }
 
     fun connect(url: String, token: String) {

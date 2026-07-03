@@ -38,6 +38,11 @@ class SettingsStore(context: Context) {
         get() = prefs.getBoolean("hands_free", false)
         set(v) = prefs.edit().putBoolean("hands_free", v).apply()
 
+    /** Preferred TTS audio output: "earpiece" | "speaker" | "bluetooth". */
+    var audioOutput: String
+        get() = prefs.getString("audio_output", "earpiece") ?: "earpiece"
+        set(v) = prefs.edit().putString("audio_output", v).apply()
+
     /** Spoken word that commits a hands-free message ("beep" by default). */
     var endToken: String
         get() = prefs.getString("end_token", "beep")?.ifBlank { "beep" } ?: "beep"
