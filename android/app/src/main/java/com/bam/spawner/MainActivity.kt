@@ -887,18 +887,10 @@ private fun AppearanceSettings(themeMode: ThemeMode, onThemeChange: (ThemeMode) 
     }
 }
 
-private data class CommandInfo(val name: String, val desc: String)
-
-private val COMMANDS = listOf(
-    CommandInfo("attach", "Attach to a session by name"),
-    CommandInfo("detach", "Leave the current session"),
-    CommandInfo("list", "List your sessions"),
-    CommandInfo("status", "What the session is doing"),
-    CommandInfo("kill", "Delete a session by name"),
-    CommandInfo("spawn", "Start a new session or project"),
-    CommandInfo("cancel", "Discard the current message"),
-    CommandInfo("help", "Speak the list of commands"),
-)
+// The `Command` type and the alphabetical `COMMANDS` list are GENERATED at build
+// time from docs/commands.json (see the generateCommands Gradle task), whose
+// source of truth is the server's command registry. Don't hand-maintain a list
+// here — add commands in the server registry so the app can never drift.
 
 @Composable
 private fun CommandsSettings(settings: SettingsStore, onAliasesChanged: () -> Unit, onBack: () -> Unit) {
@@ -926,7 +918,7 @@ private fun CommandsSettings(settings: SettingsStore, onAliasesChanged: () -> Un
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun CommandAliasGroup(cmd: CommandInfo, aliases: List<String>, onAdd: (String) -> Unit, onRemove: (String) -> Unit) {
+private fun CommandAliasGroup(cmd: Command, aliases: List<String>, onAdd: (String) -> Unit, onRemove: (String) -> Unit) {
     var adding by remember { mutableStateOf(false) }
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
@@ -937,7 +929,11 @@ private fun CommandAliasGroup(cmd: CommandInfo, aliases: List<String>, onAdd: (S
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(cmd.name, style = MaterialTheme.typography.titleMedium)
-                    Text(cmd.desc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                    Text(cmd.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                    Text(
+                        "say: " + cmd.aliases.joinToString(" · "),
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
+                    )
                 }
                 OutlinedButton(onClick = { adding = true }) { Text("＋") }
             }

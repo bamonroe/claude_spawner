@@ -47,7 +47,49 @@ android {
     buildFeatures {
         compose = true
     }
+
+    // The generated command list (see generateCommands below) is a Kotlin source.
+    sourceSets.getByName("main").java.srcDir(layout.buildDirectory.dir("generated/commands"))
 }
+
+// generateCommands turns the shared docs/commands.json (emitted from the server's
+// authoritative command registry) into a Kotlin COMMANDS list, so the app's
+// command reference + alias editor can never drift from the server grammar and
+// no command can ship undocumented. Runs before every build.
+val generateCommands by tasks.registering {
+    val jsonFile = rootProject.file("../docs/commands.json")
+    val outDir = layout.buildDirectory.dir("generated/commands").get().asFile
+    inputs.file(jsonFile)
+    outputs.dir(outDir)
+    doLast {
+        fun esc(s: String) = s.replace("\\", "\\\\").replace("\"", "\\\"")
+        @Suppress("UNCHECKED_CAST")
+        val data = groovy.json.JsonSlurper().parse(jsonFile) as Map<String, Any>
+        @Suppress("UNCHECKED_CAST")
+        val cmds = (data["commands"] as List<Map<String, Any>>)
+            .sortedBy { it["title"] as String } // alphabetical, defensively (JSON is already sorted)
+        val sb = StringBuilder()
+        sb.appendLine("// GENERATED from docs/commands.json by the generateCommands Gradle task.")
+        sb.appendLine("// Do not edit — change the server command registry and run `go run ./cmd/gencommands`.")
+        sb.appendLine("package com.bam.spawner")
+        sb.appendLine()
+        sb.appendLine("/** One \"hey buddy\" command: display name, spoken phrasings, description. */")
+        sb.appendLine("data class Command(val name: String, val aliases: List<String>, val description: String)")
+        sb.appendLine()
+        sb.appendLine("/** Every control command, alphabetical. Source of truth: server command registry. */")
+        sb.appendLine("val COMMANDS: List<Command> = listOf(")
+        for (c in cmds) {
+            @Suppress("UNCHECKED_CAST")
+            val aliases = (c["aliases"] as List<String>).joinToString(", ") { "\"${esc(it)}\"" }
+            sb.appendLine("    Command(\"${esc(c["title"] as String)}\", listOf($aliases), \"${esc(c["description"] as String)}\"),")
+        }
+        sb.appendLine(")")
+        val pkgDir = outDir.resolve("com/bam/spawner").apply { mkdirs() }
+        pkgDir.resolve("Commands.kt").writeText(sb.toString())
+    }
+}
+
+tasks.named("preBuild") { dependsOn(generateCommands) }
 
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
