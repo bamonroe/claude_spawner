@@ -8,6 +8,7 @@ package gateway
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -265,6 +266,7 @@ type conn struct {
 
 	buffer   []string               // hands-free rough draft (per-chunk fast transcripts, for detection)
 	audioPCM []byte                 // hands-free raw PCM of all chunks, re-transcribed as one on commit
+	brief    bool                   // append a "reply briefly for TTS" hint to dictation
 	endToken string                 // spoken word that commits the buffer (default "beep")
 	sttMode  string                 // "dynamic" | "fixed" whisper model selection
 	sttModel string                 // fixed-mode model: "tiny" | "base" | "small"
@@ -311,11 +313,12 @@ func (c *conn) authenticate() bool {
 		return false
 	}
 	_ = c.ws.SetReadDeadline(time.Time{}) // clear deadline
-	if in.Type != "hello" || in.Token == "" || in.Token != c.srv.cfg.AuthToken {
+	if in.Type != "hello" || subtle.ConstantTimeCompare([]byte(in.Token), []byte(c.srv.cfg.AuthToken)) != 1 {
 		c.send(msgError("unauthorized", "bad or missing token"))
 		return false
 	}
 	c.clientID = in.ClientID
+	c.brief = in.Brief
 	c.endToken = strings.TrimSpace(in.EndToken)
 	if c.endToken == "" {
 		c.endToken = "beep"

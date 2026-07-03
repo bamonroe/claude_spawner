@@ -436,7 +436,13 @@ func (c *conn) dictate(text string) {
 		c.send(msgSay("attach to a session first, bud."))
 		return
 	}
-	if !c.srv.startTurn(c.attached, text) {
+	prompt := text
+	if c.brief {
+		// Opt-in: nudge Claude toward short, TTS-friendly replies. Only the prompt
+		// to Claude carries the hint; the displayed/echoed transcript stays as spoken.
+		prompt += "\n\n(Reply briefly, in plain sentences suitable for text-to-speech.)"
+	}
+	if !c.srv.startTurn(c.attached, prompt) {
 		c.send(msgSay("still working on the last one, bud."))
 		return
 	}

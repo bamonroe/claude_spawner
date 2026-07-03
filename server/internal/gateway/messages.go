@@ -30,6 +30,7 @@ type inbound struct {
 	Limit        int               `json:"limit"`         // on `history`: page size (default 30)
 	Silent       bool              `json:"silent"`        // on `attach`: suppress the spoken "attached…" confirmation (reconnect auto-attach)
 	SessionID    string            `json:"session_id"`    // on `adopt`: the discovered Claude session_id to register
+	Brief        bool              `json:"brief"`         // on `hello`: append a "reply briefly for TTS" hint to dictation
 }
 
 func msgHelloOK(sessionID string) map[string]any {
