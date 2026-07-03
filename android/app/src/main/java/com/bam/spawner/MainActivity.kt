@@ -145,6 +145,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // Foreground state drives whether a finished turn posts a notification.
+    override fun onResume() {
+        super.onResume()
+        controller.appForeground = true
+    }
+
+    override fun onStop() {
+        super.onStop()
+        controller.appForeground = false
+    }
+
     /** Toggle always-listening: start/stop the mic foreground service (and perms). */
     private fun setHandsFree(on: Boolean) {
         settings.handsFree = on
@@ -300,7 +311,7 @@ private fun MainScreen(
             )
             if (attached == null) DetachedBanner()
             ChatList(chat, hasMoreHistory, scrollTick, controller::loadOlder, Modifier.weight(1f).fillMaxWidth())
-            if (activity.isNotBlank()) ActivityIndicator(activity)
+            if (activity.isNotBlank()) ActivityIndicator(activity, onAbort = controller::abortTurn)
             if (pending.isNotBlank()) DraftLine(pending)
             if (handsFree) VoiceStatePill(voiceState)
             if (mic.isNotEmpty()) {
@@ -447,8 +458,12 @@ private fun AudioOutputButton(
 
 /** Live "Claude is thinking / editing foo.go" indicator, like a typing bubble. */
 @Composable
-private fun ActivityIndicator(text: String) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 3.dp), horizontalArrangement = Arrangement.Start) {
+private fun ActivityIndicator(text: String, onAbort: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 3.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Surface(
             color = MaterialTheme.colorScheme.surfaceVariant,
             shape = RoundedCornerShape(14.dp),
@@ -459,6 +474,7 @@ private fun ActivityIndicator(text: String) {
                 fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
             )
         }
+        TextButton(onClick = onAbort) { Text("⏹ stop", fontSize = 13.sp) }
     }
 }
 
@@ -641,7 +657,7 @@ private fun Sidebar(
                 Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f).clickable { onOpen(d) }) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (d.active) Text("⚠️ ")
+                            if (d.busy) Text("⚙️ ") else if (d.active) Text("⚠️ ")
                             Text(d.name, style = MaterialTheme.typography.titleSmall,
                                 color = if (isAttached) MaterialTheme.colorScheme.primary else Color.Unspecified,
                                 fontWeight = if (isAttached) FontWeight.Bold else null)
@@ -649,6 +665,7 @@ private fun Sidebar(
                         Text(d.dir, style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.outline, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         val parts = mutableListOf<String>()
+                        if (d.busy) parts.add("working…")
                         if (isAttached) parts.add("attached")
                         if (d.active) parts.add("live in terminal")
                         else relativeTime(d.lastActive).let { if (it.isNotEmpty()) parts.add(it) }
@@ -892,6 +909,17 @@ private fun AudioSettings(
         }
         VadSlider("Silence to end / \"I'm done\" (ms)", settings.vadSilenceMs, 400, 2000, 100) {
             settings.vadSilenceMs = it; onVadChanged()
+        }
+
+        HorizontalDivider()
+        var brief by remember { mutableStateOf(settings.brief) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Brief replies", style = MaterialTheme.typography.titleMedium)
+                Text("Ask Claude to keep answers short, for text-to-speech.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            }
+            Switch(checked = brief, onCheckedChange = { brief = it; settings.brief = it; onSttChanged() })
         }
 
         HorizontalDivider()

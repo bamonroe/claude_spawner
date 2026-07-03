@@ -24,6 +24,8 @@ sealed interface ServerMsg {
     data class Discovered(val sessions: List<DiscoveredInfo>) : ServerMsg
     data class Err(val code: String, val message: String) : ServerMsg
     data class TurnInterrupted(val name: String, val reason: String) : ServerMsg
+    data class TurnStopped(val name: String) : ServerMsg // a turn was deliberately aborted
+    data class Diff(val text: String) : ServerMsg // post-turn `git diff --stat` review
     data object StopSpeaking : ServerMsg
     data class Listing(val path: String, val parent: String, val entries: List<BrowseEntry>) : ServerMsg
     data class Unknown(val type: String) : ServerMsg
@@ -48,6 +50,8 @@ sealed interface ServerMsg {
                 "discovered" -> Discovered(readDiscovered(o.optJSONArray("sessions")))
                 "error" -> Err(o.optString("code"), o.optString("message"))
                 "turn_interrupted" -> TurnInterrupted(o.optString("name"), o.optString("reason"))
+                "turn_stopped" -> TurnStopped(o.optString("name"))
+                "diff" -> Diff(o.optString("text"))
                 "stop_speaking" -> StopSpeaking
                 "listing" -> Listing(o.optString("path"), o.optString("parent"), readEntries(o.optJSONArray("entries")))
                 else -> Unknown(o.optString("type"))
@@ -61,6 +65,7 @@ sealed interface ServerMsg {
                 DiscoveredInfo(
                     s.optString("name"), s.optString("dir"), s.optString("session_id"),
                     s.optLong("last_active"), s.optBoolean("active"), s.optBoolean("registered"),
+                    s.optBoolean("busy"),
                 )
             }
         }
@@ -99,6 +104,7 @@ data class DiscoveredInfo(
     val lastActive: Long,   // unix seconds
     val active: Boolean,    // interactive claude open in a terminal at this dir
     val registered: Boolean, // already in the spawner registry
+    val busy: Boolean = false, // a dictation turn is running for this session now
 )
 
 /** A directory in the "new session" browser. */
@@ -112,6 +118,7 @@ data class HelloConfig(
     val aliases: Map<String, String>,
     val whisperUrl: String,
     val whisperModel: String,
+    val brief: Boolean,
 )
 
 /** app -> server message builders. */
@@ -120,9 +127,10 @@ object Outbound {
         JSONObject().put("type", "hello").put("token", token).put("client_id", clientId)
             .put("end_token", cfg.endToken).put("stt_mode", cfg.sttMode).put("stt_model", cfg.sttModel)
             .put("aliases", JSONObject(cfg.aliases)).put("whisper_url", cfg.whisperUrl)
-            .put("whisper_model", cfg.whisperModel)
+            .put("whisper_model", cfg.whisperModel).put("brief", cfg.brief)
             .toString()
     fun utterance(text: String) = JSONObject().put("type", "utterance").put("text", text).toString()
+    fun abort() = JSONObject().put("type", "abort").toString() // cancel the running turn
     fun wake(codec: String, handsFree: Boolean = false, calibrate: Boolean = false) =
         JSONObject().put("type", "wake").put("codec", codec)
             .put("hands_free", handsFree).put("calibrate", calibrate).toString()

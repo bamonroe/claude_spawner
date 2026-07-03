@@ -43,6 +43,11 @@ class SettingsStore(context: Context) {
         get() = prefs.getString("audio_output", "earpiece") ?: "earpiece"
         set(v) = prefs.edit().putString("audio_output", v).apply()
 
+    /** Ask Claude for brief, TTS-friendly replies (appended as a prompt hint). */
+    var brief: Boolean
+        get() = prefs.getBoolean("brief", false)
+        set(v) = prefs.edit().putBoolean("brief", v).apply()
+
     /** Spoken word that commits a hands-free message ("beep" by default). */
     var endToken: String
         get() = prefs.getString("end_token", "beep")?.ifBlank { "beep" } ?: "beep"

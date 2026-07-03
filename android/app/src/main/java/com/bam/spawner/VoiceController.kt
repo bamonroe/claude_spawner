@@ -51,7 +51,12 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     private val app = context.applicationContext
     private val speaker = Speaker(app)
     private val recorder = OpusRecorder(app)
+    private val notifier = Notifier(app)
     private var client: SpawnerClient? = null
+
+    /** True while the app UI is in the foreground; drives whether a finished turn
+     *  posts a notification. Set by the Activity's lifecycle. */
+    @Volatile var appForeground = false
 
     private val _connected = MutableStateFlow(false)
     val connected: StateFlow<Boolean> = _connected.asStateFlow()
@@ -172,7 +177,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
         _status.value = "connecting…"
         val hello = com.bam.spawner.net.HelloConfig(
             settings.endToken, settings.sttMode, settings.sttModel, settings.aliasMap(),
-            settings.whisperUrl, settings.whisperModel,
+            settings.whisperUrl, settings.whisperModel, settings.brief,
         )
         client = SpawnerClient(url, token, settings.clientId, hello, ::onMessage, ::onConnected)
             .also { it.connect() }
@@ -224,6 +229,9 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     }
 
     fun detach() = client?.send(Outbound.detach())
+
+    /** Abort the running turn on the attached session (kills the claude child). */
+    fun abortTurn() = client?.send(Outbound.abort())
 
     // --- Visual directory browser (New session) ---
     fun browse(path: String) = client?.send(Outbound.browse(path))
@@ -481,6 +489,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
                 clearTurnInFlight()
                 _activity.value = "" // reply arrived — stop the thinking indicator
                 addChat(Role.CLAUDE, msg.text); speaker.speak(Markdown.toSpeech(msg.text))
+                if (!appForeground) notifier.turnDone(msg.name, msg.text) // surface it from the pocket
             }
             is ServerMsg.Activity -> {
                 // A live breadcrumb means the turn is running server-side; mark it in
@@ -490,6 +499,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
                 _activity.value = msg.text
             }
             is ServerMsg.Files -> if (msg.files.isNotEmpty()) addChat(Role.SYSTEM, "📝 changed: " + msg.files.joinToString(", "))
+            is ServerMsg.Diff -> addChat(Role.SYSTEM, "📊 diff:\n${msg.text}") // review summary, not spoken
             is ServerMsg.Transcript -> {
                 addChat(Role.USER, msg.text); _mic.value = ""
                 if (hfOn) _voiceState.value = VoiceState.THINKING
@@ -546,6 +556,13 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
                 if (hfOn) _voiceState.value = VoiceState.LISTENING
                 addChat(Role.SYSTEM, "⚠️ turn interrupted (${msg.reason}) — say it again, bud.")
                 speaker.speak("that turn got interrupted, bud — the server restarted. say it again.")
+            }
+            is ServerMsg.TurnStopped -> {
+                clearTurnInFlight()
+                _activity.value = ""
+                speaker.stop() // also quiet any reply already being read
+                if (hfOn) _voiceState.value = VoiceState.LISTENING
+                addChat(Role.SYSTEM, "⏹ stopped that turn.")
             }
             is ServerMsg.Unknown -> {}
         }
