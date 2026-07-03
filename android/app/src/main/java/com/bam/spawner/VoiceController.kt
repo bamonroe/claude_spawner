@@ -151,6 +151,12 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     @Volatile private var turnInFlight = false
     private var lostTurnWatchdog: Job? = null
     private val lostTurnGraceMs = 45_000L
+    // True once the current turn has streamed at least one live prose chunk
+    // (output chunk=true). The final non-chunk output then just closes the turn
+    // instead of re-adding/re-speaking text we already showed. Stays false for a
+    // turn whose result arrives whole (a buffered reply on reconnect), so that
+    // path still renders + speaks it.
+    @Volatile private var turnStreamed = false
 
     init {
         // While Claude's reply is spoken, raise the recorder's VAD bar (echo) and
@@ -547,10 +553,24 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
             }
             is ServerMsg.Say -> { addChat(Role.SYSTEM, msg.text); speaker.speak(Markdown.toSpeech(msg.text)) }
             is ServerMsg.Output -> {
-                clearTurnInFlight()
-                _activity.value = "" // reply arrived — stop the thinking indicator
-                addChat(Role.CLAUDE, msg.text); speaker.speak(Markdown.toSpeech(msg.text))
-                if (!appForeground) notifier.turnDone(msg.name, msg.text) // surface it from the pocket
+                if (msg.chunk) {
+                    // A live segment of Claude's reply as it's produced. Show + speak it
+                    // now; a streamed chunk also proves the turn survived (like activity),
+                    // so keep it in flight and disarm the interruption watchdog.
+                    turnInFlight = true
+                    lostTurnWatchdog?.cancel(); lostTurnWatchdog = null
+                    turnStreamed = true
+                    _activity.value = "" // prose is arriving — drop the "thinking" breadcrumb
+                    addChat(Role.CLAUDE, msg.text); speaker.speak(Markdown.toSpeech(msg.text))
+                } else {
+                    clearTurnInFlight()
+                    _activity.value = "" // turn done — stop the thinking indicator
+                    if (!turnStreamed) { // no live stream reached us (buffered reply on reconnect)
+                        addChat(Role.CLAUDE, msg.text); speaker.speak(Markdown.toSpeech(msg.text))
+                    }
+                    turnStreamed = false
+                    if (!appForeground) notifier.turnDone(msg.name, msg.text) // surface it from the pocket
+                }
             }
             is ServerMsg.Activity -> {
                 // A live breadcrumb means the turn is running server-side; mark it in
@@ -563,6 +583,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
             is ServerMsg.Diff -> addChat(Role.SYSTEM, "📊 diff:\n${msg.text}") // review summary, not spoken
             is ServerMsg.Ask -> {
                 clearTurnInFlight()
+                turnStreamed = false
                 _activity.value = ""
                 if (hfOn) _voiceState.value = VoiceState.LISTENING
                 _ask.value = msg.questions
@@ -571,6 +592,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
             }
             is ServerMsg.Transcript -> {
                 _ask.value = null // a spoken/typed reply answers any pending questions
+                turnStreamed = false // a new user turn begins; nothing streamed yet
                 addChat(Role.USER, msg.text); _mic.value = ""
                 if (hfOn) _voiceState.value = VoiceState.THINKING
             }
@@ -589,6 +611,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
                 // the turn finished while we were away, nothing comes and the spinner
                 // correctly stays clear instead of hanging on "running the command".
                 clearTurnInFlight()
+                turnStreamed = false
                 _activity.value = ""
                 _attachedName.value = msg.name
                 settings.lastSession = msg.name
@@ -600,6 +623,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
                 }
             }
             is ServerMsg.Detached -> {
+                turnStreamed = false
                 _attachedName.value = null
                 settings.lastSession = ""
                 _status.value = "connected"
@@ -610,7 +634,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
             is ServerMsg.Discovered -> { _discovered.value = msg.sessions; _discoverError.value = "" }
             is ServerMsg.Listing -> _listing.value = msg
             is ServerMsg.Err -> {
-                if (msg.code == "turn_failed") clearTurnInFlight()
+                if (msg.code == "turn_failed") { clearTurnInFlight(); turnStreamed = false }
                 _activity.value = ""
                 // Discover/adopt/delete errors surface on the Discover screen; the
                 // rest go to the chat log.
@@ -622,6 +646,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
             }
             is ServerMsg.TurnInterrupted -> {
                 clearTurnInFlight()
+                turnStreamed = false
                 _activity.value = ""
                 if (hfOn) _voiceState.value = VoiceState.LISTENING
                 addChat(Role.SYSTEM, "⚠️ turn interrupted (${msg.reason}) — say it again.")
@@ -629,6 +654,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
             }
             is ServerMsg.TurnStopped -> {
                 clearTurnInFlight()
+                turnStreamed = false
                 _activity.value = ""
                 speaker.stop() // also quiet any reply already being read
                 if (hfOn) _voiceState.value = VoiceState.LISTENING

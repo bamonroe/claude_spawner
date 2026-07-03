@@ -19,7 +19,7 @@ sealed interface ServerMsg {
     data class Dialog(val state: String, val prompt: String) : ServerMsg
     data class Attached(val name: String) : ServerMsg
     data object Detached : ServerMsg
-    data class Output(val name: String, val text: String) : ServerMsg
+    data class Output(val name: String, val text: String, val chunk: Boolean) : ServerMsg
     data class History(val name: String, val messages: List<HistMsg>, val more: Boolean) : ServerMsg
     data class ReadLast(val count: Int) : ServerMsg
     data class Discovered(val sessions: List<DiscoveredInfo>) : ServerMsg
@@ -47,7 +47,7 @@ sealed interface ServerMsg {
                 "dialog" -> Dialog(o.optString("state"), o.optString("prompt"))
                 "attached" -> Attached(o.optString("name"))
                 "detached" -> Detached
-                "output" -> Output(o.optString("name"), o.optString("text"))
+                "output" -> Output(o.optString("name"), o.optString("text"), o.optBoolean("chunk", false))
                 "history" -> History(o.optString("name"), readHist(o.optJSONArray("messages")), o.optBoolean("more"))
                 "read_last" -> ReadLast(o.optInt("count", 1))
                 "discovered" -> Discovered(readDiscovered(o.optJSONArray("sessions")))
