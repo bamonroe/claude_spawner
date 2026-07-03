@@ -118,6 +118,10 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     private val _activity = MutableStateFlow("")
     val activity: StateFlow<String> = _activity.asStateFlow()
 
+    // True while TTS is speaking (drives the tap-to-stop banner).
+    private val _speaking = MutableStateFlow(false)
+    val speaking: StateFlow<Boolean> = _speaking.asStateFlow()
+
     // Pending clarification questions (interactive mode); null when none.
     private val _ask = MutableStateFlow<List<com.bam.spawner.net.AskQuestion>?>(null)
     val ask: StateFlow<List<com.bam.spawner.net.AskQuestion>?> = _ask.asStateFlow()
@@ -147,9 +151,12 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
         // While Claude's reply is spoken, raise the recorder's VAD bar (echo) and
         // reflect SPEAKING; when it finishes, return to LISTENING.
         speaker.onSpeakingChanged { speaking ->
+            _speaking.value = speaking
             handsFree?.playbackActive = speaking
             if (hfOn) _voiceState.value = if (speaking) VoiceState.SPEAKING else VoiceState.LISTENING
         }
+        // Media speaker by default; hands-free switches to echo-cancelled comm audio.
+        speaker.setCommMode(settings.handsFree)
         // Restore the saved output (falling back to earpiece if it's no longer
         // available, e.g. the Bluetooth headset is off).
         val saved = runCatching { AudioOutput.valueOf(settings.audioOutput.uppercase()) }
@@ -286,6 +293,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
         }
         handsFree = hf
         hfOn = true
+        speaker.setCommMode(true) // echo-cancelled comm audio so voice barge-in works
         _voiceState.value = VoiceState.LISTENING
         _mic.value = "🟢 listening for \"hey buddy\"…"
         return true
@@ -306,6 +314,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
 
     fun stopHandsFree() {
         hfOn = false
+        speaker.setCommMode(false) // back to the regular media speaker
         handsFree?.stop()
         handsFree = null
         cancelSilenceCommit()
@@ -313,6 +322,9 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
         _voiceState.value = VoiceState.OFF
         _mic.value = ""
     }
+
+    /** Stop the TTS readout (the on-screen tap-to-stop). */
+    fun stopSpeaking() = speaker.stop()
 
     // --- Live level meter (Audio settings page) ---
     /** Start a standalone meter unless hands-free is already feeding the level. */

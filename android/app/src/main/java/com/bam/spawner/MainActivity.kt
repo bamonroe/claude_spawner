@@ -267,6 +267,7 @@ private fun MainScreen(
     val voiceState by controller.voiceState.collectAsStateWithLifecycle()
     val audioOutput by controller.audioOutput.collectAsStateWithLifecycle()
     val ask by controller.ask.collectAsStateWithLifecycle()
+    val speaking by controller.speaking.collectAsStateWithLifecycle()
     val audioOutputs by controller.audioOutputs.collectAsStateWithLifecycle()
     val pending by controller.pending.collectAsStateWithLifecycle()
     val activity by controller.activity.collectAsStateWithLifecycle()
@@ -315,6 +316,7 @@ private fun MainScreen(
             )
             if (attached == null) DetachedBanner()
             ChatList(chat, hasMoreHistory, scrollTick, controller::loadOlder, Modifier.weight(1f).fillMaxWidth())
+            if (speaking) SpeakingBar(onStop = controller::stopSpeaking)
             if (activity.isNotBlank()) ActivityIndicator(activity, onAbort = controller::abortTurn)
             if (pending.isNotBlank()) DraftLine(pending)
             if (handsFree) VoiceStatePill(voiceState)
@@ -460,6 +462,23 @@ private fun AudioOutputButton(
                 )
             }
         }
+    }
+}
+
+/** Shown while TTS is speaking: a full-width tap target that stops the readout. */
+@Composable
+private fun SpeakingBar(onStop: () -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        shape = RoundedCornerShape(14.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 3.dp).clickable { onStop() },
+    ) {
+        Text(
+            "🔊 Speaking — tap to stop",
+            Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+        )
     }
 }
 
