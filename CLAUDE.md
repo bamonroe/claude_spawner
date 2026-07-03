@@ -285,10 +285,15 @@ Config env vars (all read in `internal/config`):
 - Server: idiomatic Go, `gofmt`, errors wrapped with context. Keep tmux interaction behind one
   package so the shell-out details are isolated and testable.
 - Android: Kotlin, keep audio/wake-word, networking, and UI in separate modules/packages.
+- **Promote stable builds to the phone.** Iterate on the Dockerized emulator (fast, disposable),
+  but once a feature is shown to be quite stable there, also install the APK on the physical
+  **Pixel 8a** over adb so it's running on real hardware. The two adb worlds and the exact install
+  commands are in the `android-dev` skill; the emulator is for iteration, the phone is where a
+  settled feature lands.
 - When you change the architecture or make a design decision (especially the TUI-capture
   question above), record it in this file and the README so it isn't re-litigated.
 
-### Git: commit atomically, at will and frequently
+### Git: commit atomically, at will and frequently — and push freely
 
 This repo is under version control (remote `origin` = `git@github:bamonroe/claude_spawner`, using
 the `github` SSH host alias). **Commit atomically, at will, and frequently.** You have standing
@@ -302,6 +307,9 @@ pile up uncommitted (a whole session was once built with no repo at all; never a
 - Write a concise imperative subject (`fix: input bar behind nav bar`, `feat: read-last command`).
 - Prefer many small commits over one large one; it keeps history bisectable and easy to revert.
 - Commit freely and often — committing your own changes is never something you need to ask about.
+- **Push freely and liberally.** You have standing authorization to `git push` to `origin` without
+  asking first — don't let local commits sit unpushed. Push after committing (or after a short run
+  of related commits); keeping the remote current is part of "done," same as committing.
 
 ### Document every feature immediately, in the same breath as writing it
 
