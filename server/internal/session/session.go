@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"syscall"
 )
 
 // newLineScanner returns a bufio.Scanner for newline-delimited JSON. It starts
@@ -78,6 +79,16 @@ func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool fun
 
 	cmd := exec.CommandContext(ctx, d.Bin, args...)
 	cmd.Dir = s.Dir
+	// Run claude in its own process group and, on ctx cancel (an abort), kill the
+	// whole group — so claude AND any tool child it spawned (a build, a sleep) die,
+	// not just the top-level process.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		if cmd.Process != nil {
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		}
+		return nil
+	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return "", err
