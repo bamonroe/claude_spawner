@@ -491,6 +491,8 @@ func (c *conn) loop() {
 			c.commitMessage() // silence-timeout commit of the hands-free buffer
 		case "history":
 			c.serveHistory(in.Name, in.Before, in.Limit)
+		case "clear":
+			c.doClear()
 		case "audio_end":
 			c.endAudio()
 		default:

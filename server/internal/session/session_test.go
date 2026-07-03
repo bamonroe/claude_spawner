@@ -87,3 +87,16 @@ func TestStoreRoundTrip(t *testing.T) {
 		t.Error("expected record gone after delete")
 	}
 }
+
+func TestTranscriptIDs(t *testing.T) {
+	s := &Session{SessionID: "cur"}
+	if got := s.TranscriptIDs(); len(got) != 1 || got[0] != "cur" {
+		t.Fatalf("TranscriptIDs() = %v, want [cur]", got)
+	}
+	// A cleared session lists retired ids oldest-first, then the current one, so
+	// the concatenated history reads in chronological order.
+	s.PriorIDs = []string{"old1", "old2"}
+	if got := strings.Join(s.TranscriptIDs(), ","); got != "old1,old2,cur" {
+		t.Errorf("TranscriptIDs() = %q, want %q", got, "old1,old2,cur")
+	}
+}

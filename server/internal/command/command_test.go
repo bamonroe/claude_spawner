@@ -70,6 +70,20 @@ func TestParseAbortTurn(t *testing.T) {
 	}
 }
 
+func TestParseClear(t *testing.T) {
+	for _, in := range []string{"clear", "clear context", "clear session", "clear the context",
+		"reset context", "start fresh", "wipe context"} {
+		if got := Parse(in); got.Kind != Clear {
+			t.Errorf("Parse(%q).Kind = %s, want clear", in, got.Kind)
+		}
+	}
+	// "clear history" must NOT match — clear keeps history for display, so this
+	// stays dictation rather than implying deletion.
+	if got := Parse("clear history"); got.Kind == Clear {
+		t.Errorf(`Parse("clear history") = %s, must not be Clear`, got.Kind)
+	}
+}
+
 func TestApplyAliases(t *testing.T) {
 	al := map[string]string{"attached": "attach", "the tach": "detach", "listed": "list"}
 	cases := []struct{ in, want string }{

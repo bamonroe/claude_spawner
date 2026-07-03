@@ -55,8 +55,27 @@ All prefixed with **"hey buddy"**:
 - `list sessions`
 - `kill session <name>`
 - `what's the status` / `what's it doing`
+- `read last` / `read last 3` — re-read Claude's recent replies aloud
+- `clear the context` — start Claude fresh **without** losing your history (see below)
 
 Anything spoken **while attached** that isn't a reserved command is dictated to the session.
+
+### Clearing context (keep history, stop paying to replay it)
+
+A session is a durable `session_id` on disk, and every dictated turn resumes it with `--resume` —
+which means Claude re-reads the **entire** conversation each turn (that's how it keeps context, and
+it's what makes a long session progressively more expensive per turn).
+
+Saying **"hey buddy, clear the context"** (or "clear context" / "start fresh") **rotates** the
+session instead of deleting it: the current `session_id` is retired and a fresh one takes over, so
+the next thing you say starts Claude with an empty context — no re-read, no re-billing of the whole
+transcript. The retired transcript is **kept on disk**, so the app still shows your full history;
+the server just stitches the retired and current transcripts together when you scroll back. Claude
+simply stops seeing the old turns.
+
+Use it whenever you've finished one line of work and want to start another in the same directory
+without carrying (and paying for) all the prior context. It never deletes anything — "clear
+history" is intentionally *not* a command, because clearing keeps the history.
 
 ## How responses are captured (the once-hard problem, now solved)
 

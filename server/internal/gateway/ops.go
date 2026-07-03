@@ -59,6 +59,8 @@ func (c *conn) runCommand(intent command.Intent) bool {
 		c.send(msgSay(commandHelp))
 	case command.ReadLast:
 		c.send(msgReadLast(intent.Count))
+	case command.Clear:
+		c.doClear()
 	default:
 		return false
 	}
@@ -196,7 +198,7 @@ func (c *conn) serveHistory(name string, before *int, limit int) {
 		c.send(msgError("no_session", "no such session: "+name))
 		return
 	}
-	msgs, err := session.ReadTranscript(s.TranscriptPath())
+	msgs, err := session.ReadTranscriptChain(s.TranscriptIDs())
 	if err != nil {
 		c.send(msgError("history_failed", err.Error()))
 		return
@@ -211,7 +213,7 @@ func (c *conn) serveHistory(name string, before *int, limit int) {
 
 // commandHelp is spoken + shown when the user asks "hey buddy help".
 const commandHelp = "here's what I know: attach to a session, detach, list sessions, status, " +
-	"kill a session, spawn a session, spawn a new project, read last, stop the turn, cancel message, " +
+	"kill a session, spawn a session, spawn a new project, read last, clear the context, stop the turn, cancel message, " +
 	"and help. say hey buddy, then the command, then your end token."
 
 // sendSessionList pushes the current sessions to the app without speaking (used
@@ -371,6 +373,42 @@ func (c *conn) doDetach() {
 	c.attached = nil
 	c.send(msgDetached())
 	c.send(msgSay("detached."))
+}
+
+// doClear rotates the attached session's Claude context: the current session_id is
+// retired onto PriorIDs (its transcript kept on disk for the app's history view)
+// and a fresh session_id takes over, so the next dictation starts Claude with an
+// empty context instead of re-reading — and re-billing — the whole conversation.
+// The full history stays visible via serveHistory's chain read; Claude just stops
+// seeing it. Shared by the voice command and the app action.
+func (c *conn) doClear() {
+	if c.attached == nil {
+		c.send(msgSay("attach to a session first."))
+		return
+	}
+	s := c.attached
+	if !s.Started {
+		c.send(msgSay("nothing to clear yet."))
+		return
+	}
+	if c.srv.isBusy(s.Name) {
+		c.send(msgSay("still working on the last one — try clearing when it's done."))
+		return
+	}
+	newID, err := session.NewSessionID()
+	if err != nil {
+		c.send(msgError("internal", err.Error()))
+		return
+	}
+	s.PriorIDs = append(s.PriorIDs, s.SessionID)
+	s.SessionID = newID
+	s.Started = false
+	if err := c.srv.store.Put(s); err != nil {
+		c.send(msgError("internal", err.Error()))
+		return
+	}
+	c.clearBuffer()
+	c.send(msgSay("cleared. starting fresh — your history is still here."))
 }
 
 // removeSession deletes a session: detaches if we're on it, drops its job, and

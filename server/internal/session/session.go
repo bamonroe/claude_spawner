@@ -35,6 +35,21 @@ type Session struct {
 	Dir       string `json:"dir"`        // working directory for the session
 	SessionID string `json:"session_id"` // claude session uuid (generated at spawn)
 	Started   bool   `json:"started"`    // false until the first turn has run
+	// PriorIDs are session_ids retired by "clear" (context rotation), oldest first.
+	// Their transcripts stay on disk so the app can show the full history, but Claude
+	// only ever resumes the current SessionID — so a clear rotates context without
+	// losing (or re-reading) the record.
+	PriorIDs []string `json:"prior_ids,omitempty"`
+}
+
+// TranscriptIDs returns every session_id whose transcript belongs to this
+// session, oldest first: ids retired by "clear" followed by the current one.
+// Used to assemble the full history for display without Claude re-reading it.
+func (s *Session) TranscriptIDs() []string {
+	ids := make([]string, 0, len(s.PriorIDs)+1)
+	ids = append(ids, s.PriorIDs...)
+	ids = append(ids, s.SessionID)
+	return ids
 }
 
 // Driver runs Claude Code turns. It holds no per-session state.

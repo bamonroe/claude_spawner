@@ -13,18 +13,19 @@ import (
 type Kind string
 
 const (
-	Spawn    Kind = "spawn"
-	Attach   Kind = "attach"
-	Detach   Kind = "detach"
-	List     Kind = "list"
-	Kill     Kind = "kill"
-	Status   Kind = "status"
-	Cancel   Kind = "cancel"
+	Spawn     Kind = "spawn"
+	Attach    Kind = "attach"
+	Detach    Kind = "detach"
+	List      Kind = "list"
+	Kill      Kind = "kill"
+	Status    Kind = "status"
+	Cancel    Kind = "cancel"
 	Stop      Kind = "stop"       // stop speaking (barge-in)
 	AbortTurn Kind = "abort_turn" // cancel the running Claude turn
 	Help      Kind = "help"       // list available commands
-	ReadLast Kind = "read_last" // re-read the last N Claude replies aloud
-	Unknown  Kind = "unknown"
+	ReadLast  Kind = "read_last"  // re-read the last N Claude replies aloud
+	Clear     Kind = "clear"      // rotate the session's Claude context (keep history for display)
+	Unknown   Kind = "unknown"
 )
 
 // Intent is a parsed control command. Arg holds a session name for attach/kill.
@@ -194,6 +195,14 @@ func Parse(text string) Intent {
 	// Status: bare "status", or an explicit phrase.
 	case first == "status" && n <= 2, contains(t, "what's it doing", "whats it doing", "what is it doing"):
 		return Intent{Kind: Status}
+
+	// Clear: rotate Claude's context to a fresh session_id. History is KEPT on
+	// disk for display — Claude just stops re-reading it. Deliberately does NOT
+	// match "clear history" (that would imply deletion, which this never does).
+	case first == "clear" && (n == 1 || word2 == "context" || word2 == "session"),
+		contains(t, "clear the context", "clear the session", "reset context",
+			"reset the context", "fresh context", "start fresh", "wipe context"):
+		return Intent{Kind: Clear}
 
 	default:
 		return Intent{Kind: Unknown}

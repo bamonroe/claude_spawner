@@ -117,6 +117,27 @@ func ReadTranscript(path string) ([]Message, error) {
 	return out, sc.Err()
 }
 
+// ReadTranscriptChain reads the transcripts for ids in order (oldest first) and
+// concatenates them into one conversation, re-indexing contiguously so the
+// pagination cursor (Message.Index) stays stable across the whole chain. Missing
+// files — e.g. a freshly-rotated session_id that hasn't run a turn yet —
+// contribute nothing. This is how a session "cleared" via context rotation still
+// shows its full history even though Claude only ever resumes the newest id.
+func ReadTranscriptChain(ids []string) ([]Message, error) {
+	var all []Message
+	for _, id := range ids {
+		msgs, err := ReadTranscript(TranscriptPathByID(id))
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, msgs...)
+	}
+	for i := range all {
+		all[i].Index = i
+	}
+	return all, nil
+}
+
 // extractText pulls prose from a message.content that may be a plain string
 // (user prompts) or an array of blocks (assistant); only "text" blocks count.
 func extractText(raw json.RawMessage) string {
