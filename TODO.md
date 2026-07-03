@@ -32,6 +32,11 @@ Dates are `YYYY-MM-DD`.
 
 ## Done
 
+- [x] 2026-07-03 — Whisper docs: added `whisper/README.md` documenting the two resident-server
+      images (Vulkan/GPU vs CPU), their `/inference` + `/load` API, port/model-mount contract, and
+      the two deployment modes. Fixed a README inaccuracy that implied the Dockerized spawner uses
+      the resident servers — under `docker compose up` it uses the bundled CLI; the resident
+      servers are wired in by the host-native/systemd deploy (`deploy/spawner.env.example`).
 - [x] 2026-07-03 — `android/README.md` audited against the Kotlin source and corrected: fixed the
       PCM16-vs-Opus codec contradiction (voice is captured as PCM16, encoded to Ogg/Opus on
       device, sent as Opus); added 6 omitted source files + the `generateCommands` task to the

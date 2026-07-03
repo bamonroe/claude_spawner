@@ -98,11 +98,15 @@ The whole execution environment — Go, `tmux`, the `claude` CLI, and **whisper.
 is baked into a container so nothing has to be installed on the host. Source stays on the host
 (bind-mounted), so you edit and version normally; only execution is containerized.
 
-`docker compose up` starts three services: the **spawner** (with a bundled whisper.cpp CLI +
-model as a fallback), plus two **resident whisper.cpp HTTP servers** — an accurate model on `:8571`
-and a fast draft/detection model on `:8572` — built with Vulkan for the host's AMD GPU. The server
-prefers the resident servers (`SPAWNER_WHISPER_URL` / `SPAWNER_WHISPER_FAST_URL`) and falls back to
-the CLI when they're unset. Engine details are in [`CLAUDE.md`](./CLAUDE.md).
+`docker compose up` starts three services: the **spawner** and two **resident whisper.cpp HTTP
+servers** — an accurate model on `:8571` and a fast draft/detection model on `:8572`, built with
+Vulkan for the host's AMD GPU (see [`whisper/`](./whisper/README.md)). In this compose setup the
+spawner transcribes with its **bundled whisper.cpp CLI** (a model is baked into its image); it does
+*not* auto-wire to the resident servers. To use them instead, set `SPAWNER_WHISPER_URL` /
+`SPAWNER_WHISPER_FAST_URL` on the spawner — which is exactly what the host-native/systemd
+deployment does (see [`deploy/spawner.env.example`](./deploy/spawner.env.example)). When those URLs
+are set the server prefers the resident servers and falls back to the CLI. Engine details are in
+[`CLAUDE.md`](./CLAUDE.md).
 
 ```bash
 # build (compiles whisper.cpp + fetches a model; base.en by default) and run on :8080
