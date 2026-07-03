@@ -14,6 +14,8 @@ import androidx.core.content.ContextCompat
 import com.bam.spawner.service.VoiceService
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -305,8 +307,6 @@ private fun MainScreen(
             TopBar(
                 title = attached ?: "Claude Spawner",
                 subtitle = status,
-                handsFree = handsFree,
-                onToggleHandsFree = { on -> handsFree = on; onToggleHandsFree(on) },
                 onMenu = { scope.launch { drawerState.open() } },
                 onSettings = onOpenSettings,
                 audioOutput = audioOutput,
@@ -329,10 +329,13 @@ private fun MainScreen(
             }
             InputBar(
                 connected = connected,
-                // While hands-free owns the mic, push-to-talk is disabled.
-                pushToTalkEnabled = !handsFree,
+                // While hands-free owns the mic, push-to-talk is disabled — but the
+                // button still accepts a swipe-up to toggle hands-free back off.
+                handsFree = handsFree,
+                onToggleHandsFree = { on -> handsFree = on; onToggleHandsFree(on) },
                 onTalkStart = { controller.startTalking() },
                 onTalkStop = { controller.stopTalking() },
+                onTalkCancel = { controller.cancelTalking() },
                 onSend = { controller.sendText(it) },
             )
         }
@@ -415,8 +418,6 @@ private fun DetachedBanner() {
 private fun TopBar(
     title: String,
     subtitle: String,
-    handsFree: Boolean,
-    onToggleHandsFree: (Boolean) -> Unit,
     onMenu: () -> Unit,
     onSettings: () -> Unit,
     audioOutput: AudioOutput,
@@ -435,8 +436,6 @@ private fun TopBar(
                 Text("· $subtitle", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
             }
             AudioOutputButton(audioOutput, audioOutputs, onSelectOutput, onOutputMenuOpened)
-            Text("🎧", fontSize = 15.sp)
-            Switch(checked = handsFree, onCheckedChange = onToggleHandsFree)
             TextButton(onClick = onSettings) { Text("⚙", fontSize = 20.sp) }
         }
     }
@@ -662,14 +661,18 @@ private fun Bubble(msg: ChatMessage) {
 @Composable
 private fun InputBar(
     connected: Boolean,
-    pushToTalkEnabled: Boolean,
+    handsFree: Boolean,
+    onToggleHandsFree: (Boolean) -> Unit,
     onTalkStart: () -> Unit,
     onTalkStop: () -> Unit,
+    onTalkCancel: () -> Unit,
     onSend: (String) -> Unit,
 ) {
     var draft by rememberSaveable { mutableStateOf("") }
     var talking by remember { mutableStateOf(false) }
     val hasText = draft.isNotBlank()
+    // While hands-free owns the mic, push-to-talk is disabled.
+    val pushToTalkEnabled = !handsFree
     val micLive = connected && pushToTalkEnabled
     Row(
         Modifier.fillMaxWidth().padding(8.dp),
@@ -682,7 +685,8 @@ private fun InputBar(
             modifier = Modifier.weight(1f),
         )
         // One button, WhatsApp-style: SEND when there's text (tap to send, hold to
-        // clear), MIC when the box is empty (hold to talk).
+        // clear), MIC when the box is empty (hold to talk; swipe up to toggle
+        // hands-free).
         Surface(
             color = when {
                 talking -> MaterialTheme.colorScheme.error
@@ -692,16 +696,39 @@ private fun InputBar(
             },
             shape = CircleShape,
             // Re-arm the gesture whenever the role changes.
-            modifier = Modifier.size(48.dp).pointerInput(hasText, micLive, connected) {
+            modifier = Modifier.size(48.dp).pointerInput(hasText, handsFree, connected) {
+                // Distance the finger must travel upward for a hold to be
+                // reinterpreted as a hands-free toggle instead of push-to-talk.
+                val swipeUpPx = 48.dp.toPx()
                 when {
                     hasText -> detectTapGestures(
                         onTap = { if (connected) { onSend(draft); draft = "" } },
                         onLongPress = { draft = "" }, // hold clears the box
                     )
-                    micLive -> detectTapGestures(onPress = {
-                        talking = true; onTalkStart(); tryAwaitRelease(); onTalkStop(); talking = false
-                    })
-                    else -> {} // empty + hands-free on / disconnected: inert
+                    // Empty box + connected: hold to talk (when hands-free is off),
+                    // and swipe up during the hold to toggle hands-free either way.
+                    connected -> awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val startY = down.position.y
+                        val ptt = pushToTalkEnabled // start push-to-talk only if hands-free is off
+                        if (ptt) { talking = true; onTalkStart() }
+                        var toggled = false
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!change.pressed) break // released
+                            if (!toggled && startY - change.position.y >= swipeUpPx) {
+                                toggled = true
+                                // Abandon the in-progress push-to-talk; this hold is a toggle.
+                                if (ptt && talking) { onTalkCancel(); talking = false }
+                            }
+                        }
+                        when {
+                            toggled -> onToggleHandsFree(!handsFree)
+                            ptt && talking -> { onTalkStop(); talking = false }
+                        }
+                    }
+                    else -> {} // disconnected: inert
                 }
             },
         ) {

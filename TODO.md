@@ -32,6 +32,10 @@ Dates are `YYYY-MM-DD`.
 
 ## Done
 
+- [x] 2026-07-03 — Android: hands-free toggle moved onto the mic button. Removed the top-bar 🎧
+      switch; **hold the mic button and swipe up** to toggle hands-free (a swipe-up during a
+      push-to-talk hold abandons that clip and flips hands-free instead). Custom `awaitEachGesture`
+      in `InputBar`, plus `VoiceController.cancelTalking()` to discard the aborted PTT clip.
 - [x] 2026-07-03 — Deploy docs: added `deploy/README.md` (systemd unit, env-file install steps,
       `claude-log.sh` usage); linked from the root README's host section and the CLAUDE.md layout.
       This completes documentation of the root-level tree.

@@ -490,6 +490,17 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
         client?.send(Outbound.audioEnd())
     }
 
+    /** Abort an in-progress push-to-talk without sending the clip — used when a
+     *  swipe-up on the mic button reinterprets the hold as a hands-free toggle.
+     *  We don't send `audio_end`; the server's collecting flag self-heals on the
+     *  next `wake`, and skipping it avoids a spurious "didn't hear anything." */
+    fun cancelTalking() {
+        if (!recording) return
+        recording = false
+        recorder.stopAndRead() // discard the captured audio
+        _mic.value = ""
+    }
+
     fun shutdown() {
         if (recording) recorder.stopAndRead()
         stopCalibration()
