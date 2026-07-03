@@ -34,8 +34,14 @@ type inbound struct {
 	Interactive  bool              `json:"interactive"`   // on `hello`: let Claude ask clarifying questions mid-task
 }
 
-func msgHelloOK(sessionID string) map[string]any {
-	return map[string]any{"type": "hello_ok", "server_version": serverVersion, "session_id": sessionID}
+func msgHelloOK(sessionID, whisperModel string) map[string]any {
+	return map[string]any{"type": "hello_ok", "server_version": serverVersion, "session_id": sessionID, "whisper_model": whisperModel}
+}
+
+// msgWhisperModel reports the resident whisper server's current model (server-
+// global). Sent in hello_ok and broadcast to all clients when it changes.
+func msgWhisperModel(name string) map[string]any {
+	return map[string]any{"type": "whisper_model", "model": name}
 }
 
 func msgSay(text string) map[string]any {

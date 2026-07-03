@@ -338,6 +338,19 @@ func (c *conn) resolveSession(spoken string) *session.Session {
 	return nil
 }
 
+// doSetWhisperModel changes the resident whisper server's model (server-global).
+// The /load blocks (a big model takes seconds), so run it off the read loop; on
+// success, broadcast the new model to every client, else report the error.
+func (c *conn) doSetWhisperModel(name string) {
+	go func() {
+		if err := c.srv.setWhisperModel(strings.TrimSpace(name)); err != nil {
+			c.send(msgError("whisper_failed", err.Error()))
+			return
+		}
+		c.srv.broadcastWhisperModel(c.srv.currentWhisperModel())
+	}()
+}
+
 // abortTurn cancels the running turn on the attached session (kills the claude
 // child). The turn's goroutine then delivers a `turn_stopped` to clear the app.
 func (c *conn) abortTurn() {

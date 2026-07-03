@@ -34,6 +34,11 @@ type Config struct {
 	// only for the live hands-free draft + end-token detection, so those don't
 	// queue behind the accurate model. Empty → drafts use the main server.
 	WhisperFastURL string
+	// WhisperModelName is the resident whisper server's default model NAME
+	// (small.en | medium.en | large-v3), loaded at startup and reported to apps.
+	// The model is server-global: apps read it on connect and change it via an
+	// explicit push, so two clients don't bounce it around.
+	WhisperModelName string
 	// WhisperModel is the path to a ggml model file. Empty disables transcription
 	// (the audio path returns not_implemented; text utterances still work).
 	WhisperModel string
@@ -60,6 +65,7 @@ func Load() (*Config, error) {
 		WhisperBin:       env("SPAWNER_WHISPER_BIN", "whisper-cli"),
 		WhisperURL:       os.Getenv("SPAWNER_WHISPER_URL"),
 		WhisperFastURL:   os.Getenv("SPAWNER_WHISPER_FAST_URL"),
+		WhisperModelName: env("SPAWNER_WHISPER_MODEL_NAME", "medium.en"),
 		WhisperModel:     os.Getenv("SPAWNER_WHISPER_MODEL"),
 		WhisperModelFast: os.Getenv("SPAWNER_WHISPER_MODEL_FAST"),
 		WhisperModelBase: os.Getenv("SPAWNER_WHISPER_MODEL_BASE"),

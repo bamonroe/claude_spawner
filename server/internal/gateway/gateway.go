@@ -10,6 +10,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"path/filepath"
@@ -53,29 +54,58 @@ type Server struct {
 
 	whisperMu     sync.Mutex // guards the resident whisper server's currently-loaded model
 	whisperLoaded string     // "<url>|<model>" last hot-loaded, to skip redundant /load calls
+	currentModel  string     // the resident server's model NAME (server-global; apps read it)
 }
 
-// ensureWhisperModel hot-swaps the resident whisper server (at url) to `name`
-// via /load, unless it's already loaded. name maps to /models/ggml-<name>.bin.
-// Best-effort and safe to call from a goroutine.
-func (s *Server) ensureWhisperModel(url, name string) {
-	if url == "" || !validModelName(name) {
-		return
+// currentWhisperModel returns the resident server's model name (server-global
+// state that apps read on connect).
+func (s *Server) currentWhisperModel() string {
+	s.whisperMu.Lock()
+	defer s.whisperMu.Unlock()
+	return s.currentModel
+}
+
+// setWhisperModel hot-loads `name` onto the resident whisper server (at the
+// server's configured URL) and records it as the current model. Blocks on the
+// /load; call it from a goroutine. name maps to /models/ggml-<name>.bin.
+func (s *Server) setWhisperModel(name string) error {
+	url := s.cfg.WhisperURL
+	if url == "" {
+		return fmt.Errorf("no resident whisper server configured")
+	}
+	if !validModelName(name) {
+		return fmt.Errorf("invalid model name %q", name)
 	}
 	s.whisperMu.Lock()
 	defer s.whisperMu.Unlock()
 	key := url + "|" + name
 	if s.whisperLoaded == key {
-		return
+		s.currentModel = name
+		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	if err := transcribe.LoadRemoteModel(ctx, url, "/models/ggml-"+name+".bin"); err != nil {
-		log.Printf("whisper: load %q failed: %v", name, err)
-		return
+		return fmt.Errorf("load %s: %w", name, err)
 	}
 	s.whisperLoaded = key
+	s.currentModel = name
 	log.Printf("whisper: model -> %s", name)
+	return nil
+}
+
+// broadcastWhisperModel tells every connected app the current resident model, so
+// a change made by one client updates all of them.
+func (s *Server) broadcastWhisperModel(name string) {
+	s.connsMu.Lock()
+	cs := make([]*conn, 0, len(s.conns))
+	for c := range s.conns {
+		cs = append(cs, c)
+	}
+	s.connsMu.Unlock()
+	for _, c := range cs {
+		c.send(msgWhisperModel(name))
+	}
 }
 
 // validModelName guards the model path against injection (letters, digits, dot,
@@ -112,25 +142,36 @@ func New(cfg *config.Config, store *session.Store, driver *session.Driver, tmuxM
 		inflightPath = filepath.Join(filepath.Dir(cfg.StatePath), "inflight.json")
 	}
 	inflight, interrupted := newInflightTracker(inflightPath)
-	return &Server{
-		cfg:         cfg,
-		store:       store,
-		driver:      driver,
-		tmuxMgr:     tmuxMgr,
-		stt:         stt,
-		fastStt:     fast,
-		projects:    proj,
-		clients:     map[string]*clientState{},
-		jobs:        map[string]*sessionJob{},
-		conns:       map[*conn]bool{},
-		inflight:    inflight,
-		interrupted: interrupted,
+	s := &Server{
+		cfg:          cfg,
+		store:        store,
+		driver:       driver,
+		tmuxMgr:      tmuxMgr,
+		stt:          stt,
+		fastStt:      fast,
+		projects:     proj,
+		clients:      map[string]*clientState{},
+		jobs:         map[string]*sessionJob{},
+		conns:        map[*conn]bool{},
+		inflight:     inflight,
+		interrupted:  interrupted,
+		currentModel: cfg.WhisperModelName, // authoritative from boot; loaded below
 		up: websocket.Upgrader{
 			// The app authenticates with a token in the hello message, so origin
 			// checks add little; the network boundary (Tailscale/proxy) is the gate.
 			CheckOrigin: func(*http.Request) bool { return true },
 		},
 	}
+	// Load the configured default onto the resident server so its model matches
+	// what we report to apps. Async so a big model doesn't delay startup.
+	if cfg.WhisperURL != "" && cfg.WhisperModelName != "" {
+		go func() {
+			if err := s.setWhisperModel(cfg.WhisperModelName); err != nil {
+				log.Printf("whisper: startup load failed: %v", err)
+			}
+		}()
+	}
+	return s
 }
 
 const handshakeTimeout = 10 * time.Second
@@ -328,15 +369,12 @@ func (c *conn) authenticate() bool {
 	c.sttMode = in.SttMode
 	c.sttModel = in.SttModel
 	c.aliases = in.Aliases
-	whisperURL := c.srv.cfg.WhisperURL
 	if u := strings.TrimSpace(in.WhisperURL); u != "" {
 		c.stt = &transcribe.RemoteWhisper{URL: u} // app-chosen resident whisper server
-		whisperURL = u
 	}
-	if m := strings.TrimSpace(in.WhisperModel); m != "" && whisperURL != "" {
-		go c.srv.ensureWhisperModel(whisperURL, m) // hot-load the app's chosen model
-	}
-	c.send(msgHelloOK("ws"))
+	// The whisper model is server-global: the app reads it here rather than pushing
+	// its own (so two clients don't bounce it), and changes it via set_whisper_model.
+	c.send(msgHelloOK("ws", c.srv.currentWhisperModel()))
 	return true
 }
 
@@ -445,6 +483,8 @@ func (c *conn) loop() {
 			c.cancelDialog()
 		case "abort":
 			c.abortTurn()
+		case "set_whisper_model":
+			c.doSetWhisperModel(in.WhisperModel)
 		case "wake":
 			c.startAudio(in.Codec, in.HandsFree, in.Calibrate)
 		case "commit":
