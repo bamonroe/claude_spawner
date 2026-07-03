@@ -72,7 +72,8 @@ hands_free = true    → streaming: APPEND the transcript to the per-connection 
 
 `hello` also carries optional flags: `end_token` (the word that commits a hands-free message),
 `stt_mode`/`stt_model`/`whisper_url`/`whisper_model` (transcription), `aliases` (misheard→command
-fixups), and `brief` (append a "reply briefly for TTS" hint to dictation). The server sends
+fixups), `brief` (append a "reply briefly for TTS" hint to dictation), and `interactive` (let Claude
+ask clarifying questions mid-task, delivered as `ask`). The server sends
 `pending {text}` as the buffer grows (empty `text` clears the draft). The app may also send
 `{"type":"commit"}` to force-commit the buffer (used by the optional client-side silence timeout);
 it's a no-op if the buffer is empty.
@@ -102,6 +103,7 @@ capped at ~120 s.
 | `turn_interrupted` | `{ "name": "...", "reason": "server restarting" }` | an in-flight dictation turn was abandoned server-side (turns don't survive a server restart). The app clears its "thinking…" state and prompts the user to resend, instead of waiting on a reply that will never arrive. |
 | `turn_stopped`  | `{ "name": "..." }`                                   | a running turn was deliberately aborted (the `abort` message / "stop the turn" command). The app clears its "thinking…" state without the "say it again" nudge. |
 | `diff`          | `{ "text": "..." }`                                   | a compact `git diff --stat` review summary after a turn that changed files; shown as a note, not spoken. |
+| `ask`           | `{ "name": "...", "questions": [{ "q": "...", "options": ["...", ...] }] }` | interactive mode: Claude needs clarification. The app renders the questions (chips for `options`, text fields otherwise) and reads them aloud; answers go back as an ordinary dictation turn. `options` omitted = free-text. |
 | `pong`          | `{}`                                                  | keepalive reply                          |
 
 ## Output path note
