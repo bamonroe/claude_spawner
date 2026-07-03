@@ -127,6 +127,16 @@ const handshakeTimeout = 10 * time.Second
 // write fails, which lets a job buffer its result for delivery on reconnect.
 const writeWait = 10 * time.Second
 
+// Keepalive: the server pings each client every pingPeriod and requires a pong
+// (or any other frame) within pongWait, so a client that drops off the network is
+// detected and torn down in ~tens of seconds instead of only when a write to it
+// fails. pongWait must comfortably exceed pingPeriod (and the app's own 20 s ping
+// interval) so a briefly-slow client isn't dropped.
+const (
+	pongWait   = 30 * time.Second
+	pingPeriod = 12 * time.Second
+)
+
 // HandleWS upgrades the request and runs the connection until it closes.
 func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
 	ws, err := s.up.Upgrade(w, r, nil)
@@ -147,7 +157,18 @@ func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
 	s.register(c)
 	defer s.unregister(c)
 	c.restoreState() // re-attach / resume dialog from a previous connection
+
+	// Keepalive: require traffic (pongs to our pings, or any frame) within pongWait
+	// so a client that vanishes off the network is detected promptly.
+	_ = c.ws.SetReadDeadline(time.Now().Add(pongWait))
+	c.ws.SetPongHandler(func(string) error {
+		return c.ws.SetReadDeadline(time.Now().Add(pongWait))
+	})
+	stopPing := make(chan struct{})
+	go c.keepAlive(stopPing)
+
 	c.loop()
+	close(stopPing)
 
 	// Connection gone: stop delivering job events to it (so an in-flight turn
 	// buffers its result for the next reconnect instead of dropping it).
@@ -337,6 +358,24 @@ func (c *conn) saveState() {
 	c.srv.clients[c.clientID] = &clientState{dlg: c.dlg}
 }
 
+// keepAlive pings the client every pingPeriod until stop is closed. A failed ping
+// (dead socket) ends it; the read loop then tears the connection down when its
+// read deadline lapses with no pong.
+func (c *conn) keepAlive(stop <-chan struct{}) {
+	t := time.NewTicker(pingPeriod)
+	defer t.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-t.C:
+			if err := c.ws.WriteControl(websocket.PingMessage, nil, time.Now().Add(writeWait)); err != nil {
+				return
+			}
+		}
+	}
+}
+
 // loop reads and dispatches messages until the socket closes. Text frames are
 // JSON control/utterance messages; binary frames are PCM16 audio for the
 // utterance currently being recorded (between `wake` and `audio_end`).
@@ -344,8 +383,9 @@ func (c *conn) loop() {
 	for {
 		mt, data, err := c.ws.ReadMessage()
 		if err != nil {
-			return // client gone
+			return // client gone (or read deadline lapsed with no pong)
 		}
+		_ = c.ws.SetReadDeadline(time.Now().Add(pongWait)) // any frame proves liveness
 		if mt == websocket.BinaryMessage {
 			c.handleAudioFrame(data)
 			continue
