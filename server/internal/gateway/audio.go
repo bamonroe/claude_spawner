@@ -96,7 +96,7 @@ func (c *conn) endAudio() {
 
 	// Push-to-talk / typed audio: transcribe now with the chosen model, dispatch.
 	text, err := c.transcriber().Transcribe(c.ctx, transcribe.PCM16WAV(pcm, audioSampleRate, audioChannels),
-		transcribe.Options{Mode: c.sttMode, Model: c.sttModel})
+		transcribe.Options{Mode: c.sttMode, Model: c.sttModel, Prompt: c.vocabBias()})
 	if err != nil {
 		c.send(msgError("transcribe_failed", err.Error()))
 		return

@@ -25,6 +25,9 @@ import (
 type Options struct {
 	Mode  string
 	Model string
+	// Prompt biases decoding toward these words (whisper's initial-prompt / vocab
+	// hint) — e.g. session and project names, which STT otherwise mangles.
+	Prompt string
 }
 
 // Transcriber converts a WAV clip into text.
@@ -107,6 +110,9 @@ func (w *WhisperCPP) Transcribe(ctx context.Context, wav []byte, opt Options) (s
 	model := w.chooseModel(wav, opt)
 	log.Printf("whisper: %.1fs clip -> %s (%s)", float64(len(wav))/32000.0, filepath.Base(model), modeLabel(opt))
 	args := []string{"-m", model, "-f", path, "-nt", "-np"}
+	if opt.Prompt != "" {
+		args = append(args, "--prompt", opt.Prompt)
+	}
 	if w.Lang != "" {
 		args = append(args, "-l", w.Lang)
 	}

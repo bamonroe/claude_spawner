@@ -57,7 +57,7 @@ func (c *conn) commitMessage() {
 	}
 
 	full, err := c.transcriber().Transcribe(c.ctx, transcribe.PCM16WAV(audio, audioSampleRate, audioChannels),
-		transcribe.Options{Mode: c.sttMode, Model: c.sttModel})
+		transcribe.Options{Mode: c.sttMode, Model: c.sttModel, Prompt: c.vocabBias()})
 	if err != nil {
 		c.send(msgError("transcribe_failed", err.Error()))
 		return
@@ -99,6 +99,21 @@ func (c *conn) commitMessage() {
 	if before = strings.TrimSpace(before); before != "" && c.attached != nil {
 		c.dictate(before)
 	}
+}
+
+// vocabBias returns a whisper initial-prompt that biases decoding toward this
+// machine's session names, which STT otherwise mangles (so "attach to sfit"
+// resolves). Empty when there are no sessions.
+func (c *conn) vocabBias() string {
+	sessions := c.srv.store.List()
+	if len(sessions) == 0 {
+		return ""
+	}
+	names := make([]string, 0, len(sessions))
+	for _, s := range sessions {
+		names = append(names, s.Name)
+	}
+	return "Session names: " + strings.Join(names, ", ") + "."
 }
 
 // clearBuffer discards the pending message + audio and clears the draft.

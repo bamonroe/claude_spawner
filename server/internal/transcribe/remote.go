@@ -52,7 +52,7 @@ type RemoteWhisper struct {
 	Client *http.Client
 }
 
-func (w *RemoteWhisper) Transcribe(ctx context.Context, wav []byte, _ Options) (string, error) {
+func (w *RemoteWhisper) Transcribe(ctx context.Context, wav []byte, opt Options) (string, error) {
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
 	fw, err := mw.CreateFormFile("file", "audio.wav")
@@ -64,6 +64,9 @@ func (w *RemoteWhisper) Transcribe(ctx context.Context, wav []byte, _ Options) (
 	}
 	_ = mw.WriteField("response_format", "json")
 	_ = mw.WriteField("temperature", "0.0")
+	if opt.Prompt != "" {
+		_ = mw.WriteField("prompt", opt.Prompt) // whisper.cpp server: initial-prompt bias
+	}
 	mw.Close()
 
 	url := strings.TrimRight(w.URL, "/") + "/inference"
