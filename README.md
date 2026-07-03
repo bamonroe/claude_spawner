@@ -154,8 +154,8 @@ Requires the `claude` CLI and `tmux` on the host. Transcription is **off** unles
       `session_id` on disk + `--resume` — verified end-to-end. (No TUI scraping.)
 - [x] `docs/protocol.md` — WebSocket message schema
 - [x] `docs/commands.md` — "hey buddy" command grammar + dialog flows
-- [ ] Decide auth mechanism (shared token is scaffolded; consider mTLS) and transport
-      (Tailscale? reverse proxy?)
+- [→] Auth mechanism / transport beyond the shared token (mTLS? Tailscale? reverse proxy?) —
+      still open; tracked in [`TODO.md`](./TODO.md).
 
 ### Phase 1 — Server skeleton (Go)
 - [x] Project scaffold (`/server`), env config, graceful shutdown, `/healthz`
@@ -191,7 +191,8 @@ Requires the `claude` CLI and `tmux` on the host. Transcription is **off** unles
 - [x] **Verified live on emulator + phone**: app → server → real Claude reply, full spawn/attach/dictate
 - [x] Always-listening **hands-free** mode (server-side wake-word detection in the transcript;
       Porcupine on-device was dropped) via a mic `VoiceService`
-- [ ] Verify the hands-free voice model on a real device (built, not yet voice-tested)
+- [→] Verify the hands-free voice model on a real device (built, not yet voice-tested) —
+      tracked in [`TODO.md`](./TODO.md).
 
 ### Phase 4 — Passthrough & attach ✅
 - [x] Attach binds voice I/O to a session; dictation becomes the prompt for `Driver.Turn`
@@ -205,13 +206,12 @@ Requires the `claude` CLI and `tmux` on the host. Transcription is **off** unles
 - [x] Robust turns across disconnect + **server keepalive**; **abort a running turn**;
       turns interrupted by a restart are flagged
 - [x] **Busy flags** + quick voice switching ("attach to X"); **post-turn diff summary**
-- [ ] More spoken error feedback ("that directory doesn't exist, bud")
 - [x] Persist session list across server restarts (durable `session_id`s in the store)
-
-### Nice-to-have / later
 - [x] Whisper **vocab biasing** toward session names; **brief-reply** toggle for TTS
 - [x] **Notifications** when a backgrounded turn finishes
-- [ ] Per-session naming by voice (rename exists via the app UI)
-- [ ] TLS/mTLS (today: shared token, constant-time compared; Tailscale-fronted)
-- [ ] On-device fallback STT when offline
-- [ ] iOS app
+
+### What's left
+
+Open work (spoken error feedback, per-session voice naming, TLS/mTLS, on-device fallback STT, iOS)
+is **not listed here** — it lives in [`TODO.md`](./TODO.md), the single live task tracker, so it
+doesn't drift against this historical record.

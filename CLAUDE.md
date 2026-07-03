@@ -2,6 +2,36 @@
 
 Guidance for Claude Code instances working in this repository.
 
+## Start here: the documentation map
+
+This repo keeps documentation **de-duplicated** — every fact has exactly **one** authoritative
+home. When you need to know or change something, go to its owner below; don't restate a fact in a
+second file (link to the owner instead). This table is itself the index: read it first.
+
+| You want to know / change…                    | Authoritative home                          | Enforced by |
+|-----------------------------------------------|---------------------------------------------|-------------|
+| **What to do next / what's done** (task state)| `TODO.md`                                   | discipline (the `TODO.md` rule below) |
+| **How the system works** (architecture, decisions, conventions, how to work here) | `CLAUDE.md` (this file) | discipline |
+| **How a user runs/uses it** (setup, security, phase history) | `README.md`                     | discipline |
+| **WebSocket wire protocol** (every message + error code) | `docs/protocol.md`               | `internal/docsync` tests |
+| **"hey buddy" command grammar**               | `docs/commands.md` (prose) + `command.Registry` (code) → `docs/commands.json` (generated) | `internal/command` + `cmd/gencommands` |
+| **Config env vars** (`SPAWNER_*`)             | `CLAUDE.md` (config section) — code owns them in `internal/config` | `internal/docsync` tests |
+
+**Two classes of fact, two ways they're kept honest:**
+
+1. **Code-derived facts** (env vars, wire messages, error codes, the command list) are owned by
+   the code. The docs are a mirror, and a **drift test fails the build** if they fall out of sync:
+   - `internal/command` ↔ `docs/commands.json` (regenerate with `go run ./cmd/gencommands`);
+   - `internal/docsync` ↔ `docs/protocol.md` + `CLAUDE.md` (env vars, in/outbound messages, error
+     codes) — see that package's doc comment. A red `go test ./...` names exactly what's stale.
+   So: **change the code, then `go test ./...` tells you which doc to update.** Never hand-maintain
+   a second copy the tests don't check. (Go caches test results on Go-source inputs, not the
+   Markdown files — a code change always re-runs the checks; for a **doc-only** edit run the
+   canonical drift check uncached: `go test ./... -count=1`.)
+2. **Narrative facts** (status, "verified live", roadmap history) can't be tested, so they live in
+   **one** place only — status/tasks in `TODO.md`, architecture here, run/history in `README.md` —
+   and the update rules below (and in `README.md`) keep that single copy current.
+
 ## What this project is
 
 **claude_spawner** is a voice-driven remote control for Claude Code. It has two halves:
@@ -284,13 +314,12 @@ or immediately after — never defer it to "later," and never ship code without 
 - Docs land in the same commit as the feature (or an immediately-following commit) — a feature
   commit with no accompanying documentation is incomplete.
 
-## Current status
+## Current status & tasks — see `TODO.md`
 
-The server-side voice pipeline and the Android app are **both built and verified live** (voice →
-server → real Claude reply, spawn/attach/dictate, hands-free, `--resume` recall). Transcription
-runs on a resident GPU whisper server with a CLI fallback. Remaining work — auth hardening
-(TLS/mTLS; today a shared token behind Tailscale), on-device fallback STT, an iOS app, and
-assorted polish — is tracked in `TODO.md`.
+Project status ("what's built, what's next") lives in **one** place: **`TODO.md`**. It is not
+restated here or in `README.md` (both link to it) so there is only ever one copy to update. The
+short architectural "Status:" note under *Repository layout* above is the exception — it frames the
+architecture, not the task list.
 
 ### `TODO.md` is the live task list — keep it current
 

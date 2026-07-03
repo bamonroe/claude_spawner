@@ -32,6 +32,11 @@ Dates are `YYYY-MM-DD`.
 
 ## Done
 
+- [x] 2026-07-03 — Anti-drift consolidation: one authoritative home per fact (documentation map
+      at the top of `CLAUDE.md`); status/tasks de-duplicated to `TODO.md` only (README roadmap is
+      now history-only, CLAUDE.md status is a pointer); new `internal/docsync` test package fails
+      `go test ./...` when env vars / wire messages / error codes drift from `docs/protocol.md` +
+      `CLAUDE.md`.
 - [x] 2026-07-03 — Documentation reconciliation pass: `TODO.md` introduced; `CLAUDE.md`,
       `README.md`, `docs/protocol.md`, `docs/commands.md` brought back in sync with the code
       (resident GPU whisper server, full env-var list, all wire messages + error codes, `help`

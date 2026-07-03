@@ -18,6 +18,12 @@
 // Each check requires the token to appear **backticked** (e.g. `hello_ok`) in
 // the doc, which is how the protocol/config tables render them — this avoids a
 // bare word in prose accidentally satisfying the check.
+//
+// Caching caveat: `go test` keys its cache on Go-source inputs, not on the
+// Markdown files these tests read. A code change (a new message/env var/error
+// code) always busts the cache and re-runs these checks — that's the main drift
+// vector and it's covered. A *doc-only* deletion can be masked by a cached pass,
+// so the canonical drift check runs uncached: `go test ./... -count=1`.
 package docsync
 
 import (
