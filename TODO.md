@@ -1,0 +1,56 @@
+# TODO — claude_spawner
+
+The **live task list** for active and recently-completed work. This is the single source of
+truth for what's in flight; `README.md` keeps the historical phase-by-phase roadmap.
+
+**Maintenance rule** (see `CLAUDE.md`): edit this file in the same commit that proposes or
+completes a feature **or a test**. Adding a feature/test → add an unchecked box here. Finishing
+one → check it off (move to _Done_, dated). Dropping a test/feature → remove it with a one-line
+why. A change that leaves this file stale is incomplete.
+
+Dates are `YYYY-MM-DD`.
+
+## Active
+
+### Server / infra
+- [ ] Decide + implement the auth/transport story beyond the shared token: **TLS/mTLS** (today a
+      constant-time-compared shared token, fronted by Tailscale).
+- [ ] Vocab-bias tuning: measure whether the `--prompt` session-name biasing actually improves
+      recognition of real session names/paths, adjust if not. *(biasing itself is implemented)*
+- [ ] More spoken error feedback — surface `docs/protocol.md` error codes as friendly speech
+      ("that directory doesn't exist, bud") instead of generic/silent failures.
+
+### Android
+- [ ] Verify the hands-free voice model on a real device end-to-end (built; not yet voice-tested
+      on the Pixel 8a for the always-listening path specifically).
+- [ ] Per-session **naming by voice** (rename exists in the app UI + as `rename`/`rename_discovered`
+      messages, but there's no "hey buddy" voice command for it yet).
+
+### Later / nice-to-have
+- [ ] On-device fallback STT when offline.
+- [ ] iOS app.
+
+## Done
+
+- [x] 2026-07-03 — Documentation reconciliation pass: `TODO.md` introduced; `CLAUDE.md`,
+      `README.md`, `docs/protocol.md`, `docs/commands.md` brought back in sync with the code
+      (resident GPU whisper server, full env-var list, all wire messages + error codes, `help`
+      command, real-audio-turn verified).
+- [x] Command registry as the single source of truth (`command.Registry` → `docs/commands.json`
+      → Android `generateCommands` build task); drift-tested.
+- [x] `clear` command: rotate a session's Claude context to a fresh `session_id`, keeping the old
+      transcript for `history`.
+- [x] Resident GPU (Vulkan/RX 550) whisper HTTP server + fast draft model, behind the
+      `Transcriber` interface, with the whisper.cpp CLI as fallback.
+- [x] Real audio turn verified end-to-end (jfk.wav / spoken clip → transcript → Claude reply).
+- [x] Live output streaming (per-assistant-message `output` chunks) + Android live rendering.
+- [x] Hands-free always-listening mode: server-side wake-word + end-token in the transcript,
+      live `pending` draft, end-token commit (Porcupine on-device was dropped).
+- [x] Interactive mode: Claude's clarifying questions delivered as a structured `ask`.
+- [x] Post-turn `diff` summary; running-turn `activity`/`files` breadcrumbs.
+- [x] Abort a running turn; restart-interrupted turns flagged (`turn_stopped`/`turn_interrupted`).
+- [x] Discover / adopt / rename / delete sessions found on disk (`~/.claude/projects`).
+- [x] Durable file-backed session store; auto-connect/reconnect with backoff.
+- [x] Whisper vocab biasing toward session names; brief-reply TTS toggle; finished-turn
+      notifications; audio-output picker (earpiece/speaker/Bluetooth); barge-in.
+- [x] Whole server-side voice pipeline + Android app verified live (emulator + Pixel 8a).

@@ -133,34 +133,47 @@ human is editing live. (An earlier design had the server itself open a "babysit"
 /server                         Go server (module: github.com/bam/claude_spawner/server)
   main.go                       entrypoint: HTTP server, graceful shutdown, /healthz, /ws
   internal/gateway/             WebSocket gateway: auth, dispatch, dialog FSM, dictation loop
-    gateway.go                  Server, conn, auth handshake, read loop
+    gateway.go                  Server, conn, auth handshake, read loop, message dispatch
     ops.go                      control commands (list/attach/detach/kill/status) + dictate
     dialog.go                   spawn dialog FSM, session creation, name sanitizing
+    audio.go                    audio path: wake/binary/audio_end -> WAV -> STT -> utterance
+    stream.go                   hands-free streaming: live pending draft, end-token commit
+    jobs.go                     running-turn tracking: activity/files breadcrumbs, diff summary
+    inflight.go                 per-session in-flight turn registry (abort, restart interrupts)
+    ask.go                      interactive-mode clarifying-question (ask) extraction
+    browse.go                   directory listing for the New-session picker (listing)
     messages.go                 wire message constructors
-    gateway_test.go             httptest+ws integration (auth, spawn dialog, dictation)
-    audio.go                    audio path: wake/binary-PCM16/audio_end -> WAV -> STT -> utterance
+    *_test.go                   httptest+ws integration (auth, spawn, dictation, ask, stream)
   internal/session/session.go   headless claude driver: Driver.Turn (stream-json), NewSessionID
   internal/session/store.go     durable session registry (file-backed, atomic writes)
+  internal/session/discover.go  scan ~/.claude/projects for all Claude sessions (adopt/discover)
+  internal/session/transcript.go read/stitch on-disk transcripts for `history` (spans clears)
   internal/command/command.go   utterance -> intent parser + StripWake
-  internal/transcribe/          Transcriber interface + whisper.cpp shell-out + PCM16->WAV
+  internal/command/registry.go  Command registry (single source of truth) + RegistryJSON
+  internal/transcribe/          Transcriber interface: WhisperCPP (CLI) + RemoteWhisper (HTTP)
+  internal/projects/projects.go spoken-path fuzzy matching against the spawn roots
   internal/tmux/tmux.go         detect a live interactive `claude` in a pane (ClaudeDirs)
   internal/config/config.go     env config + spawn-path validation
   cmd/wsclient/main.go          text client for manual testing; -audio streams a WAV
-  Dockerfile / .dockerignore    dev image: Go + tmux + claude CLI + whisper.cpp + model
-docker-compose.yml              dev orchestration (bind-mounts source, mounts host claude auth)
-/android                        Android app (Kotlin) — placeholder, see android/README.md
+  cmd/gencommands/main.go       regenerate docs/commands.json from the command registry
+  Dockerfile / .dockerignore    dev image: Go + tmux + claude CLI + whisper.cpp CLI + model
+docker-compose.yml              dev orchestration: spawner + resident whisper/whisper-fast servers
+/whisper                        Vulkan/CPU Dockerfiles for the resident whisper.cpp HTTP server
+/deploy                         host systemd unit + env example + claude-log helper
+/android                        Android app (Kotlin/Compose) — see android/README.md
 /docs
   protocol.md                   WebSocket message schema (single source of truth)
   commands.md                   "hey buddy" command grammar + dialog flows
-README.md / CLAUDE.md / .gitignore
+  commands.json                 command list generated from the registry (consumed by the app build)
+README.md / CLAUDE.md / TODO.md / .gitignore
 ```
 
-Status: the **entire server-side voice pipeline works and is verified live** against `claude`
-2.1.196 — spawn dialog → mkdir → attach → dictation turn → real reply → `--resume` recall across
-reconnects. Server-side Whisper (audio → `transcript` → `utterance`) is wired and unit-tested
-with fakes. Everything builds/vets/tests clean (`go test ./...`). What remains: install
-whisper.cpp + a model on the host to verify a real *audio* turn (the shell-out contract is
-tested with a fake binary), and the Android app. Update this section as code lands.
+Status: the **full voice loop works end-to-end and is verified live** against `claude` 2.1.196 —
+spawn dialog → mkdir → attach → dictation turn → real reply → `--resume` recall across reconnects.
+Real **audio** turns are verified too: a spoken/`jfk.wav` clip → Whisper → `transcript` →
+`utterance` → Claude reply, on both the resident GPU whisper server and the CLI fallback (the
+shell-out contract is also unit-tested with a fake binary). The **Android app** is built and
+verified live on the emulator and the Pixel 8a. The live-tracked to-do list is in `TODO.md`.
 
 The text seam: the app sends an `utterance` message with already-transcribed text. The audio path
 (`wake` → binary PCM16 frames → `audio_end`) assembles a WAV, runs the Transcriber, emits a
@@ -169,12 +182,25 @@ machinery is engine-agnostic and was fully exercised before STT existed.
 
 ### Transcription (internal/transcribe)
 
-Engine choice for THIS host (4-core Skylake, no CUDA GPU): **whisper.cpp + `small.en`**, CPU/int8,
-utterance-based (not streaming). Rationale: no GPU nullifies faster-whisper's edge; whisper.cpp is
-a single binary we `exec` like `claude`/`tmux` (no Python sidecar); fully local. The gateway
-depends only on the `Transcriber` interface, so swapping to faster-whisper or a cloud API (e.g.
-Groq large-v3-turbo) is a one-file change. Disabled unless `SPAWNER_WHISPER_MODEL` is set; when
-disabled the audio path returns `not_implemented` but text utterances still work.
+The gateway depends only on the `Transcriber` interface; there are **two implementations** and
+either can back it:
+
+- **`RemoteWhisper`** (`remote.go`) — POSTs the WAV to a **resident whisper.cpp HTTP server**
+  (`/inference`). This is the preferred path on this host, which has an **AMD RX 550 GPU**: the
+  `whisper`/`whisper-fast` compose services run whisper.cpp built with **Vulkan** and keep the
+  model warm. Two servers run: an accurate model (`medium.en`, `:8571`) for real dictation, and a
+  fast draft model (`base.en`, `:8572`) for the live hands-free draft + end-token detection, so
+  the cheap high-frequency work never blocks the accurate model. Enabled via
+  `SPAWNER_WHISPER_URL` / `SPAWNER_WHISPER_FAST_URL`. (Measured on the RX 550: `medium.en` ~4.8s,
+  `small.en` ~2–3s, `large-v3` ~10.5s per clip — 3–4× the CPU-only build.)
+- **`WhisperCPP`** (`transcribe.go`) — shells out to the **whisper.cpp CLI** (one process per
+  utterance), `exec`'d like `claude`/`tmux`, no server. The fallback when no whisper URL is set.
+  It size-picks a model per clip (tiny/base/small) from `SPAWNER_WHISPER_MODEL{,_FAST,_BASE}`.
+
+Opus clips are decoded to 16 kHz mono WAV with **ffmpeg** first (whisper can't read Opus). STT is
+disabled unless a model/URL is configured; when disabled the audio path returns `not_implemented`
+but text utterances still work. Swapping to faster-whisper or a cloud API (e.g. Groq
+large-v3-turbo) stays a one-file change behind the `Transcriber` interface.
 
 Known limitation: STT output is all-lowercase, so sessions can't be created in directories with
 uppercase letters by voice. Acceptable; documented in docs/commands.md.
@@ -203,9 +229,16 @@ The container mounts host `~/.claude` + `~/.claude.json` so the in-container `cl
 OAuth login (or set `ANTHROPIC_API_KEY`). `go.mod` targets go 1.23 so the stock `golang:1.23`
 image works (host has newer; both satisfy it).
 
-Config env vars: `SPAWNER_ADDR` (`:8080`), `SPAWNER_TOKEN` (required), `SPAWNER_ROOT` (spawn-dir
-jail), `SPAWNER_STATE` (`sessions.json`), `SPAWNER_CLAUDE_BIN` (`claude`), `SPAWNER_WHISPER_BIN`
-(`whisper-cli`), `SPAWNER_WHISPER_MODEL` (path; enables STT), `SPAWNER_WHISPER_LANG` (`en`).
+Config env vars (all read in `internal/config`):
+
+- `SPAWNER_ADDR` (`:8080`), `SPAWNER_TOKEN` (**required**), `SPAWNER_ROOT` (colon-separated
+  spawn-dir jail), `SPAWNER_STATE` (`sessions.json`), `SPAWNER_CLAUDE_BIN` (`claude`).
+- CLI STT: `SPAWNER_WHISPER_BIN` (`whisper-cli`), `SPAWNER_WHISPER_MODEL` (path; enables STT),
+  `SPAWNER_WHISPER_MODEL_FAST` / `SPAWNER_WHISPER_MODEL_BASE` (per-size model paths for the
+  clip-length model picker), `SPAWNER_WHISPER_LANG` (`en`), `SPAWNER_FFMPEG_BIN` (`ffmpeg`).
+- Resident-server STT: `SPAWNER_WHISPER_URL` (accurate server), `SPAWNER_WHISPER_FAST_URL` (fast
+  draft/detection server), `SPAWNER_WHISPER_MODEL_NAME` (`medium.en`; reported to clients),
+  `SPAWNER_WHISPER_FAST_MAX_SEC` (`2.5`; clips shorter than this use the fast server).
 
 ## Conventions
 
@@ -253,5 +286,21 @@ or immediately after — never defer it to "later," and never ship code without 
 
 ## Current status
 
-Greenfield. Nothing is built yet — see the **To-Do / Roadmap** in `README.md` for the plan and
-ordering. Phase 0 (decisions + protocol spec) should be settled before writing app/server code.
+The server-side voice pipeline and the Android app are **both built and verified live** (voice →
+server → real Claude reply, spawn/attach/dictate, hands-free, `--resume` recall). Transcription
+runs on a resident GPU whisper server with a CLI fallback. Remaining work — auth hardening
+(TLS/mTLS; today a shared token behind Tailscale), on-device fallback STT, an iOS app, and
+assorted polish — is tracked in `TODO.md`.
+
+### `TODO.md` is the live task list — keep it current
+
+`TODO.md` (repo root) is the **single source of truth for active and completed work**, separate
+from the historical phase roadmap in `README.md`. **Update it in the same commit that changes the
+work it describes:**
+
+- **Propose a feature or a test** → add it to `TODO.md` (unchecked) as part of the same change.
+- **Complete a feature or a test** → check it off (move it to the Done section, dated).
+- **Delete or drop a test/feature** → remove or strike its entry, with a one-line why.
+
+Treat a `TODO.md` edit as part of "done," exactly like the README/`docs/` documentation rule
+above — a feature or test change with a stale `TODO.md` is incomplete.
