@@ -55,10 +55,14 @@ Every JSON message has a `type`. Optional `id` correlates request/response. `ts`
 | `clear`         | `{}`                                      | rotate the attached session's Claude context: retire the current `session_id` (its transcript kept for `history`) and start a fresh one, so the next dictation replays no prior context. No model tokens spent; history still spans the whole chain. -> `say` |
 | `cancel`        | `{}`                                      | abort current dialog                          |
 | `abort`         | `{}`                                      | cancel the running dictation turn on the attached session (kills the claude child) -> `turn_stopped` |
+| `set_whisper_model` | `{ "whisper_model": "<name>" }`       | switch the server-global resident whisper model (fans out a `whisper_model` broadcast to every connected client) |
+| `commit`        | `{}`                                      | force-commit the hands-free buffer (used by the client-side silence timeout); no-op if the buffer is empty |
 | `ping`          | `{}`                                      | keepalive                                     |
 
-Audio framing: client sends `wake` (with a `codec`, and optional `hands_free`), then binary audio,
-then `audio_end`. The server assembles the bytes, decodes to WAV, transcribes (whisper.cpp), then:
+Audio framing: client sends `wake` (with a `codec`, and optional `hands_free` and `calibrate`),
+then binary audio, then `audio_end`. `calibrate: true` is a one-shot end-token calibration probe:
+the clip is transcribed with the fast/tiny model and returned as a `calibration` message (so the
+user can hear how their chosen end token is being heard) instead of being dictated. The server assembles the bytes, decodes to WAV, transcribes (whisper.cpp), then:
 
 ```
 codec = "ogg_opus"   (default; app records Ogg/Opus, ~24 kbps mono 16 kHz)
@@ -89,11 +93,18 @@ capped at ~120 s.
 
 | type            | payload                                              | meaning                                  |
 |-----------------|------------------------------------------------------|------------------------------------------|
-| `hello_ok`      | `server_version`, `session_id`                       | auth accepted                            |
+| `hello_ok`      | `server_version`, `session_id`, `whisper_model`      | auth accepted; `whisper_model` = the resident model name |
+| `whisper_model` | `{ "model": "<name>" }`                              | server-global whisper model changed (broadcast to all clients; response to `set_whisper_model`) |
 | `transcript`    | `{ "text": "...", "final": true }`                   | STT result (may stream partials)         |
+| `pending`       | `{ "text": "..." }`                                  | hands-free live draft as the message buffer grows; empty `text` clears the draft |
+| `calibration`   | `{ "text": "..." }`                                  | end-token calibration probe result (response to a `wake` with `calibrate: true`); shown, not dictated |
+| `activity`      | `{ "text": "🤔 thinking…" }`                         | what Claude is doing right now during a turn (thinking / running a tool / editing a file); transient status line, not spoken |
+| `files`         | `{ "files": ["a.go", "b.md"] }`                      | basenames of files changed so far this turn; a persistent "edited: …" chip |
+| `stop_speaking` | `{}`                                                 | barge-in: the client should halt any in-progress TTS immediately (from "stop" / push-to-talk) |
 | `say`           | `{ "text": "ok bud, where do you want it?" }`        | app should speak this (TTS) + display    |
 | `dialog`        | `{ "state": "await_dir", "prompt": "..." }`          | current dialog state (drives the UI)     |
 | `session_list`  | `{ "sessions": [{ "name", "dir", "attached" }] }`    | response to `list`                       |
+| `listing`       | `{ "path": "...", "parent": "...", "entries": [{ "name", "dir" }] }` | directory contents for the New-session picker (response to `browse`; empty `path` = the configured roots) |
 | `attached`      | `{ "name": "claude-xyz" }`                            | now in passthrough mode                  |
 | `detached`      | `{}`                                                  | left passthrough mode                    |
 | `output`        | `{ "name": "...", "text": "...", "chunk": true }`     | clean session output (for display + TTS). Claude's prose **streams live**: one `chunk: true` message per assistant text message as it lands, then a final `chunk: false` closing the turn. A client that saw the stream shows/speaks the chunks and treats the final as an end marker; a client that missed it (a reply buffered while it was detached) gets only the final `chunk: false` and renders that. |
@@ -149,10 +160,22 @@ srv -> { "type": "attached", "name": "claude-claude" }
 
 ## Error codes
 
-| code            | meaning                                  |
-|-----------------|------------------------------------------|
-| `unauthorized`  | bad/missing token                        |
-| `bad_path`      | spawn path escaped allowed root          |
-| `spawn_failed`  | tmux/claude failed to start              |
-| `no_session`    | attach/kill referenced unknown session   |
-| `internal`      | unexpected server error                  |
+| code               | meaning                                                  |
+|--------------------|----------------------------------------------------------|
+| `unauthorized`     | bad/missing token                                        |
+| `bad_message`      | malformed/unparseable client message                     |
+| `bad_path`         | spawn path escaped allowed root                          |
+| `bad_adopt`        | invalid `adopt` request                                  |
+| `bad_delete`       | invalid `delete`/`delete_discovered` request             |
+| `bad_rename`       | invalid `rename`/`rename_discovered` request             |
+| `spawn_failed`     | session directory creation / claude failed to start      |
+| `no_session`       | action referenced an unknown session                     |
+| `not_found`        | referenced directory/session not found                   |
+| `not_implemented`  | audio path invoked but STT is disabled (no whisper)      |
+| `session_active`   | refused: an interactive `claude` is live in a terminal   |
+| `discover_failed`  | scanning `~/.claude/projects` failed                     |
+| `history_failed`   | reading a session transcript failed                      |
+| `rename_failed`    | rename could not be persisted                            |
+| `transcribe_failed`/`whisper_failed` | STT engine error                       |
+| `turn_failed`      | the dictation turn errored (non-success `result`)        |
+| `internal`         | unexpected server error                                  |
