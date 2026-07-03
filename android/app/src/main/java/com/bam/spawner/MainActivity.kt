@@ -669,32 +669,49 @@ private fun InputBar(
 ) {
     var draft by rememberSaveable { mutableStateOf("") }
     var talking by remember { mutableStateOf(false) }
+    val hasText = draft.isNotBlank()
     val micLive = connected && pushToTalkEnabled
     Row(
         Modifier.fillMaxWidth().padding(8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Surface(
-            color = if (talking) MaterialTheme.colorScheme.error
-            else if (micLive) MaterialTheme.colorScheme.primary
-            else MaterialTheme.colorScheme.surfaceVariant,
-            shape = CircleShape,
-            // pointerInput keyed on micLive so it re-arms when hands-free toggles.
-            modifier = Modifier.size(48.dp).pointerInput(micLive) {
-                if (!micLive) return@pointerInput
-                detectTapGestures(onPress = {
-                    talking = true; onTalkStart(); tryAwaitRelease(); onTalkStop(); talking = false
-                })
-            },
-        ) { Box(contentAlignment = Alignment.Center) { Text(if (pushToTalkEnabled) "🎤" else "🎧") } }
-
         OutlinedTextField(
             value = draft, onValueChange = { draft = it },
             placeholder = { Text("Message…") }, singleLine = true,
             modifier = Modifier.weight(1f),
         )
-        Button(onClick = { onSend(draft); draft = "" }, enabled = connected && draft.isNotBlank()) { Text("Send") }
+        // One button, WhatsApp-style: SEND when there's text (tap to send, hold to
+        // clear), MIC when the box is empty (hold to talk).
+        Surface(
+            color = when {
+                talking -> MaterialTheme.colorScheme.error
+                hasText && connected -> MaterialTheme.colorScheme.primary
+                micLive -> MaterialTheme.colorScheme.primary
+                else -> MaterialTheme.colorScheme.surfaceVariant
+            },
+            shape = CircleShape,
+            // Re-arm the gesture whenever the role changes.
+            modifier = Modifier.size(48.dp).pointerInput(hasText, micLive, connected) {
+                when {
+                    hasText -> detectTapGestures(
+                        onTap = { if (connected) { onSend(draft); draft = "" } },
+                        onLongPress = { draft = "" }, // hold clears the box
+                    )
+                    micLive -> detectTapGestures(onPress = {
+                        talking = true; onTalkStart(); tryAwaitRelease(); onTalkStop(); talking = false
+                    })
+                    else -> {} // empty + hands-free on / disconnected: inert
+                }
+            },
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    when { hasText -> "➤"; !pushToTalkEnabled -> "🎧"; else -> "🎤" },
+                    fontSize = 20.sp,
+                )
+            }
+        }
     }
 }
 
