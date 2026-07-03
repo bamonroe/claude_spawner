@@ -3,12 +3,37 @@ package gateway
 import (
 	"context"
 	"log"
+	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/bam/claude_spawner/server/internal/session"
 )
+
+// diffSummary returns a compact `git diff --stat` of the working tree in dir, or
+// "" if dir isn't a git repo, has no uncommitted changes, or on any error. Capped
+// so a huge diff can't flood the app.
+func diffSummary(dir string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "git", "-C", dir, "diff", "--stat", "--stat-width=60").Output()
+	if err != nil {
+		return ""
+	}
+	s := strings.TrimSpace(string(out))
+	if s == "" {
+		return ""
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) > 12 {
+		lines = append(lines[:11], "… (+"+strconv.Itoa(len(lines)-11)+" more)")
+	}
+	return strings.Join(lines, "\n")
+}
 
 // logField trims a prompt/reply to one tidy line for the turn log.
 func logField(s string) string {
@@ -173,6 +198,11 @@ func (s *Server) startTurn(sess *session.Session, text string) bool {
 			// --resume). Later turns leave it identical, so skip re-serializing and
 			// rewriting the whole store to disk on every turn.
 			_ = s.store.Put(sess)
+		}
+		if len(changed) > 0 { // a compact review summary of what the turn touched
+			if d := diffSummary(sess.Dir); d != "" {
+				j.emit(msgDiff(d))
+			}
 		}
 		j.finish(msgOutput(sess.Name, reply, false))
 	}()

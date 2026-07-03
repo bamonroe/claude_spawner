@@ -96,6 +96,12 @@ func msgTurnInterrupted(name, reason string) map[string]any {
 	return map[string]any{"type": "turn_interrupted", "name": name, "reason": reason}
 }
 
+// msgDiff carries a compact `git diff --stat` review summary after a turn that
+// changed files; the app shows it as a note (not spoken).
+func msgDiff(text string) map[string]any {
+	return map[string]any{"type": "diff", "text": text}
+}
+
 // msgTurnStopped tells the app a running turn was deliberately aborted (via the
 // "abort" command / stop-turn button), so it clears the "thinking…" state
 // without the "say it again" nudge of an interruption.
