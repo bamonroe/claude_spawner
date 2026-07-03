@@ -123,8 +123,10 @@ func (s *Server) startTurn(sess *session.Session, text string) bool {
 	j.cancel = cancel
 	j.mu.Unlock()
 
+	s.inflight.add(sess.Name) // persist "running" so a restart can flag it interrupted
 	log.Printf("turn[%s] input: %q", sess.Name, logField(text))
 	go func() {
+		defer s.inflight.remove(sess.Name)
 		j.emit(msgActivity("🤔 thinking…"))
 		changed := map[string]bool{}
 		onTool := func(t session.ToolUse) {
@@ -210,6 +212,12 @@ func sortedKeys(m map[string]bool) []string {
 func (s *Server) bindJob(c *conn, sessName string, silent bool) {
 	j := s.jobFor(sessName)
 	sink := c.jobSink()
+	// A turn that was running when the server last restarted is dead; tell the app
+	// once so it doesn't wait on it (its result, if any, is in the transcript the
+	// app reloads on attach).
+	if s.takeInterrupted(sessName) {
+		sink(msgTurnInterrupted(sessName, "server restarted"))
+	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if j.sinks == nil {
@@ -259,6 +267,18 @@ func (s *Server) renameJob(old, newName string) {
 		delete(s.jobs, old)
 		s.jobs[newName] = j
 	}
+}
+
+// takeInterrupted reports (and clears) whether a session's turn was cut off by
+// the last server restart, so the app is told once on re-attach.
+func (s *Server) takeInterrupted(name string) bool {
+	s.interruptedMu.Lock()
+	defer s.interruptedMu.Unlock()
+	if s.interrupted[name] {
+		delete(s.interrupted, name)
+		return true
+	}
+	return false
 }
 
 // cancelTurn aborts a session's running turn (kills the claude child). Returns

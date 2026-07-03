@@ -235,6 +235,26 @@ func TestJobBuffersWhenSinkFails(t *testing.T) {
 	}
 }
 
+func TestInflightTrackerRecoversPrior(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "inflight.json")
+	// Fresh: nothing prior. Mark a turn in-flight, then "die".
+	t1, prior1 := newInflightTracker(path)
+	if len(prior1) != 0 {
+		t.Fatalf("fresh tracker should have no prior, got %v", prior1)
+	}
+	t1.add("mysess")
+	// Restart: the interrupted session is recovered, and the file resets.
+	_, prior2 := newInflightTracker(path)
+	if !prior2["mysess"] {
+		t.Fatalf("restart should recover mysess, got %v", prior2)
+	}
+	// Next restart: already consumed/reset — nothing left.
+	_, prior3 := newInflightTracker(path)
+	if len(prior3) != 0 {
+		t.Fatalf("should be empty after recovery, got %v", prior3)
+	}
+}
+
 func TestSpawnCreatesNewFolder(t *testing.T) {
 	ts, root := newTestServer(t, nil)
 	// Root needs a child so it prompts (await_child) rather than using itself.

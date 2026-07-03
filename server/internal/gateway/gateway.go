@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -41,6 +42,10 @@ type Server struct {
 
 	jobsMu sync.Mutex
 	jobs   map[string]*sessionJob // running/last dictation turn, keyed by session name
+
+	inflight      *inflightTracker // sessions with a turn running now (persisted)
+	interruptedMu sync.Mutex
+	interrupted   map[string]bool // sessions whose turn was cut off by the last restart
 
 	connsMu sync.Mutex
 	conns   map[*conn]bool // currently-connected apps, for shutdown broadcasts
@@ -101,17 +106,24 @@ func New(cfg *config.Config, store *session.Store, driver *session.Driver, tmuxM
 	if cfg.WhisperFastURL != "" {
 		fast = &transcribe.RemoteWhisper{URL: cfg.WhisperFastURL}
 	}
+	inflightPath := ""
+	if cfg.StatePath != "" {
+		inflightPath = filepath.Join(filepath.Dir(cfg.StatePath), "inflight.json")
+	}
+	inflight, interrupted := newInflightTracker(inflightPath)
 	return &Server{
-		cfg:      cfg,
-		store:    store,
-		driver:   driver,
-		tmuxMgr:  tmuxMgr,
-		stt:      stt,
-		fastStt:  fast,
-		projects: proj,
-		clients:  map[string]*clientState{},
-		jobs:     map[string]*sessionJob{},
-		conns:    map[*conn]bool{},
+		cfg:         cfg,
+		store:       store,
+		driver:      driver,
+		tmuxMgr:     tmuxMgr,
+		stt:         stt,
+		fastStt:     fast,
+		projects:    proj,
+		clients:     map[string]*clientState{},
+		jobs:        map[string]*sessionJob{},
+		conns:       map[*conn]bool{},
+		inflight:    inflight,
+		interrupted: interrupted,
 		up: websocket.Upgrader{
 			// The app authenticates with a token in the hello message, so origin
 			// checks add little; the network boundary (Tailscale/proxy) is the gate.
