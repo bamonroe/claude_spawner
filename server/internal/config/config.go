@@ -22,7 +22,7 @@ type Config struct {
 	SpawnRoots []string
 	// StatePath is the file where the durable session registry is persisted.
 	StatePath string
-	// ClaudeBin is the claude binary used for headless turns and babysit panes.
+	// ClaudeBin is the claude binary used for headless turns.
 	ClaudeBin string
 	// WhisperBin is the whisper.cpp CLI (default "whisper-cli").
 	WhisperBin string

@@ -72,7 +72,7 @@ func (c *conn) doDiscover() {
 		c.send(msgError("discover_failed", err.Error()))
 		return
 	}
-	active := c.srv.babysit.ClaudeDirs(c.ctx)
+	active := c.srv.tmuxMgr.ClaudeDirs(c.ctx)
 	registered := c.srv.store.List()
 	// index registry by DIRECTORY so custom (renamed) names carry over even if the
 	// dir's newest session_id differs from the pinned one.
@@ -161,7 +161,7 @@ func (c *conn) doDeleteDiscovered(sessionID string) {
 		return
 	}
 	dir := session.TranscriptCwd(path)
-	if c.srv.babysit.ClaudeDirs(c.ctx)[dir] {
+	if c.srv.tmuxMgr.ClaudeDirs(c.ctx)[dir] {
 		c.send(msgError("session_active", "that session is live in a terminal — close it there first"))
 		return
 	}
@@ -346,16 +346,13 @@ func (c *conn) doDetach() {
 	c.send(msgSay("detached."))
 }
 
-// removeSession deletes a session: closes any babysit pane, detaches if we're on
-// it, and pushes the refreshed list. Returns false (with an error) if unknown.
+// removeSession deletes a session: detaches if we're on it, drops its job, and
+// pushes the refreshed list. Returns false (with an error) if unknown.
 func (c *conn) removeSession(name string) bool {
 	s := c.srv.store.Get(name)
 	if s == nil {
 		c.send(msgError("no_session", "no session named "+name))
 		return false
-	}
-	if open, _ := c.srv.babysit.Exists(c.ctx, s.Name); open {
-		_ = c.srv.babysit.Close(c.ctx, s.Name)
 	}
 	if err := c.srv.store.Delete(s.Name); err != nil {
 		c.send(msgError("internal", err.Error()))

@@ -30,7 +30,7 @@ type Server struct {
 	cfg      *config.Config
 	store    *session.Store
 	driver   *session.Driver
-	babysit  *tmux.Manager
+	tmuxMgr  *tmux.Manager
 	stt      transcribe.Transcriber // nil disables the audio path
 	fastStt  transcribe.Transcriber // fast model for live drafts/detection; nil → use stt
 	projects *projects.Index        // fuzzy directory lookup for the spawn dialog
@@ -96,7 +96,7 @@ type clientState struct {
 
 // New builds a gateway Server. stt may be nil, in which case audio frames are
 // rejected but text `utterance` messages still work.
-func New(cfg *config.Config, store *session.Store, driver *session.Driver, babysit *tmux.Manager, stt transcribe.Transcriber, proj *projects.Index) *Server {
+func New(cfg *config.Config, store *session.Store, driver *session.Driver, tmuxMgr *tmux.Manager, stt transcribe.Transcriber, proj *projects.Index) *Server {
 	var fast transcribe.Transcriber
 	if cfg.WhisperFastURL != "" {
 		fast = &transcribe.RemoteWhisper{URL: cfg.WhisperFastURL}
@@ -105,7 +105,7 @@ func New(cfg *config.Config, store *session.Store, driver *session.Driver, babys
 		cfg:      cfg,
 		store:    store,
 		driver:   driver,
-		babysit:  babysit,
+		tmuxMgr:  tmuxMgr,
 		stt:      stt,
 		fastStt:  fast,
 		projects: proj,

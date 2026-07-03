@@ -28,8 +28,9 @@ App:   (attached — now everything you say is dictated to Claude Code)
   terminal UI.
 - While **attached**, your speech is dictated into the session and Claude's response is
   streamed back to the phone (display + text-to-speech).
-- Optionally, you can `tmux attach` to the **same** session on a real terminal to watch or take
-  over the interactive TUI.
+- Optionally, you can run `claude --resume <id>` in a real terminal yourself to watch or take over
+  the **same** on-disk session (the server detects this and warns rather than driving it at the
+  same time).
 
 ## Stack
 
@@ -40,7 +41,7 @@ App:   (attached — now everything you say is dictated to Claude Code)
 | Wake word   | **On-device** (Porcupine)                                           |
 | STT         | **Server-side Whisper** (hybrid: wake on-device, dictation on server)|
 | Sessions    | **headless `claude -p` (stream-json)**, durable via `session_id` on disk |
-| Babysit view| **tmux** running `claude --resume <id>` — optional, same session         |
+| Conflict check| **tmux** inspected to detect a `claude` a human has open in a pane      |
 
 See [`CLAUDE.md`](./CLAUDE.md) for the full architecture, data flow, and design notes.
 
@@ -132,7 +133,7 @@ Requires the `claude` CLI and `tmux` on the host. Transcription is **off** unles
 - [x] `internal/session`: headless `claude` driver (`Driver.Turn`, stream-json parsing,
       tool-event breadcrumbs, error subtypes) + `NewSessionID`
 - [x] `internal/session`: durable, file-backed session registry (`Store`) with atomic writes
-- [x] `internal/tmux`: optional human-babysit pane (`Babysit`/`List`/`Exists`/`Close`)
+- [x] `internal/tmux`: detect a live interactive `claude` in a pane (`ClaudeDirs`) for conflict warnings
 - [x] Spawn-path validation against an allowed root (`config.ValidateSpawnDir`, tested)
 - [x] WebSocket gateway + auth handshake (`internal/gateway`, gorilla/websocket)
 - [x] `spawn` action: generate `session_id`, mkdir (validated), persist record
@@ -166,7 +167,6 @@ Requires the `claude` CLI and `tmux` on the host. Transcription is **off** unles
 - [ ] Stream the `result` text (and tool breadcrumbs) back to the app as `output` messages
 - [ ] Detach / switch sessions (just changes which session_id turns target)
 - [ ] Read Claude's responses aloud (the `result` text is already clean)
-- [ ] Optional: open a tmux babysit pane on demand ("hey buddy, let me watch")
 
 ### Phase 5 — Polish
 - [x] Auto-connect on launch + auto-reconnect with backoff; resume last session (client-driven,

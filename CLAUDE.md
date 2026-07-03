@@ -58,8 +58,8 @@ authoritative place** so the app and server agree.
                                                         │  state persists to disk via  │
                                                         │  session_id (no live proc)   │
                                                         └──────────────────────────────┘
-                                  (optional) human babysit: tmux pane running
-                                  `claude --resume <id>` attached to the SAME session_id
+                                  tmux is inspected only to detect a `claude` a
+                                  human already has open in a pane (conflict warning)
 ```
 
 - **Wake word**: on-device via Porcupine (Picovoice). Low latency, no audio leaves the phone
@@ -69,8 +69,8 @@ authoritative place** so the app and server agree.
 - **Transport**: a single WebSocket per app session carries audio up and transcripts/session
   output down. Use REST only for stateless control actions if needed.
 - **Session control**: the server shells out to `claude` headless (see the RESOLVED section
-  below). Input is the prompt arg; output is parsed from `stream-json`. tmux is only the optional
-  human-babysit view, not the data path.
+  below). Input is the prompt arg; output is parsed from `stream-json`. tmux is not on the data
+  path — it is inspected only to notice a `claude` a human already has open interactively.
 
 ## ✅ RESOLVED: how we capture Claude's responses (do NOT scrape the TUI)
 
@@ -106,18 +106,14 @@ live on-screen streaming, but it is not needed for the voice path.
 This is implemented in `internal/session` (`Driver.Turn`, `Store`, `NewSessionID`) and was
 verified: turn 1 with `--session-id` then turn 2 with `--resume` correctly retained context.
 
-### tmux is now OPTIONAL — the human-babysit view only
+### tmux is used only to detect a live interactive `claude`
 
-Because the session is a `session_id` on disk, **two views can attach to the same conversation**:
-
-| View          | How                                                      | When                    |
-|---------------|---------------------------------------------------------|-------------------------|
-| Voice path    | headless `claude -p --resume <id> --output-format stream-json` | every dictated turn |
-| Human babysit | interactive `claude --resume <id>` inside a tmux pane   | to watch/take over      |
-
-`internal/tmux` now only opens the babysit pane (`Babysit`/`List`/`Exists`/`Close`). **One active
-writer per session at a time** — don't run a headless turn and a babysit pane against the same
-`session_id` simultaneously.
+Because the session is a `session_id` on disk, a human could also `claude --resume <id>` it in a
+terminal. `internal/tmux` exposes just `ClaudeDirs` — the set of directories with an interactive
+`claude` open in a pane — so the spawner can warn before driving that same session headlessly.
+**One active writer per session at a time** — don't run a headless turn against a `session_id` a
+human is editing live. (An earlier design had the server itself open a "babysit" pane via a
+`Babysit`/`List`/`Exists`/`Close` API; that was dropped — the server never creates panes now.)
 
 ## Security posture
 
@@ -147,7 +143,7 @@ writer per session at a time** — don't run a headless turn and a babysit pane 
   internal/session/store.go     durable session registry (file-backed, atomic writes)
   internal/command/command.go   utterance -> intent parser + StripWake
   internal/transcribe/          Transcriber interface + whisper.cpp shell-out + PCM16->WAV
-  internal/tmux/tmux.go         OPTIONAL human-babysit pane (Babysit/List/Exists/Close)
+  internal/tmux/tmux.go         detect a live interactive `claude` in a pane (ClaudeDirs)
   internal/config/config.go     env config + spawn-path validation
   cmd/wsclient/main.go          text client for manual testing; -audio streams a WAV
   Dockerfile / .dockerignore    dev image: Go + tmux + claude CLI + whisper.cpp + model

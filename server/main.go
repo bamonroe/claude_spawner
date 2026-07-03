@@ -3,9 +3,9 @@
 // the Android app and those sessions.
 //
 // The voice data path drives Claude Code headless in stream-json mode (see
-// internal/session). tmux (internal/tmux) is only the optional human-babysit
-// view. This is a Phase 1 skeleton: the WebSocket gateway is stubbed; the
-// session driver and store are functional. See README.md for the roadmap.
+// internal/session). tmux (internal/tmux) is used only to detect a Claude
+// session a human already has open interactively in a pane (to warn before
+// driving the same session headlessly). See README.md for the roadmap.
 package main
 
 import (
@@ -39,8 +39,7 @@ func main() {
 	driver := session.NewDriver()
 	driver.Bin = cfg.ClaudeBin
 
-	babysit := tmux.NewManager()
-	babysit.ClaudeBin = cfg.ClaudeBin
+	tmuxMgr := tmux.NewManager()
 
 	var stt transcribe.Transcriber
 	if cfg.WhisperURL != "" {
@@ -68,7 +67,7 @@ func main() {
 	proj := projects.New(cfg.SpawnRoots)
 	log.Printf("project index: %d dirs under roots %v", len(proj.List(1<<30)), cfg.SpawnRoots)
 
-	gw := gateway.New(cfg, store, driver, babysit, stt, proj)
+	gw := gateway.New(cfg, store, driver, tmuxMgr, stt, proj)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
