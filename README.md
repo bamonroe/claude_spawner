@@ -98,6 +98,12 @@ The whole execution environment — Go, `tmux`, the `claude` CLI, and **whisper.
 is baked into a container so nothing has to be installed on the host. Source stays on the host
 (bind-mounted), so you edit and version normally; only execution is containerized.
 
+`docker compose up` starts three services: the **spawner** (with a bundled whisper.cpp CLI +
+model as a fallback), plus two **resident whisper.cpp HTTP servers** — an accurate model on `:8571`
+and a fast draft/detection model on `:8572` — built with Vulkan for the host's AMD GPU. The server
+prefers the resident servers (`SPAWNER_WHISPER_URL` / `SPAWNER_WHISPER_FAST_URL`) and falls back to
+the CLI when they're unset. Engine details are in [`CLAUDE.md`](./CLAUDE.md).
+
 ```bash
 # build (compiles whisper.cpp + fetches a model; base.en by default) and run on :8080
 docker compose up --build
@@ -139,6 +145,10 @@ Requires the `claude` CLI and `tmux` on the host. Transcription is **off** unles
 
 ## To-Do / Roadmap
 
+> This is the **historical, phase-by-phase record** of how the project was built. For the live
+> list of what's in flight or recently finished, see [`TODO.md`](./TODO.md) — that's the
+> authoritative task tracker; this section is kept as a completed-phases narrative.
+
 ### Phase 0 — Decisions & spec ✅
 - [x] Response-capture decision: **headless `claude -p --output-format stream-json`**, durable
       `session_id` on disk + `--resume` — verified end-to-end. (No TUI scraping.)
@@ -168,8 +178,9 @@ Requires the `claude` CLI and `tmux` on the host. Transcription is **off** unles
 - [x] Audio-stream ingest: `wake` + binary PCM16 frames + `audio_end` → WAV → transcript → `utterance`
 - [x] Whisper integration behind a `Transcriber` interface (`internal/transcribe`, whisper.cpp shell-out)
 - [x] Dockerized dev environment (Go + tmux + claude CLI + whisper.cpp + model)
-- [ ] Verify a real audio turn end-to-end in the container (jfk.wav → transcript)
-- [ ] Vocab biasing (`--prompt`) to improve recognition of session names / paths
+- [x] Verify a real audio turn end-to-end (jfk.wav / spoken clip → transcript → Claude reply),
+      on both the resident GPU whisper server and the CLI fallback
+- [x] Vocab biasing (`--prompt`) to improve recognition of session names / paths
 
 ### Phase 3 — Android app (Kotlin / Compose)
 - [x] Project scaffold (`/android`), mic permission, foreground-service stub
