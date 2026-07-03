@@ -50,6 +50,7 @@ Reject paths that escape the allowed root unless the user explicitly opts in.
 | `cancel`        | "cancel" / "never mind"                  | Aborts the current dialog                          |
 | `stop`          | "hey bud stop" / "stop talking" / "quiet"| Barge-in: stops TTS everywhere; never dictated. Also, pressing push-to-talk stops speech client-side. |
 | `abort_turn`    | "stop the turn" / "cancel the turn" / "abort" / "stop working" | Cancels the running Claude turn (kills the child). Distinct from `stop` (TTS) and `cancel` (discard a composing message). |
+| `help`          | "help" / "what can you do" / "commands" | Speaks the list of available commands (generated from the command registry). |
 
 ## Dialog: spawn a new session
 
