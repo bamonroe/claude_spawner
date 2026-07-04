@@ -19,7 +19,7 @@ sealed interface ServerMsg {
     data class Dialog(val state: String, val prompt: String) : ServerMsg
     data class Attached(val name: String) : ServerMsg
     data object Detached : ServerMsg
-    data class Output(val name: String, val text: String, val chunk: Boolean) : ServerMsg
+    data class Output(val name: String, val text: String, val chunk: Boolean, val usage: TokenUsage? = null) : ServerMsg
     data class History(val name: String, val messages: List<HistMsg>, val more: Boolean) : ServerMsg
     data class ReadLast(val count: Int) : ServerMsg
     data class Discovered(val sessions: List<DiscoveredInfo>) : ServerMsg
@@ -47,7 +47,7 @@ sealed interface ServerMsg {
                 "dialog" -> Dialog(o.optString("state"), o.optString("prompt"))
                 "attached" -> Attached(o.optString("name"))
                 "detached" -> Detached
-                "output" -> Output(o.optString("name"), o.optString("text"), o.optBoolean("chunk", false))
+                "output" -> Output(o.optString("name"), o.optString("text"), o.optBoolean("chunk", false), readUsage(o.optJSONObject("usage")))
                 "history" -> History(o.optString("name"), readHist(o.optJSONArray("messages")), o.optBoolean("more"))
                 "read_last" -> ReadLast(o.optInt("count", 1))
                 "discovered" -> Discovered(readDiscovered(o.optJSONArray("sessions")))
@@ -60,6 +60,11 @@ sealed interface ServerMsg {
                 "listing" -> Listing(o.optString("path"), o.optString("parent"), readEntries(o.optJSONArray("entries")))
                 else -> Unknown(o.optString("type"))
             }
+        }
+
+        private fun readUsage(o: JSONObject?): TokenUsage? {
+            if (o == null) return null
+            return TokenUsage(o.optInt("input"), o.optInt("output"), o.optInt("cache_write"), o.optInt("cache_read"))
         }
 
         private fun readDiscovered(arr: JSONArray?): List<DiscoveredInfo> {
@@ -107,6 +112,17 @@ sealed interface ServerMsg {
             }
         }
     }
+}
+
+/**
+ * Per-turn token accounting from the final `output` message (see docs/protocol.md).
+ * cacheRead > 0 = a warm prompt-cache hit; cacheWrite > 0 = the cache was (re)built.
+ */
+data class TokenUsage(val input: Int, val output: Int, val cacheWrite: Int, val cacheRead: Int) {
+    /** Total context tokens read this turn (fresh input + cached prefix). */
+    val contextTokens: Int get() = input + cacheRead + cacheWrite
+    /** True if this turn reused a warm cache rather than rebuilding it. */
+    val warmHit: Boolean get() = cacheRead > 0
 }
 
 /** One past message from a session's server-served history. */

@@ -92,6 +92,24 @@ It costs **one** model turn (the summary) and, like `clear`, keeps the old trans
 full history still scrolls back. Reach for `clear` when you're starting something unrelated, and
 `compress` when you want to keep going on the same work but trim the running cost.
 
+### Seeing token usage (and the warm-cache window)
+
+Each turn's token cost rides back on the reply, so the app can show what a turn actually used.
+Two independent, toggleable displays live in **Settings → Appearance**:
+
+- **Token badge** — a small caption under each Claude reply. **Compact** (the default) shows the
+  turn's total context tokens and Claude's output (`24k↑ 340↓`), plus a **⚡** when the turn reused a
+  warm prompt cache. **Detailed** breaks the input apart — fresh input vs. `cached` (a cheap
+  cache-read) vs. newly-cached (`new`) tokens — then the output. **Off** hides it entirely.
+- **Cache-warm timer** — a status-bar line counting down the ~5-minute window during which your
+  **next** turn will reuse the warm prompt cache (`⚡ cache warm · 3:12 left`) rather than paying to
+  rebuild the whole context (`❄ cache cold — next turn rebuilds context`). Each turn resets the
+  countdown; attaching to a different session resets it (that session has its own, cold, cache).
+
+Nothing here is spoken — it's screen-only, so hands-free dictation is unaffected. The numbers come
+straight from the headless `result` event's usage (no estimation); see the `output.usage` field in
+[`docs/protocol.md`](./docs/protocol.md).
+
 ## How responses are captured (the once-hard problem, now solved)
 
 Claude Code's interactive TUI would be miserable to screen-scrape (ANSI, redraws, spinners), so

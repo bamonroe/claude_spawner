@@ -36,6 +36,12 @@ Dates are `YYYY-MM-DD`.
 
 ## Done
 
+- [x] 2026-07-04 — **Per-turn token usage** surfaced to the app. Server parses the stream-json
+      `result` event's aggregate `usage` (input/output/cache-write/cache-read) and carries it on the
+      final `output` message (`output.usage`, docs/protocol.md + docsync). Android renders it two
+      ways, both toggleable in **Settings → Appearance**: a per-reply **token badge** (Off / Compact /
+      Detailed; compact is default) and a status-bar **cache-warm timer** counting down the ~5-min
+      warm prompt-cache window. Screen-only (not spoken). README + emulator-verified UI.
 - [x] 2026-07-04 — Wake token as a data-driven **alias list** (`command.wakePhrases`, single source
       of truth, the wake-word analogue of a command's aliases). Generalized the matcher to
       variable-width phrases so **one-word collapses** whisper produces for "hey buddy" — notably

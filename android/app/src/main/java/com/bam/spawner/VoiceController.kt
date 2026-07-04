@@ -1,6 +1,8 @@
 package com.bam.spawner
 
 import android.content.Context
+import android.os.SystemClock
+import com.bam.spawner.net.TokenUsage
 import com.bam.spawner.audio.AudioOutput
 import com.bam.spawner.audio.AudioRouter
 import com.bam.spawner.net.AskQuestion
@@ -40,7 +42,12 @@ data class CalibrationState(
     val hits: Int = 0,
 )
 
-data class ChatMessage(val role: Role, val text: String, val index: Int = -1)
+data class ChatMessage(val role: Role, val text: String, val index: Int = -1, val usage: TokenUsage? = null)
+
+/** The most recent completed turn's token usage, stamped with when it finished
+ *  (SystemClock.elapsedRealtime ms) so the UI can count down the ~5-min warm
+ *  prompt-cache window from that moment. */
+data class TurnUsageInfo(val usage: TokenUsage, val atElapsedMs: Long)
 
 /**
  * Orchestrates the app's voice/chat loop: connects (with auto-reconnect),
@@ -117,6 +124,12 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     // Live "Claude is thinking / editing foo.go" indicator; "" when idle.
     private val _activity = MutableStateFlow("")
     val activity: StateFlow<String> = _activity.asStateFlow()
+
+    // Token usage of the last completed turn, driving the per-message badge's
+    // source data and the status-bar cache-warm countdown. Null until a turn
+    // finishes; reset when attaching elsewhere (a new session = a new cache).
+    private val _lastTurnUsage = MutableStateFlow<TurnUsageInfo?>(null)
+    val lastTurnUsage: StateFlow<TurnUsageInfo?> = _lastTurnUsage.asStateFlow()
 
     // True while TTS is speaking (drives the tap-to-stop banner).
     private val _speaking = MutableStateFlow(false)
@@ -587,9 +600,14 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
                     clearTurnInFlight()
                     _activity.value = "" // turn done — stop the thinking indicator
                     if (!turnStreamed) { // no live stream reached us (buffered reply on reconnect)
-                        addChat(Role.CLAUDE, msg.text); speaker.speak(Markdown.toSpeech(msg.text))
+                        addChat(Role.CLAUDE, msg.text, msg.usage); speaker.speak(Markdown.toSpeech(msg.text))
+                    } else if (msg.usage != null) {
+                        // Streamed turn: the bubble already exists from chunks, so badge it
+                        // in place — the closing message isn't re-rendered as a new bubble.
+                        attachUsageToLastClaude(msg.usage)
                     }
                     turnStreamed = false
+                    msg.usage?.let { _lastTurnUsage.value = TurnUsageInfo(it, SystemClock.elapsedRealtime()) }
                     if (!appForeground) notifier.turnDone(msg.name, msg.text) // surface it from the pocket
                 }
             }
@@ -634,6 +652,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
                 clearTurnInFlight()
                 turnStreamed = false
                 _activity.value = ""
+                _lastTurnUsage.value = null // new session = a different (cold) prompt cache
                 _attachedName.value = msg.name
                 settings.lastSession = msg.name
                 _status.value = "attached: ${msg.name}"
@@ -687,9 +706,21 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
 
     // addChat appends a live message to the CURRENT session's log (the view the
     // user is on) and reflects it. Historical messages come via onHistory instead.
-    private fun addChat(role: Role, text: String) {
+    private fun addChat(role: Role, text: String, usage: TokenUsage? = null) {
         if (text.isBlank()) return
-        val updated = ((logs[currentKey] ?: emptyList()) + ChatMessage(role, text)).takeLast(2000)
+        val updated = ((logs[currentKey] ?: emptyList()) + ChatMessage(role, text, usage = usage)).takeLast(2000)
+        logs[currentKey] = updated
+        _chat.value = updated
+    }
+
+    // attachUsageToLastClaude badges the most recent Claude bubble in the current
+    // log with a completed turn's token usage. Used when the reply streamed live
+    // (the bubble was built from chunks, so the closing message can't add a new one).
+    private fun attachUsageToLastClaude(usage: TokenUsage) {
+        val log = logs[currentKey] ?: return
+        val idx = log.indexOfLast { it.role == Role.CLAUDE }
+        if (idx < 0) return
+        val updated = log.toMutableList().also { it[idx] = it[idx].copy(usage = usage) }
         logs[currentKey] = updated
         _chat.value = updated
     }

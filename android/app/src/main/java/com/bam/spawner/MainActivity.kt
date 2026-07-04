@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -50,6 +51,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
@@ -93,6 +95,7 @@ import androidx.compose.runtime.mutableStateListOf
 import com.bam.spawner.audio.AudioOutput
 import com.bam.spawner.net.AskQuestion
 import com.bam.spawner.net.DiscoveredInfo
+import com.bam.spawner.net.TokenUsage
 import com.bam.spawner.ui.MarkdownText
 import com.bam.spawner.ui.SpawnerTheme
 import com.bam.spawner.ui.ThemeMode
@@ -207,7 +210,7 @@ private fun AppRoot(
             onSaveConnect = { url, token -> controller.connect(url, token); screen = "settings" },
             onBack = { screen = "settings" },
         )
-        "set_appearance" -> AppearanceSettings(themeMode, onThemeChange, onBack = { screen = "settings" })
+        "set_appearance" -> AppearanceSettings(settings, themeMode, onThemeChange, onBack = { screen = "settings" })
         "set_commands" -> CommandsSettings(settings, onAliasesChanged = reconnect, onBack = { screen = "settings" })
         "set_audio" -> AudioSettings(
             settings, controller,
@@ -223,6 +226,8 @@ private fun AppRoot(
         else -> MainScreen(
             controller,
             handsFreeInitial = settings.handsFree,
+            badgeMode = settings.tokenBadge,
+            showCacheTimer = settings.cacheWarmTimer,
             onToggleHandsFree = onToggleHandsFree,
             onSelectAudioOutput = onSelectAudioOutput,
             onOpenSettings = { screen = "settings" },
@@ -235,6 +240,8 @@ private fun AppRoot(
 private fun MainScreen(
     controller: VoiceController,
     handsFreeInitial: Boolean,
+    badgeMode: String,
+    showCacheTimer: Boolean,
     onToggleHandsFree: (Boolean) -> Unit,
     onSelectAudioOutput: (AudioOutput) -> Unit,
     onOpenSettings: () -> Unit,
@@ -275,6 +282,7 @@ private fun MainScreen(
     val audioOutputs by controller.audioOutputs.collectAsStateWithLifecycle()
     val pending by controller.pending.collectAsStateWithLifecycle()
     val activity by controller.activity.collectAsStateWithLifecycle()
+    val lastUsage by controller.lastTurnUsage.collectAsStateWithLifecycle()
     var handsFree by remember { mutableStateOf(handsFreeInitial) }
 
     ModalNavigationDrawer(
@@ -320,10 +328,12 @@ private fun MainScreen(
             // The status bars below the list are Column siblings: showing one shrinks
             // the list from the bottom. This key changes whenever that set toggles, so
             // ChatList can re-pin the newest message above the bars.
+            val showWarmBar = showCacheTimer && lastUsage != null
             val barsKey = (if (speaking) 1 else 0) + (if (activity.isNotBlank()) 2 else 0) +
                 (if (pending.isNotBlank()) 4 else 0) + (if (handsFree) 8 else 0) +
-                (if (mic.isNotEmpty()) 16 else 0)
-            ChatList(chat, hasMoreHistory, scrollTick, barsKey, controller::loadOlder, Modifier.weight(1f).fillMaxWidth())
+                (if (mic.isNotEmpty()) 16 else 0) + (if (showWarmBar) 32 else 0)
+            ChatList(chat, hasMoreHistory, scrollTick, barsKey, badgeMode, controller::loadOlder, Modifier.weight(1f).fillMaxWidth())
+            if (showWarmBar) lastUsage?.let { CacheWarmBar(it) }
             if (speaking) SpeakingBar(onStop = controller::stopSpeaking)
             if (activity.isNotBlank()) ActivityIndicator(activity, onAbort = controller::abortTurn)
             if (pending.isNotBlank()) DraftLine(pending)
@@ -604,6 +614,7 @@ private fun ChatList(
     hasMore: Boolean,
     scrollTick: Int,
     barsKey: Int,
+    badgeMode: String,
     onLoadOlder: () -> Unit,
     modifier: Modifier,
 ) {
@@ -641,12 +652,12 @@ private fun ChatList(
                 Text("⤒ load older messages")
             }
         }
-        items(messages) { Bubble(it) }
+        items(messages) { Bubble(it, badgeMode) }
     }
 }
 
 @Composable
-private fun Bubble(msg: ChatMessage) {
+private fun Bubble(msg: ChatMessage, badgeMode: String = "off") {
     val user = msg.role == Role.USER
     val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val bg = when (msg.role) {
@@ -664,17 +675,78 @@ private fun Bubble(msg: ChatMessage) {
         horizontalArrangement = if (user) Arrangement.End else Arrangement.Start,
     ) {
         Surface(color = bg, contentColor = fg, shape = RoundedCornerShape(14.dp), modifier = Modifier.widthIn(max = 320.dp)) {
-            // Per-bubble selection so the text is long-press copyable, without a
-            // list-wide SelectionContainer (which distorted the Column layout).
-            SelectionContainer {
-                if (msg.role == Role.CLAUDE) {
-                    MarkdownText(msg.text, Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
-                } else {
-                    Text(msg.text, Modifier.padding(horizontal = 12.dp, vertical = 8.dp), style = MaterialTheme.typography.bodyMedium)
+            Column {
+                // Per-bubble selection so the text is long-press copyable, without a
+                // list-wide SelectionContainer (which distorted the Column layout).
+                SelectionContainer {
+                    if (msg.role == Role.CLAUDE) {
+                        MarkdownText(msg.text, Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
+                    } else {
+                        Text(msg.text, Modifier.padding(horizontal = 12.dp, vertical = 8.dp), style = MaterialTheme.typography.bodyMedium)
+                    }
                 }
+                // Per-turn token badge under Claude replies (Appearance → Token badge).
+                if (msg.role == Role.CLAUDE && badgeMode != "off") msg.usage?.let { TokenBadge(it, badgeMode) }
             }
         }
     }
+}
+
+// TokenBadge renders one turn's token usage as a small caption under a reply. The
+// ⚡ marks a warm prompt-cache hit; detailed mode breaks the context into fresh
+// input / cached / newly-cached tokens. See docs/protocol.md's `output.usage`.
+@Composable
+private fun TokenBadge(u: TokenUsage, mode: String) {
+    val label = if (mode == "detailed") buildString {
+        append("${fmtTok(u.input)} in")
+        if (u.cacheRead > 0) append(" · ${fmtTok(u.cacheRead)} cached")
+        if (u.cacheWrite > 0) append(" · ${fmtTok(u.cacheWrite)} new")
+        append(" · ${fmtTok(u.output)} out")
+        if (u.warmHit) append(" ⚡")
+    } else {
+        "${fmtTok(u.contextTokens)}↑ ${fmtTok(u.output)}↓" + if (u.warmHit) " ⚡" else ""
+    }
+    Text(
+        label,
+        style = MaterialTheme.typography.labelSmall,
+        color = LocalContentColor.current.copy(alpha = 0.6f),
+        modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 6.dp),
+    )
+}
+
+// fmtTok renders a token count compactly: 800, 1.2k, 24k.
+private fun fmtTok(n: Int): String = when {
+    n >= 10_000 -> "${(n + 500) / 1000}k"
+    n >= 1_000 -> "%.1fk".format(n / 1000.0)
+    else -> n.toString()
+}
+
+// CacheWarmBar counts down the ~5-minute window in which the next turn reuses the
+// warm prompt cache (a cache_read hit) rather than rebuilding context. Driven off
+// the last turn's completion time; ticks once a second. See Appearance settings.
+@Composable
+private fun CacheWarmBar(info: TurnUsageInfo) {
+    val windowMs = 5 * 60 * 1000L
+    var now by remember { mutableStateOf(SystemClock.elapsedRealtime()) }
+    LaunchedEffect(info) {
+        while (true) {
+            now = SystemClock.elapsedRealtime()
+            kotlinx.coroutines.delay(1000)
+        }
+    }
+    val remaining = (windowMs - (now - info.atElapsedMs)).coerceAtLeast(0)
+    val warm = remaining > 0
+    val label = if (warm) {
+        "⚡ cache warm · %d:%02d left".format(remaining / 60000, (remaining % 60000) / 1000)
+    } else {
+        "❄ cache cold — next turn rebuilds context"
+    }
+    Text(
+        label,
+        color = if (warm) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+        style = MaterialTheme.typography.labelMedium,
+        modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+    )
 }
 
 @Composable
@@ -986,13 +1058,35 @@ private fun ServerSettings(
 }
 
 @Composable
-private fun AppearanceSettings(themeMode: ThemeMode, onThemeChange: (ThemeMode) -> Unit, onBack: () -> Unit) {
+private fun AppearanceSettings(settings: SettingsStore, themeMode: ThemeMode, onThemeChange: (ThemeMode) -> Unit, onBack: () -> Unit) {
     SettingsScaffold("Appearance", onBack) {
         Text("Theme", style = MaterialTheme.typography.titleMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             ThemeChoice("System", themeMode == ThemeMode.SYSTEM) { onThemeChange(ThemeMode.SYSTEM) }
             ThemeChoice("Light", themeMode == ThemeMode.LIGHT) { onThemeChange(ThemeMode.LIGHT) }
             ThemeChoice("Dark", themeMode == ThemeMode.DARK) { onThemeChange(ThemeMode.DARK) }
+        }
+
+        HorizontalDivider()
+        Text("Token badge", style = MaterialTheme.typography.titleMedium)
+        Text("Show each reply's token usage under its bubble. Detailed adds the warm-cache split.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+        var badge by remember { mutableStateOf(settings.tokenBadge) }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ThemeChoice("Off", badge == "off") { badge = "off"; settings.tokenBadge = "off" }
+            ThemeChoice("Compact", badge == "compact") { badge = "compact"; settings.tokenBadge = "compact" }
+            ThemeChoice("Detailed", badge == "detailed") { badge = "detailed"; settings.tokenBadge = "detailed" }
+        }
+
+        HorizontalDivider()
+        var warm by remember { mutableStateOf(settings.cacheWarmTimer) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Cache-warm timer", style = MaterialTheme.typography.titleMedium)
+                Text("Count down the ~5-min window where the next turn reuses a warm prompt cache.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            }
+            Switch(checked = warm, onCheckedChange = { warm = it; settings.cacheWarmTimer = it })
         }
     }
 }

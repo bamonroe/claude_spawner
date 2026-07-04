@@ -33,6 +33,17 @@ class SettingsStore(context: Context) {
         get() = prefs.getString("theme_mode", "system") ?: "system"
         set(v) = prefs.edit().putString("theme_mode", v).apply()
 
+    /** Per-message token-usage badge detail: "off" | "compact" | "detailed".
+     *  Compact shows in/out totals; detailed adds the cache-read/write split. */
+    var tokenBadge: String
+        get() = prefs.getString("token_badge", "compact") ?: "compact"
+        set(v) = prefs.edit().putString("token_badge", v).apply()
+
+    /** Show a status-bar indicator counting down the ~5-min warm prompt-cache window. */
+    var cacheWarmTimer: Boolean
+        get() = prefs.getBoolean("cache_warm_timer", true)
+        set(v) = prefs.edit().putBoolean("cache_warm_timer", v).apply()
+
     /** Whether hands-free (always-listening) mode is enabled. */
     var handsFree: Boolean
         get() = prefs.getBoolean("hands_free", false)
