@@ -67,6 +67,7 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -316,7 +317,13 @@ private fun MainScreen(
                 onOutputMenuOpened = controller::refreshAudioOutputs,
             )
             if (attached == null) DetachedBanner()
-            ChatList(chat, hasMoreHistory, scrollTick, controller::loadOlder, Modifier.weight(1f).fillMaxWidth())
+            // The status bars below the list are Column siblings: showing one shrinks
+            // the list from the bottom. This key changes whenever that set toggles, so
+            // ChatList can re-pin the newest message above the bars.
+            val barsKey = (if (speaking) 1 else 0) + (if (activity.isNotBlank()) 2 else 0) +
+                (if (pending.isNotBlank()) 4 else 0) + (if (handsFree) 8 else 0) +
+                (if (mic.isNotEmpty()) 16 else 0)
+            ChatList(chat, hasMoreHistory, scrollTick, barsKey, controller::loadOlder, Modifier.weight(1f).fillMaxWidth())
             if (speaking) SpeakingBar(onStop = controller::stopSpeaking)
             if (activity.isNotBlank()) ActivityIndicator(activity, onAbort = controller::abortTurn)
             if (pending.isNotBlank()) DraftLine(pending)
@@ -596,6 +603,7 @@ private fun ChatList(
     messages: List<ChatMessage>,
     hasMore: Boolean,
     scrollTick: Int,
+    barsKey: Int,
     onLoadOlder: () -> Unit,
     modifier: Modifier,
 ) {
@@ -613,6 +621,16 @@ private fun ChatList(
     // Explicit scroll-to-bottom (attach, typed send, read-last).
     LaunchedEffect(scrollTick) {
         if (scrollTick > 0 && messages.isNotEmpty()) listState.animateScrollToItem(bottom)
+    }
+    // A below-list status bar (speaking / activity / draft / mic) appearing shrinks
+    // the viewport and would hide the tail of the newest message. Re-pin to it when
+    // the bars toggle — but only if the newest message is currently in view, so
+    // scrolling up to read history mid-turn isn't yanked back down.
+    val atBottom by remember {
+        derivedStateOf { (listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0) >= bottom }
+    }
+    LaunchedEffect(barsKey) {
+        if (messages.isNotEmpty() && atBottom) listState.animateScrollToItem(bottom)
     }
     // LazyColumn is the direct weighted child (wrapping it in a SelectionContainer
     // distorted the Column's height and pushed the input bar off-screen). Selection
