@@ -308,6 +308,13 @@ Config env vars (all read in `internal/config`):
   **Pixel 8a** over adb so it's running on real hardware. The two adb worlds and the exact install
   commands are in the `android-dev` skill; the emulator is for iteration, the phone is where a
   settled feature lands.
+  - **Finish Android work by installing on the phone.** The Pixel 8a is the live self-hosting
+    client, so a shippable APK isn't "done" until it's on the phone — the last step of any Android
+    change is `adb -s <phone> install -r` (see the `android-dev` skill). This is doubly required
+    when the phone is where the feature's *final* verification has to happen (anything the emulator
+    can't validate — real mic/hands-free, real turns, hardware) or when the emulator run left the
+    feature only partly checked: don't stop at the emulator and leave the phone on the old build.
+    Install it before reporting the work complete.
 - When you change the architecture or make a design decision (especially the TUI-capture
   question above), record it in this file and the README so it isn't re-litigated.
 
