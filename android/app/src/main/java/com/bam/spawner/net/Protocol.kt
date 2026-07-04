@@ -25,6 +25,7 @@ sealed interface ServerMsg {
     data class Discovered(val sessions: List<DiscoveredInfo>) : ServerMsg
     data class RateLimit(val info: RateLimitInfo) : ServerMsg // Claude plan's usage-window state
     data class Usage(val report: UsageReport) : ServerMsg // `/usage` report (session/weekly % used)
+    data class UsageEstimate(val est: UsageEstimateInfo) : ServerMsg // drift-live server-global estimate
     data class Err(val code: String, val message: String) : ServerMsg
     data class TurnInterrupted(val name: String, val reason: String) : ServerMsg
     data class TurnStopped(val name: String) : ServerMsg // a turn was deliberately aborted
@@ -60,6 +61,13 @@ sealed interface ServerMsg {
                 "usage" -> Usage(UsageReport(
                     o.optInt("session_pct", -1), o.optString("session_reset"),
                     o.optInt("week_pct", -1), o.optString("week_reset"), o.optString("text"),
+                ))
+                "usage_estimate" -> UsageEstimate(UsageEstimateInfo(
+                    o.optBoolean("calibrated"),
+                    o.optDouble("session_est_pct", -1.0), o.optDouble("week_est_pct", -1.0),
+                    o.optDouble("session_real_pct", -1.0), o.optDouble("week_real_pct", -1.0),
+                    o.optLong("cum_tokens"), o.optLong("tokens_since_check"),
+                    o.optLong("turns_since_check"), o.optLong("last_check_at"),
                 ))
                 "error" -> Err(o.optString("code"), o.optString("message"))
                 "turn_interrupted" -> TurnInterrupted(o.optString("name"), o.optString("reason"))
@@ -152,6 +160,20 @@ data class RateLimitInfo(val status: String, val resetsAt: Long, val limitType: 
 data class UsageReport(
     val sessionPct: Int, val sessionReset: String,
     val weekPct: Int, val weekReset: String, val text: String,
+)
+
+/**
+ * Server-global drift-live usage estimate (see docs/protocol.md `usage_estimate`),
+ * aggregated across all sessions/clients. The `*EstPct` fields drift up each turn;
+ * `*RealPct` are the last /usage calibration's true numbers. Percents are −1 (and
+ * `calibrated` false) until the first /usage anchors the estimate.
+ */
+data class UsageEstimateInfo(
+    val calibrated: Boolean,
+    val sessionEstPct: Double, val weekEstPct: Double,
+    val sessionRealPct: Double, val weekRealPct: Double,
+    val cumTokens: Long, val tokensSinceCheck: Long,
+    val turnsSinceCheck: Long, val lastCheckAt: Long,
 )
 
 /** One past message from a session's server-served history. */

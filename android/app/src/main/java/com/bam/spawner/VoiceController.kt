@@ -5,6 +5,7 @@ import android.os.SystemClock
 import com.bam.spawner.net.TokenUsage
 import com.bam.spawner.net.RateLimitInfo
 import com.bam.spawner.net.UsageReport
+import com.bam.spawner.net.UsageEstimateInfo
 import com.bam.spawner.audio.AudioOutput
 import com.bam.spawner.audio.AudioRouter
 import com.bam.spawner.net.AskQuestion
@@ -138,6 +139,11 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     // the sessions drawer. Null until the first turn reports it.
     private val _rateLimit = MutableStateFlow<RateLimitInfo?>(null)
     val rateLimit: StateFlow<RateLimitInfo?> = _rateLimit.asStateFlow()
+
+    // Server-global drift-live usage estimate: nudges up each turn, snaps to real
+    // on /usage. Server-wide (all sessions/clients), so it does NOT reset on attach.
+    private val _usageEstimate = MutableStateFlow<UsageEstimateInfo?>(null)
+    val usageEstimate: StateFlow<UsageEstimateInfo?> = _usageEstimate.asStateFlow()
 
     // On-demand `/usage` report (session/weekly % used). Loading is set while the
     // server runs /usage; report holds the result. A non-null report opens the
@@ -651,6 +657,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
             is ServerMsg.Diff -> addChat(Role.SYSTEM, "📊 diff:\n${msg.text}") // review summary, not spoken
             is ServerMsg.RateLimit -> _rateLimit.value = msg.info // plan session-limit readout (sidebar)
             is ServerMsg.Usage -> { _usageLoading.value = false; _usageReport.value = msg.report } // opens the usage sheet
+            is ServerMsg.UsageEstimate -> _usageEstimate.value = msg.est // drift-live footer/sheet estimate
             is ServerMsg.Ask -> {
                 clearTurnInFlight()
                 turnStreamed = false

@@ -36,6 +36,15 @@ Dates are `YYYY-MM-DD`.
 
 ## Done
 
+- [x] 2026-07-04 — **Drift-live usage estimate** across all sessions/clients. New
+      `internal/usage.Estimator` (server-global, persisted next to sessions.json): every turn adds its
+      weighted token cost to a running odometer and nudges the estimated session/weekly % up via a
+      tokens-per-percent rate **learned from successive /usage calibrations** (first real observation
+      replaces the seed, later ones EMA-blend); running /usage snaps the estimate to the real numbers.
+      A forward jump in the 5-hour reset time restarts the session drift from zero. Broadcast to all
+      clients (new `usage_estimate` message) after each turn, on /usage, and on connect. Shown as a
+      `📊 Session ~68% · Week ~43% (est)` line at the bottom of the drawer + a "Live estimate" section
+      in the usage sheet. Estimator unit-tested; verified live drift→snap→drift on the emulator.
 - [x] 2026-07-04 — **`usage` command** — see exactly how much of the Claude plan is left (the TUI
       `/usage` numbers). Voice ("usage" / "how much usage left") or the 📊 Check usage button in the
       drawer; the server runs `claude -p "/usage"` (new `Driver.Usage`), parses session/weekly % used

@@ -103,6 +103,8 @@ import com.bam.spawner.net.DiscoveredInfo
 import com.bam.spawner.net.RateLimitInfo
 import com.bam.spawner.net.TokenUsage
 import com.bam.spawner.net.UsageReport
+import com.bam.spawner.net.UsageEstimateInfo
+import kotlin.math.roundToInt
 import com.bam.spawner.ui.MarkdownText
 import com.bam.spawner.ui.SpawnerTheme
 import com.bam.spawner.ui.ThemeMode
@@ -293,6 +295,7 @@ private fun MainScreen(
     val rateLimit by controller.rateLimit.collectAsStateWithLifecycle()
     val usageReport by controller.usageReport.collectAsStateWithLifecycle()
     val usageLoading by controller.usageLoading.collectAsStateWithLifecycle()
+    val usageEstimate by controller.usageEstimate.collectAsStateWithLifecycle()
     var handsFree by remember { mutableStateOf(handsFreeInitial) }
 
     ModalNavigationDrawer(
@@ -313,6 +316,7 @@ private fun MainScreen(
                     onDelete = { deleteTarget = it },
                     onDetach = { controller.detach() },
                     rateLimit = rateLimit,
+                    usageEstimate = usageEstimate,
                     onCheckUsage = { controller.requestUsage(); scope.launch { drawerState.close() } },
                 )
             }
@@ -431,7 +435,7 @@ private fun MainScreen(
     // Usage sheet: opened by "Check usage" (tap) or the "usage" voice command
     // (report arrives unprompted). Shows while loading and once the report lands.
     if (usageLoading || usageReport != null) {
-        UsageSheet(usageLoading, usageReport, onDismiss = { controller.dismissUsage() })
+        UsageSheet(usageLoading, usageReport, usageEstimate, onDismiss = { controller.dismissUsage() })
     }
 }
 
@@ -439,7 +443,7 @@ private fun MainScreen(
 // used as bars up top, then the full contributing breakdown verbatim. Spinner
 // while the server runs /usage. See VoiceController.requestUsage.
 @Composable
-private fun UsageSheet(loading: Boolean, report: UsageReport?, onDismiss: () -> Unit) {
+private fun UsageSheet(loading: Boolean, report: UsageReport?, estimate: UsageEstimateInfo?, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
@@ -458,6 +462,17 @@ private fun UsageSheet(loading: Boolean, report: UsageReport?, onDismiss: () -> 
                         UsageBar("Session", report.sessionPct, report.sessionReset)
                         Spacer(Modifier.height(12.dp))
                         UsageBar("This week", report.weekPct, report.weekReset)
+                        // The running server-wide estimate: what it had drifted to (all
+                        // sessions/clients) just before this check snapped it back.
+                        estimate?.takeIf { it.calibrated }?.let { e ->
+                            Spacer(Modifier.height(12.dp)); HorizontalDivider(); Spacer(Modifier.height(8.dp))
+                            Text("Live estimate (all sessions/clients, drifts each turn)",
+                                style = MaterialTheme.typography.labelMedium)
+                            Text("Session ~${pctStr(e.sessionEstPct)} · Week ~${pctStr(e.weekEstPct)}",
+                                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                            Text("odometer: ${fmtTokL(e.cumTokens)} tokens · +${e.turnsSinceCheck} turns since last check",
+                                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                        }
                         val idx = report.text.indexOf("What's contributing")
                         if (idx >= 0) {
                             Spacer(Modifier.height(12.dp)); HorizontalDivider(); Spacer(Modifier.height(8.dp))
@@ -956,6 +971,7 @@ private fun Sidebar(
     onDelete: (DiscoveredInfo) -> Unit,
     onDetach: () -> Unit,
     rateLimit: RateLimitInfo?,
+    usageEstimate: UsageEstimateInfo?,
     onCheckUsage: () -> Unit,
 ) {
     Column(Modifier.fillMaxHeight().statusBarsPadding().navigationBarsPadding().padding(12.dp)) {
@@ -1000,13 +1016,41 @@ private fun Sidebar(
             HorizontalDivider()
             TextButton(onClick = onDetach) { Text("Detach from $attached") }
         }
-        // Claude plan's session-limit readout + on-demand full usage, pinned to the
-        // bottom of the drawer. The readout shows once a turn reports it; "Check
-        // usage" runs `/usage` on demand for the exact session/weekly % used.
+        // Usage readouts pinned to the bottom of the drawer: the drift-live estimate
+        // (nudges each turn, snaps on /usage), the coarse session-limit reset, and
+        // "Check usage" to run `/usage` on demand for the exact numbers.
         HorizontalDivider()
+        usageEstimate?.takeIf { it.calibrated }?.let { UsageEstimateLine(it) }
         rateLimit?.let { SessionLimitFooter(it) }
         TextButton(onClick = onCheckUsage) { Text("📊 Check usage") }
     }
+}
+
+// UsageEstimateLine shows the server-global drift-live estimate — the running
+// session/weekly % that nudges up each turn and snaps to real on /usage.
+@Composable
+private fun UsageEstimateLine(e: UsageEstimateInfo) {
+    Row(Modifier.padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text("📊", style = MaterialTheme.typography.labelMedium)
+        Spacer(Modifier.width(4.dp))
+        Text(
+            "Session ~${pctStr(e.sessionEstPct)} · Week ~${pctStr(e.weekEstPct)} (est)",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.primary,
+        )
+    }
+}
+
+/** Percent as "47%", or "—" when unknown (−1). */
+private fun pctStr(p: Double): String = if (p < 0) "—" else "${p.roundToInt()}%"
+
+/** Compact token count for large sums: 800, 1.2k, 24k, 3.4M. */
+private fun fmtTokL(n: Long): String = when {
+    n >= 10_000_000 -> "${(n + 500_000) / 1_000_000}M"
+    n >= 1_000_000 -> "%.1fM".format(n / 1_000_000.0)
+    n >= 10_000 -> "${(n + 500) / 1000}k"
+    n >= 1_000 -> "%.1fk".format(n / 1000.0)
+    else -> n.toString()
 }
 
 // SessionLimitFooter shows the Claude subscription's usage-window state: which

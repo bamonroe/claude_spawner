@@ -138,6 +138,22 @@ Unlike the drawer readout (which piggybacks on each turn for free), this is **on
 real, if lightweight, `claude` invocation, so it runs only when you ask. See the `usage` command in
 [`docs/commands.md`](./docs/commands.md) and the `usage` messages in [`docs/protocol.md`](./docs/protocol.md).
 
+### A live running estimate (between checks)
+
+Because the real `/usage` numbers cost a `claude` call, the server keeps its own **drift-live
+estimate** so you always have a current-ish figure for free. It's shown at the bottom of the drawer as
+`📊 Session ~68% · Week ~43% (est)` and, in more detail, at the top of the usage sheet.
+
+How it works: the server sums the token cost of **every turn, across all sessions and all clients**,
+into a running odometer, and nudges the estimated session/weekly percent upward each turn. It converts
+tokens→percent using a **rate it learns from your `/usage` checks** (the tokens consumed between two
+checks vs. the percent they moved). Each time you run **Check usage**, the estimate **snaps back to
+Claude's real numbers** and refines that rate — so it self-corrects and gets more accurate the more you
+check. A rolled-over 5-hour window (detected from the reset time) restarts the session estimate from
+zero. The estimate is server-global (everyone connected sees the same number) and persists across
+restarts. It's an estimate, clearly marked `~`/`(est)` — the authoritative figure is always **Check
+usage**. See the `usage_estimate` message in [`docs/protocol.md`](./docs/protocol.md).
+
 ## How responses are captured (the once-hard problem, now solved)
 
 Claude Code's interactive TUI would be miserable to screen-scrape (ANSI, redraws, spinners), so
