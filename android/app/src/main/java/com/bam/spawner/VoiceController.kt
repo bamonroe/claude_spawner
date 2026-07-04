@@ -669,6 +669,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
                     if (!appForeground) notifier.turnDone(msg.name, msg.text) // surface it from the pocket
                 }
             }
+            is ServerMsg.ContextReset -> _lastTurnUsage.value = null // context cleared → status bar returns to 0
             is ServerMsg.Activity -> {
                 // A live breadcrumb means the turn is running server-side; mark it in
                 // flight and disarm any interruption watchdog (it survived a reconnect).

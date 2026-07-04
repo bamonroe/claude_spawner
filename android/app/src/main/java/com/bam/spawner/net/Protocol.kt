@@ -19,6 +19,7 @@ sealed interface ServerMsg {
     data class Dialog(val state: String, val prompt: String) : ServerMsg
     data class Attached(val name: String) : ServerMsg
     data object Detached : ServerMsg
+    data class ContextReset(val name: String) : ServerMsg // Claude context cleared → drop token accounting
     data class Output(val name: String, val text: String, val chunk: Boolean, val usage: TokenUsage? = null) : ServerMsg
     data class History(val name: String, val messages: List<HistMsg>, val more: Boolean) : ServerMsg
     data class ReadLast(val count: Int) : ServerMsg
@@ -50,6 +51,7 @@ sealed interface ServerMsg {
                 "dialog" -> Dialog(o.optString("state"), o.optString("prompt"))
                 "attached" -> Attached(o.optString("name"))
                 "detached" -> Detached
+                "context_reset" -> ContextReset(o.optString("name"))
                 "output" -> Output(o.optString("name"), o.optString("text"), o.optBoolean("chunk", false), readUsage(o.optJSONObject("usage")))
                 "history" -> History(o.optString("name"), readHist(o.optJSONArray("messages")), o.optBoolean("more"))
                 "read_last" -> ReadLast(o.optInt("count", 1))

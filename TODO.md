@@ -36,6 +36,12 @@ Dates are `YYYY-MM-DD`.
 
 ## Done
 
+- [x] 2026-07-04 — **Fix: status-bar context-size readout didn't reset on `clear`.**
+      The title-bar 🧠 token count is driven by the last turn's `usage`, but `clear` only rotated the
+      session and spoke a `say` — it never told the app the context was now empty, so the stale count
+      lingered. Added a `context_reset` outbound message (server sends it in `doClear`); the app drops
+      its last-turn usage on receipt, so the readout returns to zero until the next dictation.
+
 - [x] 2026-07-04 — **Fix: output produced while viewing another session was lost on switch-back.**
       A session keeps running while you view a different one, and its output is persisted to the
       transcript, but the server only fans live output to the currently-attached connection — so

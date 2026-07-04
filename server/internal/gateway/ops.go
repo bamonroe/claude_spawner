@@ -539,6 +539,7 @@ func (c *conn) doClear() {
 		return
 	}
 	c.clearBuffer()
+	c.send(msgContextReset(s.Name)) // reset the app's context-size readout to zero
 	c.send(msgSay("cleared. starting fresh — your history is still here."))
 }
 

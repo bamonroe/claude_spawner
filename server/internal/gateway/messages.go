@@ -90,6 +90,14 @@ func msgDetached() map[string]any {
 	return map[string]any{"type": "detached"}
 }
 
+// msgContextReset tells the app the session's Claude context was rotated to a
+// fresh (empty) one — a `clear`. The app drops its last-turn token accounting so
+// the status-bar context-size readout returns to zero; no turn has run against
+// the new context yet, so there is nothing to show until the next dictation.
+func msgContextReset(name string) map[string]any {
+	return map[string]any{"type": "context_reset", "name": name}
+}
+
 // msgOutput carries session output for display + TTS. Live prose streams as
 // chunk=true messages; the final chunk=false message closes the turn and (only
 // then) carries the turn's token `usage`, which the app renders as a per-message
