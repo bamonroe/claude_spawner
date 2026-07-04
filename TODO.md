@@ -32,6 +32,10 @@ Dates are `YYYY-MM-DD`.
 
 ## Done
 
+- [x] 2026-07-03 — Server restart from the app. New `restart` wire message: the server broadcasts a
+      spoken notice, then exits non-zero so its systemd supervisor (ExecStartPre rebuilds) relaunches
+      it on current code; the app auto-reconnects. Added a **Restart Server** button (confirm dialog,
+      connected-only) to Settings → Server. Verified on the emulator.
 - [x] 2026-07-03 — Fix orphaned hands-free draft. `stopHandsFree()` never cleared `_pending`, so
       toggling hands-free off mid-draft (easy now via the mic-button swipe-up) left the greyed draft
       line stuck above the input box — and the server kept its buffered audio, which would bleed

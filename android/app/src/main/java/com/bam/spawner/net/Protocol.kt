@@ -152,6 +152,8 @@ object Outbound {
     fun abort() = JSONObject().put("type", "abort").toString() // cancel the running turn
     fun setWhisperModel(model: String) =
         JSONObject().put("type", "set_whisper_model").put("whisper_model", model).toString()
+    fun restart() = JSONObject().put("type", "restart").toString() // ask the server to restart
+
     fun wake(codec: String, handsFree: Boolean = false, calibrate: Boolean = false) =
         JSONObject().put("type", "wake").put("codec", codec)
             .put("hands_free", handsFree).put("calibrate", calibrate).toString()

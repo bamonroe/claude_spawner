@@ -357,6 +357,10 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
      *  new value back to every client). */
     fun setWhisperModel(model: String) = client?.send(Outbound.setWhisperModel(model))
 
+    /** Ask the server to restart. It exits so its supervisor relaunches it on
+     *  current code; the app auto-reconnects once it's listening again. */
+    fun restartServer() = client?.send(Outbound.restart())
+
     // --- Live level meter (Audio settings page) ---
     /** Start a standalone meter unless hands-free is already feeding the level. */
     fun startMeter() {

@@ -48,6 +48,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -870,6 +871,8 @@ private fun ServerSettings(
     val current by controller.whisperModel.collectAsStateWithLifecycle()
     var picked by remember { mutableStateOf(current) }
     LaunchedEffect(current) { picked = current }
+    val connected by controller.connected.collectAsStateWithLifecycle()
+    var restartConfirm by remember { mutableStateOf(false) }
     SettingsScaffold("Server", onBack) {
         OutlinedTextField(url, { url = it }, label = { Text("Server URL") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(token, { token = it }, label = { Text("Token") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -899,6 +902,31 @@ private fun ServerSettings(
             onClick = { controller.setWhisperModel(picked) },
             enabled = picked.isNotBlank() && picked != current,
         ) { Text("Apply Whisper Model") }
+
+        HorizontalDivider()
+        Text("Restart server", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Restarts the server process on your machine — it rebuilds from current code, so this "
+                + "picks up server changes. In-flight turns are interrupted; the app reconnects on its own.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
+        )
+        Button(
+            onClick = { restartConfirm = true },
+            enabled = connected,
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+        ) { Text("Restart Server") }
+        if (!connected) {
+            Text("Connect first.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+        }
+    }
+    if (restartConfirm) {
+        AlertDialog(
+            onDismissRequest = { restartConfirm = false },
+            title = { Text("Restart the server?") },
+            text = { Text("The server will rebuild and relaunch. Any running turn is interrupted; the app reconnects automatically.") },
+            confirmButton = { TextButton(onClick = { restartConfirm = false; controller.restartServer() }) { Text("Restart") } },
+            dismissButton = { TextButton(onClick = { restartConfirm = false }) { Text("Cancel") } },
+        )
     }
 }
 

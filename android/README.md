@@ -26,6 +26,10 @@ it reads the server's `say`/`output` replies aloud (TTS).
   aliases) and lets you add per-command alias fixups. The list is **generated at build time** from
   `../docs/commands.json` (see the `generateCommands` Gradle task below), so the app can never
   drift from the server's command registry.
+- **Settings → Server**: URL/token, the server-global Whisper-model picker, and a **Restart Server**
+  button (with a confirm dialog). Restart makes the server process exit so its supervisor rebuilds
+  and relaunches it on current code — handy after a server change lands — and the app reconnects on
+  its own. Enabled only while connected.
 
 ## Remaining
 
