@@ -36,6 +36,15 @@ Dates are `YYYY-MM-DD`.
 
 ## Done
 
+- [x] 2026-07-04 — **Usage estimate: discount cache reads in the per-turn token cost.** `tokenCost`
+      (gateway/jobs.go) was summing `cache_read` at full weight, but a warm turn re-reads the whole
+      cached context (~1M tokens on a big session) that Anthropic meters at ~0.1×. So one turn drifted
+      the estimate ~10× too fast and pegged it at 100% a turn or two after a `/usage` snap. Weight
+      `cache_read`×0.10 and `cache_write`×1.25 to track real plan consumption; the existing 40k
+      tokens/% seed already assumed a discounted measure, so this makes tokenCost and the seed
+      consistent. New `TestTokenCostDiscountsCacheRead`. (The persisted `sess_rate`/`week_rate` learned
+      under the old weighting are ~10× high and self-heal via `/usage` EMA, or reset cleanly on the next
+      spawner restart.)
 - [x] 2026-07-04 — **Chat: keep the newest message pinned above the keyboard AND the status bars**
       (supersedes/unifies the two earlier same-day re-pin fixes — the `barsKey` toggle and the
       `WindowInsets.ime` follow — which each handled only one shrink source and, for the keyboard,

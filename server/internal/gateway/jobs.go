@@ -340,12 +340,28 @@ func (s *Server) startCompress(sess *session.Session) bool {
 	return true
 }
 
+// Per-token weights approximating how Anthropic meters plan usage (cost-relative
+// to a plain input token). A cache READ is billed at ~0.1× input, so counting it
+// at full weight — as this used to — made the (huge) cached-context re-read every
+// turn dominate the measure and drift the estimate up ~10× too fast: on a big
+// (~1M-token) context a single turn's ~1M cache-read tokens would eat a quarter of
+// the seeded session budget, so a couple of turns pegged the estimate at 100%.
+// A cache WRITE is ~1.25× input. The estimator calibrates against real /usage, so
+// these need only be roughly right, but cache_read's ~10× overcount was not.
+const (
+	weightCacheWrite = 1.25
+	weightCacheRead  = 0.10
+)
+
 // tokenCost is the weighted per-turn token measure fed to the usage estimator:
-// every token the turn touched, including the (dominant) cached context re-read,
-// since Claude's usage tracks context size. The estimator calibrates against real
-// /usage, so the exact weighting need only be consistent, not perfect.
+// every token the turn touched, with cache reads/writes weighted toward their real
+// metered cost (see the weights above) rather than counted flat. The dominant term
+// on a warm session is the cached context re-read, which we discount so it tracks
+// plan consumption instead of raw context size.
 func tokenCost(u session.Usage) int64 {
-	return int64(u.Input + u.Output + u.CacheWrite + u.CacheRead)
+	return int64(float64(u.Input+u.Output) +
+		weightCacheWrite*float64(u.CacheWrite) +
+		weightCacheRead*float64(u.CacheRead))
 }
 
 func isFileTool(name string) bool {
