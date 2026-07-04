@@ -51,6 +51,8 @@ var Registry = []Command{
 		"Compact the context into a summary Claude carries forward — keeps your history", "compress context"},
 	{Usage, "usage", []string{"usage", "how much usage left", "check usage"},
 		"Report your Claude plan's usage — session and weekly % used, with resets", "usage"},
+	{Rename, "rename", []string{"rename to <name>", "rename this session <name>", "call this <name>"},
+		"Rename the session you're attached to", "rename to backend"},
 	{Cancel, "cancel", []string{"cancel", "never mind"},
 		"Discard the message you're composing", "cancel"},
 	{Stop, "stop", []string{"stop", "quiet", "stop talking"},

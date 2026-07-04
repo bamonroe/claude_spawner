@@ -69,6 +69,8 @@ func (c *conn) runCommand(intent command.Intent) bool {
 		c.doCompress()
 	case command.Usage:
 		c.doUsage(true, usageCalibrate) // voice command: show the report AND speak a summary
+	case command.Rename:
+		c.doRenameCurrent(intent.Arg)
 	default:
 		return false
 	}
@@ -619,15 +621,18 @@ func (c *conn) doDelete(name string) {
 	c.removeSession(name)
 }
 
-func (c *conn) doRename(old, newName string) {
+// doRename renames a session by explicit old→new name (the `rename` wire
+// message). Returns whether the rename succeeded so voice callers can decide
+// whether to speak a confirmation.
+func (c *conn) doRename(old, newName string) bool {
 	newName = sanitizeName(newName)
 	if old == "" || newName == "" {
 		c.send(msgError("bad_message", "need name and new_name"))
-		return
+		return false
 	}
 	if err := c.srv.store.Rename(old, newName); err != nil {
 		c.send(msgError("rename_failed", err.Error()))
-		return
+		return false
 	}
 	// Follow the rename if we're attached to it. The job hub is keyed by name, so
 	// re-key it too (preserving its sinks + any in-flight turn/buffered result).
@@ -636,6 +641,31 @@ func (c *conn) doRename(old, newName string) {
 		c.attached = c.srv.store.Get(newName)
 	}
 	c.sendSessionList() // push the refreshed list back to the app (quietly)
+	return true
+}
+
+// doRenameCurrent renames the currently-attached session (the `rename` voice
+// command). Unlike the wire `rename` message it has no explicit "old" name — it
+// always targets whatever session you're attached to — and it speaks a friendly
+// confirmation, since it's driven by voice.
+func (c *conn) doRenameCurrent(newName string) {
+	if c.attached == nil {
+		c.send(msgSay("attach to a session first, then tell me what to call it."))
+		return
+	}
+	name := sanitizeName(newName)
+	if strings.TrimSpace(newName) == "" {
+		c.send(msgSay("what should I call it?"))
+		return
+	}
+	old := c.attached.Name
+	if name == old {
+		c.send(msgSay("it's already called " + old + "."))
+		return
+	}
+	if c.doRename(old, name) {
+		c.send(msgSay("renamed " + old + " to " + name + "."))
+	}
 }
 
 func (c *conn) doStatus() {

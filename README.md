@@ -54,6 +54,7 @@ All prefixed with **"hey buddy"**:
 - `detach`
 - `list sessions`
 - `kill session <name>`
+- `rename to <name>` / `call this <name>` — rename the session you're attached to
 - `what's the status` / `what's it doing`
 - `read last` / `read last 3` — re-read Claude's recent replies aloud
 - `clear the context` — start Claude fresh **without** losing your history (see below)

@@ -27,6 +27,7 @@ const (
 	Clear     Kind = "clear"      // rotate the session's Claude context (keep history for display)
 	Compress  Kind = "compress"   // summarize the context, then rotate — carry a condensed summary forward
 	Usage     Kind = "usage"      // report the Claude plan's usage (session/week % left), via `/usage`
+	Rename    Kind = "rename"     // rename the currently-attached session
 	Unknown   Kind = "unknown"
 )
 
@@ -255,6 +256,27 @@ func Parse(text string) Intent {
 		contains(t, "how much usage", "usage left", "usage limit", "how much have i used",
 			"how much is left", "check usage", "my usage", "show usage"):
 		return Intent{Kind: Usage}
+
+	// Rename: rename the currently-attached session. "rename to <name>", "rename
+	// this session <name>", "call this <name>", "name this session <name>". The
+	// new name is whatever follows the anchor keyword; the server sanitizes it to
+	// a single token, so multi-word is tolerated. Only parsed post-wake (the
+	// dispatch path only reaches Parse when a wake word was present), so the
+	// broad "call this"/"name this" phrasings can't hijack dictation.
+	case first == "rename",
+		leadsWith(t, "call this", "name this"),
+		contains(t, "rename to", "rename this", "rename it", "rename session", "rename the session"):
+		arg := afterAny(t, "to")
+		if arg == "" {
+			arg = afterAny(t, "session")
+		}
+		if arg == "" {
+			arg = afterAny(t, "this", "it")
+		}
+		if arg == "" && first == "rename" {
+			arg = afterAny(t, "rename")
+		}
+		return Intent{Kind: Rename, Arg: arg}
 
 	default:
 		return Intent{Kind: Unknown}

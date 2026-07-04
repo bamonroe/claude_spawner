@@ -21,10 +21,7 @@ Dates are `YYYY-MM-DD`.
       ("that directory doesn't exist, bud") instead of generic/silent failures.
 
 ### Android
-- [ ] Verify the hands-free voice model on a real device end-to-end (built; not yet voice-tested
-      on the Pixel 8a for the always-listening path specifically).
-- [ ] Per-session **naming by voice** (rename exists in the app UI + as `rename`/`rename_discovered`
-      messages, but there's no "hey buddy" voice command for it yet).
+- (nothing open — hands-free verified; voice rename shipped, see _Done_)
 
 ### Later / nice-to-have
 - [ ] Plumb the wake-token alias list (`command.wakePhrases`) through the same pipeline as command
@@ -35,6 +32,18 @@ Dates are `YYYY-MM-DD`.
 - [ ] iOS app.
 
 ## Done
+
+- [x] 2026-07-04 — **Hands-free voice model verified on the Pixel 8a** end-to-end for the
+      always-listening path (wake word → live draft → end-token commit → dictation).
+- [x] 2026-07-04 — **Per-session naming by voice** (`rename` command). "hey buddy, rename to
+      backend" / "rename this session backend" / "call this backend" renames the session you're
+      **attached to** — no explicit old name, it targets the current session. New `command.Rename`
+      Kind + registry entry + parse (anchors the new name after "to"/"session"/"this"; server
+      `sanitizeName` collapses multi-word to one token). `doRenameCurrent` refuses when unattached /
+      no name / same name / name taken, and speaks a confirmation on success; `doRename` now returns
+      a success bool so the voice path only confirms on a real rename. Fully server-side (reuses the
+      existing store rename + job re-key), so no new wire message. `TestParseRename`; commands.json
+      regenerated; docs/commands.md + README updated.
 
 - [x] 2026-07-04 — **Fix: history replay showed injected prompt scaffolding + duplicated a turn.**
       The server appends scaffolding to a dictation before sending it to Claude (brief-reply nudge,

@@ -104,6 +104,40 @@ func TestParseCompress(t *testing.T) {
 	}
 }
 
+func TestParseRename(t *testing.T) {
+	// Each phrasing must parse to Rename and recover the intended new name.
+	for _, tc := range []struct {
+		in, want string
+	}{
+		{"rename to backend", "backend"},
+		{"rename this session backend", "backend"},
+		{"rename this to backend", "backend"},
+		{"rename it backend", "backend"},
+		{"call this backend", "backend"},
+		{"call this session backend", "backend"},
+		{"name this session backend", "backend"},
+		{"rename backend", "backend"},
+		{"rename this session to the api server", "the api server"},
+	} {
+		got := Parse(tc.in)
+		if got.Kind != Rename {
+			t.Errorf("Parse(%q).Kind = %s, want rename", tc.in, got.Kind)
+			continue
+		}
+		if got.Arg != tc.want {
+			t.Errorf("Parse(%q).Arg = %q, want %q", tc.in, got.Arg, tc.want)
+		}
+	}
+	// Dictation that isn't a rename command must flow through to Claude, not be
+	// hijacked. (Only wake-prefixed text reaches Parse, but the verb-led forms
+	// still shouldn't over-match ordinary sentences.)
+	for _, in := range []string{"rewrite this function", "the renamed field is stale"} {
+		if got := Parse(in); got.Kind == Rename {
+			t.Errorf("Parse(%q) = %s, must not be Rename", in, got.Kind)
+		}
+	}
+}
+
 func TestApplyAliases(t *testing.T) {
 	al := map[string]string{"attached": "attach", "the tach": "detach", "listed": "list"}
 	cases := []struct{ in, want string }{
