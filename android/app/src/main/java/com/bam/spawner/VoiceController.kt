@@ -80,7 +80,6 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     private val logs = mutableMapOf<String, List<ChatMessage>>()
     private val oldestIndex = mutableMapOf<String, Int>() // lowest history index held, per session
     private val hasMore = mutableMapOf<String, Boolean>() // older history remains to page, per session
-    private val historyRequested = mutableSetOf<String>() // first history page requested, per session
     private val loadingOlder = mutableSetOf<String>()      // a page request is in flight, per session
     private var currentKey = ""
 
@@ -719,10 +718,14 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
                 settings.lastSession = msg.name
                 _status.value = "attached: ${msg.name}"
                 showLog(msg.name)
-                if (msg.name !in historyRequested) {
-                    historyRequested.add(msg.name)
-                    client?.send(Outbound.history(msg.name, null)) // load recent history
-                }
+                // Refetch recent history on EVERY (re)attach, not just the first. A
+                // session keeps running while we view another one, and its output is
+                // persisted to the transcript — but the server only fans live output to
+                // the currently-attached connection, so anything it said while we were
+                // away never reached us. Re-pulling the transcript on reattach replays
+                // it so switching back to a busy session doesn't drop what it produced.
+                // onHistory dedupes against live messages we already have.
+                client?.send(Outbound.history(msg.name, null)) // load recent history
             }
             is ServerMsg.Detached -> {
                 turnStreamed = false
@@ -800,11 +803,18 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     // onHistory merges a server-served page of OLDER messages into the session's
     // log (prepended, ahead of any live messages), and updates the paging cursor.
     private fun onHistory(msg: ServerMsg.History) {
-        val wasLoadOlder = msg.name in loadingOlder // else it's the initial page (on attach)
+        val wasLoadOlder = msg.name in loadingOlder // else it's the top page (on (re)attach)
         val hist = msg.messages.map { ChatMessage(roleOf(it.role), it.text, it.index, ts = it.ts) }
         val histIdx = hist.mapNotNull { if (it.index >= 0) it.index else null }.toSet()
-        // keep live messages (index < 0) and any already-loaded page not in this one
-        val existing = (logs[msg.name] ?: emptyList()).filter { it.index < 0 || it.index !in histIdx }
+        // On a top reload (an attach/reattach), the history page is the authoritative
+        // tail of the conversation: drop any live (index < 0) copy whose text now
+        // appears in it, so refetching on reattach doesn't duplicate a reply we'd
+        // already streamed. Live messages absent from the page (a turn still streaming,
+        // not yet persisted) are kept. A load-older page leaves live messages untouched.
+        val histTexts = if (wasLoadOlder) emptySet() else hist.map { it.role to it.text }.toSet()
+        val existing = (logs[msg.name] ?: emptyList()).filter {
+            (it.index < 0 && (it.role to it.text) !in histTexts) || (it.index >= 0 && it.index !in histIdx)
+        }
         logs[msg.name] = hist + existing
         if (msg.messages.isNotEmpty()) oldestIndex[msg.name] = msg.messages.first().index
         hasMore[msg.name] = msg.more
