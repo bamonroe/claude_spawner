@@ -347,6 +347,7 @@ private fun MainScreen(
             TopBar(
                 title = attached ?: "Claude Spawner",
                 subtitle = status,
+                contextTokens = lastUsage?.usage?.contextTokens,
                 onMenu = { scope.launch { drawerState.open() } },
                 onSettings = onOpenSettings,
                 audioOutput = audioOutput,
@@ -559,6 +560,7 @@ private fun DetachedBanner() {
 private fun TopBar(
     title: String,
     subtitle: String,
+    contextTokens: Int?,
     onMenu: () -> Unit,
     onSettings: () -> Unit,
     audioOutput: AudioOutput,
@@ -576,6 +578,13 @@ private fun TopBar(
                 Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text("· $subtitle", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
             }
+            // Current context size — the last turn's context tokens (input + cache).
+            if (contextTokens != null && contextTokens > 0) Text(
+                "🧠 ${fmtTok(contextTokens)}",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.outline,
+                modifier = Modifier.padding(horizontal = 6.dp),
+            )
             AudioOutputButton(audioOutput, audioOutputs, onSelectOutput, onOutputMenuOpened)
             TextButton(onClick = onSettings) { Text("⚙", fontSize = 20.sp) }
         }

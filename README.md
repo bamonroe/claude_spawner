@@ -112,7 +112,10 @@ Two independent, toggleable displays live in **Settings → Appearance**:
   rebuild the whole context (`❄ cache cold — next turn rebuilds context`). Each turn resets the
   countdown; attaching to a different session resets it (that session has its own, cold, cache).
 
-Each live message also carries a small **date/time badge** below the token line — bottom-right on
+The **title bar** shows the attached session's current context size (`🧠 24k`) — the last turn's
+context tokens (fresh input plus cached), so you can see the context growing at a glance.
+
+Each live message also carries a small **date/time badge** below the token line — bottom-left on
 Claude's replies, bottom-right on your own messages. Replayed history is stamped too, from each
 message's transcript timestamp (older transcripts that predate this field show no badge).
 
