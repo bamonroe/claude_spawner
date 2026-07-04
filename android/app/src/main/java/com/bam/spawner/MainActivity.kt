@@ -833,6 +833,16 @@ private fun Bubble(msg: ChatMessage, badgeMode: String = "off") {
                 }
                 // Per-turn token badge under Claude replies (Appearance → Token badge).
                 if (msg.role == Role.CLAUDE && badgeMode != "off") msg.usage?.let { TokenBadge(it, badgeMode) }
+                // Date/time badge below the token line: bottom-right for Claude, bottom-left
+                // for user input. Only live messages carry a timestamp (history has ts=0).
+                if (msg.ts > 0) Text(
+                    fmtStamp(msg.ts),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = fg.copy(alpha = 0.5f),
+                    modifier = Modifier
+                        .align(if (user) Alignment.Start else Alignment.End)
+                        .padding(start = 12.dp, end = 12.dp, bottom = 6.dp),
+                )
             }
         }
     }
@@ -859,6 +869,11 @@ private fun TokenBadge(u: TokenUsage, mode: String) {
         modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 6.dp),
     )
 }
+
+// fmtStamp formats a unix-seconds timestamp as a compact local date/time badge.
+private fun fmtStamp(unixSeconds: Long): String =
+    java.text.SimpleDateFormat("MMM d, h:mm a", java.util.Locale.getDefault())
+        .format(java.util.Date(unixSeconds * 1000))
 
 // fmtTok renders a token count compactly: 800, 1.2k, 24k.
 private fun fmtTok(n: Int): String = when {

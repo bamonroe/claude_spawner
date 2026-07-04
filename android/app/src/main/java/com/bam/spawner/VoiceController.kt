@@ -45,7 +45,7 @@ data class CalibrationState(
     val hits: Int = 0,
 )
 
-data class ChatMessage(val role: Role, val text: String, val index: Int = -1, val usage: TokenUsage? = null)
+data class ChatMessage(val role: Role, val text: String, val index: Int = -1, val usage: TokenUsage? = null, val ts: Long = 0L)
 
 /** The most recent completed turn's token usage, stamped with when it finished
  *  (SystemClock.elapsedRealtime ms) so the UI can count down the ~5-min warm
@@ -772,7 +772,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     // user is on) and reflects it. Historical messages come via onHistory instead.
     private fun addChat(role: Role, text: String, usage: TokenUsage? = null) {
         if (text.isBlank()) return
-        val updated = ((logs[currentKey] ?: emptyList()) + ChatMessage(role, text, usage = usage)).takeLast(2000)
+        val updated = ((logs[currentKey] ?: emptyList()) + ChatMessage(role, text, usage = usage, ts = System.currentTimeMillis() / 1000)).takeLast(2000)
         logs[currentKey] = updated
         _chat.value = updated
     }
