@@ -35,6 +35,10 @@ type Session struct {
 	Dir       string `json:"dir"`        // working directory for the session
 	SessionID string `json:"session_id"` // claude session uuid (generated at spawn)
 	Started   bool   `json:"started"`    // false until the first turn has run
+	// AskPrimed records that the interactive-mode ask instruction has been sent to
+	// Claude for the current context, so later turns don't re-append it (Claude
+	// keeps it via --resume). Reset by "clear", which rotates the context.
+	AskPrimed bool `json:"ask_primed,omitempty"`
 	// PriorIDs are session_ids retired by "clear" (context rotation), oldest first.
 	// Their transcripts stay on disk so the app can show the full history, but Claude
 	// only ever resumes the current SessionID — so a clear rotates context without

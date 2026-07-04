@@ -32,6 +32,14 @@ Dates are `YYYY-MM-DD`.
 
 ## Done
 
+- [x] 2026-07-03 — Interactive mode: send the ask instruction only on the first turn of a context,
+      not every turn. Claude keeps it via `--resume`, so re-appending it each turn just burned
+      tokens. New durable `Session.AskPrimed` flag (set on the first interactive turn's success,
+      reset by `clear`); `startTurn` takes a `primeAsk` bool.
+- [x] 2026-07-03 — Chat: keep the newest message fully visible when a below-list status bar
+      (speaking / activity / draft / mic) appears. Those bars are Column siblings, so showing one
+      shrank the list and hid the tail of the last message; ChatList now re-pins to the newest
+      message when the bar set toggles (only if already at the bottom).
 - [x] 2026-07-03 — Server restart from the app. New `restart` wire message: the server broadcasts a
       spoken notice, then exits non-zero so its systemd supervisor (ExecStartPre rebuilds) relaunches
       it on current code; the app auto-reconnects. Added a **Restart Server** button (confirm dialog,

@@ -413,6 +413,7 @@ func (c *conn) doClear() {
 	s.PriorIDs = append(s.PriorIDs, s.SessionID)
 	s.SessionID = newID
 	s.Started = false
+	s.AskPrimed = false // fresh context: re-prime the ask instruction on the next turn
 	if err := c.srv.store.Put(s); err != nil {
 		c.send(msgError("internal", err.Error()))
 		return
@@ -503,10 +504,14 @@ func (c *conn) dictate(text string) {
 		// to Claude carries the hint; the displayed/echoed transcript stays as spoken.
 		prompt += "\n\n(Reply briefly, in plain sentences suitable for text-to-speech.)"
 	}
-	if c.interactive {
+	// Interactive mode: append the ask instruction only until it's been primed for
+	// this context. Claude retains it across turns via --resume, so re-sending it
+	// every turn just burns tokens; a `clear` resets AskPrimed to re-prime.
+	primeAsk := c.interactive && !c.attached.AskPrimed
+	if primeAsk {
 		prompt += askInstruction // let Claude ask instead of guessing (parsed back on reply)
 	}
-	if !c.srv.startTurn(c.attached, prompt) {
+	if !c.srv.startTurn(c.attached, prompt, primeAsk) {
 		c.send(msgSay("still working on the last one."))
 		return
 	}

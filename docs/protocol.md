@@ -80,7 +80,9 @@ hands_free = true    → streaming: APPEND the transcript to the per-connection 
 `hello` also carries optional flags: `end_token` (the word that commits a hands-free message),
 `stt_mode`/`stt_model`/`whisper_url`/`whisper_model` (transcription), `aliases` (misheard→command
 fixups), `brief` (append a "reply briefly for TTS" hint to dictation), and `interactive` (let Claude
-ask clarifying questions mid-task, delivered as `ask`). The server sends
+ask clarifying questions mid-task, delivered as `ask`). Interactive mode appends its instruction to
+only the **first** turn of a context — Claude retains it via `--resume`, so re-sending it every turn
+would just burn tokens; a `clear` (context rotation) re-primes it. The server sends
 `pending {text}` as the buffer grows (empty `text` clears the draft). The app may also send
 `{"type":"commit"}` to force-commit the buffer (used by the optional client-side silence timeout);
 it's a no-op if the buffer is empty.

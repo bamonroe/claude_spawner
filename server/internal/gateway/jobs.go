@@ -142,7 +142,10 @@ func (s *Server) jobFor(name string) *sessionJob {
 // startTurn launches a dictation turn for the session in the background (so it
 // outlives the connection) and fans events out to every attached connection.
 // Returns false if a turn is already running for that session.
-func (s *Server) startTurn(sess *session.Session, text string) bool {
+// primeAsk is true when this turn's text carries the interactive ask instruction
+// (the first interactive turn of a context); on success the session is marked
+// AskPrimed so later turns omit it.
+func (s *Server) startTurn(sess *session.Session, text string, primeAsk bool) bool {
 	j := s.jobFor(sess.Name)
 	j.mu.Lock()
 	if j.running {
@@ -203,10 +206,15 @@ func (s *Server) startTurn(sess *session.Session, text string) bool {
 			return
 		}
 		log.Printf("turn[%s] reply: %q", sess.Name, logField(reply))
-		if !wasStarted {
-			// Only the first turn changes the record (Started false->true, for
-			// --resume). Later turns leave it identical, so skip re-serializing and
-			// rewriting the whole store to disk on every turn.
+		// The first turn flips Started false->true (for --resume); the first
+		// interactive turn primes AskPrimed so the instruction isn't re-sent. Either
+		// change means we persist; an unchanged record skips the disk rewrite.
+		changedRec := !wasStarted
+		if primeAsk && !sess.AskPrimed {
+			sess.AskPrimed = true
+			changedRec = true
+		}
+		if changedRec {
 			_ = s.store.Put(sess)
 		}
 		if len(changed) > 0 { // a compact review summary of what the turn touched

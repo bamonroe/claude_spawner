@@ -34,6 +34,24 @@ func fakeClaude(t *testing.T, reply string) string {
 	return path
 }
 
+// fakeClaudeCapture is fakeClaude that also appends each invocation's arguments
+// (the prompt among them) to capturePath, delimited by a marker, so a test can
+// assert what text actually reached claude on each turn.
+func fakeClaudeCapture(t *testing.T, reply, capturePath string) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "fakeclaude.sh")
+	script := "#!/bin/sh\n" +
+		`printf '===RECORD===\n' >> ` + capturePath + "\n" +
+		`printf '%s\n' "$@" >> ` + capturePath + "\n" +
+		`echo '{"type":"system","subtype":"init"}'` + "\n" +
+		`echo '{"type":"result","subtype":"success","result":"` + reply + `","session_id":"fake"}'` + "\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 // fakeSTT is a stub Transcriber that returns a fixed string and records the WAV
 // it was handed.
 type fakeSTT struct {
@@ -431,6 +449,57 @@ func TestListEmptyThenAfterSpawn(t *testing.T) {
 	m := readUntil(t, ws, "session_list")
 	if sl, ok := m["sessions"].([]any); !ok || len(sl) != 0 {
 		t.Fatalf("expected empty session list, got %v", m["sessions"])
+	}
+}
+
+// TestInteractiveAskInstructionPrimedOnce verifies the interactive-mode ask
+// instruction is appended to the FIRST turn of a session's context and omitted
+// on later turns (Claude retains it via --resume), so it doesn't burn tokens.
+func TestInteractiveAskInstructionPrimedOnce(t *testing.T) {
+	ts, root, gw := newTestServerGW(t, nil)
+	if err := os.MkdirAll(filepath.Join(root, "myproj"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	capPath := filepath.Join(t.TempDir(), "prompts.txt")
+	gw.driver.Bin = fakeClaudeCapture(t, "ok", capPath)
+
+	ws := dial(t, ts)
+	send(t, ws, map[string]any{"type": "hello", "token": "secret", "interactive": true})
+	readUntil(t, ws, "hello_ok")
+
+	// Spawn + attach a session (fake claude runs only on dictation, not spawn).
+	send(t, ws, map[string]any{"type": "utterance", "text": "hey buddy, spawn a new session"})
+	readUntil(t, ws, "dialog")
+	send(t, ws, map[string]any{"type": "utterance", "text": filepath.Base(root)})
+	readUntil(t, ws, "dialog")
+	send(t, ws, map[string]any{"type": "utterance", "text": "myproj"})
+	readUntil(t, ws, "dialog")
+	send(t, ws, map[string]any{"type": "utterance", "text": "yes"})
+	readUntil(t, ws, "attached")
+
+	send(t, ws, map[string]any{"type": "utterance", "text": "first turn"})
+	readUntil(t, ws, "output")
+	send(t, ws, map[string]any{"type": "utterance", "text": "second turn"})
+	readUntil(t, ws, "output")
+
+	data, err := os.ReadFile(capPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var prompts []string
+	for _, r := range strings.Split(string(data), "===RECORD===") {
+		if strings.TrimSpace(r) != "" {
+			prompts = append(prompts, r)
+		}
+	}
+	if len(prompts) != 2 {
+		t.Fatalf("expected 2 claude invocations, got %d: %q", len(prompts), prompts)
+	}
+	if !strings.Contains(prompts[0], "[Interactive mode]") {
+		t.Fatalf("first interactive turn should carry the ask instruction, got %q", prompts[0])
+	}
+	if strings.Contains(prompts[1], "[Interactive mode]") {
+		t.Fatalf("second turn must not re-send the ask instruction, got %q", prompts[1])
 	}
 }
 
