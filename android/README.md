@@ -25,7 +25,10 @@ it reads the server's `say`/`output` replies aloud (TTS).
 - **Commands screen**: a Settings page lists every "hey buddy" command (name, description,
   aliases) and lets you add per-command alias fixups. The list is **generated at build time** from
   `../docs/commands.json` (see the `generateCommands` Gradle task below), so the app can never
-  drift from the server's command registry.
+  drift from the server's command registry. **To surface a new/changed server command in the app:**
+  regenerate the JSON on the server side (`go run ./cmd/gencommands` — see the repo `CLAUDE.md`),
+  then rebuild the APK. That's it — no Kotlin change; the generated `Commands.kt` (a build artifact
+  under `app/build/`, not committed) picks up the new command on the next build.
 - **Settings → Server**: URL/token, the server-global Whisper-model picker, and a **Restart Server**
   button (with a confirm dialog). Restart makes the server process exit so its supervisor rebuilds
   and relaunches it on current code — handy after a server change lands — and the app reconnects on

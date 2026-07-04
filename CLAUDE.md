@@ -280,13 +280,26 @@ Config env vars (all read in `internal/config`):
 - Keep the **command grammar** and the **WebSocket message protocol** in `/docs` as the single
   source of truth; both client and server reference it.
 - The **command set** has a code source of truth: `server/internal/command.Registry` (a list of
-  `Command{Kind, Title, Aliases, Description, Example}` structs). Adding/changing a "hey buddy"
-  command means editing that registry — tests enforce it (every `Example` must `Parse` to its
-  `Kind`, and every user-facing `Kind` must be registered). Regenerate the shared artifact with
-  `go run ./cmd/gencommands` (writes `docs/commands.json`); a drift test fails if it's stale. The
-  Android build's `generateCommands` Gradle task turns that JSON into the app's alphabetical
-  `COMMANDS` list at build time, so the app can never drift or ship an undocumented command. Do
-  **not** hand-maintain a command list in the app.
+  `Command{Kind, Title, Aliases, Description, Example}` structs). It flows to the Android app through
+  a real, checked pipeline — **no command list is ever hand-maintained in the app**:
+
+  ```
+  command.Registry (Go)  →[ go run ./cmd/gencommands ]→  docs/commands.json
+                         →[ Gradle generateCommands, wired into preBuild ]→
+                         app/build/generated/commands/…/Commands.kt (the COMMANDS list)
+                         →  consumed by MainActivity.kt's Commands screen + alias editor
+  ```
+
+  So the whole procedure for **adding or changing a "hey buddy" command** is:
+  1. Edit `command.Registry` (and `Parse` in `command.go`). Tests enforce the two ends stay honest:
+     every `Example` must `Parse` to its `Kind`, and every user-facing `Kind` must be registered.
+  2. `go run ./cmd/gencommands` to rewrite `docs/commands.json` (a drift test fails if it's stale).
+  3. Rebuild the APK. `generateCommands` runs before every build and regenerates `Commands.kt` from
+     the JSON, so the new/changed command appears in the app automatically. **You never touch Kotlin**
+     — `Commands.kt` is a build artifact (under `app/build/`, git-ignored), not a source file.
+
+  The app therefore can't drift from the server grammar or ship an undocumented command; the only way
+  a registry change reaches an installed app is the APK rebuild in step 3.
 - Server: idiomatic Go, `gofmt`, errors wrapped with context. Keep tmux interaction behind one
   package so the shell-out details are isolated and testable.
 - Android: Kotlin, keep audio/wake-word, networking, and UI in separate modules/packages.
