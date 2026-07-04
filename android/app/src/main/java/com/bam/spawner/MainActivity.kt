@@ -18,6 +18,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -307,8 +308,10 @@ private fun MainScreen(
 
     ModalNavigationDrawer(
         drawerState = drawerState,
-        // Open via the ☰ button, not edge-swipe — an edge swipe would conflict with
-        // holding the mic button (bottom-left) to talk.
+        // Opened by the ☰ button or a left-edge swipe (a narrow strip on the far
+        // left, see below). We keep the drawer's own gestures limited to when it's
+        // already open (swipe-to-close) rather than enabling them for the whole
+        // content, which would let any horizontal drag across the chat open it.
         gesturesEnabled = drawerState.isOpen,
         drawerContent = {
             ModalDrawerSheet {
@@ -329,6 +332,7 @@ private fun MainScreen(
             }
         },
     ) {
+      Box(Modifier.fillMaxSize()) {
         Column(
             // systemBarsPadding() insets above the status + nav bars; imePadding()
             // lifts the input bar above the keyboard. NOTE: the chat list below must
@@ -387,6 +391,24 @@ private fun MainScreen(
                 onSend = { controller.sendText(it) },
             )
         }
+        // Left-edge swipe to open the drawer: a narrow strip pinned to the far left
+        // edge that opens the drawer on a rightward drag. Kept thin (and on the left,
+        // away from the mic button on the right) so it doesn't steal normal touches.
+        Box(
+            Modifier.align(Alignment.CenterStart)
+                .fillMaxHeight()
+                .width(24.dp)
+                .pointerInput(Unit) {
+                    val threshold = 24.dp.toPx()
+                    var dx = 0f
+                    detectHorizontalDragGestures(
+                        onDragStart = { dx = 0f },
+                        onHorizontalDrag = { _, delta -> dx += delta },
+                        onDragEnd = { if (dx >= threshold) scope.launch { drawerState.open() } },
+                    )
+                },
+        )
+      }
     }
 
     // Interactive-mode questions overlay everything.
