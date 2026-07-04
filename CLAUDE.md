@@ -11,10 +11,11 @@ second file (link to the owner instead). This table is itself the index: read it
 | You want to know / change…                    | Authoritative home                          | Enforced by |
 |-----------------------------------------------|---------------------------------------------|-------------|
 | **What to do next / what's done** (task state)| `TODO.md`                                   | discipline (the `TODO.md` rule below) |
-| **How the system works** (architecture, decisions, conventions, how to work here) | `CLAUDE.md` (this file) | discipline |
-| **How a user runs/uses it** (setup, security, phase history) | `README.md`                     | discipline |
+| **How to work here** (conventions, decisions, rules) | `CLAUDE.md` (this file)               | discipline |
+| **How the system works internally** (data flow, session driver, transcription, repo layout) | `docs/architecture.md` | discipline |
+| **How a user runs/uses it** (setup, build & run, security, phase history) | `README.md`         | discipline |
 | **WebSocket wire protocol** (every message + error code) | `docs/protocol.md`               | `internal/docsync` tests |
-| **"hey buddy" command grammar**               | `docs/commands.md` (prose) + `command.Registry` (code) → `docs/commands.json` (generated) | `internal/command` + `cmd/gencommands` |
+| **"hey buddy" command grammar** + how to add a command | `docs/commands.md` (prose) + `command.Registry` (code) → `docs/commands.json` (generated) | `internal/command` + `cmd/gencommands` |
 | **Config env vars** (`SPAWNER_*`)             | `CLAUDE.md` (config section) — code owns them in `internal/config` | `internal/docsync` tests |
 
 **Two classes of fact, two ways they're kept honest:**
@@ -29,7 +30,8 @@ second file (link to the owner instead). This table is itself the index: read it
    Markdown files — a code change always re-runs the checks; for a **doc-only** edit run the
    canonical drift check uncached: `go test ./... -count=1`.)
 2. **Narrative facts** (status, "verified live", roadmap history) can't be tested, so they live in
-   **one** place only — status/tasks in `TODO.md`, architecture here, run/history in `README.md` —
+   **one** place only — status/tasks in `TODO.md`, architecture in `docs/architecture.md`,
+   conventions here, run/history in `README.md` —
    and the update rules below (and in `README.md`) keep that single copy current.
 
 ## What this project is
@@ -67,88 +69,23 @@ User:  "yes"
 App:   (attaches; subsequent speech is dictated into the session)
 ```
 
-Reserved commands live server-side as a parseable grammar (see `docs/commands.md` once created).
+Reserved commands live server-side as a parseable grammar (see `docs/commands.md`).
 The wake word is detected **on-device** (Porcupine); everything after it is streamed to the
 server for transcription and parsing. Keep the wake word and the command vocabulary in **one
 authoritative place** so the app and server agree.
 
-## Architecture & data flow
+## Architecture — see `docs/architecture.md`
 
-```
-┌─────────────────────────┐         WebSocket          ┌──────────────────────────────┐
-│   Android app (Kotlin)  │ ─── audio / control ─────> │        Server (Go)           │
-│  - Porcupine wake word  │                            │  - WebSocket gateway         │
-│    ("hey buddy")        │ <── transcript / output ── │  - Whisper transcription     │
-│  - audio capture        │                            │  - command parser/dialog FSM │
-│  - TTS playback         │                            │  - session driver + store    │
-│  - session UI           │                            │                              │
-└─────────────────────────┘                            └──────────────┬───────────────┘
-                                                                       │ claude -p --resume <id>
-                                                                       │ --output-format stream-json
-                                                                       v
-                                                        ┌──────────────────────────────┐
-                                                        │ headless claude (per turn)   │
-                                                        │  -> NDJSON: assistant / tool │
-                                                        │     / result  (clean text)   │
-                                                        │  state persists to disk via  │
-                                                        │  session_id (no live proc)   │
-                                                        └──────────────────────────────┘
-                                  tmux is inspected only to detect a `claude` a
-                                  human already has open in a pane (conflict warning)
-```
+The internals live in **`docs/architecture.md`**: the data-flow diagram, the resolved decision to
+drive `claude` **headless** in `stream-json` mode (a session is a `session_id` on disk, **we do not
+scrape the TUI** — don't re-litigate this), how tmux is inspected only to detect a live interactive
+`claude`, the transcription implementations, the text seam, and the repository layout. Read it when
+you're changing the data path, the session driver, or STT. Two load-bearing rules from it:
 
-- **Wake word**: on-device via Porcupine (Picovoice). Low latency, no audio leaves the phone
-  until the wake word fires.
-- **Transcription (STT)**: server-side Whisper (whisper.cpp or a local Whisper service). The app
-  streams captured audio after the wake word; the server returns a transcript.
-- **Transport**: a single WebSocket per app session carries audio up and transcripts/session
-  output down. Use REST only for stateless control actions if needed.
-- **Session control**: the server shells out to `claude` headless (see the RESOLVED section
-  below). Input is the prompt arg; output is parsed from `stream-json`. tmux is not on the data
-  path — it is inspected only to notice a `claude` a human already has open interactively.
-
-## ✅ RESOLVED: how we capture Claude's responses (do NOT scrape the TUI)
-
-The original worry was that Claude Code in tmux is a full-screen TUI (ANSI, redraws, spinners),
-so reading its output for TTS looked painful. **We do not scrape the TUI at all.** Decision,
-validated end-to-end against `claude` 2.1.196:
-
-> Drive Claude Code **headless** in `stream-json` mode. A "session" is a durable
-> **`session_id` on disk tied to a directory**, not a live process. Each dictated turn shells
-> out to `claude`, and the clean `result` event is the text we speak.
-
-Per-turn invocation (working dir = the session's directory):
-
-```
-claude -p "<transcribed text>" \
-  --session-id <uuid>      # FIRST turn: we generate the uuid ourselves
-  # --resume <uuid>        # LATER turns: reattach instead of --session-id
-  --output-format stream-json --verbose \
-  --dangerously-skip-permissions
-```
-
-Parsing stdout (newline-delimited JSON):
-- `type:"system"` (init), `type:"assistant"`, `type:"user"` (tool results), `type:"rate_limit_event"` — ignore for TTS.
-- `event.type:"content_block_start"` with `content_block.type:"tool_use"` → optional spoken
-  breadcrumb ("running Bash…"), using `content_block.name`.
-- **`type:"result"`** → `result` is the clean final answer to speak; `session_id` confirms the id;
-  `subtype` is `"success"` or `"error_*"` (treat non-success / `is_error` as a failed turn).
-
-For TTS we take the **final `result`**, not token deltas — TTS wants whole sentences.
-`--include-partial-messages` (requires `--verbose`) gives `text_delta` events if we later want
-live on-screen streaming, but it is not needed for the voice path.
-
-This is implemented in `internal/session` (`Driver.Turn`, `Store`, `NewSessionID`) and was
-verified: turn 1 with `--session-id` then turn 2 with `--resume` correctly retained context.
-
-### tmux is used only to detect a live interactive `claude`
-
-Because the session is a `session_id` on disk, a human could also `claude --resume <id>` it in a
-terminal. `internal/tmux` exposes just `ClaudeDirs` — the set of directories with an interactive
-`claude` open in a pane — so the spawner can warn before driving that same session headlessly.
-**One active writer per session at a time** — don't run a headless turn against a `session_id` a
-human is editing live. (An earlier design had the server itself open a "babysit" pane via a
-`Babysit`/`List`/`Exists`/`Close` API; that was dropped — the server never creates panes now.)
+- **Don't scrape the TUI.** Responses are captured headless via `--output-format stream-json`; the
+  clean `result` event is the text we speak. This was validated end-to-end; keep it.
+- **One active writer per session at a time.** Don't run a headless turn against a `session_id` a
+  human is editing live in a terminal.
 
 ## Security posture
 
@@ -162,109 +99,15 @@ human is editing live. (An earlier design had the server itself open a "babysit"
 - Validate and constrain directory paths from "spawn" commands (no surprise traversal outside an
   allowed root unless the user opts in).
 
-## Repository layout
+## Build, run & repository layout — see `docs/architecture.md` and `README.md`
 
-```
-/server                         Go server (module: github.com/bam/claude_spawner/server)
-  main.go                       entrypoint: HTTP server, graceful shutdown, /healthz, /ws
-  internal/gateway/             WebSocket gateway: auth, dispatch, dialog FSM, dictation loop
-    gateway.go                  Server, conn, auth handshake, read loop, message dispatch
-    ops.go                      control commands (list/attach/detach/kill/status) + dictate
-    dialog.go                   spawn dialog FSM, session creation, name sanitizing
-    audio.go                    audio path: wake/binary/audio_end -> WAV -> STT -> utterance
-    stream.go                   hands-free streaming: live pending draft, end-token commit
-    jobs.go                     running-turn tracking: activity/files breadcrumbs, diff summary
-    inflight.go                 per-session in-flight turn registry (abort, restart interrupts)
-    ask.go                      interactive-mode clarifying-question (ask) extraction
-    browse.go                   directory listing for the New-session picker (listing)
-    messages.go                 wire message constructors
-    *_test.go                   httptest+ws integration (auth, spawn, dictation, ask, stream)
-  internal/session/session.go   headless claude driver: Driver.Turn (stream-json), NewSessionID
-  internal/session/store.go     durable session registry (file-backed, atomic writes)
-  internal/session/discover.go  scan ~/.claude/projects for all Claude sessions (adopt/discover)
-  internal/session/transcript.go read/stitch on-disk transcripts for `history` (spans clears)
-  internal/command/command.go   utterance -> intent parser + StripWake
-  internal/command/registry.go  Command registry (single source of truth) + RegistryJSON
-  internal/transcribe/          Transcriber interface: WhisperCPP (CLI) + RemoteWhisper (HTTP)
-  internal/projects/projects.go spoken-path fuzzy matching against the spawn roots
-  internal/tmux/tmux.go         detect a live interactive `claude` in a pane (ClaudeDirs)
-  internal/config/config.go     env config + spawn-path validation
-  cmd/wsclient/main.go          text client for manual testing; -audio streams a WAV
-  cmd/gencommands/main.go       regenerate docs/commands.json from the command registry
-  Dockerfile / .dockerignore    dev image: Go + tmux + claude CLI + whisper.cpp CLI + model
-docker-compose.yml              dev orchestration: spawner + resident whisper/whisper-fast servers
-/whisper                        Vulkan/CPU Dockerfiles for the resident whisper.cpp server (see whisper/README.md)
-/deploy                         host systemd unit + env example + claude-log helper (see deploy/README.md)
-/android                        Android app (Kotlin/Compose) — see android/README.md
-/docs
-  protocol.md                   WebSocket message schema (single source of truth)
-  commands.md                   "hey buddy" command grammar + dialog flows
-  commands.json                 command list generated from the registry (consumed by the app build)
-README.md / CLAUDE.md / TODO.md / .gitignore
-```
+The **repository layout** (every package and what it does) and the internals are in
+`docs/architecture.md`. **How to build and run** the server (Docker and host-native) is in
+`README.md`. Don't restate either here.
 
-Status: the **full voice loop works end-to-end and is verified live** against `claude` 2.1.196 —
-spawn dialog → mkdir → attach → dictation turn → real reply → `--resume` recall across reconnects.
-Real **audio** turns are verified too: a spoken/`jfk.wav` clip → Whisper → `transcript` →
-`utterance` → Claude reply, on both the resident GPU whisper server and the CLI fallback (the
-shell-out contract is also unit-tested with a fake binary). The **Android app** is built and
-verified live on the emulator and the Pixel 8a. The live-tracked to-do list is in `TODO.md`.
+## Config env vars
 
-The text seam: the app sends an `utterance` message with already-transcribed text. The audio path
-(`wake` → binary PCM16 frames → `audio_end`) assembles a WAV, runs the Transcriber, emits a
-`transcript`, then feeds the text through that exact same seam — so the command/dialog/turn
-machinery is engine-agnostic and was fully exercised before STT existed.
-
-### Transcription (internal/transcribe)
-
-The gateway depends only on the `Transcriber` interface; there are **two implementations** and
-either can back it:
-
-- **`RemoteWhisper`** (`remote.go`) — POSTs the WAV to a **resident whisper.cpp HTTP server**
-  (`/inference`). This is the preferred path on this host, which has an **AMD RX 550 GPU**: the
-  `whisper`/`whisper-fast` compose services run whisper.cpp built with **Vulkan** and keep the
-  model warm. Two servers run: an accurate model (`medium.en`, `:8571`) for real dictation, and a
-  fast draft model (`base.en`, `:8572`) for the live hands-free draft + end-token detection, so
-  the cheap high-frequency work never blocks the accurate model. Enabled via
-  `SPAWNER_WHISPER_URL` / `SPAWNER_WHISPER_FAST_URL`. (Measured on the RX 550: `medium.en` ~4.8s,
-  `small.en` ~2–3s, `large-v3` ~10.5s per clip — 3–4× the CPU-only build.)
-- **`WhisperCPP`** (`transcribe.go`) — shells out to the **whisper.cpp CLI** (one process per
-  utterance), `exec`'d like `claude`/`tmux`, no server. The fallback when no whisper URL is set.
-  It size-picks a model per clip (tiny/base/small) from `SPAWNER_WHISPER_MODEL{,_FAST,_BASE}`.
-
-Opus clips are decoded to 16 kHz mono WAV with **ffmpeg** first (whisper can't read Opus). STT is
-disabled unless a model/URL is configured; when disabled the audio path returns `not_implemented`
-but text utterances still work. Swapping to faster-whisper or a cloud API (e.g. Groq
-large-v3-turbo) stays a one-file change behind the `Transcriber` interface.
-
-Known limitation: STT output is all-lowercase, so sessions can't be created in directories with
-uppercase letters by voice. Acceptable; documented in docs/commands.md.
-
-### Build & run the server
-
-Preferred: **Docker** (bundles claude CLI + tmux + whisper.cpp + model; nothing installed on the
-host). Source is bind-mounted, so host edits apply on the next `go run`.
-
-```
-docker compose up --build                                  # server on :8080, STT enabled
-docker compose run --rm spawner go run ./cmd/wsclient -url ws://spawner:8080/ws
-docker compose run --rm spawner \
-  go run ./cmd/wsclient -url ws://spawner:8080/ws -audio /opt/whisper.cpp/samples/jfk.wav
-```
-
-Host-native (needs claude, tmux, and optionally whisper-cli locally):
-
-```
-cd server
-go build ./... && go test ./...
-SPAWNER_TOKEN=<secret> SPAWNER_ROOT=/data go run .   # refuses to start without SPAWNER_TOKEN
-```
-
-The container mounts host `~/.claude` + `~/.claude.json` so the in-container `claude` uses your
-OAuth login (or set `ANTHROPIC_API_KEY`). `go.mod` targets go 1.23 so the stock `golang:1.23`
-image works (host has newer; both satisfy it).
-
-Config env vars (all read in `internal/config`):
+All read in `internal/config`; the `docsync` drift test requires each to appear here, backticked:
 
 - `SPAWNER_ADDR` (`:8080`), `SPAWNER_TOKEN` (**required**), `SPAWNER_ROOT` (colon-separated
   spawn-dir jail), `SPAWNER_STATE` (`sessions.json`), `SPAWNER_CLAUDE_BIN` (`claude`).
@@ -279,27 +122,9 @@ Config env vars (all read in `internal/config`):
 
 - Keep the **command grammar** and the **WebSocket message protocol** in `/docs` as the single
   source of truth; both client and server reference it.
-- The **command set** has a code source of truth: `server/internal/command.Registry` (a list of
-  `Command{Kind, Title, Aliases, Description, Example}` structs). It flows to the Android app through
-  a real, checked pipeline — **no command list is ever hand-maintained in the app**:
-
-  ```
-  command.Registry (Go)  →[ go run ./cmd/gencommands ]→  docs/commands.json
-                         →[ Gradle generateCommands, wired into preBuild ]→
-                         app/build/generated/commands/…/Commands.kt (the COMMANDS list)
-                         →  consumed by MainActivity.kt's Commands screen + alias editor
-  ```
-
-  So the whole procedure for **adding or changing a "hey buddy" command** is:
-  1. Edit `command.Registry` (and `Parse` in `command.go`). Tests enforce the two ends stay honest:
-     every `Example` must `Parse` to its `Kind`, and every user-facing `Kind` must be registered.
-  2. `go run ./cmd/gencommands` to rewrite `docs/commands.json` (a drift test fails if it's stale).
-  3. Rebuild the APK. `generateCommands` runs before every build and regenerates `Commands.kt` from
-     the JSON, so the new/changed command appears in the app automatically. **You never touch Kotlin**
-     — `Commands.kt` is a build artifact (under `app/build/`, git-ignored), not a source file.
-
-  The app therefore can't drift from the server grammar or ship an undocumented command; the only way
-  a registry change reaches an installed app is the APK rebuild in step 3.
+- **Adding or changing a "hey buddy" command** follows a checked Registry→JSON→APK pipeline — the
+  full procedure is in `docs/commands.md` ("Adding or changing a command"). You never hand-edit the
+  app's command list.
 - Server: idiomatic Go, `gofmt`, errors wrapped with context. Keep tmux interaction behind one
   package so the shell-out details are isolated and testable.
 - Android: Kotlin, keep audio/wake-word, networking, and UI in separate modules/packages.
@@ -315,8 +140,9 @@ Config env vars (all read in `internal/config`):
     can't validate — real mic/hands-free, real turns, hardware) or when the emulator run left the
     feature only partly checked: don't stop at the emulator and leave the phone on the old build.
     Install it before reporting the work complete.
-- When you change the architecture or make a design decision (especially the TUI-capture
-  question above), record it in this file and the README so it isn't re-litigated.
+- When you change the architecture or make a design decision (e.g. the headless-vs-TUI capture
+  question in `docs/architecture.md`), record it in the owning doc and the README so it isn't
+  re-litigated.
 
 ### Git: commit atomically, at will and frequently — and push freely
 
@@ -347,22 +173,11 @@ or immediately after — never defer it to "later," and never ship code without 
 - Docs land in the same commit as the feature (or an immediately-following commit) — a feature
   commit with no accompanying documentation is incomplete.
 
-## Current status & tasks — see `TODO.md`
+## `TODO.md` is the live task list — keep it current
 
-Project status ("what's built, what's next") lives in **one** place: **`TODO.md`**. It is not
-restated here or in `README.md` (both link to it) so there is only ever one copy to update. The
-short architectural "Status:" note under *Repository layout* above is the exception — it frames the
-architecture, not the task list.
-
-### `TODO.md` is the live task list — keep it current
-
-`TODO.md` (repo root) is the **single source of truth for active and completed work**, separate
-from the historical phase roadmap in `README.md`. **Update it in the same commit that changes the
-work it describes:**
-
-- **Propose a feature or a test** → add it to `TODO.md` (unchecked) as part of the same change.
-- **Complete a feature or a test** → check it off (move it to the Done section, dated).
-- **Delete or drop a test/feature** → remove or strike its entry, with a one-line why.
-
-Treat a `TODO.md` edit as part of "done," exactly like the README/`docs/` documentation rule
-above — a feature or test change with a stale `TODO.md` is incomplete.
+`TODO.md` (repo root) is the single source of truth for active and completed work — status
+("what's built, what's next") lives there only, not here or in `README.md` (both link to it). The
+historical phase roadmap is separate, in `README.md`. **Update `TODO.md` in the same commit that
+changes the work it describes:** add proposed features/tests unchecked; check off and date
+completed ones; remove dropped ones with a one-line why. A stale `TODO.md` means the change isn't
+done — same rule as the docs.

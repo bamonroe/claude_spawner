@@ -148,3 +148,28 @@ Edge cases:
 
 Reserved-word collision: if the user genuinely needs to dictate a phrase that looks like a
 command, require the wake word for all control commands so plain dictation is never intercepted.
+
+## Adding or changing a command
+
+The **command set** has a single code source of truth: `server/internal/command.Registry` (a list
+of `Command{Kind, Title, Aliases, Description, Example}` structs). It flows to the Android app
+through a real, checked pipeline — **no command list is ever hand-maintained in the app**:
+
+```
+command.Registry (Go)  →[ go run ./cmd/gencommands ]→  docs/commands.json
+                       →[ Gradle generateCommands, wired into preBuild ]→
+                       app/build/generated/commands/…/Commands.kt (the COMMANDS list)
+                       →  consumed by MainActivity.kt's Commands screen + alias editor
+```
+
+The whole procedure for adding or changing a command:
+
+1. Edit `command.Registry` (and `Parse` in `command.go`). Tests enforce the two ends stay honest:
+   every `Example` must `Parse` to its `Kind`, and every user-facing `Kind` must be registered.
+2. `go run ./cmd/gencommands` to rewrite `docs/commands.json` (a drift test fails if it's stale).
+3. Rebuild the APK. `generateCommands` runs before every build and regenerates `Commands.kt` from
+   the JSON, so the new/changed command appears in the app automatically. **You never touch Kotlin**
+   — `Commands.kt` is a build artifact (under `app/build/`, git-ignored), not a source file.
+
+The app therefore can't drift from the server grammar or ship an undocumented command; the only way
+a registry change reaches an installed app is the APK rebuild in step 3.
