@@ -56,6 +56,15 @@ Dates are `YYYY-MM-DD`.
       consistent. New `TestTokenCostDiscountsCacheRead`. (The persisted `sess_rate`/`week_rate` learned
       under the old weighting are ~10× high and self-heal via `/usage` EMA, or reset cleanly on the next
       spawner restart.)
+- [x] 2026-07-04 — **Usage estimate: manual two-point rate benchmark (`Set`/`Calc` buttons).** The
+      passive `/usage` calibration EMA-blends each reading and divides by a single, often-rounded
+      percent delta, so the learned tokens-per-percent rate skews high and the estimate reads a few
+      percent low — consistently, in the same direction. New `usage_set`/`usage_calc` messages +
+      `Estimator.SetBenchmark`/`CalcBenchmark`: `Set` stamps the odometer + real percentages, then after
+      burning enough tokens to move several whole percent `Calc` sets each window's rate **directly**
+      from tokens/percent-gained (no EMA), so the multi-percent move drowns out the integer rounding.
+      Sub-1% moves are refused. `bench_*` fields on `usage_estimate`; buttons + benchmark line in the
+      app's usage sheet. `TestBenchmarkTwoPoint`.
 - [x] 2026-07-04 — **Chat: keep the newest message pinned above the keyboard AND the status bars**
       (supersedes/unifies the two earlier same-day re-pin fixes — the `barsKey` toggle and the
       `WindowInsets.ime` follow — which each handled only one shrink source and, for the keyboard,
