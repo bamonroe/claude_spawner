@@ -32,6 +32,11 @@ Dates are `YYYY-MM-DD`.
 
 ## Done
 
+- [x] 2026-07-03 — Fix orphaned hands-free draft. `stopHandsFree()` never cleared `_pending`, so
+      toggling hands-free off mid-draft (easy now via the mic-button swipe-up) left the greyed draft
+      line stuck above the input box — and the server kept its buffered audio, which would bleed
+      into the next capture. Added a `discard_draft` wire message: the client clears the draft +
+      tells the server to drop its buffer on stop.
 - [x] 2026-07-03 — Android: hands-free toggle moved onto the mic button. Removed the top-bar 🎧
       switch; **hold the mic button and swipe up** to toggle hands-free (a swipe-up during a
       push-to-talk hold abandons that clip and flips hands-free instead). Custom `awaitEachGesture`

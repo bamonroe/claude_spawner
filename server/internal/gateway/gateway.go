@@ -489,6 +489,8 @@ func (c *conn) loop() {
 			c.startAudio(in.Codec, in.HandsFree, in.Calibrate)
 		case "commit":
 			c.commitMessage() // silence-timeout commit of the hands-free buffer
+		case "discard_draft":
+			c.clearBuffer() // drop the uncommitted hands-free draft (e.g. hands-free toggled off)
 		case "history":
 			c.serveHistory(in.Name, in.Before, in.Limit)
 		case "clear":

@@ -157,6 +157,7 @@ object Outbound {
             .put("hands_free", handsFree).put("calibrate", calibrate).toString()
     fun audioEnd() = JSONObject().put("type", "audio_end").toString()
     fun commit() = JSONObject().put("type", "commit").toString() // silence-timeout commit
+    fun discardDraft() = JSONObject().put("type", "discard_draft").toString() // drop uncommitted hands-free draft
     fun attach(name: String, silent: Boolean = false) =
         JSONObject().put("type", "attach").put("name", name).put("silent", silent).toString()
     fun detach() = JSONObject().put("type", "detach").toString()

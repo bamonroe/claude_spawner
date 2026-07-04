@@ -342,6 +342,12 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
         _micLevel.value = 0.0
         _voiceState.value = VoiceState.OFF
         _mic.value = ""
+        // Drop any uncommitted draft: clear it on-screen now, and tell the server
+        // to discard its buffered audio so it can't bleed into the next capture.
+        if (_pending.value.isNotEmpty()) {
+            _pending.value = ""
+            if (_connected.value) client?.send(Outbound.discardDraft())
+        }
     }
 
     /** Stop the TTS readout (the on-screen tap-to-stop). */
