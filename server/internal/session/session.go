@@ -81,6 +81,19 @@ type ToolUse struct {
 	FilePath string
 }
 
+// Usage is the token accounting for one turn, read from the stream-json `result`
+// event's aggregate `usage`. CacheRead > 0 means the turn reused a warm prompt
+// cache (cheap/fast); CacheWrite > 0 means it (re)built the cache — the signal
+// behind the app's cache-warm indicator. The zero value means the turn reported
+// no usage. The json tags are the on-wire names sent to the app (see the
+// `output` message in docs/protocol.md).
+type Usage struct {
+	Input      int `json:"input"`       // input_tokens
+	Output     int `json:"output"`      // output_tokens
+	CacheWrite int `json:"cache_write"` // cache_creation_input_tokens (cache (re)built)
+	CacheRead  int `json:"cache_read"`  // cache_read_input_tokens (warm-cache hit)
+}
+
 // Turn sends one user message to the session and returns the assistant's final
 // prose (the stream-json `result` event). onTool, if non-nil, is called for each
 // tool Claude uses, so the caller can show activity ("thinking…", "editing
@@ -92,9 +105,9 @@ type ToolUse struct {
 // The first turn (s.Started == false) creates the session with --session-id;
 // later turns reattach with --resume. Turn flips s.Started to true on success —
 // the caller is responsible for persisting the updated record.
-func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool func(ToolUse), onText func(string)) (string, error) {
+func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool func(ToolUse), onText func(string)) (string, Usage, error) {
 	if s.SessionID == "" {
-		return "", fmt.Errorf("session %q has no SessionID", s.Name)
+		return "", Usage{}, fmt.Errorf("session %q has no SessionID", s.Name)
 	}
 	args := []string{"-p", prompt, "--output-format", "stream-json", "--verbose"}
 	if s.Started {
@@ -120,21 +133,21 @@ func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool fun
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return "", err
+		return "", Usage{}, err
 	}
 	if err := cmd.Start(); err != nil {
-		return "", fmt.Errorf("start claude: %w", err)
+		return "", Usage{}, fmt.Errorf("start claude: %w", err)
 	}
 
-	reply, perr := parseStream(stdout, onTool, onText)
+	reply, usage, perr := parseStream(stdout, onTool, onText)
 	if werr := cmd.Wait(); werr != nil {
-		return "", fmt.Errorf("claude exited: %w", werr)
+		return "", Usage{}, fmt.Errorf("claude exited: %w", werr)
 	}
 	if perr != nil {
-		return "", perr
+		return "", Usage{}, perr
 	}
 	s.Started = true
-	return reply, nil
+	return reply, usage, nil
 }
 
 // streamEvent is the subset of the stream-json schema we consume. Unknown fields
@@ -146,6 +159,14 @@ type streamEvent struct {
 	Subtype string `json:"subtype"` // on result: "success" | "error_*"
 	IsError bool   `json:"is_error"`
 	Result  string `json:"result"`
+	// Usage is the turn's aggregate token accounting, present on the `result`
+	// event. Field names are Anthropic's; we remap into our own Usage type.
+	Usage struct {
+		InputTokens         int `json:"input_tokens"`
+		OutputTokens        int `json:"output_tokens"`
+		CacheCreationTokens int `json:"cache_creation_input_tokens"`
+		CacheReadTokens     int `json:"cache_read_input_tokens"`
+	} `json:"usage"`
 	Message struct {
 		Content []struct {
 			Type  string `json:"type"` // "text" | "tool_use"
@@ -162,10 +183,11 @@ type streamEvent struct {
 // parseStream reads NDJSON until EOF, returning the final result text. It calls
 // onTool per tool_use block and onText per assistant text message (in stream
 // order) so the caller can render tool breadcrumbs and Claude's prose live.
-func parseStream(r interface{ Read([]byte) (int, error) }, onTool func(ToolUse), onText func(string)) (string, error) {
+func parseStream(r interface{ Read([]byte) (int, error) }, onTool func(ToolUse), onText func(string)) (string, Usage, error) {
 	sc := newLineScanner(r)
 
 	var result string
+	var usage Usage
 	var gotResult, isError bool
 	var subtype string
 	for sc.Scan() {
@@ -203,20 +225,26 @@ func parseStream(r interface{ Read([]byte) (int, error) }, onTool func(ToolUse),
 			}
 		case "result":
 			result, gotResult = ev.Result, true
+			usage = Usage{
+				Input:      ev.Usage.InputTokens,
+				Output:     ev.Usage.OutputTokens,
+				CacheWrite: ev.Usage.CacheCreationTokens,
+				CacheRead:  ev.Usage.CacheReadTokens,
+			}
 			isError = ev.IsError || (ev.Subtype != "" && ev.Subtype != "success")
 			subtype = ev.Subtype
 		}
 	}
 	if err := sc.Err(); err != nil {
-		return "", fmt.Errorf("read stream: %w", err)
+		return "", Usage{}, fmt.Errorf("read stream: %w", err)
 	}
 	if !gotResult {
-		return "", fmt.Errorf("stream ended without a result event")
+		return "", Usage{}, fmt.Errorf("stream ended without a result event")
 	}
 	if isError {
-		return "", fmt.Errorf("claude turn failed (%s): %s", subtype, result)
+		return "", Usage{}, fmt.Errorf("claude turn failed (%s): %s", subtype, result)
 	}
-	return result, nil
+	return result, usage, nil
 }
 
 // NewSessionID returns a random RFC-4122 v4 UUID for use with --session-id.

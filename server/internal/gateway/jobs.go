@@ -185,10 +185,10 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk bool) bo
 			if strings.Contains(prose, "::ASK::") {
 				return
 			}
-			j.emit(msgOutput(sess.Name, prose, true))
+			j.emit(msgOutput(sess.Name, prose, true, nil))
 		}
 		wasStarted := sess.Started // Turn flips Started true on the first success
-		reply, err := s.driver.Turn(ctx, sess, text, onTool, onText)
+		reply, usage, err := s.driver.Turn(ctx, sess, text, onTool, onText)
 		if len(changed) > 0 {
 			j.emit(msgFiles(sortedKeys(changed))) // persistent "edited: …" chip
 		}
@@ -236,7 +236,7 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk bool) bo
 			j.finish(msgAsk(sess.Name, qs))
 			return
 		}
-		j.finish(msgOutput(sess.Name, reply, false))
+		j.finish(msgOutput(sess.Name, reply, false, &usage))
 	}()
 	return true
 }
@@ -279,7 +279,7 @@ func (s *Server) startCompress(sess *session.Session) bool {
 	go func() {
 		defer s.inflight.remove(sess.Name)
 		j.emit(msgActivity("🗜️ compressing context…"))
-		summary, err := s.driver.Turn(ctx, sess, compressPrompt, nil, nil)
+		summary, _, err := s.driver.Turn(ctx, sess, compressPrompt, nil, nil)
 		if err != nil {
 			j.mu.Lock()
 			aborted := j.aborted

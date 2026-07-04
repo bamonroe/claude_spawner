@@ -32,11 +32,11 @@ func TestParseStreamStreamsProse(t *testing.T) {
 {"type":"assistant","message":{"content":[{"type":"text","text":"Let me look."}]}}
 {"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/tmp/foo.go"}}]}}
 {"type":"assistant","message":{"content":[{"type":"text","text":"Found it."}]}}
-{"type":"result","subtype":"success","result":"Found it.","session_id":"x"}
+{"type":"result","subtype":"success","result":"Found it.","session_id":"x","usage":{"input_tokens":12,"output_tokens":7,"cache_creation_input_tokens":1000,"cache_read_input_tokens":24000}}
 `
 	var texts []string
 	var tools []ToolUse
-	reply, err := parseStream(strings.NewReader(stream),
+	reply, usage, err := parseStream(strings.NewReader(stream),
 		func(t ToolUse) { tools = append(tools, t) },
 		func(s string) { texts = append(texts, s) },
 	)
@@ -45,6 +45,9 @@ func TestParseStreamStreamsProse(t *testing.T) {
 	}
 	if reply != "Found it." {
 		t.Errorf("reply = %q, want %q", reply, "Found it.")
+	}
+	if want := (Usage{Input: 12, Output: 7, CacheWrite: 1000, CacheRead: 24000}); usage != want {
+		t.Errorf("usage = %+v, want %+v", usage, want)
 	}
 	if want := []string{"Let me look.", "Found it."}; strings.Join(texts, "|") != strings.Join(want, "|") {
 		t.Errorf("streamed texts = %v, want %v", texts, want)

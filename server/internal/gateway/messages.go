@@ -87,8 +87,16 @@ func msgDetached() map[string]any {
 	return map[string]any{"type": "detached"}
 }
 
-func msgOutput(name, text string, chunk bool) map[string]any {
-	return map[string]any{"type": "output", "name": name, "text": text, "chunk": chunk}
+// msgOutput carries session output for display + TTS. Live prose streams as
+// chunk=true messages; the final chunk=false message closes the turn and (only
+// then) carries the turn's token `usage`, which the app renders as a per-message
+// badge. usage is nil for streaming chunks (no per-chunk accounting exists).
+func msgOutput(name, text string, chunk bool, usage *session.Usage) map[string]any {
+	m := map[string]any{"type": "output", "name": name, "text": text, "chunk": chunk}
+	if usage != nil {
+		m["usage"] = usage
+	}
+	return m
 }
 
 func msgError(code, message string) map[string]any {
