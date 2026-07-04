@@ -45,8 +45,13 @@ Dates are `YYYY-MM-DD`.
       the bottom, and a `LazyColumn` does not follow its own shrinking viewport. `ChatList` now watches
       its **viewport height** via `snapshotFlow` and, on any change, snaps to the newest message — but
       only if it was parked at the bottom *before* the resize (`pinned` is updated only while the
-      viewport is stable, so a big keyboard shrink cannot flip it first). Scrolled up reading history →
-      stays put. Subsumes the earlier stale-`bottom` clip regression too (no more `barsKey`).
+      viewport is stable, so a big keyboard shrink cannot flip it first). The re-pin uses
+      `scrollToItem(bottom, Int.MAX_VALUE)` — a large offset that clamps to max scroll — so the tail of
+      a message TALLER than the keyboard-shrunk viewport sits just above the keyboard (a plain
+      `scrollToItem(bottom)` top-aligns it and hides the bottom half; that was the "covers the bottom
+      half of the message on fresh launch" bug). Scrolled up reading history → stays put. Subsumes the
+      earlier stale-`bottom` clip regression too (no more `barsKey`). Verified live on the emulator
+      against the real server: at-bottom rides up, scrolled-up stays put.
 
 - [x] 2026-07-04 — **Drift-live usage estimate** across all sessions/clients. New
       `internal/usage.Estimator` (server-global, persisted next to sessions.json): every turn adds its

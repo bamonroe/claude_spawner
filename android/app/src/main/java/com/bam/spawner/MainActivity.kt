@@ -739,7 +739,13 @@ private fun ChatList(
             if (viewportH == lastViewportH) {
                 pinned = atBottom                                  // stable viewport → real scroll position
             } else {
-                if (pinned && messages.isNotEmpty()) listState.scrollToItem(bottom)
+                // Scroll to the END of the content, not the top of the last item.
+                // scrollToItem(bottom, 0) aligns the item's TOP to the viewport top,
+                // which for a message TALLER than the (keyboard-shrunk) viewport hides
+                // its bottom half behind the keyboard. A large scrollOffset clamps to
+                // max scroll, so the item's BOTTOM sits just above the keyboard/bars
+                // regardless of the message's height.
+                if (pinned && messages.isNotEmpty()) listState.scrollToItem(bottom, Int.MAX_VALUE)
                 lastViewportH = viewportH                          // adopt the new height, keep the prior pin
             }
         }
