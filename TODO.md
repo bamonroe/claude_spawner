@@ -36,6 +36,13 @@ Dates are `YYYY-MM-DD`.
 
 ## Done
 
+- [x] 2026-07-04 — **Fix: last message clipped by status bars again** (regression of the 2026-07-03
+      re-pin fix below). `ChatList`'s `atBottom` gate was `remember { derivedStateOf { … >= bottom } }`
+      with no key, so it captured the first composition's `bottom` forever. After the list SHRINKS
+      (session switch / clear / compress — all newer paths that replace `_chat` with a shorter or empty
+      log) the stale-high `bottom` made `atBottom` read `false` permanently, so the `LaunchedEffect(barsKey)`
+      re-pin never fired and the sibling bars clipped the tail again. Keyed the `remember` on `bottom`.
+
 - [x] 2026-07-04 — **Drift-live usage estimate** across all sessions/clients. New
       `internal/usage.Estimator` (server-global, persisted next to sessions.json): every turn adds its
       weighted token cost to a running odometer and nudges the estimated session/weekly % up via a

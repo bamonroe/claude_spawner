@@ -724,7 +724,12 @@ private fun ChatList(
     // the viewport and would hide the tail of the newest message. Re-pin to it when
     // the bars toggle — but only if the newest message is currently in view, so
     // scrolling up to read history mid-turn isn't yanked back down.
-    val atBottom by remember {
+    // Keyed on `bottom`: without the key the derivedStateOf closure captures the
+    // first composition's `bottom` forever, so after the list SHRINKS (session
+    // switch, clear/compress) the stale-high `bottom` makes atBottom read false
+    // permanently — the re-pin below then never fires and the bars clip the tail
+    // again. Re-key so atBottom always compares against the current last index.
+    val atBottom by remember(bottom) {
         derivedStateOf { (listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0) >= bottom }
     }
     LaunchedEffect(barsKey) {
