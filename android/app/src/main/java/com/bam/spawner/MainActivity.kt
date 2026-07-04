@@ -29,7 +29,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -85,6 +87,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.foundation.layout.Spacer
@@ -734,6 +737,17 @@ private fun ChatList(
     }
     LaunchedEffect(barsKey) {
         if (messages.isNotEmpty() && atBottom) listState.animateScrollToItem(bottom)
+    }
+    // Follow the keyboard. The outer Column's imePadding() shrinks this list from
+    // the bottom as the IME animates in, so the tail of the newest message would
+    // slide under the keyboard. Track the raw ime inset (WindowInsets.ime is the
+    // full value regardless of the parent's imePadding consumption) and re-pin each
+    // frame — but only while the newest message is in view, so scrolling up to read
+    // history and then tapping the input box doesn't yank the view back down. Snap
+    // (not animate) so the pin rides up in lockstep with the keyboard.
+    val imeBottom = WindowInsets.ime.getBottom(LocalDensity.current)
+    LaunchedEffect(imeBottom) {
+        if (messages.isNotEmpty() && atBottom) listState.scrollToItem(bottom)
     }
     // LazyColumn is the direct weighted child (wrapping it in a SelectionContainer
     // distorted the Column's height and pushed the input bar off-screen). Selection

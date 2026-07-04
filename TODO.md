@@ -36,6 +36,13 @@ Dates are `YYYY-MM-DD`.
 
 ## Done
 
+- [x] 2026-07-04 — **Chat: keyboard pushes the newest message up (only when already at the bottom)**.
+      `imePadding()` on the outer Column shrinks the weighted `ChatList` from the bottom as the IME
+      animates in, so the tail of the last message slid under the keyboard. `ChatList` now tracks the
+      raw `WindowInsets.ime` bottom inset and snaps the list to the newest message each frame while
+      `atBottom` — so it rides up in lockstep with the keyboard — but stays put when scrolled up
+      reading history (tapping the input box then won't yank the view down).
+
 - [x] 2026-07-04 — **Fix: last message clipped by status bars again** (regression of the 2026-07-03
       re-pin fix below). `ChatList`'s `atBottom` gate was `remember { derivedStateOf { … >= bottom } }`
       with no key, so it captured the first composition's `bottom` forever. After the list SHRINKS
