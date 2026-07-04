@@ -214,6 +214,14 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk bool) bo
 			sess.AskPrimed = true
 			changedRec = true
 		}
+		// A compress-carried seed was prepended to this turn (see dictate); the fresh
+		// session_id now holds that context via --resume, so clear it — it must not be
+		// re-injected on later turns. Cleared only on success, so a failed turn retries
+		// with the seed intact.
+		if sess.PendingSeed != "" {
+			sess.PendingSeed = ""
+			changedRec = true
+		}
 		if changedRec {
 			_ = s.store.Put(sess)
 		}
@@ -229,6 +237,82 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk bool) bo
 			return
 		}
 		j.finish(msgOutput(sess.Name, reply, false))
+	}()
+	return true
+}
+
+// compressPrompt asks Claude to distill the current context into a compact
+// briefing that can seed a fresh session. It is sent as a normal turn on the
+// session_id being retired; the reply becomes the PendingSeed carried forward.
+const compressPrompt = "Summarize our conversation so far into a compact but complete briefing that a " +
+	"fresh session with no prior memory could use to continue seamlessly. Capture the task/goal, key " +
+	"decisions and their rationale, the current state, important file paths and code specifics, and any " +
+	"open threads or next steps. Be thorough on specifics but drop small talk. Output only the summary " +
+	"prose — no preamble, no tool use."
+
+// startCompress compacts the attached session's Claude context in the background:
+// it asks Claude (on the current session_id) to summarize the conversation, then
+// rotates to a fresh session_id and stashes that summary as PendingSeed, so the
+// next dictation carries the condensed context forward. Unlike startTurn's
+// dictation, the summary itself is never spoken/shown as a reply — only an
+// activity breadcrumb while it runs and a final `say` confirmation. Returns false
+// if a turn is already running for the session (the single-writer invariant).
+func (s *Server) startCompress(sess *session.Session) bool {
+	j := s.jobFor(sess.Name)
+	j.mu.Lock()
+	if j.running {
+		j.mu.Unlock()
+		return false
+	}
+	// Background-derived so the summary outlives the connection, but cancelable so
+	// "abort" can kill it like any turn.
+	ctx, cancel := context.WithCancel(context.Background())
+	j.running = true
+	j.final = nil
+	j.delivered = false
+	j.aborted = false
+	j.cancel = cancel
+	j.mu.Unlock()
+
+	s.inflight.add(sess.Name)
+	log.Printf("compress[%s] summarizing", sess.Name)
+	go func() {
+		defer s.inflight.remove(sess.Name)
+		j.emit(msgActivity("🗜️ compressing context…"))
+		summary, err := s.driver.Turn(ctx, sess, compressPrompt, nil, nil)
+		if err != nil {
+			j.mu.Lock()
+			aborted := j.aborted
+			j.mu.Unlock()
+			if aborted {
+				log.Printf("compress[%s] stopped on request", sess.Name)
+				j.finish(msgTurnStopped(sess.Name))
+				return
+			}
+			log.Printf("compress[%s] error: %v", sess.Name, err)
+			j.finish(msgError("compress_failed", err.Error()))
+			return
+		}
+		// Rotate: retire the just-summarized session_id (kept on disk for history)
+		// and start fresh, carrying the summary forward as PendingSeed for the next
+		// dictation. driver.Turn flipped Started true for the summary turn; the
+		// rotation resets it so the seed turn recreates the session with --session-id.
+		newID, err := session.NewSessionID()
+		if err != nil {
+			j.finish(msgError("internal", err.Error()))
+			return
+		}
+		sess.PriorIDs = append(sess.PriorIDs, sess.SessionID)
+		sess.SessionID = newID
+		sess.Started = false
+		sess.AskPrimed = false // fresh context: re-prime the ask instruction on the next turn
+		sess.PendingSeed = strings.TrimSpace(summary)
+		if err := s.store.Put(sess); err != nil {
+			j.finish(msgError("internal", err.Error()))
+			return
+		}
+		log.Printf("compress[%s] rotated to %s (seed %d bytes)", sess.Name, newID, len(sess.PendingSeed))
+		j.finish(msgSay("compressed. carried a summary forward — your history is still here."))
 	}()
 	return true
 }

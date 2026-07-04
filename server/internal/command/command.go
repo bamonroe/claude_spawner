@@ -25,6 +25,7 @@ const (
 	Help      Kind = "help"       // list available commands
 	ReadLast  Kind = "read_last"  // re-read the last N Claude replies aloud
 	Clear     Kind = "clear"      // rotate the session's Claude context (keep history for display)
+	Compress  Kind = "compress"   // summarize the context, then rotate — carry a condensed summary forward
 	Unknown   Kind = "unknown"
 )
 
@@ -203,6 +204,16 @@ func Parse(text string) Intent {
 		contains(t, "clear the context", "clear the session", "reset context",
 			"reset the context", "fresh context", "start fresh", "wipe context"):
 		return Intent{Kind: Clear}
+
+	// Compress: summarize Claude's context, then rotate to a fresh session_id
+	// seeded with that summary — the /compact analogue of clear (context is
+	// condensed, not dropped). "compact"/"compress"/"condense"/"summarize the
+	// context" all match; like clear, history is KEPT on disk.
+	case first == "compress" && (n == 1 || word2 == "context" || word2 == "session"),
+		first == "compact" && (n == 1 || word2 == "context" || word2 == "session"),
+		contains(t, "compress the context", "compact the context", "condense the context",
+			"condense context", "summarize the context", "summarize context", "compact it"):
+		return Intent{Kind: Compress}
 
 	default:
 		return Intent{Kind: Unknown}

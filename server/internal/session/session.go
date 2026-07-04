@@ -37,13 +37,19 @@ type Session struct {
 	Started   bool   `json:"started"`    // false until the first turn has run
 	// AskPrimed records that the interactive-mode ask instruction has been sent to
 	// Claude for the current context, so later turns don't re-append it (Claude
-	// keeps it via --resume). Reset by "clear", which rotates the context.
+	// keeps it via --resume). Reset by "clear"/"compress", which rotate the context.
 	AskPrimed bool `json:"ask_primed,omitempty"`
-	// PriorIDs are session_ids retired by "clear" (context rotation), oldest first.
-	// Their transcripts stay on disk so the app can show the full history, but Claude
-	// only ever resumes the current SessionID — so a clear rotates context without
-	// losing (or re-reading) the record.
+	// PriorIDs are session_ids retired by "clear"/"compress" (context rotation),
+	// oldest first. Their transcripts stay on disk so the app can show the full
+	// history, but Claude only ever resumes the current SessionID — so a rotation
+	// changes context without losing (or re-reading) the record.
 	PriorIDs []string `json:"prior_ids,omitempty"`
+	// PendingSeed is a condensed summary of the prior context, produced by
+	// "compress" when it rotated the session_id. It is prepended to the FIRST
+	// dictation on the fresh SessionID (so Claude continues with the compacted
+	// context) and then cleared. Empty except in the window between a compress and
+	// the next dictation. "clear" wipes it (a clear means truly empty context).
+	PendingSeed string `json:"pending_seed,omitempty"`
 }
 
 // TranscriptIDs returns every session_id whose transcript belongs to this

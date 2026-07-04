@@ -57,6 +57,7 @@ All prefixed with **"hey buddy"**:
 - `what's the status` / `what's it doing`
 - `read last` / `read last 3` — re-read Claude's recent replies aloud
 - `clear the context` — start Claude fresh **without** losing your history (see below)
+- `compress the context` — like `clear`, but carries a **summary** forward instead of dropping context (see below)
 
 Anything spoken **while attached** that isn't a reserved command is dictated to the session.
 
@@ -76,6 +77,20 @@ simply stops seeing the old turns.
 Use it whenever you've finished one line of work and want to start another in the same directory
 without carrying (and paying for) all the prior context. It never deletes anything — "clear
 history" is intentionally *not* a command, because clearing keeps the history.
+
+### Compressing context (keep going, but condensed)
+
+Sometimes you *don't* want to drop the context — you're mid-task and Claude still needs to know what
+you've been doing — you just want to stop replaying the whole long transcript every turn. Saying
+**"hey buddy, compress the context"** (or "compact" / "condense context") is the `/compact` analogue
+of `clear`: the server asks Claude to **summarize** the conversation so far, then rotates to a fresh
+`session_id` exactly like `clear` — but stashes that summary and **prepends it to your next
+dictation**. So Claude picks up with a compact recap of the task, decisions, and current state
+instead of either the full (expensive) transcript or a blank slate.
+
+It costs **one** model turn (the summary) and, like `clear`, keeps the old transcript on disk so your
+full history still scrolls back. Reach for `clear` when you're starting something unrelated, and
+`compress` when you want to keep going on the same work but trim the running cost.
 
 ## How responses are captured (the once-hard problem, now solved)
 

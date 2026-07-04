@@ -47,6 +47,8 @@ var Registry = []Command{
 		"Re-read Claude's recent replies aloud", "read last"},
 	{Clear, "clear", []string{"clear context", "clear session", "reset context", "start fresh"},
 		"Start Claude fresh — keeps your history, stops re-reading it", "clear context"},
+	{Compress, "compress", []string{"compress context", "compact context", "condense context", "summarize context"},
+		"Compact the context into a summary Claude carries forward — keeps your history", "compress context"},
 	{Cancel, "cancel", []string{"cancel", "never mind"},
 		"Discard the message you're composing", "cancel"},
 	{Stop, "stop", []string{"stop", "quiet", "stop talking"},

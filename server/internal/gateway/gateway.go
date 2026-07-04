@@ -527,6 +527,8 @@ func (c *conn) loop() {
 			c.serveHistory(in.Name, in.Before, in.Limit)
 		case "clear":
 			c.doClear()
+		case "compress":
+			c.doCompress()
 		case "audio_end":
 			c.endAudio()
 		default:

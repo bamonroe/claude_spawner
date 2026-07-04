@@ -32,6 +32,12 @@ Dates are `YYYY-MM-DD`.
 
 ## Done
 
+- [x] 2026-07-03 — `compress` command: the `/compact` analogue of `clear`. Runs a background turn
+      asking Claude to summarize the conversation, rotates to a fresh `session_id` (old transcript
+      kept for `history`, like clear), and stashes the summary as a new durable `Session.PendingSeed`
+      that `dictate` prepends to the next turn — so context is carried forward condensed instead of
+      dropped. New `startCompress` job (abortable, single-writer), `compress` wire message + voice
+      command, `compress_failed` error code; docs + drift-tested command registry updated.
 - [x] 2026-07-03 — Interactive mode: send the ask instruction only on the first turn of a context,
       not every turn. Claude keeps it via `--resume`, so re-appending it each turn just burned
       tokens. New durable `Session.AskPrimed` flag (set on the first interactive turn's success,

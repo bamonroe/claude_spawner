@@ -61,6 +61,8 @@ func (c *conn) runCommand(intent command.Intent) bool {
 		c.send(msgReadLast(intent.Count))
 	case command.Clear:
 		c.doClear()
+	case command.Compress:
+		c.doCompress()
 	default:
 		return false
 	}
@@ -213,8 +215,8 @@ func (c *conn) serveHistory(name string, before *int, limit int) {
 
 // commandHelp is spoken + shown when the user asks "hey buddy help".
 const commandHelp = "here's what I know: attach to a session, detach, list sessions, status, " +
-	"kill a session, spawn a session, spawn a new project, read last, clear the context, stop the turn, cancel message, " +
-	"and help. say hey buddy, then the command, then your end token."
+	"kill a session, spawn a session, spawn a new project, read last, clear the context, compress the context, " +
+	"stop the turn, cancel message, and help. say hey buddy, then the command, then your end token."
 
 // sendSessionList pushes the current sessions to the app without speaking (used
 // for the sidebar / silent refreshes).
@@ -414,12 +416,41 @@ func (c *conn) doClear() {
 	s.SessionID = newID
 	s.Started = false
 	s.AskPrimed = false // fresh context: re-prime the ask instruction on the next turn
+	s.PendingSeed = ""  // a clear means truly empty context — drop any compress seed
 	if err := c.srv.store.Put(s); err != nil {
 		c.send(msgError("internal", err.Error()))
 		return
 	}
 	c.clearBuffer()
 	c.send(msgSay("cleared. starting fresh — your history is still here."))
+}
+
+// doCompress compacts the attached session's Claude context: it asks Claude to
+// summarize the conversation so far, then rotates to a fresh session_id whose
+// next dictation is seeded with that summary. Unlike doClear (which drops context
+// entirely), compress preserves it in condensed form — the Claude Code `/compact`
+// analogue. The old transcript is kept on disk and history still spans the whole
+// chain. The summary runs as a background turn (see startCompress); refused if a
+// turn is in flight or no turn has run yet. Shared by the voice command and the
+// app action.
+func (c *conn) doCompress() {
+	if c.attached == nil {
+		c.send(msgSay("attach to a session first."))
+		return
+	}
+	s := c.attached
+	if !s.Started {
+		c.send(msgSay("nothing to compress yet."))
+		return
+	}
+	if c.srv.isBusy(s.Name) {
+		c.send(msgSay("still working on the last one — try compressing when it's done."))
+		return
+	}
+	c.clearBuffer()
+	if !c.srv.startCompress(s) {
+		c.send(msgSay("still working on the last one."))
+	}
 }
 
 // removeSession deletes a session: detaches if we're on it, drops its job, and
@@ -499,6 +530,12 @@ func (c *conn) dictate(text string) {
 		return
 	}
 	prompt := text
+	// A prior "compress" left a compacted summary of the old context to carry into
+	// this fresh session_id; prepend it to the FIRST dictation so Claude continues
+	// with that condensed context. startTurn clears PendingSeed once the turn lands.
+	if c.attached.PendingSeed != "" && !c.attached.Started {
+		prompt = seedPreamble(c.attached.PendingSeed) + prompt
+	}
 	if c.brief {
 		// Opt-in: nudge Claude toward short, TTS-friendly replies. Only the prompt
 		// to Claude carries the hint; the displayed/echoed transcript stays as spoken.
@@ -517,6 +554,14 @@ func (c *conn) dictate(text string) {
 	}
 	// Mirror the prompt onto any other devices attached to this session.
 	c.srv.echoUserPrompt(c.attached.Name, text, c)
+}
+
+// seedPreamble frames a compress summary as leading context ahead of the user's
+// first dictation on the rotated session, so Claude treats it as the recap of the
+// prior conversation rather than as a new instruction.
+func seedPreamble(seed string) string {
+	return "[Continuing from a compacted session — recap of the conversation so far:]\n\n" +
+		seed + "\n\n[End of recap. The user's message follows.]\n\n"
 }
 
 // affirmative / negative recognize yes/no style dialog replies.

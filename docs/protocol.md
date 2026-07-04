@@ -53,6 +53,7 @@ Every JSON message has a `type`. Optional `id` correlates request/response. `ts`
 | `spawn_at`      | `{ "path": "<dir>" }`                     | create a session in `path` and attach -> `attached` + `session_list` |
 | `history`       | `{ "name": "<session>", "before": <int?>, "limit": <int> }` | request a page of that session's past conversation (from Claude's transcript). `before` = exclusive index cursor (omit for the most recent page; page older by passing the oldest index held). Spans context rotations: after a `clear`, the retired transcripts and the current one are stitched into one continuous, contiguously-indexed conversation. -> `history` |
 | `clear`         | `{}`                                      | rotate the attached session's Claude context: retire the current `session_id` (its transcript kept for `history`) and start a fresh one, so the next dictation replays no prior context. No model tokens spent; history still spans the whole chain. -> `say` |
+| `compress`      | `{}`                                      | compact the attached session's Claude context: run a background turn asking Claude to summarize the conversation, then rotate the `session_id` (old transcript kept for `history`) and carry the summary forward — it seeds the next dictation so Claude continues with the condensed context instead of dropping it (the `/compact` analogue of `clear`). Emits an `activity` breadcrumb while summarizing, then a `say`. Refused if a turn is in flight (`say`) or no turn has run yet (`say`). -> `activity` + `say` |
 | `cancel`        | `{}`                                      | abort current dialog                          |
 | `abort`         | `{}`                                      | cancel the running dictation turn on the attached session (kills the claude child) -> `turn_stopped` |
 | `set_whisper_model` | `{ "whisper_model": "<name>" }`       | switch the server-global resident whisper model (fans out a `whisper_model` broadcast to every connected client) |
@@ -182,4 +183,5 @@ srv -> { "type": "attached", "name": "claude-claude" }
 | `rename_failed`    | rename could not be persisted                            |
 | `transcribe_failed`/`whisper_failed` | STT engine error                       |
 | `turn_failed`      | the dictation turn errored (non-success `result`)        |
+| `compress_failed`  | the `compress` summarization turn errored                |
 | `internal`         | unexpected server error                                  |

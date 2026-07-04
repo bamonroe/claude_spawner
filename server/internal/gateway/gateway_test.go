@@ -503,6 +503,83 @@ func TestInteractiveAskInstructionPrimedOnce(t *testing.T) {
 	}
 }
 
+// TestCompressSummarizesAndSeedsNextTurn: `compress` runs a summary turn, rotates
+// the session_id (old id retired to PriorIDs), and prepends the summary to the
+// NEXT dictation so context is carried forward condensed rather than dropped.
+func TestCompressSummarizesAndSeedsNextTurn(t *testing.T) {
+	ts, root, gw := newTestServerGW(t, nil)
+	if err := os.MkdirAll(filepath.Join(root, "myproj"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	capPath := filepath.Join(t.TempDir(), "prompts.txt")
+	gw.driver.Bin = fakeClaudeCapture(t, "recap-blob", capPath)
+
+	ws := dial(t, ts)
+	send(t, ws, map[string]any{"type": "hello", "token": "secret"})
+	readUntil(t, ws, "hello_ok")
+
+	send(t, ws, map[string]any{"type": "utterance", "text": "hey buddy, spawn a new session"})
+	readUntil(t, ws, "dialog")
+	send(t, ws, map[string]any{"type": "utterance", "text": filepath.Base(root)})
+	readUntil(t, ws, "dialog")
+	send(t, ws, map[string]any{"type": "utterance", "text": "myproj"})
+	readUntil(t, ws, "dialog")
+	send(t, ws, map[string]any{"type": "utterance", "text": "yes"})
+	name := readUntil(t, ws, "attached")["name"].(string)
+
+	// First real turn establishes context.
+	send(t, ws, map[string]any{"type": "utterance", "text": "first turn"})
+	readUntil(t, ws, "output")
+	origID := gw.store.Get(name).SessionID
+
+	// Compress: a background summary turn, then a rotation. The confirming say lands
+	// after the summary completes.
+	send(t, ws, map[string]any{"type": "compress"})
+	if m := readUntil(t, ws, "say"); !strings.Contains(m["text"].(string), "compressed") {
+		t.Fatalf("compress say = %v, want a 'compressed' confirmation", m["text"])
+	}
+	rec := gw.store.Get(name)
+	if len(rec.PriorIDs) != 1 || rec.PriorIDs[0] != origID {
+		t.Fatalf("expected the original session_id retired to PriorIDs, got %v (orig %q)", rec.PriorIDs, origID)
+	}
+	if rec.SessionID == origID {
+		t.Fatalf("compress must rotate to a fresh session_id, still %q", rec.SessionID)
+	}
+	if rec.PendingSeed != "recap-blob" {
+		t.Fatalf("compress should stash the summary as PendingSeed, got %q", rec.PendingSeed)
+	}
+	if rec.Started {
+		t.Fatal("rotated session should be un-Started until the next dictation")
+	}
+
+	// Next dictation carries the summary forward and clears the pending seed.
+	send(t, ws, map[string]any{"type": "utterance", "text": "next turn"})
+	readUntil(t, ws, "output")
+	if seed := gw.store.Get(name).PendingSeed; seed != "" {
+		t.Fatalf("PendingSeed should be cleared after the seeded turn, got %q", seed)
+	}
+
+	data, err := os.ReadFile(capPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var prompts []string
+	for _, r := range strings.Split(string(data), "===RECORD===") {
+		if strings.TrimSpace(r) != "" {
+			prompts = append(prompts, r)
+		}
+	}
+	if len(prompts) != 3 {
+		t.Fatalf("expected 3 claude invocations (turn, summary, seeded turn), got %d: %q", len(prompts), prompts)
+	}
+	if !strings.Contains(prompts[1], "Summarize our conversation") {
+		t.Fatalf("second invocation should be the summary request, got %q", prompts[1])
+	}
+	if !strings.Contains(prompts[2], "recap-blob") || !strings.Contains(prompts[2], "next turn") {
+		t.Fatalf("third invocation should prepend the summary to the dictation, got %q", prompts[2])
+	}
+}
+
 func TestRestartBroadcastsAndSignals(t *testing.T) {
 	ts, _, gw := newTestServerGW(t, nil)
 

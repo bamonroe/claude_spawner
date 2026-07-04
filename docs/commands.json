@@ -35,6 +35,16 @@
       "description": "Start Claude fresh — keeps your history, stops re-reading it"
     },
     {
+      "title": "compress",
+      "aliases": [
+        "compress context",
+        "compact context",
+        "condense context",
+        "summarize context"
+      ],
+      "description": "Compact the context into a summary Claude carries forward — keeps your history"
+    },
+    {
       "title": "detach",
       "aliases": [
         "detach",

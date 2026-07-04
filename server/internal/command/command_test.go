@@ -84,6 +84,23 @@ func TestParseClear(t *testing.T) {
 	}
 }
 
+func TestParseCompress(t *testing.T) {
+	for _, in := range []string{"compress", "compress context", "compress session",
+		"compact", "compact context", "compact the context", "condense context",
+		"summarize the context", "compact it"} {
+		if got := Parse(in); got.Kind != Compress {
+			t.Errorf("Parse(%q).Kind = %s, want compress", in, got.Kind)
+		}
+	}
+	// Dictation that merely mentions compressing/summarizing must NOT match — these
+	// are longer, non-command utterances that should flow through to Claude.
+	for _, in := range []string{"compress the image before uploading", "summarize the readme file"} {
+		if got := Parse(in); got.Kind == Compress {
+			t.Errorf("Parse(%q) = %s, must not be Compress", in, got.Kind)
+		}
+	}
+}
+
 func TestApplyAliases(t *testing.T) {
 	al := map[string]string{"attached": "attach", "the tach": "detach", "listed": "list"}
 	cases := []struct{ in, want string }{
