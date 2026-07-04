@@ -11,10 +11,11 @@ it reads the server's `say`/`output` replies aloud (TTS).
 - **Push-to-talk**: hold the mic button to stream Opus audio → server transcribes (whisper.cpp) →
   reply.
 - **Hands-free** (always-listening): a mic `VoiceService` streams VAD-gated speech; wake word and
-  end token are detected in the transcript (no on-device Porcupine). Draft shown live. Toggle it by
-  **holding the mic button and swiping up** — no separate top-bar switch. Swiping up during a
-  push-to-talk hold abandons that clip and flips hands-free instead; swiping up while hands-free is
-  on turns it back off.
+  end token are detected in the transcript (no on-device Porcupine). Draft shown live. Turn it **on**
+  by **holding the mic button and dragging up** — a drag track appears above the button showing how
+  far to go, filling toward a 🎧 target; reaching it abandons the in-progress push-to-talk clip and
+  flips into hands-free. While hands-free is on the button is a **red headset** (so it's obvious the
+  mic is live); **tap it once to turn hands-free back off**. No separate top-bar switch.
 - **Type an utterance** to drive the whole spawn/attach/dictate flow without a mic.
 - **Chat UI**: per-session logs + server-served history, drawer session list (with ⚙️ busy flags),
   visual directory browser for new sessions, rename/delete.

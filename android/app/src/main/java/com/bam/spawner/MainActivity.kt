@@ -689,6 +689,10 @@ private fun InputBar(
 ) {
     var draft by rememberSaveable { mutableStateOf("") }
     var talking by remember { mutableStateOf(false) }
+    // Non-null while the mic is held: 0f..1f progress of the drag toward the
+    // hands-free threshold. Drives the drag track's fill so you can see how far
+    // is left. Null hides the track.
+    var swipeFraction by remember { mutableStateOf<Float?>(null) }
     val hasText = draft.isNotBlank()
     // While hands-free owns the mic, push-to-talk is disabled.
     val pushToTalkEnabled = !handsFree
@@ -704,58 +708,91 @@ private fun InputBar(
             modifier = Modifier.weight(1f),
         )
         // One button, WhatsApp-style: SEND when there's text (tap to send, hold to
-        // clear), MIC when the box is empty (hold to talk; swipe up to toggle
-        // hands-free).
-        Surface(
-            color = when {
-                talking -> MaterialTheme.colorScheme.error
-                hasText && connected -> MaterialTheme.colorScheme.primary
-                micLive -> MaterialTheme.colorScheme.primary
-                else -> MaterialTheme.colorScheme.surfaceVariant
-            },
-            shape = CircleShape,
-            // Re-arm the gesture whenever the role changes.
-            modifier = Modifier.size(48.dp).pointerInput(hasText, handsFree, connected) {
-                // Distance the finger must travel upward for a hold to be
-                // reinterpreted as a hands-free toggle instead of push-to-talk.
-                val swipeUpPx = 48.dp.toPx()
-                when {
-                    hasText -> detectTapGestures(
-                        onTap = { if (connected) { onSend(draft); draft = "" } },
-                        onLongPress = { draft = "" }, // hold clears the box
+        // clear); MIC when the box is empty (hold to talk; drag up the track to
+        // switch to hands-free); HEADSET when hands-free is on (tap to turn off).
+        Box(contentAlignment = Alignment.BottomCenter) {
+            // The drag track: only visible while the mic is held. It shows the
+            // path (and how far) you must drag up to switch into hands-free, and
+            // fills toward the headset target as you go.
+            swipeFraction?.let { frac ->
+                Box(
+                    Modifier
+                        .offset(y = (-54).dp) // float just above the mic button
+                        .size(width = 22.dp, height = 58.dp)
+                        .clip(RoundedCornerShape(11.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                    contentAlignment = Alignment.BottomCenter,
+                ) {
+                    // Fill grows from the bottom up as the drag nears the threshold.
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .fillMaxHeight(frac)
+                            .background(MaterialTheme.colorScheme.primary),
                     )
-                    // Empty box + connected: hold to talk (when hands-free is off),
-                    // and swipe up during the hold to toggle hands-free either way.
-                    connected -> awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = false)
-                        val startY = down.position.y
-                        val ptt = pushToTalkEnabled // start push-to-talk only if hands-free is off
-                        if (ptt) { talking = true; onTalkStart() }
-                        var toggled = false
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                            if (!change.pressed) break // released
-                            if (!toggled && startY - change.position.y >= swipeUpPx) {
-                                toggled = true
-                                // Abandon the in-progress push-to-talk; this hold is a toggle.
-                                if (ptt && talking) { onTalkCancel(); talking = false }
+                    // The target at the top of the track.
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                        Text("🎧", fontSize = 12.sp, modifier = Modifier.padding(top = 3.dp))
+                    }
+                }
+            }
+            Surface(
+                color = when {
+                    talking -> MaterialTheme.colorScheme.error
+                    handsFree -> MaterialTheme.colorScheme.error // hands-free = live mic; red headset
+                    hasText && connected -> MaterialTheme.colorScheme.primary
+                    micLive -> MaterialTheme.colorScheme.primary
+                    else -> MaterialTheme.colorScheme.surfaceVariant
+                },
+                shape = CircleShape,
+                // Re-arm the gesture whenever the role changes.
+                modifier = Modifier.size(48.dp).pointerInput(hasText, handsFree, connected) {
+                    // Distance the finger must travel upward for a hold to be
+                    // reinterpreted as switching into hands-free instead of push-to-talk.
+                    val swipeUpPx = 48.dp.toPx()
+                    when {
+                        hasText -> detectTapGestures(
+                            onTap = { if (connected) { onSend(draft); draft = "" } },
+                            onLongPress = { draft = "" }, // hold clears the box
+                        )
+                        // Hands-free on: a single tap on the headset turns it off.
+                        handsFree -> detectTapGestures(onTap = { onToggleHandsFree(false) })
+                        // Empty box + connected + hands-free off: hold to talk, and
+                        // drag up past the track to switch into hands-free.
+                        connected -> awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val startY = down.position.y
+                            talking = true; onTalkStart()
+                            swipeFraction = 0f // reveal the track
+                            var toggled = false
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                if (!change.pressed) break // released
+                                val dy = (startY - change.position.y).coerceAtLeast(0f)
+                                swipeFraction = (dy / swipeUpPx).coerceIn(0f, 1f)
+                                if (!toggled && dy >= swipeUpPx) {
+                                    toggled = true
+                                    // Abandon the in-progress push-to-talk; this hold is a switch.
+                                    if (talking) { onTalkCancel(); talking = false }
+                                }
+                            }
+                            swipeFraction = null // hide the track
+                            when {
+                                toggled -> onToggleHandsFree(true)
+                                talking -> { onTalkStop(); talking = false }
                             }
                         }
-                        when {
-                            toggled -> onToggleHandsFree(!handsFree)
-                            ptt && talking -> { onTalkStop(); talking = false }
-                        }
+                        else -> {} // disconnected: inert
                     }
-                    else -> {} // disconnected: inert
+                },
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        when { hasText -> "➤"; !pushToTalkEnabled -> "🎧"; else -> "🎤" },
+                        fontSize = 20.sp,
+                    )
                 }
-            },
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Text(
-                    when { hasText -> "➤"; !pushToTalkEnabled -> "🎧"; else -> "🎤" },
-                    fontSize = 20.sp,
-                )
             }
         }
     }
