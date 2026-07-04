@@ -48,6 +48,14 @@ func (f *fakeSTT) Transcribe(_ context.Context, wav []byte, _ transcribe.Options
 
 func newTestServer(t *testing.T, stt transcribe.Transcriber) (*httptest.Server, string) {
 	t.Helper()
+	ts, root, _ := newTestServerGW(t, stt)
+	return ts, root
+}
+
+// newTestServerGW is newTestServer but also returns the gateway, for tests that
+// need to observe server-level state (e.g. RestartRequested).
+func newTestServerGW(t *testing.T, stt transcribe.Transcriber) (*httptest.Server, string, *Server) {
+	t.Helper()
 	// Use an all-lowercase temp root: STT output is lowercase, so a root with
 	// capitals (as t.TempDir produces) can't be matched from a spoken path.
 	root, err := os.MkdirTemp("", "spawner")
@@ -69,7 +77,7 @@ func newTestServer(t *testing.T, stt transcribe.Transcriber) (*httptest.Server, 
 	gw := New(cfg, store, driver, tmux.NewManager(), stt, projects.New(cfg.SpawnRoots))
 	ts := httptest.NewServer(http.HandlerFunc(gw.HandleWS))
 	t.Cleanup(ts.Close)
-	return ts, root
+	return ts, root, gw
 }
 
 func dial(t *testing.T, ts *httptest.Server) *websocket.Conn {
@@ -424,4 +432,34 @@ func TestListEmptyThenAfterSpawn(t *testing.T) {
 	if sl, ok := m["sessions"].([]any); !ok || len(sl) != 0 {
 		t.Fatalf("expected empty session list, got %v", m["sessions"])
 	}
+}
+
+func TestRestartBroadcastsAndSignals(t *testing.T) {
+	ts, _, gw := newTestServerGW(t, nil)
+
+	// Two clients: the one that asks and a bystander. Both should hear the `say`.
+	asker := dial(t, ts)
+	send(t, asker, map[string]any{"type": "hello", "token": "secret", "client_id": "a"})
+	readUntil(t, asker, "hello_ok")
+	other := dial(t, ts)
+	send(t, other, map[string]any{"type": "hello", "token": "secret", "client_id": "b"})
+	readUntil(t, other, "hello_ok")
+
+	send(t, asker, map[string]any{"type": "restart"})
+	if m := readUntil(t, asker, "say"); !strings.Contains(m["text"].(string), "restarting") {
+		t.Fatalf("asker say = %v, want a restarting notice", m["text"])
+	}
+	if m := readUntil(t, other, "say"); !strings.Contains(m["text"].(string), "restarting") {
+		t.Fatalf("bystander say = %v, want a restarting notice", m["text"])
+	}
+
+	// main() would now exit-for-relaunch: the restart channel must be closed.
+	select {
+	case <-gw.RestartRequested():
+	case <-time.After(2 * time.Second):
+		t.Fatal("RestartRequested was not signaled")
+	}
+
+	// Idempotent: a second request must not panic on a double close.
+	gw.RequestRestart()
 }

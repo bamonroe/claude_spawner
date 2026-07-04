@@ -353,6 +353,16 @@ func (c *conn) doSetWhisperModel(name string) {
 	}()
 }
 
+// doRestart tells every connected app the server is going down, then signals
+// main() to exit so the process supervisor (the systemd unit) rebuilds and
+// relaunches it — picking up any new server code. The app auto-reconnects once
+// the fresh process is listening again. Any authenticated client may trigger
+// this; the trust boundary is the same as spawning arbitrary commands.
+func (c *conn) doRestart() {
+	c.srv.broadcast(msgSay("restarting the server — back in a moment."))
+	c.srv.RequestRestart()
+}
+
 // abortTurn cancels the running turn on the attached session (kills the claude
 // child). The turn's goroutine then delivers a `turn_stopped` to clear the app.
 func (c *conn) abortTurn() {

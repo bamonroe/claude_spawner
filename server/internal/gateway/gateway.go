@@ -52,6 +52,9 @@ type Server struct {
 	connsMu sync.Mutex
 	conns   map[*conn]bool // currently-connected apps, for shutdown broadcasts
 
+	restartCh   chan struct{} // closed when a client requests a restart (main() then exits)
+	restartOnce sync.Once     // guards restartCh against a double close
+
 	whisperMu     sync.Mutex // guards the resident whisper server's currently-loaded model
 	whisperLoaded string     // "<url>|<model>" last hot-loaded, to skip redundant /load calls
 	currentModel  string     // the resident server's model NAME (server-global; apps read it)
@@ -153,6 +156,7 @@ func New(cfg *config.Config, store *session.Store, driver *session.Driver, tmuxM
 		clients:      map[string]*clientState{},
 		jobs:         map[string]*sessionJob{},
 		conns:        map[*conn]bool{},
+		restartCh:    make(chan struct{}),
 		inflight:     inflight,
 		interrupted:  interrupted,
 		currentModel: cfg.WhisperModelName, // authoritative from boot; loaded below
@@ -263,6 +267,32 @@ func (s *Server) NotifyShutdown() {
 		if j := s.job(c.attached.Name); j != nil && j.isRunning() {
 			c.send(msgTurnInterrupted(c.attached.Name, "server restarting"))
 		}
+	}
+}
+
+// RequestRestart signals main() (via RestartRequested) that a client asked the
+// server to restart, so the process exits and its supervisor (the systemd unit,
+// whose ExecStartPre rebuilds) relaunches it on current code. Idempotent: a
+// second call is a no-op, so two clients hitting the button can't double-close.
+func (s *Server) RequestRestart() {
+	s.restartOnce.Do(func() { close(s.restartCh) })
+}
+
+// RestartRequested is closed once RequestRestart runs; main() selects on it to
+// begin a graceful, exit-for-relaunch shutdown.
+func (s *Server) RestartRequested() <-chan struct{} { return s.restartCh }
+
+// broadcast sends a message to every currently-connected app (best-effort; a
+// failed write to a dropped socket is ignored).
+func (s *Server) broadcast(v any) {
+	s.connsMu.Lock()
+	cs := make([]*conn, 0, len(s.conns))
+	for c := range s.conns {
+		cs = append(cs, c)
+	}
+	s.connsMu.Unlock()
+	for _, c := range cs {
+		c.send(v)
 	}
 }
 
@@ -485,6 +515,8 @@ func (c *conn) loop() {
 			c.abortTurn()
 		case "set_whisper_model":
 			c.doSetWhisperModel(in.WhisperModel)
+		case "restart":
+			c.doRestart()
 		case "wake":
 			c.startAudio(in.Codec, in.HandsFree, in.Calibrate)
 		case "commit":

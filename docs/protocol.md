@@ -56,6 +56,7 @@ Every JSON message has a `type`. Optional `id` correlates request/response. `ts`
 | `cancel`        | `{}`                                      | abort current dialog                          |
 | `abort`         | `{}`                                      | cancel the running dictation turn on the attached session (kills the claude child) -> `turn_stopped` |
 | `set_whisper_model` | `{ "whisper_model": "<name>" }`       | switch the server-global resident whisper model (fans out a `whisper_model` broadcast to every connected client) |
+| `restart`       | `{}`                                      | ask the server to restart: it broadcasts a `say` to every client, then exits non-zero so its supervisor (the systemd unit, whose `ExecStartPre` rebuilds) relaunches it on current code. Any authenticated client may trigger this; the app auto-reconnects once the fresh process is listening. Under `docker`/`go run` (no supervisor) the process just exits. |
 | `commit`        | `{}`                                      | force-commit the hands-free buffer (used by the client-side silence timeout); no-op if the buffer is empty |
 | `discard_draft` | `{}`                                      | drop the uncommitted hands-free draft (buffer + audio) without committing it, and clear the on-screen draft (`pending ""`); sent when hands-free is toggled off mid-draft so a stale draft can't bleed into the next capture |
 | `ping`          | `{}`                                      | keepalive                                     |
