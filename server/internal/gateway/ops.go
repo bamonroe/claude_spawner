@@ -327,6 +327,13 @@ func (c *conn) serveHistory(name string, before *int, limit int) {
 		b = *before
 	}
 	page, more := session.HistoryPage(msgs, b, limit)
+	// Strip the server-injected scaffolding from user messages so replayed history
+	// matches what the live view showed (and never re-surfaces hidden instructions).
+	for i := range page {
+		if page[i].Role == "user" {
+			page[i].Text = stripInjected(page[i].Text)
+		}
+	}
 	c.send(msgHistory(name, page, more))
 }
 
@@ -657,7 +664,7 @@ func (c *conn) dictate(text string) {
 	if c.brief {
 		// Opt-in: nudge Claude toward short, TTS-friendly replies. Only the prompt
 		// to Claude carries the hint; the displayed/echoed transcript stays as spoken.
-		prompt += "\n\n(Reply briefly, in plain sentences suitable for text-to-speech.)"
+		prompt += briefSuffix
 	}
 	// Interactive mode: append the ask instruction only until it's been primed for
 	// this context. Claude retains it across turns via --resume, so re-sending it
@@ -674,12 +681,38 @@ func (c *conn) dictate(text string) {
 	c.srv.echoUserPrompt(c.attached.Name, text, c)
 }
 
+// Scaffolding the server appends to a dictation before sending it to Claude. It's
+// deliberately kept out of the live echo (dictate sends the raw text to other
+// devices), so history — read back from Claude's transcript, which stores the
+// augmented prompt — must strip it too (stripInjected) to match the live view.
+const briefSuffix = "\n\n(Reply briefly, in plain sentences suitable for text-to-speech.)"
+
 // seedPreamble frames a compress summary as leading context ahead of the user's
 // first dictation on the rotated session, so Claude treats it as the recap of the
 // prior conversation rather than as a new instruction.
+const (
+	seedRecapOpen  = "[Continuing from a compacted session — recap of the conversation so far:]\n\n"
+	seedRecapClose = "\n\n[End of recap. The user's message follows.]\n\n"
+)
+
 func seedPreamble(seed string) string {
-	return "[Continuing from a compacted session — recap of the conversation so far:]\n\n" +
-		seed + "\n\n[End of recap. The user's message follows.]\n\n"
+	return seedRecapOpen + seed + seedRecapClose
+}
+
+// stripInjected removes the server-appended prompt scaffolding — the brief-reply
+// nudge, the interactive-mode ask instruction, and any compress recap preamble —
+// from a stored user message, so history shows exactly the text the user spoke.
+// This keeps the history view consistent with the live echo (which never carried
+// the scaffolding) and lets the app dedupe a replayed turn against its live copy.
+func stripInjected(text string) string {
+	text = strings.TrimSuffix(text, askInstruction)
+	text = strings.TrimSuffix(text, briefSuffix)
+	if strings.HasPrefix(text, seedRecapOpen) {
+		if i := strings.Index(text, seedRecapClose); i >= 0 {
+			text = text[i+len(seedRecapClose):]
+		}
+	}
+	return text
 }
 
 // affirmative / negative recognize yes/no style dialog replies.

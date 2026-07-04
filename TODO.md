@@ -36,6 +36,15 @@ Dates are `YYYY-MM-DD`.
 
 ## Done
 
+- [x] 2026-07-04 — **Fix: history replay showed injected prompt scaffolding + duplicated a turn.**
+      The server appends scaffolding to a dictation before sending it to Claude (brief-reply nudge,
+      interactive-mode ask instruction, compress recap preamble) but echoes only the raw text live.
+      History reads Claude's transcript, which stores the augmented prompt — so on reattach the
+      injected text surfaced (never shown live), and because it no longer matched the clean live copy
+      the app's `(role,text)` dedupe missed, leaving the turn duplicated/out of order. Now
+      `serveHistory` runs user messages through `stripInjected` to recover the spoken text, so the
+      history and live views are consistent and the replayed turn dedupes. Server-only.
+
 - [x] 2026-07-04 — **Fix: status-bar context-size readout didn't reset on `clear`/`compress`.**
       The title-bar 🧠 token count is driven by the last turn's `usage`, but `clear` (and `compress`)
       only rotated the session and spoke a `say` — neither told the app the context was now fresh, so
