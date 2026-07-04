@@ -160,6 +160,20 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
         client?.send(Outbound.usage())
     }
 
+    /** "set" button: stamp the current odometer + real percentages as the two-point benchmark start. */
+    fun setUsageBenchmark() {
+        _usageReport.value = null
+        _usageLoading.value = true
+        client?.send(Outbound.usageSet())
+    }
+
+    /** "calc" button: derive the tokens-per-percent rate directly from the benchmark interval. */
+    fun calcUsageMax() {
+        _usageReport.value = null
+        _usageLoading.value = true
+        client?.send(Outbound.usageCalc())
+    }
+
     /** Dismiss the usage sheet and clear its state. */
     fun dismissUsage() {
         _usageReport.value = null

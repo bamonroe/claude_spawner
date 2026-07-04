@@ -68,6 +68,9 @@ sealed interface ServerMsg {
                     o.optDouble("session_real_pct", -1.0), o.optDouble("week_real_pct", -1.0),
                     o.optLong("cum_tokens"), o.optLong("tokens_since_check"),
                     o.optLong("turns_since_check"), o.optLong("last_check_at"),
+                    o.optBoolean("bench_set"),
+                    o.optDouble("bench_sess_pct", -1.0), o.optDouble("bench_week_pct", -1.0),
+                    o.optLong("bench_tokens"), o.optLong("tokens_since_set"),
                 ))
                 "error" -> Err(o.optString("code"), o.optString("message"))
                 "turn_interrupted" -> TurnInterrupted(o.optString("name"), o.optString("reason"))
@@ -174,6 +177,11 @@ data class UsageEstimateInfo(
     val sessionRealPct: Double, val weekRealPct: Double,
     val cumTokens: Long, val tokensSinceCheck: Long,
     val turnsSinceCheck: Long, val lastCheckAt: Long,
+    // Manual benchmark ("set" button): whether one is armed, the percentages/
+    // odometer it was stamped at, and the tokens burned since (what "calc" divides).
+    val benchSet: Boolean = false,
+    val benchSessPct: Double = -1.0, val benchWeekPct: Double = -1.0,
+    val benchTokens: Long = 0, val tokensSinceSet: Long = 0,
 )
 
 /** One past message from a session's server-served history. */
@@ -217,6 +225,8 @@ object Outbound {
             .toString()
     fun utterance(text: String) = JSONObject().put("type", "utterance").put("text", text).toString()
     fun usage() = JSONObject().put("type", "usage").toString() // fetch the plan's /usage report
+    fun usageSet() = JSONObject().put("type", "usage_set").toString() // arm the two-point rate benchmark
+    fun usageCalc() = JSONObject().put("type", "usage_calc").toString() // derive the rate from the benchmark
     fun abort() = JSONObject().put("type", "abort").toString() // cancel the running turn
     fun setWhisperModel(model: String) =
         JSONObject().put("type", "set_whisper_model").put("whisper_model", model).toString()

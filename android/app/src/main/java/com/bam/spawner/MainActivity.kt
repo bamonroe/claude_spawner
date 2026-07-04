@@ -448,7 +448,12 @@ private fun MainScreen(
     // Usage sheet: opened by "Check usage" (tap) or the "usage" voice command
     // (report arrives unprompted). Shows while loading and once the report lands.
     if (usageLoading || usageReport != null) {
-        UsageSheet(usageLoading, usageReport, usageEstimate, onDismiss = { controller.dismissUsage() })
+        UsageSheet(
+            usageLoading, usageReport, usageEstimate,
+            onSet = { controller.setUsageBenchmark() },
+            onCalc = { controller.calcUsageMax() },
+            onDismiss = { controller.dismissUsage() },
+        )
     }
 }
 
@@ -456,7 +461,10 @@ private fun MainScreen(
 // used as bars up top, then the full contributing breakdown verbatim. Spinner
 // while the server runs /usage. See VoiceController.requestUsage.
 @Composable
-private fun UsageSheet(loading: Boolean, report: UsageReport?, estimate: UsageEstimateInfo?, onDismiss: () -> Unit) {
+private fun UsageSheet(
+    loading: Boolean, report: UsageReport?, estimate: UsageEstimateInfo?,
+    onSet: () -> Unit, onCalc: () -> Unit, onDismiss: () -> Unit,
+) {
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
@@ -485,6 +493,21 @@ private fun UsageSheet(loading: Boolean, report: UsageReport?, estimate: UsageEs
                                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
                             Text("odometer: ${fmtTokL(e.cumTokens)} tokens · +${e.turnsSinceCheck} turns since last check",
                                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                        }
+                        // Manual two-point rate calibration. "Set" marks the current
+                        // odometer/percentages; after burning enough tokens to move a few
+                        // whole percent, "Calc" sets tokens-per-percent directly from that
+                        // interval — no EMA, so it beats the passive check's rounding bias.
+                        Spacer(Modifier.height(12.dp)); HorizontalDivider(); Spacer(Modifier.height(8.dp))
+                        Text("Calibrate max (two-point)", style = MaterialTheme.typography.labelMedium)
+                        estimate?.takeIf { it.benchSet }?.let { e ->
+                            Text("benchmark: ${pctStr(e.benchSessPct)} session · ${pctStr(e.benchWeekPct)} week · +${fmtTokL(e.tokensSinceSet)} tokens since",
+                                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                        } ?: Text("no benchmark set — tap Set, burn a few % of tokens, then Calc",
+                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                        Row {
+                            TextButton(onClick = onSet) { Text("📍 Set") }
+                            TextButton(onClick = onCalc) { Text("🧮 Calc max") }
                         }
                         val idx = report.text.indexOf("What's contributing")
                         if (idx >= 0) {
