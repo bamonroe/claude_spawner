@@ -801,8 +801,25 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
         scrollToBottom() // attaching / switching → show the latest (history refresh re-scrolls)
     }
 
+    // ordered returns the log sorted chronologically by timestamp. History carries
+    // server transcript time; live messages carry the phone's wall clock at arrival
+    // (addChat) — both unix seconds, so they interleave correctly. Two guards keep it
+    // safe: (1) messages predating transcript timestamps have ts==0, so a timestamp is
+    // carried forward from the preceding message (computed on the pre-sort order, where
+    // the zeros sit contiguously at the front of the history block) instead of letting
+    // them float to the top; (2) the sort is stable, so equal timestamps preserve the
+    // existing order (history ahead of the live tail, live in arrival order).
+    private fun ordered(msgs: List<ChatMessage>): List<ChatMessage> {
+        var carried = 0L
+        val stamped = msgs.map { m ->
+            if (m.ts > 0L) carried = m.ts
+            m to carried
+        }
+        return stamped.sortedBy { it.second }.map { it.first }
+    }
+
     // onHistory merges a server-served page of OLDER messages into the session's
-    // log (prepended, ahead of any live messages), and updates the paging cursor.
+    // log, ordered chronologically with any live messages, and updates the paging cursor.
     private fun onHistory(msg: ServerMsg.History) {
         val wasLoadOlder = msg.name in loadingOlder // else it's the top page (on (re)attach)
         val hist = msg.messages.map { ChatMessage(roleOf(it.role), it.text, it.index, ts = it.ts) }
@@ -816,7 +833,11 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
         val existing = (logs[msg.name] ?: emptyList()).filter {
             (it.index < 0 && (it.role to it.text) !in histTexts) || (it.index >= 0 && it.index !in histIdx)
         }
-        logs[msg.name] = hist + existing
+        // Merge by timestamp, not by concatenation: a surviving live message (e.g. a
+        // mid-turn breadcrumb not present in the fetched page) may be OLDER than the
+        // history block, so `hist + existing` would strand it at the bottom, out of
+        // order. Ordering by ts drops it back into its true chronological slot.
+        logs[msg.name] = ordered(hist + existing)
         if (msg.messages.isNotEmpty()) oldestIndex[msg.name] = msg.messages.first().index
         hasMore[msg.name] = msg.more
         loadingOlder.remove(msg.name)
