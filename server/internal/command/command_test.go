@@ -13,6 +13,8 @@ func TestStripWake(t *testing.T) {
 		{"hey bud stop", "stop", true},
 		{"Hey, bud, detach", "detach", true},
 		{"hey body list sessions", "list sessions", true}, // whisper mishearing
+		{"everybody detach", "detach", true},              // one-word collapse of "hey buddy"
+		{"Everybody, status", "status", true},
 		{"just some dictation", "just some dictation", false},
 		{"hey there friend", "hey there friend", false},
 	}
@@ -35,7 +37,8 @@ func TestSplitWake(t *testing.T) {
 		{"fix the bug hey buddy detach", "fix the bug", "detach", true},
 		{"hey buddy cancel message", "", "cancel message", true},
 		{"add caching hey bud status", "add caching", "status", true},
-		{"Hey, body, list sessions", "", "list sessions", true}, // mishearing, mid-strip
+		{"Hey, body, list sessions", "", "list sessions", true},         // mishearing, mid-strip
+		{"fix the bug everybody detach", "fix the bug", "detach", true}, // one-word collapse mid-strip
 		// Multiple wakes: last command wins, dictation kept, middle discarded.
 		{"fix the bug hey buddy detach hey buddy status", "fix the bug", "status", true},
 		{"hey buddy list hey buddy detach", "", "detach", true},

@@ -27,11 +27,23 @@ Dates are `YYYY-MM-DD`.
       messages, but there's no "hey buddy" voice command for it yet).
 
 ### Later / nice-to-have
+- [ ] Plumb the wake-token alias list (`command.wakePhrases`) through the same pipeline as command
+      aliases (→ `docs/commands.json` → `generateCommands` → app), so wake mishearings are visible
+      and **editable in the app's alias editor** like regular commands. Server list is authoritative
+      today; this makes it user-tunable on-device.
 - [ ] On-device fallback STT when offline.
 - [ ] iOS app.
 
 ## Done
 
+- [x] 2026-07-04 — Wake token as a data-driven **alias list** (`command.wakePhrases`, single source
+      of truth, the wake-word analogue of a command's aliases). Generalized the matcher to
+      variable-width phrases so **one-word collapses** whisper produces for "hey buddy" — notably
+      **"everybody"** — now fire the wake, not just two-word "hey X" mishearings. Fixes "everybody
+      detach" (a real live mishearing) falling through to dictation. Tests + `docs/commands.md`.
+- [x] 2026-07-04 — Android send-button UX: visible **drag track** above the mic showing how far to
+      drag up for hands-free; **tap** the headset to turn hands-free off (was: swipe up again);
+      **red headset** while hands-free is live.
 - [x] 2026-07-03 — `compress` command: the `/compact` analogue of `clear`. Runs a background turn
       asking Claude to summarize the conversation, rotates to a fresh `session_id` (old transcript
       kept for `history`, like clear), and stashes the summary as a new durable `Session.PendingSeed`

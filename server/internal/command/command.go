@@ -41,56 +41,89 @@ type Intent struct {
 	Count    int // for ReadLast: how many recent Claude replies to re-read
 }
 
-// wakeSeconds are the accepted second words after "hey" (incl. common whisper
-// mishearings of "buddy").
-var wakeSeconds = map[string]bool{
-	"buddy": true, "bud": true, "body": true, "buddie": true, "budy": true,
+// wakePhrases is the single source of truth for the wake token — the spoken
+// prefix that flags an utterance as a control command rather than dictation. It
+// is the wake-word analogue of command.Registry's per-command Aliases: the
+// canonical "hey buddy" first, then accepted whisper mishearings. TWO-word forms
+// cover mishearings of "buddy"; SINGLE-word forms cover cases where whisper
+// collapsed the whole phrase into one token (e.g. "everybody" for "hey buddy").
+// Teach the server a new mishearing by adding it here — every wake match reads
+// from this list, nothing is hardcoded elsewhere.
+//
+// Caution on single-word aliases: they are ordinary English words, so they wake
+// more eagerly than the distinctive two-word "hey buddy" (e.g. "everybody knows"
+// now strips a wake). They earn their place only because whisper reliably emits
+// them for the real wake word; keep the single-word set small.
+var wakePhrases = [][]string{
+	{"hey", "buddy"},
+	{"hey", "bud"},
+	{"hey", "body"},
+	{"hey", "buddie"},
+	{"hey", "budy"},
+	{"everybody"},
+	{"heybuddy"},
 }
 
-// StripWake removes an optional leading wake phrase ("hey buddy" / "hey bud",
-// with optional punctuation) and reports whether it was present. Used to
-// distinguish control commands from plain dictation while attached.
+// StripWake removes an optional leading wake phrase (any wakePhrases entry, with
+// optional punctuation) and reports whether it was present. Used to distinguish
+// control commands from plain dictation while attached.
 func StripWake(text string) (rest string, hadWake bool) {
 	words := strings.Fields(strings.TrimSpace(text))
-	if len(words) >= 2 {
-		if wakeAt(words, 0) {
-			return strings.Join(words[2:], " "), true
-		}
+	if n := wakeAt(words, 0); n > 0 {
+		return strings.Join(words[n:], " "), true
 	}
 	return strings.TrimSpace(text), false
 }
 
-// SplitWake locates the wake phrase ("hey buddy") in the text and splits into
-// dictation + command. If "hey buddy" appears MULTIPLE times (the user
-// self-corrected the command), the LAST one wins: before = text preceding the
-// FIRST wake (the dictation), after = text following the LAST wake (the command);
-// anything in between (earlier command attempts) is discarded.
+// SplitWake locates the wake phrase in the text and splits into dictation +
+// command. If the wake phrase appears MULTIPLE times (the user self-corrected the
+// command), the LAST one wins: before = text preceding the FIRST wake (the
+// dictation), after = text following the LAST wake (the command); anything in
+// between (earlier command attempts) is discarded.
 func SplitWake(text string) (before, after string, found bool) {
 	words := strings.Fields(strings.TrimSpace(text))
-	first, last := -1, -1
-	for i := 0; i+1 < len(words); i++ {
-		if wakeAt(words, i) {
+	first, last, lastN := -1, -1, 0
+	for i := 0; i < len(words); {
+		if n := wakeAt(words, i); n > 0 {
 			if first < 0 {
 				first = i
 			}
-			last = i
+			last, lastN = i, n
+			i += n // skip the matched phrase so it isn't re-scanned
+			continue
 		}
+		i++
 	}
 	if first < 0 {
 		return strings.TrimSpace(text), "", false
 	}
-	return strings.Join(words[:first], " "), strings.Join(words[last+2:], " "), true
+	return strings.Join(words[:first], " "), strings.Join(words[last+lastN:], " "), true
 }
 
-// wakeAt reports whether words[i], words[i+1] form a wake phrase ("hey" + a
-// buddy variant), tolerating surrounding punctuation.
-func wakeAt(words []string, i int) bool {
-	if i+1 >= len(words) {
+// wakeAt reports how many words the wake phrase at words[i] consumes (0 if none),
+// tolerating surrounding punctuation and case. The longest matching phrase wins,
+// so a one-word alias can't shadow the canonical two-word form.
+func wakeAt(words []string, i int) (consumed int) {
+	for _, phrase := range wakePhrases {
+		if len(phrase) > consumed && phraseAt(words, i, phrase) {
+			consumed = len(phrase)
+		}
+	}
+	return consumed
+}
+
+// phraseAt reports whether phrase matches the words starting at i, comparing
+// lowercased and punctuation-trimmed.
+func phraseAt(words []string, i int, phrase []string) bool {
+	if i+len(phrase) > len(words) {
 		return false
 	}
-	first := strings.Trim(strings.ToLower(words[i]), ",.!?")
-	second := strings.Trim(strings.ToLower(words[i+1]), ",.!?")
-	return first == "hey" && wakeSeconds[second]
+	for k, p := range phrase {
+		if strings.Trim(strings.ToLower(words[i+k]), ",.!?") != p {
+			return false
+		}
+	}
+	return true
 }
 
 // listQualifiers are the words that may follow "list" for the List command

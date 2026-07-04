@@ -5,8 +5,13 @@ Go server reference this. When you change a command, change it here first.
 
 ## Conventions
 
-- Every control command is prefixed with the wake word **"hey buddy"** or **"hey bud"** (the
-  server also accepts common whisper mishearings: "hey body", "hey buddie", "hey budy").
+- Every control command is prefixed with the wake word **"hey buddy"** or **"hey bud"**. The wake
+  token has an **alias list** (`command.wakePhrases`, the single source of truth — the wake-word
+  analogue of a command's aliases), so common whisper mishearings also fire it: two-word forms
+  "hey body" / "hey buddie" / "hey budy", and **one-word collapses** where whisper runs the phrase
+  together — notably **"everybody"** (and "heybuddy"). Add a new mishearing by extending that list.
+  (One-word aliases are ordinary English words, so they wake more eagerly — e.g. "everybody knows"
+  strips a wake; the set is kept small on purpose.)
 - The wake word is detected **server-side, in the transcript** (`command.StripWake`) — there is no
   on-device wake engine. The app streams speech (VAD-gated) to the server, which transcribes it and
   applies this grammar.
