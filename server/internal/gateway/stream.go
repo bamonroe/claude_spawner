@@ -16,7 +16,6 @@ func (c *conn) gatedChunk(pcm []byte) {
 		c.audioPCM = append(c.audioPCM, pcm...)
 	} // else: end token never fired — stop growing; commit still uses what we have
 
-
 	chunk, err := c.fastTranscriber().Transcribe(c.ctx, transcribe.PCM16WAV(pcm, audioSampleRate, audioChannels),
 		transcribe.Options{Mode: "fixed", Model: "tiny"})
 	if err != nil || strings.TrimSpace(chunk) == "" {
@@ -59,7 +58,7 @@ func (c *conn) commitMessage() {
 	full, err := c.transcriber().Transcribe(c.ctx, transcribe.PCM16WAV(audio, audioSampleRate, audioChannels),
 		transcribe.Options{Mode: c.sttMode, Model: c.sttModel, Prompt: c.vocabBias()})
 	if err != nil {
-		c.send(msgError("transcribe_failed", err.Error()))
+		c.fail("transcribe_failed", err.Error())
 		return
 	}
 	msg, _, _ := splitEndToken(full, c.endToken) // drop the end token (+ any trailing)

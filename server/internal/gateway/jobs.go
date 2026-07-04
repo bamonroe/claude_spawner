@@ -213,6 +213,9 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk bool) bo
 				return
 			}
 			log.Printf("turn[%s] error: %v", sess.Name, err)
+			if spoken := spokenError["turn_failed"]; spoken != "" {
+				j.emit(msgSay(spoken)) // don't leave a voice user with a silent failure
+			}
 			j.finish(msgError("turn_failed", err.Error()))
 			return
 		}
@@ -311,6 +314,9 @@ func (s *Server) startCompress(sess *session.Session) bool {
 				return
 			}
 			log.Printf("compress[%s] error: %v", sess.Name, err)
+			if spoken := spokenError["compress_failed"]; spoken != "" {
+				j.emit(msgSay(spoken))
+			}
 			j.finish(msgError("compress_failed", err.Error()))
 			return
 		}

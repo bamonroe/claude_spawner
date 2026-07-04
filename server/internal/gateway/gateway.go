@@ -417,6 +417,17 @@ func (c *conn) send(v any) error {
 	return nil
 }
 
+// fail sends the machine-readable `error` message to the client and, when the
+// code has a friendly phrasing in spokenError, also speaks it — so a voice user
+// isn't left with a silent failure. Use this in place of send(msgError(...)) at
+// any site a spoken command can reach.
+func (c *conn) fail(code, message string) {
+	c.send(msgError(code, message))
+	if spoken := spokenError[code]; spoken != "" {
+		c.send(msgSay(spoken))
+	}
+}
+
 // authenticate requires the first message to be a valid hello.
 func (c *conn) authenticate() bool {
 	_ = c.ws.SetReadDeadline(time.Now().Add(handshakeTimeout))
@@ -426,7 +437,7 @@ func (c *conn) authenticate() bool {
 	}
 	_ = c.ws.SetReadDeadline(time.Time{}) // clear deadline
 	if in.Type != "hello" || subtle.ConstantTimeCompare([]byte(in.Token), []byte(c.srv.cfg.AuthToken)) != 1 {
-		c.send(msgError("unauthorized", "bad or missing token"))
+		c.fail("unauthorized", "bad or missing token")
 		return false
 	}
 	c.clientID = in.ClientID
@@ -527,7 +538,7 @@ func (c *conn) loop() {
 
 		var in inbound
 		if err := json.Unmarshal(data, &in); err != nil {
-			c.send(msgError("bad_message", "invalid json"))
+			c.fail("bad_message", "invalid json")
 			continue
 		}
 		switch in.Type {
@@ -587,7 +598,7 @@ func (c *conn) loop() {
 		case "audio_end":
 			c.endAudio()
 		default:
-			c.send(msgError("bad_message", "unknown message type: "+in.Type))
+			c.fail("bad_message", "unknown message type: "+in.Type)
 		}
 	}
 }

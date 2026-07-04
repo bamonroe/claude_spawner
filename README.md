@@ -62,6 +62,11 @@ All prefixed with **"hey buddy"**:
 
 Anything spoken **while attached** that isn't a reserved command is dictated to the session.
 
+When a spoken command **fails** (a bad path, a name that's taken, a session that's live in a
+terminal, a turn that errored…), the server speaks a plain-language reason — "that path won't work,
+bud", "couldn't rename it — that name might already be taken" — instead of failing silently, so you
+know what happened without looking at the screen.
+
 **Without your voice, too:** swipe up on the message box to pop a **command tray** of tap buttons —
 one per command that needs no argument (`detach`, `clear`, `compress`, `status`, `usage`, …).
 Tapping fires the command and closes the tray; swipe back down — or tap anywhere outside it — to
@@ -308,6 +313,6 @@ To run it as a long-lived service (systemd unit + the resident GPU whisper serve
 
 ### What's left
 
-Open work (spoken error feedback, per-session voice naming, TLS/mTLS, on-device fallback STT, iOS)
+Open work (TLS/mTLS beyond the shared token, vocab-bias tuning, on-device fallback STT, iOS)
 is **not listed here** — it lives in [`TODO.md`](./TODO.md), the single live task tracker, so it
 doesn't drift against this historical record.

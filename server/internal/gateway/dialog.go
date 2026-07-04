@@ -87,7 +87,7 @@ func (c *conn) spawnAwaitNewName(text string) {
 	}
 	dir := filepath.Join(c.dlg.browse, name)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		c.send(msgError("spawn_failed", err.Error()))
+		c.fail("spawn_failed", err.Error())
 		c.dlg = nil
 		return
 	}
@@ -147,7 +147,7 @@ func (c *conn) handleDialog(text string) {
 		c.spawnAwaitAttach(text)
 	default:
 		c.dlg = nil
-		c.send(msgError("internal", "unknown dialog state"))
+		c.fail("internal", "unknown dialog state")
 	}
 }
 
@@ -231,7 +231,7 @@ func (c *conn) spawnAwaitCreate(text string) {
 	switch {
 	case affirmative(text):
 		if err := os.MkdirAll(c.dlg.dir, 0o755); err != nil {
-			c.send(msgError("spawn_failed", err.Error()))
+			c.fail("spawn_failed", err.Error())
 			c.dlg = nil
 			return
 		}
@@ -350,7 +350,7 @@ func (c *conn) beginAttachQuestion(dir, prompt string) {
 	base := sanitizeName(filepath.Base(dir))
 	sess, err := c.newSession(base, dir)
 	if err != nil {
-		c.send(msgError("internal", err.Error()))
+		c.fail("internal", err.Error())
 		c.dlg = nil
 		return
 	}
@@ -366,7 +366,7 @@ func (c *conn) spawnAwaitAttach(text string) {
 	case affirmative(text):
 		sess := c.dlg.sess
 		if perr := c.srv.store.Put(sess); perr != nil {
-			c.send(msgError("internal", perr.Error()))
+			c.fail("internal", perr.Error())
 			c.dlg = nil
 			return
 		}
@@ -381,7 +381,7 @@ func (c *conn) spawnAwaitAttach(text string) {
 	case negative(text):
 		sess := c.dlg.sess
 		if perr := c.srv.store.Put(sess); perr != nil {
-			c.send(msgError("internal", perr.Error()))
+			c.fail("internal", perr.Error())
 			c.dlg = nil
 			return
 		}

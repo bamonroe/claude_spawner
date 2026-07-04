@@ -24,7 +24,7 @@ const (
 // the follow-up window) instead of acting on it.
 func (c *conn) startAudio(codec string, handsFree, calibrate bool) {
 	if c.transcriber() == nil {
-		c.send(msgError("not_implemented", "audio transcription is disabled; send text as 'utterance'"))
+		c.fail("not_implemented", "audio transcription is disabled; send text as 'utterance'")
 		return
 	}
 	c.collecting = true
@@ -55,7 +55,7 @@ func (c *conn) endAudio() {
 	}
 	c.collecting = false
 	if c.transcriber() == nil {
-		c.send(msgError("not_implemented", "audio transcription is disabled"))
+		c.fail("not_implemented", "audio transcription is disabled")
 		return
 	}
 	if len(c.audio) == 0 {
@@ -70,7 +70,7 @@ func (c *conn) endAudio() {
 	if c.audioCodec == "ogg_opus" {
 		decoded, derr := transcribe.OggOpusToPCM(c.srv.cfg.FfmpegBin, c.audio)
 		if derr != nil {
-			c.send(msgError("transcribe_failed", derr.Error()))
+			c.fail("transcribe_failed", derr.Error())
 			return
 		}
 		pcm = decoded
@@ -98,7 +98,7 @@ func (c *conn) endAudio() {
 	text, err := c.transcriber().Transcribe(c.ctx, transcribe.PCM16WAV(pcm, audioSampleRate, audioChannels),
 		transcribe.Options{Mode: c.sttMode, Model: c.sttModel, Prompt: c.vocabBias()})
 	if err != nil {
-		c.send(msgError("transcribe_failed", err.Error()))
+		c.fail("transcribe_failed", err.Error())
 		return
 	}
 	if text == "" {

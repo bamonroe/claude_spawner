@@ -172,6 +172,12 @@ srv -> { "type": "attached", "name": "claude-claude" }
 
 ## Error codes
 
+Every failure sends an `error` message (machine-readable, always displayed). For the codes a
+**voice** user can actually trigger, the server *also* sends a friendly spoken `say` alongside it
+(e.g. `bad_path` → "that path won't work, bud…"), so a spoken command never fails silently. The
+wire-level / programmer-facing codes that only come from the app — `bad_message`, `bad_adopt`,
+`bad_delete`, `bad_rename`, `unauthorized`, `internal` — stay screen-only (no spoken line).
+
 | code               | meaning                                                  |
 |--------------------|----------------------------------------------------------|
 | `unauthorized`     | bad/missing token                                        |

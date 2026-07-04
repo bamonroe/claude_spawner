@@ -22,7 +22,7 @@ func (c *conn) doBrowse(path string) {
 
 	abs, err := c.srv.cfg.ValidateSpawnDir(path)
 	if err != nil {
-		c.send(msgError("bad_path", err.Error()))
+		c.fail("bad_path", err.Error())
 		return
 	}
 	kids := projects.Children(abs)
@@ -42,20 +42,20 @@ func (c *conn) doBrowse(path string) {
 func (c *conn) doSpawnAt(path string) {
 	abs, err := c.srv.cfg.ValidateSpawnDir(path)
 	if err != nil {
-		c.send(msgError("bad_path", err.Error()))
+		c.fail("bad_path", err.Error())
 		return
 	}
 	if info, e := os.Stat(abs); e != nil || !info.IsDir() {
-		c.send(msgError("bad_path", "not a directory"))
+		c.fail("bad_path", "not a directory")
 		return
 	}
 	sess, err := c.newSession(sanitizeName(filepath.Base(abs)), abs)
 	if err != nil {
-		c.send(msgError("internal", err.Error()))
+		c.fail("internal", err.Error())
 		return
 	}
 	if perr := c.srv.store.Put(sess); perr != nil {
-		c.send(msgError("internal", perr.Error()))
+		c.fail("internal", perr.Error())
 		return
 	}
 	if c.attached != nil {

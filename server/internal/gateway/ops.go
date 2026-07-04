@@ -103,7 +103,7 @@ func (c *conn) doUsage(speak bool, action usageAction) {
 		defer cancel()
 		text, err := c.srv.driver.Usage(ctx)
 		if err != nil {
-			c.send(msgError("usage_failed", err.Error()))
+			c.fail("usage_failed", err.Error())
 			return
 		}
 		sp, sr, wp, wr := parseUsage(text)
@@ -194,7 +194,7 @@ func usageSummary(sessionPct, weekPct int) string {
 func (c *conn) doDiscover() {
 	found, err := session.DiscoverSessions()
 	if err != nil {
-		c.send(msgError("discover_failed", err.Error()))
+		c.fail("discover_failed", err.Error())
 		return
 	}
 	active := c.srv.tmuxMgr.ClaudeDirs(c.ctx)
@@ -237,14 +237,14 @@ func (c *conn) doDiscover() {
 // dir, without attaching) if needed, then renames the record. Refreshes lists.
 func (c *conn) doRenameDiscovered(sessionID, dir, newName string) {
 	if dir == "" || sanitizeName(newName) == "" {
-		c.send(msgError("bad_rename", "need dir and a valid new_name"))
+		c.fail("bad_rename", "need dir and a valid new_name")
 		return
 	}
 	rec := c.srv.store.GetByDir(dir)
 	if rec == nil {
 		var err error
 		if rec, err = c.srv.registerDiscovered(sessionID, dir); err != nil {
-			c.send(msgError("internal", err.Error()))
+			c.fail("internal", err.Error())
 			return
 		}
 	}
@@ -257,7 +257,7 @@ func (c *conn) doRenameDiscovered(sessionID, dir, newName string) {
 // If the session_id is already registered, it just attaches.
 func (c *conn) doAdopt(sessionID, dir string) {
 	if sessionID == "" || dir == "" {
-		c.send(msgError("bad_adopt", "adopt needs session_id and dir"))
+		c.fail("bad_adopt", "adopt needs session_id and dir")
 		return
 	}
 	if s := c.srv.store.GetBySessionID(sessionID); s != nil {
@@ -266,7 +266,7 @@ func (c *conn) doAdopt(sessionID, dir string) {
 	}
 	rec, err := c.srv.registerDiscovered(sessionID, dir)
 	if err != nil {
-		c.send(msgError("internal", err.Error()))
+		c.fail("internal", err.Error())
 		return
 	}
 	c.sendSessionList()
@@ -279,21 +279,21 @@ func (c *conn) doAdopt(sessionID, dir string) {
 // running claude would corrupt it. Refreshes the discover + session lists.
 func (c *conn) doDeleteDiscovered(sessionID string) {
 	if sessionID == "" {
-		c.send(msgError("bad_delete", "need session_id"))
+		c.fail("bad_delete", "need session_id")
 		return
 	}
 	path := session.TranscriptPathByID(sessionID)
 	if path == "" {
-		c.send(msgError("not_found", "no transcript for that session"))
+		c.fail("not_found", "no transcript for that session")
 		return
 	}
 	dir := session.TranscriptCwd(path)
 	if c.srv.tmuxMgr.ClaudeDirs(c.ctx)[dir] {
-		c.send(msgError("session_active", "that session is live in a terminal — close it there first"))
+		c.fail("session_active", "that session is live in a terminal — close it there first")
 		return
 	}
 	if _, err := session.DeleteSessionsForDir(sessionID, dir); err != nil {
-		c.send(msgError("internal", err.Error()))
+		c.fail("internal", err.Error())
 		return
 	}
 	// Drop any registry records for this directory too (detach if attached).
@@ -316,12 +316,12 @@ func (c *conn) doDeleteDiscovered(sessionID string) {
 func (c *conn) serveHistory(name string, before *int, limit int) {
 	s := c.srv.store.Get(name)
 	if s == nil {
-		c.send(msgError("no_session", "no such session: "+name))
+		c.fail("no_session", "no such session: "+name)
 		return
 	}
 	msgs, err := session.ReadTranscriptChain(s.TranscriptIDs())
 	if err != nil {
-		c.send(msgError("history_failed", err.Error()))
+		c.fail("history_failed", err.Error())
 		return
 	}
 	b := -1
@@ -474,7 +474,7 @@ func (c *conn) resolveSession(spoken string) *session.Session {
 func (c *conn) doSetWhisperModel(name string) {
 	go func() {
 		if err := c.srv.setWhisperModel(strings.TrimSpace(name)); err != nil {
-			c.send(msgError("whisper_failed", err.Error()))
+			c.fail("whisper_failed", err.Error())
 			return
 		}
 		c.srv.broadcastWhisperModel(c.srv.currentWhisperModel())
@@ -535,7 +535,7 @@ func (c *conn) doClear() {
 	}
 	newID, err := session.NewSessionID()
 	if err != nil {
-		c.send(msgError("internal", err.Error()))
+		c.fail("internal", err.Error())
 		return
 	}
 	s.PriorIDs = append(s.PriorIDs, s.SessionID)
@@ -544,7 +544,7 @@ func (c *conn) doClear() {
 	s.AskPrimed = false // fresh context: re-prime the ask instruction on the next turn
 	s.PendingSeed = ""  // a clear means truly empty context — drop any compress seed
 	if err := c.srv.store.Put(s); err != nil {
-		c.send(msgError("internal", err.Error()))
+		c.fail("internal", err.Error())
 		return
 	}
 	c.clearBuffer()
@@ -585,11 +585,11 @@ func (c *conn) doCompress() {
 func (c *conn) removeSession(name string) bool {
 	s := c.srv.store.Get(name)
 	if s == nil {
-		c.send(msgError("no_session", "no session named "+name))
+		c.fail("no_session", "no session named "+name)
 		return false
 	}
 	if err := c.srv.store.Delete(s.Name); err != nil {
-		c.send(msgError("internal", err.Error()))
+		c.fail("internal", err.Error())
 		return false
 	}
 	if c.attached != nil && c.attached.Name == s.Name {
@@ -615,7 +615,7 @@ func (c *conn) doKill(name string) {
 // doDelete is the app's delete action (no speech).
 func (c *conn) doDelete(name string) {
 	if name == "" {
-		c.send(msgError("bad_message", "need a session name"))
+		c.fail("bad_message", "need a session name")
 		return
 	}
 	c.removeSession(name)
@@ -627,11 +627,11 @@ func (c *conn) doDelete(name string) {
 func (c *conn) doRename(old, newName string) bool {
 	newName = sanitizeName(newName)
 	if old == "" || newName == "" {
-		c.send(msgError("bad_message", "need name and new_name"))
+		c.fail("bad_message", "need name and new_name")
 		return false
 	}
 	if err := c.srv.store.Rename(old, newName); err != nil {
-		c.send(msgError("rename_failed", err.Error()))
+		c.fail("rename_failed", err.Error())
 		return false
 	}
 	// Follow the rename if we're attached to it. The job hub is keyed by name, so

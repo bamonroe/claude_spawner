@@ -164,6 +164,29 @@ func msgError(code, message string) map[string]any {
 	return map[string]any{"type": "error", "code": code, "message": message}
 }
 
+// spokenError maps a protocol error code to a friendly, TTS-ready phrase spoken
+// alongside the machine-readable `error` message, so a voice user hears why a
+// command failed instead of silence. Only codes a voice user can actually
+// trigger get an entry; wire-level / programmer-facing codes (bad_message,
+// bad_adopt, bad_delete, bad_rename, unauthorized, internal) are intentionally
+// absent — they come from the app, not from speech, and stay screen-only.
+var spokenError = map[string]string{
+	"bad_path":          "that path won't work, bud — it's outside where I can spawn, or it isn't a directory.",
+	"not_found":         "couldn't find that, bud.",
+	"no_session":        "there's no session by that name, bud.",
+	"session_active":    "that session's open in a terminal — close it there first, bud.",
+	"spawn_failed":      "couldn't start that session, bud.",
+	"rename_failed":     "couldn't rename it, bud — that name might already be taken.",
+	"usage_failed":      "couldn't check your usage right now, bud.",
+	"compress_failed":   "the compress didn't go through, bud.",
+	"turn_failed":       "that turn failed, bud.",
+	"transcribe_failed": "I didn't catch that — the transcription failed.",
+	"whisper_failed":    "the speech engine had a problem, bud.",
+	"discover_failed":   "couldn't scan for sessions, bud.",
+	"history_failed":    "couldn't load that session's history, bud.",
+	"not_implemented":   "voice isn't set up on the server, bud — send text instead.",
+}
+
 func msgPong() map[string]any { return map[string]any{"type": "pong"} }
 
 // msgTurnInterrupted tells the app that an in-flight dictation turn was abandoned

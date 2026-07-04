@@ -17,8 +17,6 @@ Dates are `YYYY-MM-DD`.
       constant-time-compared shared token, fronted by Tailscale).
 - [ ] Vocab-bias tuning: measure whether the `--prompt` session-name biasing actually improves
       recognition of real session names/paths, adjust if not. *(biasing itself is implemented)*
-- [ ] More spoken error feedback — surface `docs/protocol.md` error codes as friendly speech
-      ("that directory doesn't exist, bud") instead of generic/silent failures.
 
 ### Android
 - (nothing open — hands-free verified; voice rename shipped, see _Done_)
@@ -33,6 +31,14 @@ Dates are `YYYY-MM-DD`.
 
 ## Done
 
+- [x] 2026-07-04 — **Spoken error feedback.** Voice-reachable failures now speak a plain-language
+      reason alongside the machine-readable `error`, instead of failing silently. New `spokenError`
+      map (code → friendly phrase) + `conn.fail(code, msg)` helper that sends the `error` and, when
+      the code is voice-reachable, a `say`; every client-facing `c.send(msgError(...))` routes
+      through it (the job path emits the `say` before `finish` for `turn_failed`/`compress_failed`).
+      Wire-level / programmer codes (`bad_message`, `bad_adopt`, `bad_delete`, `bad_rename`,
+      `unauthorized`, `internal`) stay screen-only. `TestSpokenErrorFeedback`; docs/protocol.md +
+      README updated.
 - [x] 2026-07-04 — **Hands-free voice model verified on the Pixel 8a** end-to-end for the
       always-listening path (wake word → live draft → end-token commit → dictation).
 - [x] 2026-07-04 — **Per-session naming by voice** (`rename` command). "hey buddy, rename to

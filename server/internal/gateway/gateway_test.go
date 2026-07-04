@@ -387,6 +387,82 @@ func TestRenameSession(t *testing.T) {
 	}
 }
 
+// TestVoiceRename drives the "hey buddy rename to <name>" command end to end:
+// attach to a session, rename it by voice, and confirm both the spoken
+// confirmation and the refreshed session list carry the new name.
+func TestVoiceRename(t *testing.T) {
+	ts, root := newTestServer(t, nil)
+	if err := os.MkdirAll(filepath.Join(root, "myproj"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ws := dial(t, ts)
+	send(t, ws, map[string]any{"type": "hello", "token": "secret"})
+	readUntil(t, ws, "hello_ok")
+	send(t, ws, map[string]any{"type": "utterance", "text": "hey buddy spawn a new session"})
+	readUntil(t, ws, "dialog")
+	send(t, ws, map[string]any{"type": "utterance", "text": filepath.Base(root)})
+	readUntil(t, ws, "dialog")
+	send(t, ws, map[string]any{"type": "utterance", "text": "myproj"})
+	readUntil(t, ws, "dialog")
+	send(t, ws, map[string]any{"type": "utterance", "text": "yes"})
+	readUntil(t, ws, "attached")
+
+	// Rename the attached session by voice. Drain any buffered speech from the
+	// attach flow; wait for both the refreshed session_list carrying the new name
+	// and the spoken rename confirmation.
+	send(t, ws, map[string]any{"type": "utterance", "text": "hey buddy rename to backend"})
+	var gotSay, gotList bool
+	_ = ws.SetReadDeadline(time.Now().Add(5 * time.Second))
+	for !gotSay || !gotList {
+		var m map[string]any
+		if err := ws.ReadJSON(&m); err != nil {
+			t.Fatalf("waiting for rename say+list (say=%v list=%v): %v", gotSay, gotList, err)
+		}
+		switch m["type"] {
+		case "say":
+			if strings.Contains(m["text"].(string), "backend") {
+				gotSay = true
+			}
+		case "session_list":
+			for _, s := range m["sessions"].([]any) {
+				if s.(map[string]any)["name"] == "backend" {
+					gotList = true
+				}
+			}
+		}
+	}
+}
+
+// TestSpokenErrorFeedback asserts a voice-reachable failure now speaks a
+// friendly message alongside the machine-readable error, instead of failing
+// silently. Renaming a session that doesn't exist trips rename_failed.
+func TestSpokenErrorFeedback(t *testing.T) {
+	ts, _ := newTestServer(t, nil)
+	ws := dial(t, ts)
+	send(t, ws, map[string]any{"type": "hello", "token": "secret"})
+	readUntil(t, ws, "hello_ok")
+
+	send(t, ws, map[string]any{"type": "rename", "name": "ghost", "new_name": "whatever"})
+	// Both an `error` (rename_failed) and a spoken `say` must arrive, in either order.
+	var gotErr, gotSay bool
+	_ = ws.SetReadDeadline(time.Now().Add(5 * time.Second))
+	for !gotErr || !gotSay {
+		var m map[string]any
+		if err := ws.ReadJSON(&m); err != nil {
+			t.Fatalf("waiting for error+say (err=%v say=%v): %v", gotErr, gotSay, err)
+		}
+		switch m["type"] {
+		case "error":
+			if m["code"] != "rename_failed" {
+				t.Fatalf("unexpected error code: %v", m["code"])
+			}
+			gotErr = true
+		case "say":
+			gotSay = true
+		}
+	}
+}
+
 func TestDeleteSession(t *testing.T) {
 	ts, root := newTestServer(t, nil)
 	if err := os.MkdirAll(filepath.Join(root, "myproj"), 0o755); err != nil {
