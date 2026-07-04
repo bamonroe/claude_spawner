@@ -87,6 +87,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -912,10 +913,20 @@ private fun InputBar(
             value = draft, onValueChange = { draft = it },
             placeholder = { Text("Message…") }, singleLine = true,
             // Swipe up to open the command tray, swipe down to close it. Taps still
-            // fall through to focus the field (a tap never crosses the drag slop);
-            // focusing the field to type also dismisses the tray.
+            // fall through to focus the field (a tap never crosses the drag slop).
+            // Any touch on the box while the tray is open dismisses it — observed on
+            // the Initial pass without consuming, so the tap still positions the
+            // cursor and the swipe-open still works (that handler is armed only when
+            // the tray is already open). onFocusChanged covers a first-tap focus; this
+            // covers a tap when the swipe-to-open already left the box focused.
             modifier = Modifier.weight(1f)
                 .onFocusChanged { if (it.isFocused) onTrayOpenChange(false) }
+                .pointerInput(trayOpen) {
+                    if (trayOpen) awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                        onTrayOpenChange(false)
+                    }
+                }
                 .pointerInput(Unit) {
                     val threshold = 32.dp.toPx()
                     var dy = 0f
