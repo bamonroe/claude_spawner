@@ -110,6 +110,19 @@ Nothing here is spoken — it's screen-only, so hands-free dictation is unaffect
 straight from the headless `result` event's usage (no estimation); see the `output.usage` field in
 [`docs/protocol.md`](./docs/protocol.md).
 
+### Seeing your Claude plan's session limit
+
+At the **bottom of the sessions drawer** (the ☰ menu) is a readout of your Claude subscription's
+usage window — e.g. `⏳ Claude 5-hour session limit · resets 3:00pm · in 2h 13m`. It comes from the
+`rate_limit_event` the headless CLI emits early in every turn, so it refreshes each turn (no polling).
+`limit_type` tells you which window is binding — the rolling **5-hour session** window or the **weekly**
+cap — and `resets_at` is the exact reset time. If the status leaves `allowed` (you're nearing/at the
+cap) the line turns amber; an overage note appears if you're drawing on pay-as-you-go credits.
+
+One honest caveat: Anthropic exposes only a **coarse** status here, not an exact remaining quota — so
+this shows *which* limit and *when it resets*, reliably, but not a "62% used" fuel gauge. Details in
+the `rate_limit` message in [`docs/protocol.md`](./docs/protocol.md).
+
 ## How responses are captured (the once-hard problem, now solved)
 
 Claude Code's interactive TUI would be miserable to screen-scrape (ANSI, redraws, spinners), so

@@ -36,6 +36,14 @@ Dates are `YYYY-MM-DD`.
 
 ## Done
 
+- [x] 2026-07-04 — **Claude plan session-limit readout** at the bottom of the sessions drawer. Server
+      parses the stream-json `rate_limit_event` (status / resetsAt / rateLimitType / isUsingOverage)
+      via a new `onRateLimit` callback on `Driver.Turn` and broadcasts it as a `rate_limit` message
+      (docs/protocol.md + docsync). The app shows which usage window is binding (`five_hour` / weekly)
+      and when it resets, amber when status leaves `allowed`. Status is coarse (no exact quota exists).
+      Server emit verified live via a scratch instance; Android wiring verified on the emulator (badge +
+      cache-warm timer confirmed live too). README + docs. **Live :8555 deploy pending a spawner
+      service restart** (not done in-session — this session runs through that server).
 - [x] 2026-07-04 — **Per-turn token usage** surfaced to the app. Server parses the stream-json
       `result` event's aggregate `usage` (input/output/cache-write/cache-read) and carries it on the
       final `output` message (`output.usage`, docs/protocol.md + docsync). Android renders it two

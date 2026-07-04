@@ -23,6 +23,7 @@ sealed interface ServerMsg {
     data class History(val name: String, val messages: List<HistMsg>, val more: Boolean) : ServerMsg
     data class ReadLast(val count: Int) : ServerMsg
     data class Discovered(val sessions: List<DiscoveredInfo>) : ServerMsg
+    data class RateLimit(val info: RateLimitInfo) : ServerMsg // Claude plan's usage-window state
     data class Err(val code: String, val message: String) : ServerMsg
     data class TurnInterrupted(val name: String, val reason: String) : ServerMsg
     data class TurnStopped(val name: String) : ServerMsg // a turn was deliberately aborted
@@ -51,6 +52,10 @@ sealed interface ServerMsg {
                 "history" -> History(o.optString("name"), readHist(o.optJSONArray("messages")), o.optBoolean("more"))
                 "read_last" -> ReadLast(o.optInt("count", 1))
                 "discovered" -> Discovered(readDiscovered(o.optJSONArray("sessions")))
+                "rate_limit" -> RateLimit(RateLimitInfo(
+                    o.optString("status"), o.optLong("resets_at"),
+                    o.optString("limit_type"), o.optBoolean("using_overage"),
+                ))
                 "error" -> Err(o.optString("code"), o.optString("message"))
                 "turn_interrupted" -> TurnInterrupted(o.optString("name"), o.optString("reason"))
                 "turn_stopped" -> TurnStopped(o.optString("name"))
@@ -123,6 +128,15 @@ data class TokenUsage(val input: Int, val output: Int, val cacheWrite: Int, val 
     val contextTokens: Int get() = input + cacheRead + cacheWrite
     /** True if this turn reused a warm cache rather than rebuilding it. */
     val warmHit: Boolean get() = cacheRead > 0
+}
+
+/**
+ * The Claude subscription's usage-window state (see docs/protocol.md `rate_limit`).
+ * status is coarse ("allowed" until the cap nears — no exact remaining quota exists);
+ * resetsAt is unix seconds; limitType names the binding window ("five_hour" | weekly).
+ */
+data class RateLimitInfo(val status: String, val resetsAt: Long, val limitType: String, val usingOverage: Boolean) {
+    val allowed: Boolean get() = status.isEmpty() || status == "allowed"
 }
 
 /** One past message from a session's server-served history. */

@@ -3,6 +3,7 @@ package com.bam.spawner
 import android.content.Context
 import android.os.SystemClock
 import com.bam.spawner.net.TokenUsage
+import com.bam.spawner.net.RateLimitInfo
 import com.bam.spawner.audio.AudioOutput
 import com.bam.spawner.audio.AudioRouter
 import com.bam.spawner.net.AskQuestion
@@ -130,6 +131,12 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     // finishes; reset when attaching elsewhere (a new session = a new cache).
     private val _lastTurnUsage = MutableStateFlow<TurnUsageInfo?>(null)
     val lastTurnUsage: StateFlow<TurnUsageInfo?> = _lastTurnUsage.asStateFlow()
+
+    // The Claude plan's session-limit state (which usage window is binding, when it
+    // resets), refreshed from each turn's rate_limit_event. Shown at the bottom of
+    // the sessions drawer. Null until the first turn reports it.
+    private val _rateLimit = MutableStateFlow<RateLimitInfo?>(null)
+    val rateLimit: StateFlow<RateLimitInfo?> = _rateLimit.asStateFlow()
 
     // True while TTS is speaking (drives the tap-to-stop banner).
     private val _speaking = MutableStateFlow(false)
@@ -620,6 +627,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
             }
             is ServerMsg.Files -> if (msg.files.isNotEmpty()) addChat(Role.SYSTEM, "📝 changed: " + msg.files.joinToString(", "))
             is ServerMsg.Diff -> addChat(Role.SYSTEM, "📊 diff:\n${msg.text}") // review summary, not spoken
+            is ServerMsg.RateLimit -> _rateLimit.value = msg.info // plan session-limit readout (sidebar)
             is ServerMsg.Ask -> {
                 clearTurnInFlight()
                 turnStreamed = false

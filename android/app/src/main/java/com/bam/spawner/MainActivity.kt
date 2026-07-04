@@ -82,7 +82,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -95,6 +97,7 @@ import androidx.compose.runtime.mutableStateListOf
 import com.bam.spawner.audio.AudioOutput
 import com.bam.spawner.net.AskQuestion
 import com.bam.spawner.net.DiscoveredInfo
+import com.bam.spawner.net.RateLimitInfo
 import com.bam.spawner.net.TokenUsage
 import com.bam.spawner.ui.MarkdownText
 import com.bam.spawner.ui.SpawnerTheme
@@ -283,6 +286,7 @@ private fun MainScreen(
     val pending by controller.pending.collectAsStateWithLifecycle()
     val activity by controller.activity.collectAsStateWithLifecycle()
     val lastUsage by controller.lastTurnUsage.collectAsStateWithLifecycle()
+    val rateLimit by controller.rateLimit.collectAsStateWithLifecycle()
     var handsFree by remember { mutableStateOf(handsFreeInitial) }
 
     ModalNavigationDrawer(
@@ -302,6 +306,7 @@ private fun MainScreen(
                     onRename = { renameTarget = it },
                     onDelete = { deleteTarget = it },
                     onDetach = { controller.detach() },
+                    rateLimit = rateLimit,
                 )
             }
         },
@@ -883,6 +888,7 @@ private fun Sidebar(
     onRename: (DiscoveredInfo) -> Unit,
     onDelete: (DiscoveredInfo) -> Unit,
     onDetach: () -> Unit,
+    rateLimit: RateLimitInfo?,
 ) {
     Column(Modifier.fillMaxHeight().statusBarsPadding().padding(12.dp)) {
         Text("Sessions", style = MaterialTheme.typography.titleLarge)
@@ -926,6 +932,61 @@ private fun Sidebar(
             HorizontalDivider()
             TextButton(onClick = onDetach) { Text("Detach from $attached") }
         }
+        // Claude plan's session-limit readout, pinned to the bottom of the drawer.
+        rateLimit?.let {
+            HorizontalDivider()
+            SessionLimitFooter(it)
+        }
+    }
+}
+
+// SessionLimitFooter shows the Claude subscription's usage-window state: which
+// window is binding and when it resets, amber if the status has left "allowed".
+// The reset time is exact; the status is coarse (no precise remaining quota
+// exists). Fed by the `rate_limit` message; see docs/protocol.md.
+@Composable
+private fun SessionLimitFooter(info: RateLimitInfo) {
+    val warn = !info.allowed
+    val window = when {
+        info.limitType == "five_hour" -> "5-hour session"
+        info.limitType.contains("week") -> "weekly"
+        info.limitType.isBlank() -> "usage"
+        else -> info.limitType
+    }
+    val reset = if (info.resetsAt > 0) {
+        val clock = android.text.format.DateFormat.getTimeFormat(LocalContext.current)
+            .format(java.util.Date(info.resetsAt * 1000))
+        "resets $clock${relResetSuffix(info.resetsAt)}"
+    } else ""
+    Column(Modifier.padding(vertical = 4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(if (warn) "⚠️" else "⏳", style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.width(4.dp))
+            Text(
+                "Claude $window limit",
+                style = MaterialTheme.typography.labelMedium,
+                color = if (warn) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                fontWeight = if (warn) FontWeight.Bold else null,
+            )
+        }
+        if (reset.isNotEmpty()) Text(reset, style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.outline)
+        if (warn && info.status.isNotBlank()) Text("status: ${info.status}",
+            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+        if (info.usingOverage) Text("using overage credits",
+            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+    }
+}
+
+/** "· in 2h 13m" until a future unix-seconds reset (empty if past/now). */
+private fun relResetSuffix(unixSeconds: Long): String {
+    val secs = unixSeconds - System.currentTimeMillis() / 1000
+    if (secs <= 0) return ""
+    val h = secs / 3600; val m = (secs % 3600) / 60
+    return when {
+        h > 0 -> " · in ${h}h ${m}m"
+        m > 0 -> " · in ${m}m"
+        else -> " · soon"
     }
 }
 
