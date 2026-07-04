@@ -840,7 +840,7 @@ private fun Bubble(msg: ChatMessage, badgeMode: String = "off") {
                     style = MaterialTheme.typography.labelSmall,
                     color = fg.copy(alpha = 0.5f),
                     modifier = Modifier
-                        .align(if (user) Alignment.Start else Alignment.End)
+                        .align(if (user) Alignment.End else Alignment.Start)
                         .padding(start = 12.dp, end = 12.dp, bottom = 6.dp),
                 )
             }

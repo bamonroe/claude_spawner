@@ -113,7 +113,7 @@ Two independent, toggleable displays live in **Settings → Appearance**:
   countdown; attaching to a different session resets it (that session has its own, cold, cache).
 
 Each live message also carries a small **date/time badge** below the token line — bottom-right on
-Claude's replies, bottom-left on your own messages. Only messages sent/received in this session are
+Claude's replies, bottom-right on your own messages. Only messages sent/received in this session are
 stamped; replayed history has none.
 
 Nothing here is spoken — it's screen-only, so hands-free dictation is unaffected. The numbers come
