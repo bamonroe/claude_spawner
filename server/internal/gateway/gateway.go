@@ -58,6 +58,25 @@ type Server struct {
 	whisperMu     sync.Mutex // guards the resident whisper server's currently-loaded model
 	whisperLoaded string     // "<url>|<model>" last hot-loaded, to skip redundant /load calls
 	currentModel  string     // the resident server's model NAME (server-global; apps read it)
+
+	rateLimitMu sync.Mutex        // guards the last-seen subscription rate-limit state
+	rateLimit   session.RateLimit // account-global; cached from turns, pushed to apps on connect
+}
+
+// lastRateLimit returns the most recent subscription usage-window state (empty
+// Type until a turn has reported one).
+func (s *Server) lastRateLimit() session.RateLimit {
+	s.rateLimitMu.Lock()
+	defer s.rateLimitMu.Unlock()
+	return s.rateLimit
+}
+
+// setRateLimit caches the latest rate-limit state seen on a turn, so a freshly
+// connected app can be shown the plan's session limit without dictating first.
+func (s *Server) setRateLimit(rl session.RateLimit) {
+	s.rateLimitMu.Lock()
+	defer s.rateLimitMu.Unlock()
+	s.rateLimit = rl
 }
 
 // currentWhisperModel returns the resident server's model name (server-global
@@ -405,6 +424,11 @@ func (c *conn) authenticate() bool {
 	// The whisper model is server-global: the app reads it here rather than pushing
 	// its own (so two clients don't bounce it), and changes it via set_whisper_model.
 	c.send(msgHelloOK("ws", c.srv.currentWhisperModel()))
+	// Push the last-known plan session-limit so the app can show it immediately,
+	// rather than staying blank until the first turn of this connection.
+	if rl := c.srv.lastRateLimit(); rl.Type != "" {
+		c.send(msgRateLimit(rl))
+	}
 	return true
 }
 

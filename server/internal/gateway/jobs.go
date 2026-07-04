@@ -189,7 +189,7 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk bool) bo
 		}
 		// The rate_limit_event lands early in the stream; broadcast the plan's
 		// session-limit state to every attached device as soon as it arrives.
-		onRateLimit := func(rl session.RateLimit) { j.emit(msgRateLimit(rl)) }
+		onRateLimit := func(rl session.RateLimit) { s.setRateLimit(rl); j.emit(msgRateLimit(rl)) }
 		wasStarted := sess.Started // Turn flips Started true on the first success
 		reply, usage, err := s.driver.Turn(ctx, sess, text, onTool, onText, onRateLimit)
 		if len(changed) > 0 {
@@ -282,7 +282,7 @@ func (s *Server) startCompress(sess *session.Session) bool {
 	go func() {
 		defer s.inflight.remove(sess.Name)
 		j.emit(msgActivity("🗜️ compressing context…"))
-		onRateLimit := func(rl session.RateLimit) { j.emit(msgRateLimit(rl)) }
+		onRateLimit := func(rl session.RateLimit) { s.setRateLimit(rl); j.emit(msgRateLimit(rl)) }
 		summary, _, err := s.driver.Turn(ctx, sess, compressPrompt, nil, nil, onRateLimit)
 		if err != nil {
 			j.mu.Lock()
