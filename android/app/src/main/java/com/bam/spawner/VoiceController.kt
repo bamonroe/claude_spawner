@@ -628,6 +628,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
                 // and tapping stop aborts an already-finished turn ("nothing running to stop").
                 clearTurnInFlight()
                 _activity.value = ""
+                _mic.value = "" // a terminal `say` (e.g. "didn't catch that") ends the PTT clip; clear "transcribing…"
                 addChat(Role.SYSTEM, msg.text); speaker.speak(Markdown.toSpeech(msg.text))
             }
             is ServerMsg.Output -> {
@@ -724,6 +725,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
                 if (msg.code == "turn_failed") { clearTurnInFlight(); turnStreamed = false }
                 if (_usageLoading.value) _usageLoading.value = false // any error unsticks a pending usage fetch
                 _activity.value = ""
+                _mic.value = "" // a transcribe_failed / not_implemented error ends the PTT clip; clear "transcribing…"
                 // Discover/adopt/delete errors surface on the Discover screen; the
                 // rest go to the chat log.
                 if (msg.code in setOf("session_active", "not_found", "bad_delete", "bad_adopt", "discover_failed")) {
