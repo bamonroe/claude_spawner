@@ -118,6 +118,24 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
   draft/detection server), `SPAWNER_WHISPER_MODEL_NAME` (`medium.en`; reported to clients),
   `SPAWNER_WHISPER_FAST_MAX_SEC` (`2.5`; clips shorter than this use the fast server).
 
+## Token discipline — keep the context small
+
+Context tokens are the main cost here, so default to the frugal path:
+
+- **Read in slices, not whole files.** Reach for `grep`/`glob` to find the target, then `Read` with
+  `offset`/`limit` around it. Only read a whole file when you genuinely need all of it. Never re-read
+  a file you just edited — the edit already confirmed the new state.
+- **Delegate broad searches to `Explore` subagents.** Anything that means sweeping many files or
+  directories to answer a "where/how is X done" question goes to an `Explore` (or `general-purpose`)
+  subagent, which reads the files in its own context and returns just the conclusion — the file
+  dumps never land in this conversation. Do the search inline only when it's one or two known files.
+- **Don't restate; link.** This repo is de-duplicated for the same reason — point at the owning doc
+  (per the map above) instead of pasting its content into a reply or a new file.
+- **Prefer targeted output.** Pipe long command output through `head`/`tail`/`grep`; don't cat whole
+  logs or list huge trees. Ask for the smallest thing that answers the question.
+- **Phone/voice replies stay short.** In phone/concise mode, suppress code blocks, diffs, and long
+  paths — summarize in spoken sentences (that's both the UX and a token win).
+
 ## Conventions
 
 - Keep the **command grammar** and the **WebSocket message protocol** in `/docs` as the single
@@ -131,8 +149,8 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
 - **Promote stable builds to the phone.** Iterate on the Dockerized emulator (fast, disposable),
   but once a feature is shown to be quite stable there, also install the APK on the physical
   **Pixel 8a** over adb so it's running on real hardware. The two adb worlds and the exact install
-  commands are in the `android-dev` skill; the emulator is for iteration, the phone is where a
-  settled feature lands.
+  commands are in the `android-dev` skill (its home is `/data/android`, where it's a
+  directory-scoped skill); the emulator is for iteration, the phone is where a settled feature lands.
   - **Finish Android work by installing on the phone.** The Pixel 8a is the live self-hosting
     client, so a shippable APK isn't "done" until it's on the phone — the last step of any Android
     change is `adb -s <phone> install -r` (see the `android-dev` skill). This is doubly required
