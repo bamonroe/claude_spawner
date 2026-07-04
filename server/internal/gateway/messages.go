@@ -91,9 +91,10 @@ func msgDetached() map[string]any {
 }
 
 // msgContextReset tells the app the session's Claude context was rotated to a
-// fresh (empty) one — a `clear`. The app drops its last-turn token accounting so
-// the status-bar context-size readout returns to zero; no turn has run against
-// the new context yet, so there is nothing to show until the next dictation.
+// fresh one — a `clear` (empty) or a `compress` (seeded with a summary). The app
+// drops its last-turn token accounting so the status-bar context-size readout
+// returns to zero; no dictation has run against the new context yet, so there is
+// nothing to show until the next turn lands (which reports the true new size).
 func msgContextReset(name string) map[string]any {
 	return map[string]any{"type": "context_reset", "name": name}
 }
