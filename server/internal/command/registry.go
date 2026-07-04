@@ -49,6 +49,8 @@ var Registry = []Command{
 		"Start Claude fresh — keeps your history, stops re-reading it", "clear context"},
 	{Compress, "compress", []string{"compress context", "compact context", "condense context", "summarize context"},
 		"Compact the context into a summary Claude carries forward — keeps your history", "compress context"},
+	{Usage, "usage", []string{"usage", "how much usage left", "check usage"},
+		"Report your Claude plan's usage — session and weekly % used, with resets", "usage"},
 	{Cancel, "cancel", []string{"cancel", "never mind"},
 		"Discard the message you're composing", "cancel"},
 	{Stop, "stop", []string{"stop", "quiet", "stop talking"},

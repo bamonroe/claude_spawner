@@ -553,6 +553,8 @@ func (c *conn) loop() {
 			c.doClear()
 		case "compress":
 			c.doCompress()
+		case "usage":
+			c.doUsage(false) // tap-triggered: show the report, don't speak it
 		case "audio_end":
 			c.endAudio()
 		default:

@@ -26,6 +26,7 @@ const (
 	ReadLast  Kind = "read_last"  // re-read the last N Claude replies aloud
 	Clear     Kind = "clear"      // rotate the session's Claude context (keep history for display)
 	Compress  Kind = "compress"   // summarize the context, then rotate — carry a condensed summary forward
+	Usage     Kind = "usage"      // report the Claude plan's usage (session/week % left), via `/usage`
 	Unknown   Kind = "unknown"
 )
 
@@ -247,6 +248,13 @@ func Parse(text string) Intent {
 		contains(t, "compress the context", "compact the context", "condense the context",
 			"condense context", "summarize the context", "summarize context", "compact it"):
 		return Intent{Kind: Compress}
+
+	// Usage: report the Claude plan's usage limits (session/week % used, resets).
+	// Bare "usage", or phrasings asking how much is left / used.
+	case first == "usage" && n <= 2,
+		contains(t, "how much usage", "usage left", "usage limit", "how much have i used",
+			"how much is left", "check usage", "my usage", "show usage"):
+		return Intent{Kind: Usage}
 
 	default:
 		return Intent{Kind: Unknown}

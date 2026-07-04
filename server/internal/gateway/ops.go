@@ -1,9 +1,13 @@
 package gateway
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/bam/claude_spawner/server/internal/command"
 	"github.com/bam/claude_spawner/server/internal/session"
@@ -63,10 +67,91 @@ func (c *conn) runCommand(intent command.Intent) bool {
 		c.doClear()
 	case command.Compress:
 		c.doCompress()
+	case command.Usage:
+		c.doUsage(true) // voice command: show the report AND speak a summary
 	default:
 		return false
 	}
 	return true
+}
+
+// doUsage runs `/usage` (a full but lightweight claude invocation) in the
+// background and returns the plan's usage report — the session/weekly percent-
+// used numbers the TUI `/usage` shows. If speak, it also sends a short spoken
+// summary (the "usage" voice command); a tap trigger stays silent and just fills
+// the app's usage sheet.
+func (c *conn) doUsage(speak bool) {
+	if speak {
+		c.send(msgSay("checking your usage — one sec."))
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(c.ctx, 90*time.Second)
+		defer cancel()
+		text, err := c.srv.driver.Usage(ctx)
+		if err != nil {
+			c.send(msgError("usage_failed", err.Error()))
+			return
+		}
+		sp, sr, wp, wr := parseUsage(text)
+		c.send(msgUsage(sp, sr, wp, wr, strings.TrimSpace(text)))
+		if speak {
+			c.send(msgSay(usageSummary(sp, wp)))
+		}
+	}()
+}
+
+var (
+	reUsageSession = regexp.MustCompile(`(?i)current session:\s*(\d+)% used(?:\s*·\s*resets\s*([^\n]+))?`)
+	reUsageWeek    = regexp.MustCompile(`(?i)current week \(all models\):\s*(\d+)% used(?:\s*·\s*resets\s*([^\n]+))?`)
+)
+
+// parseUsage pulls the session and weekly percent-used headline out of a /usage
+// report. Returns -1 for a percent it couldn't find and "" for a missing reset;
+// the app shows the full text verbatim regardless, so this is a best-effort
+// headline, not the whole story.
+func parseUsage(text string) (sessionPct int, sessionReset string, weekPct int, weekReset string) {
+	sessionPct, weekPct = -1, -1
+	if m := reUsageSession.FindStringSubmatch(text); m != nil {
+		sessionPct = atoiSafe(m[1])
+		sessionReset = cleanReset(m[2])
+	}
+	if m := reUsageWeek.FindStringSubmatch(text); m != nil {
+		weekPct = atoiSafe(m[1])
+		weekReset = cleanReset(m[2])
+	}
+	return
+}
+
+func atoiSafe(s string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil {
+		return -1
+	}
+	return n
+}
+
+// cleanReset trims the reset string and drops a trailing " (timezone)" note so
+// "Jul 4, 9:59am (America/New_York)" reads as "Jul 4, 9:59am".
+func cleanReset(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.LastIndex(s, " ("); i > 0 {
+		s = s[:i]
+	}
+	return s
+}
+
+// usageSummary is the short spoken line for the "usage" voice command.
+func usageSummary(sessionPct, weekPct int) string {
+	switch {
+	case sessionPct < 0 && weekPct < 0:
+		return "couldn't read your usage."
+	case sessionPct < 0:
+		return fmt.Sprintf("you've used %d%% of this week's limit.", weekPct)
+	case weekPct < 0:
+		return fmt.Sprintf("you've used %d%% of this session's limit.", sessionPct)
+	default:
+		return fmt.Sprintf("you've used %d%% of this session and %d%% of the week.", sessionPct, weekPct)
+	}
 }
 
 // doDiscover scans ~/.claude/projects for all Claude sessions (spawner-created

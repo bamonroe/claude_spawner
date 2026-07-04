@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"syscall"
@@ -277,6 +278,42 @@ func parseStream(r interface{ Read([]byte) (int, error) }, onTool func(ToolUse),
 		return "", Usage{}, fmt.Errorf("claude turn failed (%s): %s", subtype, result)
 	}
 	return result, usage, nil
+}
+
+// Usage runs `claude -p "/usage"` headless and returns its report text (the
+// stream-json `result`) — the same session/weekly percent-used breakdown the TUI
+// `/usage` command shows. It is account-global (no session_id/dir), so it runs in
+// a temp dir. This is a real, if lightweight, claude invocation, so callers should
+// treat it as on-demand rather than per-turn.
+func (d *Driver) Usage(ctx context.Context) (string, error) {
+	args := []string{"-p", "/usage", "--output-format", "stream-json", "--verbose"}
+	if d.Bypass {
+		args = append(args, "--dangerously-skip-permissions")
+	}
+	cmd := exec.CommandContext(ctx, d.Bin, args...)
+	cmd.Dir = os.TempDir()
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		if cmd.Process != nil {
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		}
+		return nil
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", err
+	}
+	if err := cmd.Start(); err != nil {
+		return "", fmt.Errorf("start claude: %w", err)
+	}
+	reply, _, perr := parseStream(stdout, nil, nil, nil)
+	if werr := cmd.Wait(); werr != nil {
+		return "", fmt.Errorf("claude exited: %w", werr)
+	}
+	if perr != nil {
+		return "", perr
+	}
+	return reply, nil
 }
 
 // NewSessionID returns a random RFC-4122 v4 UUID for use with --session-id.

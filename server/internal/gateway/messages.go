@@ -112,6 +112,18 @@ func msgRateLimit(rl session.RateLimit) map[string]any {
 	}
 }
 
+// msgUsage carries the Claude plan's usage report (from `/usage`): the parsed
+// session/weekly percent-used headline (pct = -1 when it couldn't be parsed) with
+// reset times, plus the full report text for the app to show verbatim. Response
+// to a `usage` request or the "usage" voice command; not spoken (the command path
+// sends a separate `say` summary).
+func msgUsage(sessionPct int, sessionReset string, weekPct int, weekReset, text string) map[string]any {
+	return map[string]any{
+		"type": "usage", "session_pct": sessionPct, "session_reset": sessionReset,
+		"week_pct": weekPct, "week_reset": weekReset, "text": text,
+	}
+}
+
 func msgError(code, message string) map[string]any {
 	return map[string]any{"type": "error", "code": code, "message": message}
 }

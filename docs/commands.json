@@ -110,6 +110,15 @@
         "stop talking"
       ],
       "description": "Barge-in: stop the voice reading aloud"
+    },
+    {
+      "title": "usage",
+      "aliases": [
+        "usage",
+        "how much usage left",
+        "check usage"
+      ],
+      "description": "Report your Claude plan's usage — session and weekly % used, with resets"
     }
   ]
 }
