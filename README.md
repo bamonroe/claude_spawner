@@ -113,8 +113,8 @@ Two independent, toggleable displays live in **Settings → Appearance**:
   countdown; attaching to a different session resets it (that session has its own, cold, cache).
 
 Each live message also carries a small **date/time badge** below the token line — bottom-right on
-Claude's replies, bottom-right on your own messages. Only messages sent/received in this session are
-stamped; replayed history has none.
+Claude's replies, bottom-right on your own messages. Replayed history is stamped too, from each
+message's transcript timestamp (older transcripts that predate this field show no badge).
 
 Nothing here is spoken — it's screen-only, so hands-free dictation is unaffected. The numbers come
 straight from the headless `result` event's usage (no estimation); see the `output.usage` field in

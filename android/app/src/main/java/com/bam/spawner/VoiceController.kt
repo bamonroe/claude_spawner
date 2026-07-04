@@ -801,7 +801,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     // log (prepended, ahead of any live messages), and updates the paging cursor.
     private fun onHistory(msg: ServerMsg.History) {
         val wasLoadOlder = msg.name in loadingOlder // else it's the initial page (on attach)
-        val hist = msg.messages.map { ChatMessage(roleOf(it.role), it.text, it.index) }
+        val hist = msg.messages.map { ChatMessage(roleOf(it.role), it.text, it.index, ts = it.ts) }
         val histIdx = hist.mapNotNull { if (it.index >= 0) it.index else null }.toSet()
         // keep live messages (index < 0) and any already-loaded page not in this one
         val existing = (logs[msg.name] ?: emptyList()).filter { it.index < 0 || it.index !in histIdx }
