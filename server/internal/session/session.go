@@ -94,18 +94,33 @@ type Usage struct {
 	CacheRead  int `json:"cache_read"`  // cache_read_input_tokens (warm-cache hit)
 }
 
+// RateLimit is the subscription usage-window state carried by the stream-json
+// `rate_limit_event` (emitted early in every turn). It is how the app shows the
+// Claude plan's session limit. Status is a COARSE signal — "allowed" until you
+// near/hit the cap — since Anthropic does not expose an exact remaining quota.
+// ResetsAt is unix seconds; Type names the binding window ("five_hour" | weekly).
+// The zero value (empty Type) means the turn carried no rate-limit event.
+type RateLimit struct {
+	Status       string `json:"status"`        // "allowed" | warning/rejected as the cap nears
+	ResetsAt     int64  `json:"resets_at"`     // unix seconds when this window resets
+	Type         string `json:"limit_type"`    // "five_hour" (rolling session) | weekly
+	UsingOverage bool   `json:"using_overage"` // currently drawing on pay-as-you-go overage
+}
+
 // Turn sends one user message to the session and returns the assistant's final
 // prose (the stream-json `result` event). onTool, if non-nil, is called for each
 // tool Claude uses, so the caller can show activity ("thinking…", "editing
 // foo.go") separately from the answer. onText, if non-nil, is called with each
 // assistant text message as it streams in (a whole message per call — we don't
 // request token deltas), so the caller can show Claude's prose live instead of
-// waiting for the whole turn to finish.
+// waiting for the whole turn to finish. onRateLimit, if non-nil, is called with
+// the subscription usage-window state when the stream's rate_limit_event lands
+// (early in the turn), so the caller can show the plan's session limit.
 //
 // The first turn (s.Started == false) creates the session with --session-id;
 // later turns reattach with --resume. Turn flips s.Started to true on success —
 // the caller is responsible for persisting the updated record.
-func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool func(ToolUse), onText func(string)) (string, Usage, error) {
+func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool func(ToolUse), onText func(string), onRateLimit func(RateLimit)) (string, Usage, error) {
 	if s.SessionID == "" {
 		return "", Usage{}, fmt.Errorf("session %q has no SessionID", s.Name)
 	}
@@ -139,7 +154,7 @@ func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool fun
 		return "", Usage{}, fmt.Errorf("start claude: %w", err)
 	}
 
-	reply, usage, perr := parseStream(stdout, onTool, onText)
+	reply, usage, perr := parseStream(stdout, onTool, onText, onRateLimit)
 	if werr := cmd.Wait(); werr != nil {
 		return "", Usage{}, fmt.Errorf("claude exited: %w", werr)
 	}
@@ -167,6 +182,14 @@ type streamEvent struct {
 		CacheCreationTokens int `json:"cache_creation_input_tokens"`
 		CacheReadTokens     int `json:"cache_read_input_tokens"`
 	} `json:"usage"`
+	// RateLimitInfo is present on the `rate_limit_event`. Anthropic's field names;
+	// remapped into our RateLimit type.
+	RateLimitInfo struct {
+		Status         string `json:"status"`
+		ResetsAt       int64  `json:"resetsAt"`
+		RateLimitType  string `json:"rateLimitType"`
+		IsUsingOverage bool   `json:"isUsingOverage"`
+	} `json:"rate_limit_info"`
 	Message struct {
 		Content []struct {
 			Type  string `json:"type"` // "text" | "tool_use"
@@ -183,7 +206,7 @@ type streamEvent struct {
 // parseStream reads NDJSON until EOF, returning the final result text. It calls
 // onTool per tool_use block and onText per assistant text message (in stream
 // order) so the caller can render tool breadcrumbs and Claude's prose live.
-func parseStream(r interface{ Read([]byte) (int, error) }, onTool func(ToolUse), onText func(string)) (string, Usage, error) {
+func parseStream(r interface{ Read([]byte) (int, error) }, onTool func(ToolUse), onText func(string), onRateLimit func(RateLimit)) (string, Usage, error) {
 	sc := newLineScanner(r)
 
 	var result string
@@ -233,6 +256,15 @@ func parseStream(r interface{ Read([]byte) (int, error) }, onTool func(ToolUse),
 			}
 			isError = ev.IsError || (ev.Subtype != "" && ev.Subtype != "success")
 			subtype = ev.Subtype
+		case "rate_limit_event":
+			if onRateLimit != nil && ev.RateLimitInfo.RateLimitType != "" {
+				onRateLimit(RateLimit{
+					Status:       ev.RateLimitInfo.Status,
+					ResetsAt:     ev.RateLimitInfo.ResetsAt,
+					Type:         ev.RateLimitInfo.RateLimitType,
+					UsingOverage: ev.RateLimitInfo.IsUsingOverage,
+				})
+			}
 		}
 	}
 	if err := sc.Err(); err != nil {

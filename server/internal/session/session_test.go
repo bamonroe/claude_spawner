@@ -32,13 +32,16 @@ func TestParseStreamStreamsProse(t *testing.T) {
 {"type":"assistant","message":{"content":[{"type":"text","text":"Let me look."}]}}
 {"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/tmp/foo.go"}}]}}
 {"type":"assistant","message":{"content":[{"type":"text","text":"Found it."}]}}
+{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1783173600,"rateLimitType":"five_hour","isUsingOverage":false}}
 {"type":"result","subtype":"success","result":"Found it.","session_id":"x","usage":{"input_tokens":12,"output_tokens":7,"cache_creation_input_tokens":1000,"cache_read_input_tokens":24000}}
 `
 	var texts []string
 	var tools []ToolUse
+	var limits []RateLimit
 	reply, usage, err := parseStream(strings.NewReader(stream),
 		func(t ToolUse) { tools = append(tools, t) },
 		func(s string) { texts = append(texts, s) },
+		func(rl RateLimit) { limits = append(limits, rl) },
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -48,6 +51,9 @@ func TestParseStreamStreamsProse(t *testing.T) {
 	}
 	if want := (Usage{Input: 12, Output: 7, CacheWrite: 1000, CacheRead: 24000}); usage != want {
 		t.Errorf("usage = %+v, want %+v", usage, want)
+	}
+	if want := (RateLimit{Status: "allowed", ResetsAt: 1783173600, Type: "five_hour"}); len(limits) != 1 || limits[0] != want {
+		t.Errorf("rate limits = %+v, want one %+v", limits, want)
 	}
 	if want := []string{"Let me look.", "Found it."}; strings.Join(texts, "|") != strings.Join(want, "|") {
 		t.Errorf("streamed texts = %v, want %v", texts, want)

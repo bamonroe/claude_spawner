@@ -99,6 +99,19 @@ func msgOutput(name, text string, chunk bool, usage *session.Usage) map[string]a
 	return m
 }
 
+// msgRateLimit reports the Claude subscription's usage-window state (from the
+// stream-json rate_limit_event) so the app can show the plan's session limit —
+// which window is binding, when it resets, and a coarse status. Not spoken.
+func msgRateLimit(rl session.RateLimit) map[string]any {
+	return map[string]any{
+		"type":          "rate_limit",
+		"status":        rl.Status,
+		"resets_at":     rl.ResetsAt,
+		"limit_type":    rl.Type,
+		"using_overage": rl.UsingOverage,
+	}
+}
+
 func msgError(code, message string) map[string]any {
 	return map[string]any{"type": "error", "code": code, "message": message}
 }
