@@ -1,6 +1,9 @@
 package gateway
 
-import "github.com/bam/claude_spawner/server/internal/session"
+import (
+	"github.com/bam/claude_spawner/server/internal/session"
+	"github.com/bam/claude_spawner/server/internal/usage"
+)
 
 // Wire types for the WebSocket protocol (see docs/protocol.md). Inbound JSON is
 // decoded into `inbound`; outbound messages are plain maps built by the helpers
@@ -121,6 +124,25 @@ func msgUsage(sessionPct int, sessionReset string, weekPct int, weekReset, text 
 	return map[string]any{
 		"type": "usage", "session_pct": sessionPct, "session_reset": sessionReset,
 		"week_pct": weekPct, "week_reset": weekReset, "text": text,
+	}
+}
+
+// msgUsageEstimate carries the server-global drift-live usage estimate (all
+// sessions/clients). The *_est_pct fields drift up each turn; the *_real_pct
+// fields are the last /usage calibration's true numbers; -1 means "not known
+// yet" (uncalibrated). Sent after each turn and on /usage; also pushed on connect.
+func msgUsageEstimate(v usage.View) map[string]any {
+	return map[string]any{
+		"type":               "usage_estimate",
+		"calibrated":         v.Calibrated,
+		"session_est_pct":    v.SessionEstPct,
+		"week_est_pct":       v.WeekEstPct,
+		"session_real_pct":   v.SessionRealPct,
+		"week_real_pct":      v.WeekRealPct,
+		"cum_tokens":         v.CumTokens,
+		"tokens_since_check": v.TokensSinceCheck,
+		"turns_since_check":  v.TurnsSinceCheck,
+		"last_check_at":      v.LastCheckAt,
 	}
 }
 

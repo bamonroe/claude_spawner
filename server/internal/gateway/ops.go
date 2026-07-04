@@ -94,6 +94,10 @@ func (c *conn) doUsage(speak bool) {
 		}
 		sp, sr, wp, wr := parseUsage(text)
 		c.send(msgUsage(sp, sr, wp, wr, strings.TrimSpace(text)))
+		// Snap the drift-live estimate back to these real numbers (and let it learn
+		// the tokens-per-percent rate for the interval), then push to every client.
+		est := c.srv.usage.Calibrate(time.Now().Unix(), float64(sp), float64(wp))
+		c.srv.broadcastUsageEstimate(est)
 		if speak {
 			c.send(msgSay(usageSummary(sp, wp)))
 		}

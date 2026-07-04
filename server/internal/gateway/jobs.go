@@ -188,10 +188,18 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk bool) bo
 			j.emit(msgOutput(sess.Name, prose, true, nil))
 		}
 		// The rate_limit_event lands early in the stream; broadcast the plan's
-		// session-limit state to every attached device as soon as it arrives.
-		onRateLimit := func(rl session.RateLimit) { s.setRateLimit(rl); j.emit(msgRateLimit(rl)) }
+		// session-limit state to every attached device as soon as it arrives, and
+		// feed the 5-hour reset time to the usage estimator (so it can detect a
+		// window rollover and restart the drift from zero).
+		onRateLimit := func(rl session.RateLimit) {
+			s.setRateLimit(rl)
+			if rl.Type == "five_hour" {
+				s.usage.NoteSessionResetsAt(rl.ResetsAt)
+			}
+			j.emit(msgRateLimit(rl))
+		}
 		wasStarted := sess.Started // Turn flips Started true on the first success
-		reply, usage, err := s.driver.Turn(ctx, sess, text, onTool, onText, onRateLimit)
+		reply, turnUsage, err := s.driver.Turn(ctx, sess, text, onTool, onText, onRateLimit)
 		if len(changed) > 0 {
 			j.emit(msgFiles(sortedKeys(changed))) // persistent "edited: …" chip
 		}
@@ -209,6 +217,9 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk bool) bo
 			return
 		}
 		log.Printf("turn[%s] reply: %q", sess.Name, logField(reply))
+		// Feed this turn's token cost into the server-global usage estimate (all
+		// sessions/clients) and push the drifted estimate to every connected app.
+		s.broadcastUsageEstimate(s.usage.AddTurn(tokenCost(turnUsage)))
 		// The first turn flips Started false->true (for --resume); the first
 		// interactive turn primes AskPrimed so the instruction isn't re-sent. Either
 		// change means we persist; an unchanged record skips the disk rewrite.
@@ -239,7 +250,7 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk bool) bo
 			j.finish(msgAsk(sess.Name, qs))
 			return
 		}
-		j.finish(msgOutput(sess.Name, reply, false, &usage))
+		j.finish(msgOutput(sess.Name, reply, false, &turnUsage))
 	}()
 	return true
 }
@@ -282,8 +293,14 @@ func (s *Server) startCompress(sess *session.Session) bool {
 	go func() {
 		defer s.inflight.remove(sess.Name)
 		j.emit(msgActivity("🗜️ compressing context…"))
-		onRateLimit := func(rl session.RateLimit) { s.setRateLimit(rl); j.emit(msgRateLimit(rl)) }
-		summary, _, err := s.driver.Turn(ctx, sess, compressPrompt, nil, nil, onRateLimit)
+		onRateLimit := func(rl session.RateLimit) {
+			s.setRateLimit(rl)
+			if rl.Type == "five_hour" {
+				s.usage.NoteSessionResetsAt(rl.ResetsAt)
+			}
+			j.emit(msgRateLimit(rl))
+		}
+		summary, cUsage, err := s.driver.Turn(ctx, sess, compressPrompt, nil, nil, onRateLimit)
 		if err != nil {
 			j.mu.Lock()
 			aborted := j.aborted
@@ -297,6 +314,8 @@ func (s *Server) startCompress(sess *session.Session) bool {
 			j.finish(msgError("compress_failed", err.Error()))
 			return
 		}
+		// The summary turn consumed usage too — count it toward the estimate.
+		s.broadcastUsageEstimate(s.usage.AddTurn(tokenCost(cUsage)))
 		// Rotate: retire the just-summarized session_id (kept on disk for history)
 		// and start fresh, carrying the summary forward as PendingSeed for the next
 		// dictation. driver.Turn flipped Started true for the summary turn; the
@@ -319,6 +338,14 @@ func (s *Server) startCompress(sess *session.Session) bool {
 		j.finish(msgSay("compressed. carried a summary forward — your history is still here."))
 	}()
 	return true
+}
+
+// tokenCost is the weighted per-turn token measure fed to the usage estimator:
+// every token the turn touched, including the (dominant) cached context re-read,
+// since Claude's usage tracks context size. The estimator calibrates against real
+// /usage, so the exact weighting need only be consistent, not perfect.
+func tokenCost(u session.Usage) int64 {
+	return int64(u.Input + u.Output + u.CacheWrite + u.CacheRead)
 }
 
 func isFileTool(name string) bool {

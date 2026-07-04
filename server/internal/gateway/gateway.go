@@ -26,6 +26,7 @@ import (
 	"github.com/bam/claude_spawner/server/internal/session"
 	"github.com/bam/claude_spawner/server/internal/tmux"
 	"github.com/bam/claude_spawner/server/internal/transcribe"
+	"github.com/bam/claude_spawner/server/internal/usage"
 )
 
 // Server holds the shared dependencies for all connections.
@@ -61,6 +62,8 @@ type Server struct {
 
 	rateLimitMu sync.Mutex        // guards the last-seen subscription rate-limit state
 	rateLimit   session.RateLimit // account-global; cached from turns, pushed to apps on connect
+
+	usage *usage.Estimator // server-global drift-live usage estimate (all sessions/clients)
 }
 
 // lastRateLimit returns the most recent subscription usage-window state (empty
@@ -130,6 +133,22 @@ func (s *Server) broadcastWhisperModel(name string) {
 	}
 }
 
+// broadcastUsageEstimate pushes the current server-global usage estimate to every
+// connected app (it aggregates all sessions/clients, so everyone sees the same
+// number). Sent after each turn's drift and after a /usage calibration.
+func (s *Server) broadcastUsageEstimate(v usage.View) {
+	s.connsMu.Lock()
+	cs := make([]*conn, 0, len(s.conns))
+	for c := range s.conns {
+		cs = append(cs, c)
+	}
+	s.connsMu.Unlock()
+	msg := msgUsageEstimate(v)
+	for _, c := range cs {
+		c.send(msg)
+	}
+}
+
 // validModelName guards the model path against injection (letters, digits, dot,
 // dash, underscore only).
 func validModelName(s string) bool {
@@ -159,9 +178,10 @@ func New(cfg *config.Config, store *session.Store, driver *session.Driver, tmuxM
 	if cfg.WhisperFastURL != "" {
 		fast = &transcribe.RemoteWhisper{URL: cfg.WhisperFastURL}
 	}
-	inflightPath := ""
+	inflightPath, usagePath := "", ""
 	if cfg.StatePath != "" {
 		inflightPath = filepath.Join(filepath.Dir(cfg.StatePath), "inflight.json")
+		usagePath = filepath.Join(filepath.Dir(cfg.StatePath), "usage_estimate.json")
 	}
 	inflight, interrupted := newInflightTracker(inflightPath)
 	s := &Server{
@@ -178,6 +198,7 @@ func New(cfg *config.Config, store *session.Store, driver *session.Driver, tmuxM
 		restartCh:    make(chan struct{}),
 		inflight:     inflight,
 		interrupted:  interrupted,
+		usage:        usage.Open(usagePath),
 		currentModel: cfg.WhisperModelName, // authoritative from boot; loaded below
 		up: websocket.Upgrader{
 			// The app authenticates with a token in the hello message, so origin
@@ -428,6 +449,10 @@ func (c *conn) authenticate() bool {
 	// rather than staying blank until the first turn of this connection.
 	if rl := c.srv.lastRateLimit(); rl.Type != "" {
 		c.send(msgRateLimit(rl))
+	}
+	// Same idea for the drift-live usage estimate — show it immediately on connect.
+	if v := c.srv.usage.View(); v.Calibrated {
+		c.send(msgUsageEstimate(v))
 	}
 	return true
 }
