@@ -1,6 +1,7 @@
 package session
 
 import (
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -107,5 +108,31 @@ func TestTranscriptIDs(t *testing.T) {
 	s.PriorIDs = []string{"old1", "old2"}
 	if got := strings.Join(s.TranscriptIDs(), ","); got != "old1,old2,cur" {
 		t.Errorf("TranscriptIDs() = %q, want %q", got, "old1,old2,cur")
+	}
+}
+
+// TestReadTranscriptParsesTimestamp confirms a transcript line's ISO-8601
+// timestamp is surfaced as unix seconds on Message.Ts (0 when absent).
+func TestReadTranscriptParsesTimestamp(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "t.jsonl")
+	lines := `{"type":"user","timestamp":"2026-07-04T11:51:00Z","message":{"content":"hi"}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"hello"}]}}
+`
+	if err := os.WriteFile(path, []byte(lines), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	msgs, err := ReadTranscript(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 2 {
+		t.Fatalf("want 2 messages, got %d", len(msgs))
+	}
+	if msgs[0].Ts != 1783165860 {
+		t.Errorf("user Ts = %d, want 1783165860", msgs[0].Ts)
+	}
+	if msgs[1].Ts != 0 {
+		t.Errorf("timestamp-less line should have Ts 0, got %d", msgs[1].Ts)
 	}
 }

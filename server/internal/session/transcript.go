@@ -5,7 +5,21 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
+
+// parseTs converts a transcript line's ISO-8601 timestamp to unix seconds,
+// returning 0 when it's missing or unparseable.
+func parseTs(s string) int64 {
+	if s == "" {
+		return 0
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return 0
+	}
+	return t.Unix()
+}
 
 // Message is one turn of a session's conversation, extracted from Claude's
 // transcript. Role is "user" (what we dictated) or "claude" (the reply). Index
@@ -15,12 +29,14 @@ type Message struct {
 	Index int    `json:"index"`
 	Role  string `json:"role"`
 	Text  string `json:"text"`
+	Ts    int64  `json:"ts"` // unix seconds from the transcript line's timestamp (0 if absent)
 }
 
 // transcriptLine is the subset of a Claude transcript JSONL line we read.
 type transcriptLine struct {
-	Type    string `json:"type"` // "user" | "assistant" | (others ignored)
-	Message struct {
+	Type      string `json:"type"`      // "user" | "assistant" | (others ignored)
+	Timestamp string `json:"timestamp"` // ISO-8601 when Claude Code wrote the line
+	Message   struct {
 		Content json.RawMessage `json:"content"` // string OR []{type,text,...}
 	} `json:"message"`
 }
@@ -111,7 +127,7 @@ func ReadTranscript(path string) ([]Message, error) {
 		if strings.TrimSpace(text) == "" {
 			continue // tool-only turn, tool_result, etc.
 		}
-		out = append(out, Message{Index: idx, Role: role, Text: text})
+		out = append(out, Message{Index: idx, Role: role, Text: text, Ts: parseTs(l.Timestamp)})
 		idx++
 	}
 	return out, sc.Err()
