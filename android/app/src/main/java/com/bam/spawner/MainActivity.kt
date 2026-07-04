@@ -953,12 +953,12 @@ private fun InputBar(
       }
       Row(
         Modifier.fillMaxWidth().padding(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalAlignment = Alignment.Bottom,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         OutlinedTextField(
             value = draft, onValueChange = { draft = it },
-            placeholder = { Text("Message…") }, singleLine = true,
+            placeholder = { Text("Message…") }, singleLine = false, maxLines = 6,
             // Swipe up to open the command tray, swipe down to close it. Taps still
             // fall through to focus the field (a tap never crosses the drag slop).
             // Any touch on the box while the tray is open dismisses it — observed on
