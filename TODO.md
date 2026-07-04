@@ -36,19 +36,17 @@ Dates are `YYYY-MM-DD`.
 
 ## Done
 
-- [x] 2026-07-04 — **Chat: keyboard pushes the newest message up (only when already at the bottom)**.
-      `imePadding()` on the outer Column shrinks the weighted `ChatList` from the bottom as the IME
-      animates in, so the tail of the last message slid under the keyboard. `ChatList` now tracks the
-      raw `WindowInsets.ime` bottom inset and snaps the list to the newest message each frame while
-      `atBottom` — so it rides up in lockstep with the keyboard — but stays put when scrolled up
-      reading history (tapping the input box then won't yank the view down).
-
-- [x] 2026-07-04 — **Fix: last message clipped by status bars again** (regression of the 2026-07-03
-      re-pin fix below). `ChatList`'s `atBottom` gate was `remember { derivedStateOf { … >= bottom } }`
-      with no key, so it captured the first composition's `bottom` forever. After the list SHRINKS
-      (session switch / clear / compress — all newer paths that replace `_chat` with a shorter or empty
-      log) the stale-high `bottom` made `atBottom` read `false` permanently, so the `LaunchedEffect(barsKey)`
-      re-pin never fired and the sibling bars clipped the tail again. Keyed the `remember` on `bottom`.
+- [x] 2026-07-04 — **Chat: keep the newest message pinned above the keyboard AND the status bars**
+      (supersedes/unifies the two earlier same-day re-pin fixes — the `barsKey` toggle and the
+      `WindowInsets.ime` follow — which each handled only one shrink source and, for the keyboard,
+      sampled `atBottom` *after* the shrink had already pushed the tail out of view). Root cause: the
+      soft keyboard (via the outer Column's `imePadding()` under `adjustResize`) and the below-list
+      status bars (speaking / activity / draft / mic / warm) all shrink the weighted `ChatList` from
+      the bottom, and a `LazyColumn` does not follow its own shrinking viewport. `ChatList` now watches
+      its **viewport height** via `snapshotFlow` and, on any change, snaps to the newest message — but
+      only if it was parked at the bottom *before* the resize (`pinned` is updated only while the
+      viewport is stable, so a big keyboard shrink cannot flip it first). Scrolled up reading history →
+      stays put. Subsumes the earlier stale-`bottom` clip regression too (no more `barsKey`).
 
 - [x] 2026-07-04 — **Drift-live usage estimate** across all sessions/clients. New
       `internal/usage.Estimator` (server-global, persisted next to sessions.json): every turn adds its

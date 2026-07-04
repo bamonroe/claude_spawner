@@ -29,9 +29,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -74,20 +72,19 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.foundation.layout.Spacer
@@ -345,13 +342,10 @@ private fun MainScreen(
             )
             if (attached == null) DetachedBanner()
             // The status bars below the list are Column siblings: showing one shrinks
-            // the list from the bottom. This key changes whenever that set toggles, so
-            // ChatList can re-pin the newest message above the bars.
+            // the list from the bottom. ChatList watches its own viewport height and
+            // re-pins the newest message above the bars (and the keyboard) itself.
             val showWarmBar = showCacheTimer && lastUsage != null
-            val barsKey = (if (speaking) 1 else 0) + (if (activity.isNotBlank()) 2 else 0) +
-                (if (pending.isNotBlank()) 4 else 0) + (if (handsFree) 8 else 0) +
-                (if (mic.isNotEmpty()) 16 else 0) + (if (showWarmBar) 32 else 0)
-            ChatList(chat, hasMoreHistory, scrollTick, barsKey, badgeMode, controller::loadOlder, Modifier.weight(1f).fillMaxWidth())
+            ChatList(chat, hasMoreHistory, scrollTick, badgeMode, controller::loadOlder, Modifier.weight(1f).fillMaxWidth())
             if (showWarmBar) lastUsage?.let { CacheWarmBar(it) }
             if (speaking) SpeakingBar(onStop = controller::stopSpeaking)
             if (activity.isNotBlank()) ActivityIndicator(activity, onAbort = controller::abortTurn)
@@ -703,7 +697,6 @@ private fun ChatList(
     messages: List<ChatMessage>,
     hasMore: Boolean,
     scrollTick: Int,
-    barsKey: Int,
     badgeMode: String,
     onLoadOlder: () -> Unit,
     modifier: Modifier,
@@ -723,31 +716,33 @@ private fun ChatList(
     LaunchedEffect(scrollTick) {
         if (scrollTick > 0 && messages.isNotEmpty()) listState.animateScrollToItem(bottom)
     }
-    // A below-list status bar (speaking / activity / draft / mic) appearing shrinks
-    // the viewport and would hide the tail of the newest message. Re-pin to it when
-    // the bars toggle — but only if the newest message is currently in view, so
-    // scrolling up to read history mid-turn isn't yanked back down.
-    // Keyed on `bottom`: without the key the derivedStateOf closure captures the
-    // first composition's `bottom` forever, so after the list SHRINKS (session
-    // switch, clear/compress) the stale-high `bottom` makes atBottom read false
-    // permanently — the re-pin below then never fires and the bars clip the tail
-    // again. Re-key so atBottom always compares against the current last index.
-    val atBottom by remember(bottom) {
-        derivedStateOf { (listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0) >= bottom }
-    }
-    LaunchedEffect(barsKey) {
-        if (messages.isNotEmpty() && atBottom) listState.animateScrollToItem(bottom)
-    }
-    // Follow the keyboard. The outer Column's imePadding() shrinks this list from
-    // the bottom as the IME animates in, so the tail of the newest message would
-    // slide under the keyboard. Track the raw ime inset (WindowInsets.ime is the
-    // full value regardless of the parent's imePadding consumption) and re-pin each
-    // frame — but only while the newest message is in view, so scrolling up to read
-    // history and then tapping the input box doesn't yank the view back down. Snap
-    // (not animate) so the pin rides up in lockstep with the keyboard.
-    val imeBottom = WindowInsets.ime.getBottom(LocalDensity.current)
-    LaunchedEffect(imeBottom) {
-        if (messages.isNotEmpty() && atBottom) listState.scrollToItem(bottom)
+    // Keep the newest message pinned above whatever sits below the list — the soft
+    // keyboard and the status bars (speaking / activity / draft / mic / warm). They
+    // all shrink this weighted list from the bottom (the keyboard via the outer
+    // Column's imePadding() under adjustResize), and a LazyColumn does NOT follow its
+    // own shrinking viewport, so the tail of the last message would slide out of view.
+    //
+    // We watch the viewport HEIGHT and, whenever it changes, re-pin to the newest
+    // message — but only if we were parked at the bottom BEFORE the resize. Sampling
+    // "am I at the bottom" AFTER the shrink is too late: a big shrink (the keyboard is
+    // ~40% of the screen) has already pushed the last item out of view, so it would
+    // read false and we'd wrongly skip the follow. `pinned` is therefore updated only
+    // while the viewport is stable (a genuine scroll), and merely consulted — not
+    // overwritten — on a resize. Snap (not animate) so the pin rides the keyboard.
+    var pinned by remember { mutableStateOf(true) }
+    LaunchedEffect(bottom) {
+        var lastViewportH = -1
+        snapshotFlow {
+            val info = listState.layoutInfo
+            info.viewportSize.height to ((info.visibleItemsInfo.lastOrNull()?.index ?: 0) >= bottom)
+        }.collect { (viewportH, atBottom) ->
+            if (viewportH == lastViewportH) {
+                pinned = atBottom                                  // stable viewport → real scroll position
+            } else {
+                if (pinned && messages.isNotEmpty()) listState.scrollToItem(bottom)
+                lastViewportH = viewportH                          // adopt the new height, keep the prior pin
+            }
+        }
     }
     // LazyColumn is the direct weighted child (wrapping it in a SelectionContainer
     // distorted the Column's height and pushed the input bar off-screen). Selection
