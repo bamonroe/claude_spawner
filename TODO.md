@@ -31,6 +31,14 @@ Dates are `YYYY-MM-DD`.
 
 ## Done
 
+- [x] 2026-07-04 — **Open the sessions drawer with a left-edge swipe.** Besides the ☰ button, a
+      narrow strip pinned to the far-left edge opens the navigation drawer on a rightward drag
+      (`detectHorizontalDragGestures` overlay in `MainActivity.kt`). The drawer's built-in gestures
+      stay limited to swipe-to-close (`gesturesEnabled = drawerState.isOpen`) so a horizontal drag
+      across the chat can't open it, and the strip sits opposite the mic button (bottom-right) so it
+      doesn't steal touches. Start just inside the edge — the outermost pixels are Android's system
+      back gesture. Verified on the emulator; installed on the Pixel 8a. README updated.
+
 - [x] 2026-07-04 — **Spoken error feedback.** Voice-reachable failures now speak a plain-language
       reason alongside the machine-readable `error`, instead of failing silently. New `spokenError`
       map (code → friendly phrase) + `conn.fail(code, msg)` helper that sends the `error` and, when

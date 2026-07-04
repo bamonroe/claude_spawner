@@ -73,6 +73,9 @@ Tapping fires the command and closes the tray; swipe back down — or tap anywhe
 dismiss it. Handy when you'd rather not talk (see
 [`docs/commands.md`](docs/commands.md#non-voice-the-command-tray)).
 
+Open the **sessions drawer** either by tapping the ☰ menu or by **swiping in from the left edge** of
+the screen (start just inside the edge — the very edge belongs to Android's system back gesture).
+
 ### Clearing context (keep history, stop paying to replay it)
 
 A session is a durable `session_id` on disk, and every dictated turn resumes it with `--resume` —
