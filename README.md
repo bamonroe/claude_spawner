@@ -61,6 +61,11 @@ All prefixed with **"hey buddy"**:
 
 Anything spoken **while attached** that isn't a reserved command is dictated to the session.
 
+**Without your voice, too:** swipe up on the message box to pop a **command tray** of tap buttons —
+one per command that needs no argument (`detach`, `clear`, `compress`, `status`, `usage`, …).
+Tapping fires the command and closes the tray; swipe back down to dismiss it. Handy when you'd
+rather not talk (see [`docs/commands.md`](docs/commands.md#non-voice-the-command-tray)).
+
 ### Clearing context (keep history, stop paying to replay it)
 
 A session is a durable `session_id` on disk, and every dictated turn resumes it with `--resume` —

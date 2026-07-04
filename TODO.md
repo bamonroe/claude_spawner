@@ -36,6 +36,16 @@ Dates are `YYYY-MM-DD`.
 
 ## Done
 
+- [x] 2026-07-04 — **Command tray: fire argument-free "hey buddy" commands by hand.** Swipe up on
+      the message box to reveal a tray of tap buttons above it, one per no-arg command (`abort`,
+      `cancel`, `clear`, `compress`, `detach`, `help`, `list`, `read last`, `status`, `stop`,
+      `usage`); a tap sends the command (wake-prefixed, so the server parses it as a control command
+      even while attached) and closes the tray, swipe down dismisses it. Buttons are derived from the
+      generated `COMMANDS` list, excluding any command whose aliases take a `<placeholder>`
+      (`attach`/`kill`/`spawn`), so the tray never drifts from the grammar. `InputBar` +
+      `CommandTray` in `MainActivity.kt`. Verified live on the emulator (attached to a real session:
+      the `status` button returned the attach status, not dictation).
+
 - [x] 2026-07-04 — **Usage estimate: discount cache reads in the per-turn token cost.** `tokenCost`
       (gateway/jobs.go) was summing `cache_read` at full weight, but a warm turn re-reads the whole
       cached context (~1M tokens on a big session) that Anthropic meters at ~0.1×. So one turn drifted

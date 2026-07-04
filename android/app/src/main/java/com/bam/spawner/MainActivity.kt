@@ -14,10 +14,12 @@ import androidx.compose.material3.Switch
 import androidx.core.content.ContextCompat
 import com.bam.spawner.service.VoiceService
 import androidx.compose.foundation.background
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -868,6 +870,9 @@ private fun InputBar(
 ) {
     var draft by rememberSaveable { mutableStateOf("") }
     var talking by remember { mutableStateOf(false) }
+    // Swipe up on the text box to reveal the argument-free "hey buddy" commands
+    // as tappable buttons; a command tap fires it and hides the tray again.
+    var trayOpen by rememberSaveable { mutableStateOf(false) }
     // Non-null while the mic is held: 0f..1f progress of the drag toward the
     // hands-free threshold. Drives the drag track's fill so you can see how far
     // is left. Null hides the track.
@@ -876,7 +881,14 @@ private fun InputBar(
     // While hands-free owns the mic, push-to-talk is disabled.
     val pushToTalkEnabled = !handsFree
     val micLive = connected && pushToTalkEnabled
-    Row(
+    Column(Modifier.fillMaxWidth()) {
+      AnimatedVisibility(visible = trayOpen) {
+        CommandTray(
+            connected = connected,
+            onCommand = { phrase -> onSend(phrase); trayOpen = false },
+        )
+      }
+      Row(
         Modifier.fillMaxWidth().padding(8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -884,7 +896,20 @@ private fun InputBar(
         OutlinedTextField(
             value = draft, onValueChange = { draft = it },
             placeholder = { Text("Message…") }, singleLine = true,
-            modifier = Modifier.weight(1f),
+            // Swipe up to open the command tray, swipe down to close it. Taps still
+            // fall through to focus the field (a tap never crosses the drag slop).
+            modifier = Modifier.weight(1f).pointerInput(Unit) {
+                val threshold = 32.dp.toPx()
+                var dy = 0f
+                detectVerticalDragGestures(
+                    onDragStart = { dy = 0f },
+                    onVerticalDrag = { _, delta -> dy += delta },
+                    onDragEnd = {
+                        if (dy <= -threshold) trayOpen = true
+                        else if (dy >= threshold) trayOpen = false
+                    },
+                )
+            },
         )
         // One button, WhatsApp-style: SEND when there's text (tap to send, hold to
         // clear); MIC when the box is empty (hold to talk; drag up the track to
@@ -972,6 +997,36 @@ private fun InputBar(
                         fontSize = 20.sp,
                     )
                 }
+            }
+        }
+      }
+    }
+}
+
+/** The command tray: the argument-free "hey buddy" commands as tap buttons,
+ * revealed by swiping up on the message box. Each tap fires the command (with
+ * the wake prefix, so the server treats it as a control command even while
+ * attached) and the caller hides the tray. Derived from COMMANDS, so it never
+ * drifts from the server grammar — commands whose aliases take an argument
+ * (a <name>/<dir> placeholder) are excluded since a button can't supply one. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun CommandTray(connected: Boolean, onCommand: (String) -> Unit) {
+    val trayCommands = remember { COMMANDS.filter { c -> c.aliases.none { it.contains("<") } } }
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        FlowRow(
+            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            trayCommands.forEach { cmd ->
+                OutlinedButton(
+                    enabled = connected,
+                    onClick = { onCommand("hey buddy " + cmd.aliases.first()) },
+                ) { Text(cmd.name) }
             }
         }
     }

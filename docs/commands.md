@@ -59,6 +59,17 @@ Reject paths that escape the allowed root unless the user explicitly opts in.
 | `usage`         | "usage" / "how much usage left" / "check usage" / "how much have I used" | Reports the Claude plan's usage — session and weekly **% used** with reset times — by running `claude -p "/usage"` (the same numbers the desktop TUI's `/usage` shows). The app opens a usage sheet (percent-used bars + the local contributing breakdown); the voice form also speaks a one-line summary. Also reachable via the 📊 Check usage button in the sessions drawer. On-demand — a real, lightweight claude invocation, not per-turn. |
 | `help`          | "help" / "what can you do" / "commands" | Speaks the list of available commands (generated from the command registry). |
 
+### Non-voice: the command tray
+
+Every argument-free control command can also be fired by hand — no voice needed. **Swipe up on the
+message box** to reveal a **command tray** above it: one tap button per command that takes no extra
+argument (`abort`, `cancel`, `clear`, `compress`, `detach`, `help`, `list`, `read last`, `status`,
+`stop`, `usage`). Tapping a button sends the command (as a wake-prefixed utterance, so the server
+treats it as a control command even while attached) and closes the tray; swipe back down to dismiss
+it without firing. The buttons are derived from the generated `COMMANDS` list — any command whose
+aliases contain a `<placeholder>` (`attach`, `kill`, `spawn`) is excluded, since a button can't
+supply the argument. It never drifts from this grammar.
+
 ## Dialog: spawn a new session
 
 A small state machine. The server drives the prompts; the app speaks them (TTS) and streams the
