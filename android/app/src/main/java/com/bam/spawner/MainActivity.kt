@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
@@ -55,7 +56,9 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
@@ -99,6 +102,7 @@ import com.bam.spawner.net.AskQuestion
 import com.bam.spawner.net.DiscoveredInfo
 import com.bam.spawner.net.RateLimitInfo
 import com.bam.spawner.net.TokenUsage
+import com.bam.spawner.net.UsageReport
 import com.bam.spawner.ui.MarkdownText
 import com.bam.spawner.ui.SpawnerTheme
 import com.bam.spawner.ui.ThemeMode
@@ -287,6 +291,8 @@ private fun MainScreen(
     val activity by controller.activity.collectAsStateWithLifecycle()
     val lastUsage by controller.lastTurnUsage.collectAsStateWithLifecycle()
     val rateLimit by controller.rateLimit.collectAsStateWithLifecycle()
+    val usageReport by controller.usageReport.collectAsStateWithLifecycle()
+    val usageLoading by controller.usageLoading.collectAsStateWithLifecycle()
     var handsFree by remember { mutableStateOf(handsFreeInitial) }
 
     ModalNavigationDrawer(
@@ -307,6 +313,7 @@ private fun MainScreen(
                     onDelete = { deleteTarget = it },
                     onDetach = { controller.detach() },
                     rateLimit = rateLimit,
+                    onCheckUsage = { controller.requestUsage(); scope.launch { drawerState.close() } },
                 )
             }
         },
@@ -420,6 +427,66 @@ private fun MainScreen(
             },
             dismissButton = { TextButton(onClick = { renameTarget = null }) { Text("Cancel") } },
         )
+    }
+    // Usage sheet: opened by "Check usage" (tap) or the "usage" voice command
+    // (report arrives unprompted). Shows while loading and once the report lands.
+    if (usageLoading || usageReport != null) {
+        UsageSheet(usageLoading, usageReport, onDismiss = { controller.dismissUsage() })
+    }
+}
+
+// UsageSheet shows the Claude plan's `/usage` report: session and weekly percent-
+// used as bars up top, then the full contributing breakdown verbatim. Spinner
+// while the server runs /usage. See VoiceController.requestUsage.
+@Composable
+private fun UsageSheet(loading: Boolean, report: UsageReport?, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        title = { Text("Claude usage") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                when {
+                    report == null -> Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Text("Checking usage…")
+                    }
+                    report.sessionPct < 0 && report.weekPct < 0 -> // parse failed — show raw
+                        Text(report.text.ifBlank { "No usage data." }, style = MaterialTheme.typography.bodySmall)
+                    else -> {
+                        UsageBar("Session", report.sessionPct, report.sessionReset)
+                        Spacer(Modifier.height(12.dp))
+                        UsageBar("This week", report.weekPct, report.weekReset)
+                        val idx = report.text.indexOf("What's contributing")
+                        if (idx >= 0) {
+                            Spacer(Modifier.height(12.dp)); HorizontalDivider(); Spacer(Modifier.height(8.dp))
+                            Text(report.text.substring(idx), style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.outline)
+                        }
+                    }
+                }
+            }
+        },
+    )
+}
+
+// UsageBar is one labeled percent-used row with a progress bar and reset time.
+@Composable
+private fun UsageBar(label: String, pct: Int, reset: String) {
+    val known = pct in 0..100
+    Column {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(label, style = MaterialTheme.typography.titleSmall)
+            Text(if (known) "$pct% used" else "—", style = MaterialTheme.typography.titleSmall,
+                color = if (pct >= 90) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
+        }
+        if (known) LinearProgressIndicator(
+            progress = { pct / 100f },
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+        )
+        if (reset.isNotBlank()) Text("resets $reset", style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.outline)
     }
 }
 
@@ -889,8 +956,9 @@ private fun Sidebar(
     onDelete: (DiscoveredInfo) -> Unit,
     onDetach: () -> Unit,
     rateLimit: RateLimitInfo?,
+    onCheckUsage: () -> Unit,
 ) {
-    Column(Modifier.fillMaxHeight().statusBarsPadding().padding(12.dp)) {
+    Column(Modifier.fillMaxHeight().statusBarsPadding().navigationBarsPadding().padding(12.dp)) {
         Text("Sessions", style = MaterialTheme.typography.titleLarge)
         Row {
             TextButton(onClick = onNew) { Text("＋ New") }
@@ -932,11 +1000,12 @@ private fun Sidebar(
             HorizontalDivider()
             TextButton(onClick = onDetach) { Text("Detach from $attached") }
         }
-        // Claude plan's session-limit readout, pinned to the bottom of the drawer.
-        rateLimit?.let {
-            HorizontalDivider()
-            SessionLimitFooter(it)
-        }
+        // Claude plan's session-limit readout + on-demand full usage, pinned to the
+        // bottom of the drawer. The readout shows once a turn reports it; "Check
+        // usage" runs `/usage` on demand for the exact session/weekly % used.
+        HorizontalDivider()
+        rateLimit?.let { SessionLimitFooter(it) }
+        TextButton(onClick = onCheckUsage) { Text("📊 Check usage") }
     }
 }
 

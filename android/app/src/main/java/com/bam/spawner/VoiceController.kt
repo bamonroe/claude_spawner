@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.SystemClock
 import com.bam.spawner.net.TokenUsage
 import com.bam.spawner.net.RateLimitInfo
+import com.bam.spawner.net.UsageReport
 import com.bam.spawner.audio.AudioOutput
 import com.bam.spawner.audio.AudioRouter
 import com.bam.spawner.net.AskQuestion
@@ -137,6 +138,27 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     // the sessions drawer. Null until the first turn reports it.
     private val _rateLimit = MutableStateFlow<RateLimitInfo?>(null)
     val rateLimit: StateFlow<RateLimitInfo?> = _rateLimit.asStateFlow()
+
+    // On-demand `/usage` report (session/weekly % used). Loading is set while the
+    // server runs /usage; report holds the result. A non-null report opens the
+    // usage sheet — including from the "usage" voice command (no prior request).
+    private val _usageReport = MutableStateFlow<UsageReport?>(null)
+    val usageReport: StateFlow<UsageReport?> = _usageReport.asStateFlow()
+    private val _usageLoading = MutableStateFlow(false)
+    val usageLoading: StateFlow<Boolean> = _usageLoading.asStateFlow()
+
+    /** Ask the server for the plan's usage report (runs `/usage`); opens the sheet in a loading state. */
+    fun requestUsage() {
+        _usageReport.value = null
+        _usageLoading.value = true
+        client?.send(Outbound.usage())
+    }
+
+    /** Dismiss the usage sheet and clear its state. */
+    fun dismissUsage() {
+        _usageReport.value = null
+        _usageLoading.value = false
+    }
 
     // True while TTS is speaking (drives the tap-to-stop banner).
     private val _speaking = MutableStateFlow(false)
@@ -628,6 +650,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
             is ServerMsg.Files -> if (msg.files.isNotEmpty()) addChat(Role.SYSTEM, "📝 changed: " + msg.files.joinToString(", "))
             is ServerMsg.Diff -> addChat(Role.SYSTEM, "📊 diff:\n${msg.text}") // review summary, not spoken
             is ServerMsg.RateLimit -> _rateLimit.value = msg.info // plan session-limit readout (sidebar)
+            is ServerMsg.Usage -> { _usageLoading.value = false; _usageReport.value = msg.report } // opens the usage sheet
             is ServerMsg.Ask -> {
                 clearTurnInFlight()
                 turnStreamed = false
@@ -683,6 +706,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
             is ServerMsg.Listing -> _listing.value = msg
             is ServerMsg.Err -> {
                 if (msg.code == "turn_failed") { clearTurnInFlight(); turnStreamed = false }
+                if (_usageLoading.value) _usageLoading.value = false // any error unsticks a pending usage fetch
                 _activity.value = ""
                 // Discover/adopt/delete errors surface on the Discover screen; the
                 // rest go to the chat log.

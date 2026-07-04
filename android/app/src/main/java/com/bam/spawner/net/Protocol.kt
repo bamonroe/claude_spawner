@@ -24,6 +24,7 @@ sealed interface ServerMsg {
     data class ReadLast(val count: Int) : ServerMsg
     data class Discovered(val sessions: List<DiscoveredInfo>) : ServerMsg
     data class RateLimit(val info: RateLimitInfo) : ServerMsg // Claude plan's usage-window state
+    data class Usage(val report: UsageReport) : ServerMsg // `/usage` report (session/weekly % used)
     data class Err(val code: String, val message: String) : ServerMsg
     data class TurnInterrupted(val name: String, val reason: String) : ServerMsg
     data class TurnStopped(val name: String) : ServerMsg // a turn was deliberately aborted
@@ -55,6 +56,10 @@ sealed interface ServerMsg {
                 "rate_limit" -> RateLimit(RateLimitInfo(
                     o.optString("status"), o.optLong("resets_at"),
                     o.optString("limit_type"), o.optBoolean("using_overage"),
+                ))
+                "usage" -> Usage(UsageReport(
+                    o.optInt("session_pct", -1), o.optString("session_reset"),
+                    o.optInt("week_pct", -1), o.optString("week_reset"), o.optString("text"),
                 ))
                 "error" -> Err(o.optString("code"), o.optString("message"))
                 "turn_interrupted" -> TurnInterrupted(o.optString("name"), o.optString("reason"))
@@ -139,6 +144,16 @@ data class RateLimitInfo(val status: String, val resetsAt: Long, val limitType: 
     val allowed: Boolean get() = status.isEmpty() || status == "allowed"
 }
 
+/**
+ * The Claude plan's usage report from `/usage` (see docs/protocol.md `usage`).
+ * sessionPct / weekPct are percent-**used** (−1 when the server couldn't parse them);
+ * `text` is the full report shown verbatim (headline + local contributing breakdown).
+ */
+data class UsageReport(
+    val sessionPct: Int, val sessionReset: String,
+    val weekPct: Int, val weekReset: String, val text: String,
+)
+
 /** One past message from a session's server-served history. */
 data class HistMsg(val index: Int, val role: String, val text: String)
 
@@ -179,6 +194,7 @@ object Outbound {
             .put("brief", cfg.brief).put("interactive", cfg.interactive)
             .toString()
     fun utterance(text: String) = JSONObject().put("type", "utterance").put("text", text).toString()
+    fun usage() = JSONObject().put("type", "usage").toString() // fetch the plan's /usage report
     fun abort() = JSONObject().put("type", "abort").toString() // cancel the running turn
     fun setWhisperModel(model: String) =
         JSONObject().put("type", "set_whisper_model").put("whisper_model", model).toString()

@@ -36,6 +36,14 @@ Dates are `YYYY-MM-DD`.
 
 ## Done
 
+- [x] 2026-07-04 — **`usage` command** — see exactly how much of the Claude plan is left (the TUI
+      `/usage` numbers). Voice ("usage" / "how much usage left") or the 📊 Check usage button in the
+      drawer; the server runs `claude -p "/usage"` (new `Driver.Usage`), parses session/weekly % used
+      + resets, and returns a `usage` report. The app shows a sheet with percent-used bars + the full
+      contributing breakdown; the voice form also speaks a summary. On-demand (a real claude call),
+      unlike the free per-turn drawer readout. Verified end-to-end on the emulator against the new
+      binary. Also fixed the drawer footer being clipped by the nav bar (navigationBarsPadding).
+      Command registry + commands.json + docs/protocol.md + README.
 - [x] 2026-07-04 — **Claude plan session-limit readout** at the bottom of the sessions drawer. Server
       parses the stream-json `rate_limit_event` (status / resetsAt / rateLimitType / isUsingOverage)
       via a new `onRateLimit` callback on `Driver.Turn` and broadcasts it as a `rate_limit` message

@@ -119,9 +119,24 @@ usage window — e.g. `⏳ Claude 5-hour session limit · resets 3:00pm · in 2h
 cap — and `resets_at` is the exact reset time. If the status leaves `allowed` (you're nearing/at the
 cap) the line turns amber; an overage note appears if you're drawing on pay-as-you-go credits.
 
-One honest caveat: Anthropic exposes only a **coarse** status here, not an exact remaining quota — so
-this shows *which* limit and *when it resets*, reliably, but not a "62% used" fuel gauge. Details in
-the `rate_limit` message in [`docs/protocol.md`](./docs/protocol.md).
+One honest caveat: the `rate_limit_event` exposes only a **coarse** status, not an exact remaining
+quota — so the *drawer readout* shows *which* limit and *when it resets*, reliably, but not a "62%
+used" fuel gauge. For the exact numbers, use **Check usage** (below).
+
+### Checking exactly how much you have left
+
+For the real percentages — the same figures the desktop TUI's `/usage` shows — tap **📊 Check usage**
+at the bottom of the sessions drawer, or say **"hey buddy, usage"** (also "how much usage left" /
+"check usage"). The server runs `claude -p "/usage"` and returns a report; the app shows a sheet with:
+
+- **Session** and **This week** as percent-used bars, each with its reset time.
+- The full contributing breakdown (request/session counts, high-context and subagent-heavy shares,
+  top skills/subagents) — an approximation based on this machine's local sessions.
+
+The voice form also speaks a one-line summary ("you've used 47% of this session and 42% of the week").
+Unlike the drawer readout (which piggybacks on each turn for free), this is **on-demand**: it's a
+real, if lightweight, `claude` invocation, so it runs only when you ask. See the `usage` command in
+[`docs/commands.md`](./docs/commands.md) and the `usage` messages in [`docs/protocol.md`](./docs/protocol.md).
 
 ## How responses are captured (the once-hard problem, now solved)
 
