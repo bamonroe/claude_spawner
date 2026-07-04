@@ -620,7 +620,16 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
             is ServerMsg.WhisperModel -> {
                 if (msg.model.isNotBlank()) { _whisperModel.value = msg.model; settings.whisperModel = msg.model }
             }
-            is ServerMsg.Say -> { addChat(Role.SYSTEM, msg.text); speaker.speak(Markdown.toSpeech(msg.text)) }
+            is ServerMsg.Say -> {
+                // A `say` is also the terminal event for a background turn that has no
+                // spoken Claude reply — notably `compress`, which finishes with a
+                // confirmation `say` rather than an `output`. Clear the in-flight/activity
+                // state so the "…compressing… ⏹ stop" bar dismisses; otherwise it lingers
+                // and tapping stop aborts an already-finished turn ("nothing running to stop").
+                clearTurnInFlight()
+                _activity.value = ""
+                addChat(Role.SYSTEM, msg.text); speaker.speak(Markdown.toSpeech(msg.text))
+            }
             is ServerMsg.Output -> {
                 if (msg.chunk) {
                     // A live segment of Claude's reply as it's produced. Show + speak it
