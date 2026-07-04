@@ -40,7 +40,8 @@ Dates are `YYYY-MM-DD`.
       the message box to reveal a tray of tap buttons above it, one per no-arg command (`abort`,
       `cancel`, `clear`, `compress`, `detach`, `help`, `list`, `read last`, `status`, `stop`,
       `usage`); a tap sends the command (wake-prefixed, so the server parses it as a control command
-      even while attached) and closes the tray, swipe down dismisses it. Buttons are derived from the
+      even while attached) and closes the tray; swipe down, a tap anywhere outside the tray, or
+      focusing the message box to type all dismiss it. Buttons are derived from the
       generated `COMMANDS` list, excluding any command whose aliases take a `<placeholder>`
       (`attach`/`kill`/`spawn`), so the tray never drifts from the grammar. `InputBar` +
       `CommandTray` in `MainActivity.kt`. Verified live on the emulator (attached to a real session:

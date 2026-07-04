@@ -86,6 +86,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -299,6 +300,9 @@ private fun MainScreen(
     val usageLoading by controller.usageLoading.collectAsStateWithLifecycle()
     val usageEstimate by controller.usageEstimate.collectAsStateWithLifecycle()
     var handsFree by remember { mutableStateOf(handsFreeInitial) }
+    // The command tray (swipe up on the message box). Hoisted here so a tap
+    // anywhere outside it — the chat, the bars, the text field — can dismiss it.
+    var trayOpen by rememberSaveable { mutableStateOf(false) }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -330,7 +334,14 @@ private fun MainScreen(
             // stay the direct weighted child — wrapping it in a SelectionContainer
             // distorted this Column and pushed the input bar off the bottom.
             Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
-                .systemBarsPadding().imePadding(),
+                .systemBarsPadding().imePadding()
+                // While the command tray is open, a tap that no child consumed (the
+                // chat, the bars, empty space) closes it. Only armed while open, so it
+                // never touches normal scrolling/tapping. Tray buttons and the text
+                // field consume their own taps, so those don't fall through to here.
+                .pointerInput(trayOpen) {
+                    if (trayOpen) detectTapGestures { trayOpen = false }
+                },
         ) {
             TopBar(
                 title = attached ?: "Claude Spawner",
@@ -362,6 +373,8 @@ private fun MainScreen(
             }
             InputBar(
                 connected = connected,
+                trayOpen = trayOpen,
+                onTrayOpenChange = { trayOpen = it },
                 // While hands-free owns the mic, push-to-talk is disabled — but the
                 // button still accepts a swipe-up to toggle hands-free back off.
                 handsFree = handsFree,
@@ -861,6 +874,8 @@ private fun CacheWarmBar(info: TurnUsageInfo) {
 @Composable
 private fun InputBar(
     connected: Boolean,
+    trayOpen: Boolean,
+    onTrayOpenChange: (Boolean) -> Unit,
     handsFree: Boolean,
     onToggleHandsFree: (Boolean) -> Unit,
     onTalkStart: () -> Unit,
@@ -871,8 +886,8 @@ private fun InputBar(
     var draft by rememberSaveable { mutableStateOf("") }
     var talking by remember { mutableStateOf(false) }
     // Swipe up on the text box to reveal the argument-free "hey buddy" commands
-    // as tappable buttons; a command tap fires it and hides the tray again.
-    var trayOpen by rememberSaveable { mutableStateOf(false) }
+    // as tappable buttons; a command tap fires it and hides the tray again. The
+    // open flag is hoisted so a tap outside the tray can dismiss it (see caller).
     // Non-null while the mic is held: 0f..1f progress of the drag toward the
     // hands-free threshold. Drives the drag track's fill so you can see how far
     // is left. Null hides the track.
@@ -885,7 +900,7 @@ private fun InputBar(
       AnimatedVisibility(visible = trayOpen) {
         CommandTray(
             connected = connected,
-            onCommand = { phrase -> onSend(phrase); trayOpen = false },
+            onCommand = { phrase -> onSend(phrase); onTrayOpenChange(false) },
         )
       }
       Row(
@@ -897,19 +912,22 @@ private fun InputBar(
             value = draft, onValueChange = { draft = it },
             placeholder = { Text("Message…") }, singleLine = true,
             // Swipe up to open the command tray, swipe down to close it. Taps still
-            // fall through to focus the field (a tap never crosses the drag slop).
-            modifier = Modifier.weight(1f).pointerInput(Unit) {
-                val threshold = 32.dp.toPx()
-                var dy = 0f
-                detectVerticalDragGestures(
-                    onDragStart = { dy = 0f },
-                    onVerticalDrag = { _, delta -> dy += delta },
-                    onDragEnd = {
-                        if (dy <= -threshold) trayOpen = true
-                        else if (dy >= threshold) trayOpen = false
-                    },
-                )
-            },
+            // fall through to focus the field (a tap never crosses the drag slop);
+            // focusing the field to type also dismisses the tray.
+            modifier = Modifier.weight(1f)
+                .onFocusChanged { if (it.isFocused) onTrayOpenChange(false) }
+                .pointerInput(Unit) {
+                    val threshold = 32.dp.toPx()
+                    var dy = 0f
+                    detectVerticalDragGestures(
+                        onDragStart = { dy = 0f },
+                        onVerticalDrag = { _, delta -> dy += delta },
+                        onDragEnd = {
+                            if (dy <= -threshold) onTrayOpenChange(true)
+                            else if (dy >= threshold) onTrayOpenChange(false)
+                        },
+                    )
+                },
         )
         // One button, WhatsApp-style: SEND when there's text (tap to send, hold to
         // clear); MIC when the box is empty (hold to talk; drag up the track to

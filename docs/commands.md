@@ -68,7 +68,9 @@ argument (`abort`, `cancel`, `clear`, `compress`, `detach`, `help`, `list`, `rea
 treats it as a control command even while attached) and closes the tray; swipe back down to dismiss
 it without firing. The buttons are derived from the generated `COMMANDS` list — any command whose
 aliases contain a `<placeholder>` (`attach`, `kill`, `spawn`) is excluded, since a button can't
-supply the argument. It never drifts from this grammar.
+supply the argument. It never drifts from this grammar. Dismiss the tray without firing by
+swiping back down, tapping anywhere outside it (the chat, the bars), or tapping the message box to
+start typing.
 
 ## Dialog: spawn a new session
 
