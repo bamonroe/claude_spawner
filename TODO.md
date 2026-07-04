@@ -36,6 +36,14 @@ Dates are `YYYY-MM-DD`.
 
 ## Done
 
+- [x] 2026-07-04 — **Fix: output produced while viewing another session was lost on switch-back.**
+      A session keeps running while you view a different one, and its output is persisted to the
+      transcript, but the server only fans live output to the currently-attached connection — so
+      what it said while we were away never reached the app. The app fetched a session's history
+      only on its **first** attach, so switching back never re-pulled the missed output. Now the app
+      refetches recent history on **every** (re)attach and dedupes the top page against live messages
+      already in the log (by role+text), so switching back to a busy session replays what it produced
+      without duplicating what already streamed. (`VoiceController.kt`.)
 - [x] 2026-07-04 — **Command tray: fire argument-free "hey buddy" commands by hand.** Swipe up on
       the message box to reveal a tray of tap buttons above it, one per no-arg command (`abort`,
       `cancel`, `clear`, `compress`, `detach`, `help`, `list`, `read last`, `status`, `stop`,
