@@ -579,7 +579,11 @@ func (c *conn) loop() {
 		case "compress":
 			c.doCompress()
 		case "usage":
-			c.doUsage(false) // tap-triggered: show the report, don't speak it
+			c.doUsage(false, usageCalibrate) // tap-triggered: show the report, don't speak it
+		case "usage_set":
+			c.doUsage(false, usageSetBench) // "set" button: arm the two-point benchmark
+		case "usage_calc":
+			c.doUsage(false, usageCalcBench) // "calc" button: derive the rate from the benchmark
 		case "audio_end":
 			c.endAudio()
 		default:

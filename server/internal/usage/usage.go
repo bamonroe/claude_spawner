@@ -20,7 +20,7 @@ const (
 	// /usage-to-/usage interval replaces them. A week's budget dwarfs a single
 	// 5-hour session, so its seed is much larger.
 	defaultSessRate = 40000.0
-	defaultWeekRate  = 600000.0
+	defaultWeekRate = 600000.0
 	// Rate learning: require at least this many percent gained between checks to
 	// trust the derived rate (avoids noise and divide-by-tiny), then EMA-blend it
 	// in for stability instead of jumping to each raw observation.
@@ -58,6 +58,16 @@ type state struct {
 	WeekAnchorTokens int64   `json:"week_anchor_tokens"`
 	WeekRate         float64 `json:"week_rate"`
 	WeekLearned      bool    `json:"week_learned"`
+
+	// Manual two-point benchmark (the app's "set"/"calc" buttons). SetBenchmark
+	// stamps the current odometer and real percentages here; CalcBenchmark later
+	// derives each window's rate DIRECTLY from the interval to this mark, bypassing
+	// the EMA damping and the single-interval rounding noise that bias the passive
+	// /usage calibration low.
+	BenchSet     bool    `json:"bench_set"`
+	BenchTokens  int64   `json:"bench_tokens"`
+	BenchSessPct float64 `json:"bench_sess_pct"`
+	BenchWeekPct float64 `json:"bench_week_pct"`
 }
 
 // View is a snapshot for the wire/UI. The Est* percents are the current
@@ -73,6 +83,14 @@ type View struct {
 	TokensSinceCheck int64
 	TurnsSinceCheck  int64
 	LastCheckAt      int64
+
+	// Manual benchmark ("set" button): whether one is armed and the percentages/
+	// odometer it was stamped at, so the UI can show what "calc" will measure from.
+	BenchSet       bool
+	BenchSessPct   float64
+	BenchWeekPct   float64
+	BenchTokens    int64
+	TokensSinceSet int64
 }
 
 // Open loads (or initializes) the estimator at path. A missing/corrupt file
@@ -159,6 +177,70 @@ func (e *Estimator) Calibrate(nowUnix int64, sessionPct, weekPct float64) View {
 	return e.viewLocked()
 }
 
+// SetBenchmark stamps the current odometer position and Claude's real
+// percentages as the start of a manual two-point rate measurement (the app's
+// "set" button). A later CalcBenchmark derives tokens-per-percent from the
+// interval to this mark. Returns the updated view.
+func (e *Estimator) SetBenchmark(sessionPct, weekPct float64) View {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.st.BenchSet = true
+	e.st.BenchTokens = e.st.CumTokens
+	e.st.BenchSessPct = sessionPct
+	e.st.BenchWeekPct = weekPct
+	e.persist()
+	return e.viewLocked()
+}
+
+// CalcBenchmark derives each window's tokens-per-percent DIRECTLY from the
+// interval since SetBenchmark: rate = tokensSinceMark / percentGained. Unlike
+// Calibrate it does not EMA-blend — the whole point is to snap the learned rate
+// to one clean, deliberately large measurement, so a run big enough to move
+// several whole percent drowns out the integer-rounding of the reported percent.
+// A window whose percent gained is below minLearnDeltaPct (too small to divide
+// reliably, or the window reset in between) is left untouched and reported as
+// not-updated. It also re-anchors the drift estimate to the fresh real numbers,
+// exactly like a /usage calibration. Returns the post-calc view plus whether the
+// session/weekly rate was actually updated.
+func (e *Estimator) CalcBenchmark(nowUnix int64, sessionPct, weekPct float64) (v View, sessOK, weekOK bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.st.BenchSet {
+		dTok := float64(e.st.CumTokens - e.st.BenchTokens)
+		if dTok > 0 {
+			if sessionPct >= 0 {
+				if d := sessionPct - e.st.BenchSessPct; d >= minLearnDeltaPct {
+					e.st.SessRate = dTok / d
+					e.st.SessLearned = true
+					sessOK = true
+				}
+			}
+			if weekPct >= 0 {
+				if d := weekPct - e.st.BenchWeekPct; d >= minLearnDeltaPct {
+					e.st.WeekRate = dTok / d
+					e.st.WeekLearned = true
+					weekOK = true
+				}
+			}
+		}
+	}
+	// Re-anchor the drift estimate to the real numbers, same as Calibrate's snap.
+	if sessionPct >= 0 {
+		e.st.SessAnchorPct = sessionPct
+		e.st.SessAnchorTokens = e.st.CumTokens
+	}
+	if weekPct >= 0 {
+		e.st.WeekAnchorPct = weekPct
+		e.st.WeekAnchorTokens = e.st.CumTokens
+	}
+	e.st.Calibrated = true
+	e.st.LastCheckAt = nowUnix
+	e.st.LastCheckTokens = e.st.CumTokens
+	e.st.TurnsSinceCheck = 0
+	e.persist()
+	return e.viewLocked(), sessOK, weekOK
+}
+
 // View returns the current estimate snapshot.
 func (e *Estimator) View() View {
 	e.mu.Lock()
@@ -198,6 +280,13 @@ func (e *Estimator) viewLocked() View {
 		CumTokens:       e.st.CumTokens,
 		TurnsSinceCheck: e.st.TurnsSinceCheck,
 		LastCheckAt:     e.st.LastCheckAt,
+		BenchSet:        e.st.BenchSet,
+		BenchSessPct:    e.st.BenchSessPct,
+		BenchWeekPct:    e.st.BenchWeekPct,
+		BenchTokens:     e.st.BenchTokens,
+	}
+	if e.st.BenchSet {
+		v.TokensSinceSet = e.st.CumTokens - e.st.BenchTokens
 	}
 	if e.st.Calibrated {
 		v.SessionRealPct = e.st.SessAnchorPct

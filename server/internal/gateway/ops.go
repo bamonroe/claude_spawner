@@ -68,19 +68,31 @@ func (c *conn) runCommand(intent command.Intent) bool {
 	case command.Compress:
 		c.doCompress()
 	case command.Usage:
-		c.doUsage(true) // voice command: show the report AND speak a summary
+		c.doUsage(true, usageCalibrate) // voice command: show the report AND speak a summary
 	default:
 		return false
 	}
 	return true
 }
 
+// usageAction selects what a /usage read does to the drift estimate once the
+// real percentages are in hand.
+type usageAction int
+
+const (
+	usageCalibrate usageAction = iota // passive EMA calibration (the default tap/voice check)
+	usageSetBench                     // arm the manual two-point benchmark ("set" button)
+	usageCalcBench                    // derive the rate directly from the benchmark ("calc" button)
+)
+
 // doUsage runs `/usage` (a full but lightweight claude invocation) in the
 // background and returns the plan's usage report — the session/weekly percent-
 // used numbers the TUI `/usage` shows. If speak, it also sends a short spoken
 // summary (the "usage" voice command); a tap trigger stays silent and just fills
-// the app's usage sheet.
-func (c *conn) doUsage(speak bool) {
+// the app's usage sheet. The action decides how the fresh real numbers feed the
+// drift estimate: a normal check EMA-calibrates, while the "set"/"calc" buttons
+// drive the manual two-point rate measurement (see usage.Estimator).
+func (c *conn) doUsage(speak bool, action usageAction) {
 	if speak {
 		c.send(msgSay("checking your usage — one sec."))
 	}
@@ -94,10 +106,26 @@ func (c *conn) doUsage(speak bool) {
 		}
 		sp, sr, wp, wr := parseUsage(text)
 		c.send(msgUsage(sp, sr, wp, wr, strings.TrimSpace(text)))
-		// Snap the drift-live estimate back to these real numbers (and let it learn
-		// the tokens-per-percent rate for the interval), then push to every client.
-		est := c.srv.usage.Calibrate(time.Now().Unix(), float64(sp), float64(wp))
-		c.srv.broadcastUsageEstimate(est)
+		now := time.Now().Unix()
+		switch action {
+		case usageSetBench:
+			// Stamp this odometer/percent point; "calc" later measures from here.
+			c.srv.broadcastUsageEstimate(c.srv.usage.SetBenchmark(float64(sp), float64(wp)))
+			c.send(msgSay("benchmark set. burn some tokens, then hit calc."))
+		case usageCalcBench:
+			// Derive the tokens-per-percent rate directly from the benchmark interval.
+			est, sessOK, weekOK := c.srv.usage.CalcBenchmark(now, float64(sp), float64(wp))
+			c.srv.broadcastUsageEstimate(est)
+			if sessOK || weekOK {
+				c.send(msgSay("recalibrated the usage estimate from the benchmark."))
+			} else {
+				c.send(msgSay("not enough change since the benchmark yet — burn more tokens, then calc."))
+			}
+		default:
+			// Snap the drift-live estimate back to these real numbers (and let it learn
+			// the tokens-per-percent rate for the interval), then push to every client.
+			c.srv.broadcastUsageEstimate(c.srv.usage.Calibrate(now, float64(sp), float64(wp)))
+		}
 		if speak {
 			c.send(msgSay(usageSummary(sp, wp)))
 		}

@@ -80,6 +80,43 @@ func TestSessionWindowReset(t *testing.T) {
 	}
 }
 
+// TestBenchmarkTwoPoint exercises the manual "set"/"calc" path: set marks the
+// odometer + real percentages, a run burns tokens, and calc derives the rate
+// DIRECTLY from the interval (no EMA) then re-anchors the estimate. A sub-1%
+// move is refused so the rate is left untouched.
+func TestBenchmarkTwoPoint(t *testing.T) {
+	e := Open("")
+	e.AddTurn(1_000_000)
+	e.Calibrate(1000, 20, 40) // anchor; seeds still in place
+
+	// "set" at session 20% / week 40%, marking the current odometer.
+	if v := e.SetBenchmark(20, 40); !v.BenchSet || v.BenchTokens != 1_000_000 {
+		t.Fatalf("set should stamp odometer at 1e6, got %+v", v)
+	}
+
+	// Burn 300k tokens, then "calc" at 25% session (+5) / 41% week (+1).
+	e.AddTurn(300_000)
+	v, sessOK, weekOK := e.CalcBenchmark(2000, 25, 41)
+	if !sessOK || !weekOK {
+		t.Fatalf("calc should update both windows (sess=%v week=%v)", sessOK, weekOK)
+	}
+	// Session rate = 300k / 5% = 60k/%; estimate snaps to the real 25%.
+	if !approx(v.SessionEstPct, 25) {
+		t.Errorf("calc should snap session est to 25, got %.2f", v.SessionEstPct)
+	}
+	e.AddTurn(60_000) // +1% at the freshly-set 60k/% session rate → 26%
+	if got := e.View().SessionEstPct; !approx(got, 26) {
+		t.Errorf("drift on calc'd rate = %.2f, want 26 (rate should be 60k/%%)", got)
+	}
+
+	// Too-small a move since a new benchmark leaves the rate untouched.
+	e.SetBenchmark(26, 42)
+	e.AddTurn(10_000)
+	if _, sOK, wOK := e.CalcBenchmark(3000, 26, 42); sOK || wOK {
+		t.Errorf("sub-1%% move should refuse to learn, got sess=%v week=%v", sOK, wOK)
+	}
+}
+
 // TestPersistRoundTrip confirms the odometer and learned rates survive a reopen.
 func TestPersistRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "usage_estimate.json")

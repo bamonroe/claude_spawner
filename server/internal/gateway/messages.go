@@ -143,6 +143,11 @@ func msgUsageEstimate(v usage.View) map[string]any {
 		"tokens_since_check": v.TokensSinceCheck,
 		"turns_since_check":  v.TurnsSinceCheck,
 		"last_check_at":      v.LastCheckAt,
+		"bench_set":          v.BenchSet,
+		"bench_sess_pct":     v.BenchSessPct,
+		"bench_week_pct":     v.BenchWeekPct,
+		"bench_tokens":       v.BenchTokens,
+		"tokens_since_set":   v.TokensSinceSet,
 	}
 }
 
