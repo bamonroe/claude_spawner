@@ -91,7 +91,9 @@ func newTestServerGW(t *testing.T, stt transcribe.Transcriber) (*httptest.Server
 	if err != nil {
 		t.Fatal(err)
 	}
-	driver := &session.Driver{Bin: fakeClaude(t, "pong"), Bypass: false}
+	driver := session.NewDriver()
+	driver.HostBin(fakeClaude(t, "pong"))
+	driver.Bypass = false
 	gw := New(cfg, store, driver, tmux.NewManager(), stt, projects.New(cfg.SpawnRoots))
 	ts := httptest.NewServer(http.HandlerFunc(gw.HandleWS))
 	t.Cleanup(ts.Close)
@@ -571,7 +573,7 @@ func TestInteractiveAskInstructionPrimedOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	capPath := filepath.Join(t.TempDir(), "prompts.txt")
-	gw.driver.Bin = fakeClaudeCapture(t, "ok", capPath)
+	gw.driver.HostBin(fakeClaudeCapture(t, "ok", capPath))
 
 	ws := dial(t, ts)
 	send(t, ws, map[string]any{"type": "hello", "token": "secret", "interactive": true})
@@ -622,7 +624,7 @@ func TestCompressSummarizesAndSeedsNextTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	capPath := filepath.Join(t.TempDir(), "prompts.txt")
-	gw.driver.Bin = fakeClaudeCapture(t, "recap-blob", capPath)
+	gw.driver.HostBin(fakeClaudeCapture(t, "recap-blob", capPath))
 
 	ws := dial(t, ts)
 	send(t, ws, map[string]any{"type": "hello", "token": "secret"})

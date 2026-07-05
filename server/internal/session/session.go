@@ -14,9 +14,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"strings"
-	"syscall"
 )
 
 // newLineScanner returns a bufio.Scanner for newline-delimited JSON. It starts
@@ -51,6 +49,11 @@ type Session struct {
 	// context) and then cleared. Empty except in the window between a compress and
 	// the next dictation. "clear" wipes it (a clear means truly empty context).
 	PendingSeed string `json:"pending_seed,omitempty"`
+	// Target selects where this session's turns run: TargetHost (direct exec on the
+	// host — real host files/toolchains) or TargetSandbox (an isolated container).
+	// Chosen at spawn time and durable. Empty means host (records predate this
+	// field). Turn resolves it to a registered Executor. See docs/architecture.md.
+	Target Target `json:"target,omitempty"`
 }
 
 // TranscriptIDs returns every session_id whose transcript belongs to this
@@ -65,14 +68,41 @@ func (s *Session) TranscriptIDs() []string {
 
 // Driver runs Claude Code turns. It holds no per-session state.
 type Driver struct {
-	// Bin is the claude binary (default "claude").
-	Bin string
+	// Execs maps an execution Target to the Executor that launches its turns. Turn
+	// and Usage select by the session's Target (empty/unknown falls back to
+	// TargetHost, which must always be registered). Register additional targets
+	// (sandbox, broker) to make host-vs-container a per-session choice.
+	Execs map[Target]Executor
 	// Bypass adds --dangerously-skip-permissions when true (project default).
 	Bypass bool
 }
 
-// NewDriver returns a Driver with project defaults.
-func NewDriver() *Driver { return &Driver{Bin: "claude", Bypass: true} }
+// NewDriver returns a Driver with project defaults: a single host executor
+// running the "claude" binary, --dangerously-skip-permissions on. Use HostBin to
+// point it at a different binary, and register more entries in Execs for other
+// targets.
+func NewDriver() *Driver {
+	return &Driver{
+		Execs:  map[Target]Executor{TargetHost: HostExecutor{Bin: "claude"}},
+		Bypass: true,
+	}
+}
+
+// HostBin points the host executor at a specific claude binary. Convenience for
+// wiring (config's SPAWNER_CLAUDE_BIN) and tests; equivalent to replacing
+// Execs[TargetHost].
+func (d *Driver) HostBin(bin string) { d.Execs[TargetHost] = HostExecutor{Bin: bin} }
+
+// executor resolves a Target to its Executor, falling back to the host executor
+// for the empty string or any target with no registered executor.
+func (d *Driver) executor(t Target) Executor {
+	if t != "" {
+		if e, ok := d.Execs[t]; ok {
+			return e
+		}
+	}
+	return d.Execs[TargetHost]
+}
 
 // ToolUse describes a tool Claude invoked during a turn. FilePath is set for
 // file-editing tools (Edit/Write/MultiEdit/NotebookEdit) so the caller can show
@@ -135,28 +165,15 @@ func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool fun
 		args = append(args, "--dangerously-skip-permissions")
 	}
 
-	cmd := exec.CommandContext(ctx, d.Bin, args...)
-	cmd.Dir = s.Dir
-	// Run claude in its own process group and, on ctx cancel (an abort), kill the
-	// whole group — so claude AND any tool child it spawned (a build, a sleep) die,
-	// not just the top-level process.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error {
-		if cmd.Process != nil {
-			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		}
-		return nil
-	}
-	stdout, err := cmd.StdoutPipe()
+	// Launch via the session's execution target (host by default). The executor
+	// owns process-group/abort semantics; Turn only builds args and parses stdout.
+	proc, err := d.executor(s.Target).Start(ctx, s.Dir, args)
 	if err != nil {
 		return "", Usage{}, err
 	}
-	if err := cmd.Start(); err != nil {
-		return "", Usage{}, fmt.Errorf("start claude: %w", err)
-	}
 
-	reply, usage, perr := parseStream(stdout, onTool, onText, onRateLimit)
-	if werr := cmd.Wait(); werr != nil {
+	reply, usage, perr := parseStream(proc.Stdout(), onTool, onText, onRateLimit)
+	if werr := proc.Wait(); werr != nil {
 		return "", Usage{}, fmt.Errorf("claude exited: %w", werr)
 	}
 	if perr != nil {
@@ -298,24 +315,14 @@ func (d *Driver) Usage(ctx context.Context) (string, error) {
 	if d.Bypass {
 		args = append(args, "--dangerously-skip-permissions")
 	}
-	cmd := exec.CommandContext(ctx, d.Bin, args...)
-	cmd.Dir = os.TempDir()
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error {
-		if cmd.Process != nil {
-			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		}
-		return nil
-	}
-	stdout, err := cmd.StdoutPipe()
+	// Account-global (no session_id/dir), so always run on the host in a temp dir —
+	// never inside a per-session sandbox.
+	proc, err := d.executor(TargetHost).Start(ctx, os.TempDir(), args)
 	if err != nil {
 		return "", err
 	}
-	if err := cmd.Start(); err != nil {
-		return "", fmt.Errorf("start claude: %w", err)
-	}
-	reply, _, perr := parseStream(stdout, nil, nil, nil)
-	if werr := cmd.Wait(); werr != nil {
+	reply, _, perr := parseStream(proc.Stdout(), nil, nil, nil)
+	if werr := proc.Wait(); werr != nil {
 		return "", fmt.Errorf("claude exited: %w", werr)
 	}
 	if perr != nil {

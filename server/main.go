@@ -41,7 +41,7 @@ func main() {
 		log.Fatalf("session store: %v", err)
 	}
 	driver := session.NewDriver()
-	driver.Bin = cfg.ClaudeBin
+	driver.HostBin(cfg.ClaudeBin)
 
 	tmuxMgr := tmux.NewManager()
 
