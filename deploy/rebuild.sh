@@ -5,10 +5,9 @@
 #   3. the containerized server (docker-compose.broker.yml — rebuilds the image)
 #
 # It needs NO root: the target user is in the `docker` group and the broker is a
-# user service. It is written to ALSO work when invoked via `sudo` (see
-# deploy/spawner-rebuild.sudoers) — when run as root it re-execs everything as
-# $TARGET_USER so docker (group), `go build` (file ownership) and `systemctl
-# --user` all behave. Safe to run repeatedly.
+# user service. It is also written to work if ever invoked via `sudo` — when run
+# as root it re-execs everything as $TARGET_USER so docker (group), `go build`
+# (file ownership) and `systemctl --user` all behave. Safe to run repeatedly.
 set -euo pipefail
 
 REPO=/data/claude_spawner
