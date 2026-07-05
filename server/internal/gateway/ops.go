@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"log"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -325,6 +326,7 @@ func (c *conn) deleteRecordsForDir(dir string) {
 				c.doDetach()
 			}
 			_ = c.srv.store.Delete(s.Name)
+			c.removeSandbox(s) // destroy the session's container, if any
 			c.srv.dropJob(s.Name)
 		}
 	}
@@ -612,6 +614,7 @@ func (c *conn) removeSession(name string) bool {
 		c.fail("internal", err.Error())
 		return false
 	}
+	c.removeSandbox(s) // destroy the session's container, if any
 	if c.attached != nil && c.attached.Name == s.Name {
 		c.attached = nil
 		c.send(msgDetached())
@@ -785,6 +788,30 @@ func (c *conn) newSession(base, dir string, target session.Target) (*session.Ses
 	if err != nil {
 		return nil, err
 	}
-	name := c.srv.uniqueName(base)
-	return &session.Session{Name: name, Dir: dir, SessionID: id, Target: target}, nil
+	s := &session.Session{Name: c.srv.uniqueName(base), Dir: dir, SessionID: id, Target: target}
+	if target == session.TargetSandbox {
+		cn, err := session.NewContainerName()
+		if err != nil {
+			return nil, err
+		}
+		s.Container = cn
+	}
+	return s, nil
+}
+
+// ensureSandbox best-effort starts a sandbox session's persistent container at
+// spawn. A failure (e.g. the runtime being unavailable) is logged but does NOT
+// block the spawn — the first turn re-runs Ensure and surfaces a hard error then.
+func (c *conn) ensureSandbox(s *session.Session) {
+	if err := c.srv.driver.EnsureContainer(c.ctx, s); err != nil {
+		log.Printf("sandbox ensure for %s: %v", s.Name, err)
+	}
+}
+
+// removeSandbox best-effort destroys a session's persistent container on delete.
+// Logged, never fatal — a runtime hiccup must not block removing the record.
+func (c *conn) removeSandbox(s *session.Session) {
+	if err := c.srv.driver.RemoveContainer(c.ctx, s); err != nil {
+		log.Printf("sandbox remove for %s: %v", s.Name, err)
+	}
 }

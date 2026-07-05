@@ -15,8 +15,8 @@ type fakeExecutor struct {
 	launched bool
 }
 
-func (f *fakeExecutor) Start(ctx context.Context, dir string, args []string) (Proc, error) {
-	f.launched, f.gotDir, f.gotArgs = true, dir, args
+func (f *fakeExecutor) Start(ctx context.Context, s *Session, args []string) (Proc, error) {
+	f.launched, f.gotDir, f.gotArgs = true, s.Dir, args
 	line := `{"type":"result","subtype":"success","result":"` + f.id + `"}` + "\n"
 	return &fakeProc{r: strings.NewReader(line)}, nil
 }
@@ -26,31 +26,39 @@ type fakeProc struct{ r io.Reader }
 func (p *fakeProc) Stdout() io.Reader { return p.r }
 func (p *fakeProc) Wait() error       { return nil }
 
-func TestSandboxRunArgs(t *testing.T) {
+func TestSandboxCreateArgs(t *testing.T) {
 	s := SandboxExecutor{
 		Runtime: "podman",
 		Image:   "spawner-sandbox:latest",
 		Mounts:  []string{"/home/bam/.claude:/root/.claude"},
 		RunArgs: []string{"--userns=keep-id", "--network=none"},
 	}
-	got := strings.Join(s.runArgs("/work/proj", []string{"-p", "hi", "--session-id", "sid"}), " ")
+	got := strings.Join(s.createArgs("spawner-abc123", "/work/proj"), " ")
 
 	for _, want := range []string{
-		"run --rm -i",                         // disposable, stdin open
-		"-w /work/proj",                       // container workdir = session dir
-		"-v /work/proj:/work/proj",            // same-path mount (transcript encoding)
-		"-v /home/bam/.claude:/root/.claude",  // shared claude state
-		"--userns=keep-id --network=none",     // extra run flags
-		"spawner-sandbox:latest claude -p hi", // image, default bin, then claude args
-		"--session-id sid",
+		"run -d --name spawner-abc123",       // detached, session-named container
+		"-w /work/proj",                      // container workdir = session dir
+		"-v /work/proj:/work/proj",           // same-path mount (transcript encoding)
+		"-v /home/bam/.claude:/root/.claude", // shared claude state
+		"--userns=keep-id --network=none",    // extra run flags
+		"spawner-sandbox:latest sleep infinity", // image, then keep-alive command
 	} {
 		if !strings.Contains(got, want) {
-			t.Errorf("runArgs missing %q\n got: %s", want, got)
+			t.Errorf("createArgs missing %q\n got: %s", want, got)
 		}
 	}
-	// The image must precede the claude command, and run-flags must precede the image.
-	if strings.Index(got, "--network=none") > strings.Index(got, "spawner-sandbox") {
+	if strings.Index(got, "--network=none") > strings.Index(got, "spawner-sandbox:latest") {
 		t.Errorf("run flags must come before the image: %s", got)
+	}
+}
+
+func TestSandboxExecArgs(t *testing.T) {
+	s := SandboxExecutor{Runtime: "podman", Image: "img"}
+	got := strings.Join(s.execArgs("spawner-abc123", "/work/proj", []string{"-p", "hi", "--resume", "sid"}), " ")
+	// exec into the running container, workdir = session dir, default claude bin.
+	want := "exec -i -w /work/proj spawner-abc123 claude -p hi --resume sid"
+	if got != want {
+		t.Errorf("execArgs = %q, want %q", got, want)
 	}
 }
 

@@ -197,15 +197,19 @@ Each session picks an **execution target** at spawn time — a durable per-sessi
 
 - **host** (default) — turns run as a direct child process on the host, editing real host files
   with your host toolchain. This is the original behavior and needs no configuration.
-- **sandbox** — turns run inside an isolated, disposable container with root *inside* the
-  container, launched through a **rootless** runtime (Podman by default) so spinning one up needs
-  no host root. Set `SPAWNER_SANDBOX_IMAGE` to a container image carrying `claude` + your
-  toolchain to enable it. Once enabled, the spawn dialog adds a "host or sandbox?" step (voice:
-  say "host" or "in a sandbox"); the app's visual spawn can pass `target` on `spawn_at`. The
-  session's working directory is bind-mounted at the same path so file edits land there and the
-  on-disk transcript stays discoverable (share `$HOME/.claude` via `SPAWNER_SANDBOX_MOUNTS` to
-  keep history working). Tune it with `SPAWNER_SANDBOX_RUNTIME`, `SPAWNER_SANDBOX_CLAUDE_BIN`,
-  `SPAWNER_SANDBOX_MOUNTS`, and `SPAWNER_SANDBOX_RUN_ARGS` (see `CLAUDE.md`).
+- **sandbox** — turns run inside an isolated container with root *inside* the container, launched
+  through a **rootless** runtime (Podman by default) so spinning one up needs no host root. The
+  container is **persistent for the session's lifetime**: it's created when you spawn the session,
+  every turn runs inside that same container (so packages you install and services you start
+  persist between turns — a real environment, not a fresh box each turn), and it's destroyed when
+  you delete the session. Set `SPAWNER_SANDBOX_IMAGE` to a container image carrying `claude` +
+  your toolchain to enable it (the image needs a shell so the container can idle on `sleep
+  infinity`). Once enabled, the spawn dialog adds a "host or sandbox?" step (voice: say "host" or
+  "in a sandbox"); the app's visual spawn can pass `target` on `spawn_at`. The session's working
+  directory is bind-mounted at the same path so file edits land there and the on-disk transcript
+  stays discoverable (share `$HOME/.claude` via `SPAWNER_SANDBOX_MOUNTS` to keep history working).
+  Tune it with `SPAWNER_SANDBOX_RUNTIME`, `SPAWNER_SANDBOX_CLAUDE_BIN`, `SPAWNER_SANDBOX_MOUNTS`,
+  and `SPAWNER_SANDBOX_RUN_ARGS` (see `CLAUDE.md`).
 
 ### Containerizing the server (host execution without host root)
 

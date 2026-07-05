@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"os/exec"
+	"strings"
 	"sync"
 	"syscall"
 
@@ -36,9 +37,22 @@ const (
 // how the process is spawned. Implementations must run the process in the given
 // working directory and kill it (and its children) when ctx is cancelled.
 type Executor interface {
-	// Start launches `claude <args...>` with working directory dir and returns a
-	// running Proc. The caller reads Proc.Stdout to EOF, then calls Proc.Wait.
-	Start(ctx context.Context, dir string, args []string) (Proc, error)
+	// Start launches `claude <args...>` for session s (it reads s.Dir, and for the
+	// sandbox target s.Container) and returns a running Proc. The caller reads
+	// Proc.Stdout to EOF, then calls Proc.Wait.
+	Start(ctx context.Context, s *Session, args []string) (Proc, error)
+}
+
+// SandboxLifecycle is implemented by executors that own a per-session container
+// bound to the session's lifetime: created at spawn (Ensure), reused by every
+// turn, and destroyed on delete (Remove). Driver.EnsureContainer /
+// RemoveContainer call these at the spawn/delete hooks.
+type SandboxLifecycle interface {
+	// Ensure makes sure the named container exists and is running for a session
+	// rooted at dir, creating it if absent. Idempotent.
+	Ensure(ctx context.Context, name, dir string) error
+	// Remove force-deletes the named container (no error if it's already gone).
+	Remove(ctx context.Context, name string) error
 }
 
 // Proc is a launched claude process. The caller reads Stdout to EOF (the
@@ -59,17 +73,21 @@ type HostExecutor struct {
 	Bin string
 }
 
-func (h HostExecutor) Start(ctx context.Context, dir string, args []string) (Proc, error) {
-	return startProc(ctx, h.Bin, args, dir, "start claude")
+func (h HostExecutor) Start(ctx context.Context, s *Session, args []string) (Proc, error) {
+	return startProc(ctx, h.Bin, args, s.Dir, "start claude")
 }
 
-// SandboxExecutor runs a turn inside an isolated container via a rootless
-// container runtime (Podman rootless, or rootless Docker) — so the sandbox gets
-// root INSIDE itself and a disposable filesystem, without launching it requiring
-// host root. The session's Dir is bind-mounted at the same path and used as the
-// container workdir, so file edits land there AND claude's on-disk transcript is
-// keyed by the same absolute path the host uses (keeping history/discovery
-// working when the host ~/.claude state is shared via Mounts).
+// SandboxExecutor runs a session's turns inside a persistent, isolated container
+// via a rootless runtime (Podman rootless, or rootless Docker) — so the sandbox
+// gets root INSIDE itself and a disposable filesystem, without launching it
+// requiring host root. The container's lifetime is bound to the session: it's
+// created at spawn (Ensure), each turn runs via `exec` into it, and it's destroyed
+// when the session is deleted (Remove). So packages installed and services started
+// in one turn persist to the next — a real environment, not a fresh box per turn.
+// The session's Dir is bind-mounted at the same path and used as the workdir, so
+// file edits land there AND claude's on-disk transcript is keyed by the same
+// absolute path the host uses (keeping history/discovery working when the host
+// ~/.claude state is shared via Mounts).
 type SandboxExecutor struct {
 	// Runtime is the container CLI (e.g. "podman" for rootless, or "docker").
 	Runtime string
@@ -86,28 +104,84 @@ type SandboxExecutor struct {
 	RunArgs []string
 }
 
-func (s SandboxExecutor) Start(ctx context.Context, dir string, claudeArgs []string) (Proc, error) {
-	// The runtime CLI is itself a local child process; killing its group on abort
-	// stops the client (the container is reaped by --rm on exit).
-	return startProc(ctx, s.Runtime, s.runArgs(dir, claudeArgs), "", "start sandbox")
+func (s SandboxExecutor) bin() string {
+	if s.Bin == "" {
+		return "claude"
+	}
+	return s.Bin
 }
 
-// runArgs builds the container runtime's argv: run --rm -i in the session dir
-// (mounted same-path so the transcript's project encoding matches the host), then
-// extra mounts and run-flags, the image, and finally the claude command. Split
-// out from Start so it's unit-testable without launching a container.
-func (s SandboxExecutor) runArgs(dir string, claudeArgs []string) []string {
-	bin := s.Bin
-	if bin == "" {
-		bin = "claude"
+// Start runs one turn by exec'ing claude inside the session's persistent
+// container, (re)creating the container first if it isn't running (so a turn
+// survives a server restart or a manually-removed container).
+func (s SandboxExecutor) Start(ctx context.Context, sess *Session, claudeArgs []string) (Proc, error) {
+	if sess.Container == "" {
+		return nil, fmt.Errorf("sandbox session %q has no container name", sess.Name)
 	}
-	args := []string{"run", "--rm", "-i", "-w", dir, "-v", dir + ":" + dir}
+	if err := s.Ensure(ctx, sess.Container, sess.Dir); err != nil {
+		return nil, err
+	}
+	// `exec` is itself a local child process; killing its group on abort stops the
+	// exec client (and the runtime signals the in-container process).
+	return startProc(ctx, s.Runtime, s.execArgs(sess.Container, sess.Dir, claudeArgs), "", "start sandbox turn")
+}
+
+// Ensure creates and starts the session's long-lived container if it isn't
+// already running. The container just idles (`sleep infinity`); turns run via
+// exec. A stale stopped container of the same name is removed first.
+func (s SandboxExecutor) Ensure(ctx context.Context, name, dir string) error {
+	if s.running(ctx, name) {
+		return nil
+	}
+	_ = s.Remove(ctx, name) // clear a stopped leftover so the name is free
+	if out, err := runCLI(ctx, s.Runtime, s.createArgs(name, dir)); err != nil {
+		return fmt.Errorf("create sandbox %s: %w: %s", name, err, strings.TrimSpace(out))
+	}
+	return nil
+}
+
+// Remove force-deletes the session's container. A missing container is not an
+// error (delete is idempotent).
+func (s SandboxExecutor) Remove(ctx context.Context, name string) error {
+	if _, err := runCLI(ctx, s.Runtime, []string{"rm", "-f", name}); err != nil {
+		return err
+	}
+	return nil
+}
+
+// running reports whether the named container exists and is currently running.
+func (s SandboxExecutor) running(ctx context.Context, name string) bool {
+	out, err := runCLI(ctx, s.Runtime, []string{"inspect", "-f", "{{.State.Running}}", name})
+	return err == nil && strings.TrimSpace(out) == "true"
+}
+
+// createArgs builds the argv that starts the idle session container: run detached
+// in the session dir (mounted same-path so the transcript's project encoding
+// matches the host), plus extra mounts and run-flags, the image, and a keep-alive
+// command. Split out for unit-testing without a runtime.
+func (s SandboxExecutor) createArgs(name, dir string) []string {
+	args := []string{"run", "-d", "--name", name, "-w", dir, "-v", dir + ":" + dir}
 	for _, m := range s.Mounts {
 		args = append(args, "-v", m)
 	}
 	args = append(args, s.RunArgs...)
-	args = append(args, s.Image, bin)
+	args = append(args, s.Image, "sleep", "infinity")
+	return args
+}
+
+// execArgs builds the argv for one turn: exec claude in the session's workdir
+// inside the already-running container.
+func (s SandboxExecutor) execArgs(name, dir string, claudeArgs []string) []string {
+	args := []string{"exec", "-i", "-w", dir, name, s.bin()}
 	return append(args, claudeArgs...)
+}
+
+// runCLI runs a short runtime command (create/inspect/rm) to completion and
+// returns its combined output. Used for lifecycle control, not for streaming a
+// turn (that goes through startProc).
+func runCLI(ctx context.Context, name string, args []string) (string, error) {
+	out, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
+	return string(out), err
 }
 
 // BrokerExecutor runs a turn on the host via the host-side broker daemon, for
@@ -122,12 +196,12 @@ type BrokerExecutor struct {
 	Socket string
 }
 
-func (b BrokerExecutor) Start(ctx context.Context, dir string, args []string) (Proc, error) {
+func (b BrokerExecutor) Start(ctx context.Context, s *Session, args []string) (Proc, error) {
 	conn, err := net.Dial("unix", b.Socket)
 	if err != nil {
 		return nil, fmt.Errorf("dial broker: %w", err)
 	}
-	hdr, err := json.Marshal(broker.Request{Dir: dir, Args: args})
+	hdr, err := json.Marshal(broker.Request{Dir: s.Dir, Args: args})
 	if err != nil {
 		conn.Close()
 		return nil, err

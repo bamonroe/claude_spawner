@@ -63,6 +63,7 @@ func (c *conn) doSpawnAt(path string, target session.Target) {
 		c.fail("internal", perr.Error())
 		return
 	}
+	c.ensureSandbox(sess) // start the persistent container for sandbox sessions
 	if c.attached != nil {
 		c.srv.unbindJob(c, c.attached.Name)
 	}

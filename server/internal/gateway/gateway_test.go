@@ -339,10 +339,36 @@ func newSandboxTestServer(t *testing.T) (*httptest.Server, string, *Server) {
 	return ts, root, gw
 }
 
+// fakeSandbox records container-lifecycle calls, standing in for the real
+// rootless-runtime executor so tests can assert the spawn/delete hooks fire
+// without a container runtime.
+type fakeSandbox struct {
+	ensured map[string]string // container name -> dir
+	removed []string
+}
+
+func (f *fakeSandbox) Start(context.Context, *session.Session, []string) (session.Proc, error) {
+	return nil, nil // turns aren't exercised in the lifecycle test
+}
+func (f *fakeSandbox) Ensure(_ context.Context, name, dir string) error {
+	if f.ensured == nil {
+		f.ensured = map[string]string{}
+	}
+	f.ensured[name] = dir
+	return nil
+}
+func (f *fakeSandbox) Remove(_ context.Context, name string) error {
+	f.removed = append(f.removed, name)
+	return nil
+}
+
 // TestSpawnAsksTargetWhenSandboxConfigured: with a sandbox image set, spawning
-// inserts an await_target step and the chosen target is persisted on the record.
+// inserts an await_target step, the chosen target is persisted on the record, and
+// the persistent container is created at spawn and removed on delete.
 func TestSpawnAsksTargetWhenSandboxConfigured(t *testing.T) {
 	ts, root, gw := newSandboxTestServer(t)
+	fake := &fakeSandbox{}
+	gw.driver.Execs[session.TargetSandbox] = fake
 	if err := os.MkdirAll(filepath.Join(root, "myproj"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -370,10 +396,26 @@ func TestSpawnAsksTargetWhenSandboxConfigured(t *testing.T) {
 	a := readUntil(t, ws, "attached")
 	name, _ := a["name"].(string)
 
-	if rec := gw.store.Get(name); rec == nil {
+	rec := gw.store.Get(name)
+	if rec == nil {
 		t.Fatalf("session %q not persisted", name)
-	} else if rec.Target != session.TargetSandbox {
+	}
+	if rec.Target != session.TargetSandbox {
 		t.Errorf("Target = %q, want %q", rec.Target, session.TargetSandbox)
+	}
+	// Persistent container created at spawn, bound to the session's dir.
+	if rec.Container == "" {
+		t.Fatal("sandbox session has no container name")
+	}
+	if got := fake.ensured[rec.Container]; got != rec.Dir {
+		t.Errorf("Ensure(%q) dir = %q, want %q", rec.Container, got, rec.Dir)
+	}
+
+	// Deleting the session must destroy its container.
+	send(t, ws, map[string]any{"type": "delete", "name": name})
+	readUntil(t, ws, "session_list")
+	if len(fake.removed) != 1 || fake.removed[0] != rec.Container {
+		t.Errorf("Remove calls = %v, want [%q]", fake.removed, rec.Container)
 	}
 }
 

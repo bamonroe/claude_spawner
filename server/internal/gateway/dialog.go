@@ -407,6 +407,7 @@ func (c *conn) spawnAwaitAttach(text string) {
 			c.dlg = nil
 			return
 		}
+		c.ensureSandbox(sess) // start the persistent container for sandbox sessions
 		c.dlg = nil
 		if c.attached != nil {
 			c.srv.unbindJob(c, c.attached.Name)
@@ -426,6 +427,7 @@ func (c *conn) spawnAwaitAttach(text string) {
 			c.dlg = nil
 			return
 		}
+		c.ensureSandbox(sess) // start the persistent container for sandbox sessions
 		c.dlg = nil
 		c.send(msgSay(sess.Name + " is ready when you are."))
 	default:

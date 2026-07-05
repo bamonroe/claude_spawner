@@ -137,11 +137,19 @@ narrow, validated request ("start a `claude` turn in directory X"); the **broker
 
 ### Sandbox sessions (also without host root)
 
-For `sandbox`-target sessions the `sandbox` executor launches the turn in a fresh container. To
-avoid granting host root here too, point the executor at a **rootless Podman / rootless Docker**
-socket rather than the root Docker socket — the sandbox gets root *inside itself* and a disposable
-FS, but spinning it up doesn't require host root. Session `Dir` is bind-mounted (or a fresh volume
-for a truly throwaway project); `~/.claude` auth is mounted read-only as needed.
+For `sandbox`-target sessions the container's lifetime is **bound to the session**, not the turn:
+the `SandboxExecutor` creates a long-lived container at spawn (`Ensure` → `run -d … sleep
+infinity`, named `spawner-<hex>` from `Session.Container`), each turn runs via `exec -w <dir>`
+into it, and it's destroyed when the session is deleted (`Remove` → `rm -f`). So packages
+installed and services started in one turn persist to the next — a real environment, not a fresh
+box per turn. `Ensure` is idempotent and re-run before every turn, so a container lost to a server
+restart or manual `rm` is transparently recreated. Spawn-time `Ensure` is best-effort (logged, not
+fatal); a hard runtime failure surfaces on the first turn. Use a **rootless Podman / rootless
+Docker** runtime (`SPAWNER_SANDBOX_RUNTIME`) so none of this needs host root — the sandbox gets
+root *inside itself* and a disposable FS. Session `Dir` is bind-mounted same-path (so the
+transcript's project encoding matches the host); share `$HOME/.claude` via `SPAWNER_SANDBOX_MOUNTS`
+to keep history/discovery working. Lifecycle hooks live in the gateway spawn (`ensureSandbox`) and
+delete (`removeSandbox`) paths; `Driver.EnsureContainer`/`RemoveContainer` bridge to the executor.
 
 ### Net security posture
 

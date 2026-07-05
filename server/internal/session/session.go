@@ -54,6 +54,10 @@ type Session struct {
 	// Chosen at spawn time and durable. Empty means host (records predate this
 	// field). Turn resolves it to a registered Executor. See docs/architecture.md.
 	Target Target `json:"target,omitempty"`
+	// Container is the name of the persistent sandbox container bound to this
+	// session's lifetime (sandbox target only): created at spawn, reused every turn,
+	// removed on delete. Empty for host sessions.
+	Container string `json:"container,omitempty"`
 }
 
 // TranscriptIDs returns every session_id whose transcript belongs to this
@@ -102,6 +106,31 @@ func (d *Driver) executor(t Target) Executor {
 		}
 	}
 	return d.Execs[TargetHost]
+}
+
+// EnsureContainer creates the session's persistent sandbox container if it isn't
+// already running (called at spawn). A no-op for host sessions, or when the
+// sandbox executor isn't registered / has no lifecycle support.
+func (d *Driver) EnsureContainer(ctx context.Context, s *Session) error {
+	if s.Target != TargetSandbox || s.Container == "" {
+		return nil
+	}
+	if lc, ok := d.Execs[TargetSandbox].(SandboxLifecycle); ok {
+		return lc.Ensure(ctx, s.Container, s.Dir)
+	}
+	return nil
+}
+
+// RemoveContainer destroys the session's persistent sandbox container (called on
+// delete). A no-op for host sessions or when there's no sandbox lifecycle.
+func (d *Driver) RemoveContainer(ctx context.Context, s *Session) error {
+	if s.Target != TargetSandbox || s.Container == "" {
+		return nil
+	}
+	if lc, ok := d.Execs[TargetSandbox].(SandboxLifecycle); ok {
+		return lc.Remove(ctx, s.Container)
+	}
+	return nil
 }
 
 // ToolUse describes a tool Claude invoked during a turn. FilePath is set for
@@ -167,7 +196,7 @@ func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool fun
 
 	// Launch via the session's execution target (host by default). The executor
 	// owns process-group/abort semantics; Turn only builds args and parses stdout.
-	proc, err := d.executor(s.Target).Start(ctx, s.Dir, args)
+	proc, err := d.executor(s.Target).Start(ctx, s, args)
 	if err != nil {
 		return "", Usage{}, err
 	}
@@ -317,7 +346,7 @@ func (d *Driver) Usage(ctx context.Context) (string, error) {
 	}
 	// Account-global (no session_id/dir), so always run on the host in a temp dir —
 	// never inside a per-session sandbox.
-	proc, err := d.executor(TargetHost).Start(ctx, os.TempDir(), args)
+	proc, err := d.executor(TargetHost).Start(ctx, &Session{Name: "usage", Dir: os.TempDir()}, args)
 	if err != nil {
 		return "", err
 	}
@@ -329,6 +358,18 @@ func (d *Driver) Usage(ctx context.Context) (string, error) {
 		return "", perr
 	}
 	return reply, nil
+}
+
+// NewContainerName returns a unique sandbox container name ("spawner-<hex>"),
+// independent of the session name (which can be renamed) and the claude
+// session_id (which rotates on clear/compress), so it stays valid for the
+// session's whole life.
+func NewContainerName() (string, error) {
+	id, err := NewSessionID()
+	if err != nil {
+		return "", err
+	}
+	return "spawner-" + strings.ReplaceAll(id, "-", "")[:12], nil
 }
 
 // NewSessionID returns a random RFC-4122 v4 UUID for use with --session-id.

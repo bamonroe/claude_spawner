@@ -27,9 +27,15 @@ Dates are `YYYY-MM-DD`.
       user-owned broker that enforces the `SPAWNER_ROOT` jail (`SPAWNER_BROKER_SOCKET`). No component
       holds host root. Design in `docs/architecture.md`; tests cover selection, sandbox argv, broker
       round-trip/jail, and the spawn target step.
+      Sandbox containers are **persistent per session**: created at spawn (`ensureSandbox`), reused
+      by every turn via `exec`, removed on delete (`removeSandbox`); `Ensure` is idempotent and
+      re-run before each turn so a container lost to a restart is recreated.
       - [ ] Follow-up: surface each session's target in the app sidebar (server carries it; the app
-            doesn't display it yet). Live-verify the sandbox + broker paths on the host (podman
-            image + a real `cmd/broker` run) — unit tests use fakes, not a real runtime.
+            doesn't display it yet). Reconcile orphaned sandbox containers on startup (a session
+            deleted while the server was down leaves its container running — `Ensure`-before-turn
+            recreates live ones but nothing sweeps the orphans). Live-verify the sandbox + broker
+            paths on the host (podman image + a real `cmd/broker` run) — unit tests use fakes, not a
+            real runtime.
 
 ### Android
 - (nothing open — hands-free verified; voice rename shipped, see _Done_)
