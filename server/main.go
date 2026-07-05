@@ -31,6 +31,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("config: %v", err)
 	}
+	if len(cfg.SpawnRoots) == 0 {
+		log.Printf("WARNING: SPAWNER_ROOT is empty — sessions may be spawned in ANY directory " +
+			"(no path jail). Set SPAWNER_ROOT to a colon-separated allow-list to constrain spawn scope.")
+	}
 
 	store, err := session.OpenStore(cfg.StatePath)
 	if err != nil {

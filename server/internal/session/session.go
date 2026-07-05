@@ -214,9 +214,14 @@ func parseStream(r interface{ Read([]byte) (int, error) }, onTool func(ToolUse),
 	var usage Usage
 	var gotResult, isError bool
 	var subtype string
+	var malformed int // non-blank lines that weren't parseable JSON events
 	for sc.Scan() {
+		line := sc.Bytes()
 		var ev streamEvent
-		if err := json.Unmarshal(sc.Bytes(), &ev); err != nil {
+		if err := json.Unmarshal(line, &ev); err != nil {
+			if len(strings.TrimSpace(string(line))) > 0 {
+				malformed++ // count corruption, but keep scanning for a result
+			}
 			continue // defensively skip anything that isn't a JSON event
 		}
 		switch ev.Type {
@@ -272,6 +277,9 @@ func parseStream(r interface{ Read([]byte) (int, error) }, onTool func(ToolUse),
 		return "", Usage{}, fmt.Errorf("read stream: %w", err)
 	}
 	if !gotResult {
+		if malformed > 0 {
+			return "", Usage{}, fmt.Errorf("stream corrupted: ended without a result event (%d malformed lines)", malformed)
+		}
 		return "", Usage{}, fmt.Errorf("stream ended without a result event")
 	}
 	if isError {

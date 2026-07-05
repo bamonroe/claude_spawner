@@ -5,8 +5,89 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
+
+// Transcript parses are memoized per file, keyed by the file's size+modtime.
+// Claude transcripts are append-only, so a matching stat means a cached parse is
+// still current — this avoids re-reading and re-parsing a whole (ever-growing)
+// transcript on every attach (LastContextUsage) and history page
+// (ReadTranscriptChain). A turn appending to the file changes its size/mtime,
+// which invalidates the entry on the next lookup, so no explicit invalidation is
+// needed. Entries are keyed by absolute path; the working set is the handful of
+// on-disk sessions, so the map stays small.
+type transcriptCacheEntry struct {
+	size    int64
+	modTime time.Time
+	msgs    []Message        // ReadTranscript's parse; valid only when msgsSet
+	msgsSet bool
+	snap    *ContextSnapshot // lastUsageInFile's parse; valid only when snapSet
+	snapSet bool
+}
+
+var (
+	transcriptCacheMu sync.Mutex
+	transcriptCache   = map[string]transcriptCacheEntry{}
+)
+
+// statTranscript returns the file's identity (size, modtime). ok is false when
+// the file can't be stat'd (missing/unreadable), in which case the caller parses
+// uncached rather than trusting a stale entry.
+func statTranscript(path string) (size int64, mod time.Time, ok bool) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return 0, time.Time{}, false
+	}
+	return fi.Size(), fi.ModTime(), true
+}
+
+// cacheEntryFresh returns the current entry for path if its stat still matches
+// (else a zero entry to overwrite), so putters preserve the sibling field
+// (msgs vs snap) when only one was (re)computed under the same stat.
+func cacheEntryFresh(path string, size int64, mod time.Time) transcriptCacheEntry {
+	e := transcriptCache[path]
+	if e.size != size || !e.modTime.Equal(mod) {
+		return transcriptCacheEntry{size: size, modTime: mod}
+	}
+	return e
+}
+
+func getCachedMsgs(path string, size int64, mod time.Time) ([]Message, bool) {
+	transcriptCacheMu.Lock()
+	defer transcriptCacheMu.Unlock()
+	e, ok := transcriptCache[path]
+	if !ok || !e.msgsSet || e.size != size || !e.modTime.Equal(mod) {
+		return nil, false
+	}
+	return e.msgs, true
+}
+
+func putCachedMsgs(path string, size int64, mod time.Time, msgs []Message) {
+	transcriptCacheMu.Lock()
+	defer transcriptCacheMu.Unlock()
+	e := cacheEntryFresh(path, size, mod)
+	e.msgs, e.msgsSet = msgs, true
+	transcriptCache[path] = e
+}
+
+func getCachedSnap(path string, size int64, mod time.Time) (*ContextSnapshot, bool) {
+	transcriptCacheMu.Lock()
+	defer transcriptCacheMu.Unlock()
+	e, ok := transcriptCache[path]
+	if !ok || !e.snapSet || e.size != size || !e.modTime.Equal(mod) {
+		return nil, false
+	}
+	return e.snap, true
+}
+
+func putCachedSnap(path string, size int64, mod time.Time, snap *ContextSnapshot) {
+	transcriptCacheMu.Lock()
+	defer transcriptCacheMu.Unlock()
+	e := cacheEntryFresh(path, size, mod)
+	e.snap, e.snapSet = snap, true
+	transcriptCache[path] = e
+}
 
 // parseTs converts a transcript line's ISO-8601 timestamp to unix seconds,
 // returning 0 when it's missing or unparseable.
@@ -119,6 +200,12 @@ func ReadTranscript(path string) ([]Message, error) {
 	if path == "" {
 		return nil, nil
 	}
+	size, mod, statOK := statTranscript(path)
+	if statOK {
+		if m, hit := getCachedMsgs(path, size, mod); hit {
+			return append([]Message(nil), m...), nil // copy: callers re-index / mutate Text
+		}
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -166,7 +253,13 @@ func ReadTranscript(path string) ([]Message, error) {
 			out[i].Usage = nil
 		}
 	}
-	return out, sc.Err()
+	if err := sc.Err(); err != nil {
+		return out, err // don't cache a partial read
+	}
+	if statOK {
+		putCachedMsgs(path, size, mod, out)
+	}
+	return out, nil
 }
 
 // ReadTranscriptChain reads the transcripts for ids in order (oldest first) and
@@ -210,6 +303,12 @@ func lastUsageInFile(path string) *ContextSnapshot {
 	if path == "" {
 		return nil
 	}
+	size, mod, statOK := statTranscript(path)
+	if statOK {
+		if snap, hit := getCachedSnap(path, size, mod); hit {
+			return snap
+		}
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return nil
@@ -231,6 +330,12 @@ func lastUsageInFile(path string) *ContextSnapshot {
 			Usage: Usage{Input: u.Input, Output: u.Output, CacheWrite: u.CacheWrite, CacheRead: u.CacheRead},
 			At:    parseTs(l.Timestamp),
 		}
+	}
+	if err := sc.Err(); err != nil {
+		return last // don't cache a partial read
+	}
+	if statOK {
+		putCachedSnap(path, size, mod, last)
 	}
 	return last
 }

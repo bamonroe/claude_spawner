@@ -64,6 +64,22 @@ func TestParseStreamStreamsProse(t *testing.T) {
 	}
 }
 
+// TestParseStreamReportsCorruption confirms a stream that truncates mid-flight
+// (garbage lines, no result event) surfaces the malformed-line count instead of
+// a bare "no result" — so a corrupted claude stdout is diagnosable.
+func TestParseStreamReportsCorruption(t *testing.T) {
+	const stream = `{"type":"assistant","message":{"content":[{"type":"text","text":"working"}]}}
+not json at all
+{"type":"assistant","message":{"content":[{"typ` // truncated line
+	_, _, err := parseStream(strings.NewReader(stream), nil, nil, nil)
+	if err == nil {
+		t.Fatal("expected an error on a resultless stream")
+	}
+	if !strings.Contains(err.Error(), "corrupted") || !strings.Contains(err.Error(), "2 malformed") {
+		t.Errorf("err = %v, want it to mention 'corrupted' and '2 malformed lines'", err)
+	}
+}
+
 func TestStoreRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.json")
 
@@ -209,5 +225,48 @@ func TestReadTranscriptCarriesTurnUsage(t *testing.T) {
 	}
 	if msgs[4].Usage == nil || msgs[4].Usage.CacheRead != 90 {
 		t.Errorf("lone assistant line of turn 2 should keep usage, got %+v", msgs[4].Usage)
+	}
+}
+
+// TestTranscriptCacheInvalidatesOnChange confirms the per-file parse cache is
+// self-invalidating: reading primes the cache, and appending a turn (which grows
+// the file) must yield the fresh content on the next read, not the stale cached
+// parse. Both the message list and the usage snapshot are covered.
+func TestTranscriptCacheInvalidatesOnChange(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "t.jsonl")
+	first := `{"type":"user","message":{"content":"hi"}}` + "\n"
+	if err := os.WriteFile(path, []byte(first), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if msgs, _ := ReadTranscript(path); len(msgs) != 1 { // prime the message cache
+		t.Fatalf("first read: want 1 message, got %d", len(msgs))
+	}
+	if snap := lastUsageInFile(path); snap != nil { // prime the snapshot cache (no usage yet)
+		t.Fatalf("first snapshot: want nil, got %+v", snap)
+	}
+
+	// Append a usage-bearing assistant turn; the file grows, so a stat-keyed cache
+	// must miss and re-parse.
+	extra := `{"type":"assistant","timestamp":"2026-07-04T11:00:00Z","message":{"content":[{"type":"text","text":"yo"}],"usage":{"input_tokens":3,"output_tokens":1,"cache_read_input_tokens":50}}}` + "\n"
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(extra); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+
+	msgs, err := ReadTranscript(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 2 {
+		t.Fatalf("after append: want 2 messages (cache must invalidate), got %d", len(msgs))
+	}
+	snap := lastUsageInFile(path)
+	if snap == nil || snap.Usage.CacheRead != 50 {
+		t.Errorf("after append: snapshot = %+v, want CacheRead 50", snap)
 	}
 }

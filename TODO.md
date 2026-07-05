@@ -65,13 +65,17 @@ _Extensibility (the "easier to extend, not delicate" asks):_
       structurally by `migrateSessionKey`. Revisit only if a concrete drift bug reappears.
 
 _Robustness / ops (smaller, safe when we get to them):_
-- [ ] `parseStream` counts malformed lines and reports "stream corrupted (N lines)" instead of a
-      generic "no result event" when Claude's stdout truncates.
-- [ ] Cache `LastContextUsage` / `ReadTranscriptChain` per session (invalidate on new turn) to stop
-      re-scanning whole transcripts on every attach/history page.
+- [x] 2026-07-05 — `parseStream` now counts non-blank unparseable lines and, when the stream ends
+      with no result event, reports "stream corrupted: ... (N malformed lines)" so a truncated
+      claude stdout is diagnosable (`session.go`; `TestParseStreamReportsCorruption`).
+- [x] 2026-07-05 — Transcript parses are memoized per file, keyed by size+modtime, so attach
+      (`LastContextUsage`) and history paging (`ReadTranscriptChain`) stop re-reading whole
+      ever-growing transcripts. Append-only files self-invalidate on the next stat — no explicit
+      invalidation needed (`transcript.go`; `TestTranscriptCacheInvalidatesOnChange`).
 - [ ] Validate the audio `codec` field and reject unknown values (`audio.go`) instead of silently
       treating them as PCM16.
-- [ ] Loud startup warning when `SPAWNER_ROOT` is empty (unrestricted spawn scope).
+- [x] 2026-07-05 — Loud startup warning when `SPAWNER_ROOT` is empty (unrestricted spawn scope)
+      (`main.go`).
 - [ ] Graceful shutdown waits briefly for an in-flight turn instead of a hard 5s HTTP-server kill.
 
 ## Done
