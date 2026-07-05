@@ -120,7 +120,7 @@ sealed interface ServerMsg {
             if (arr == null) return emptyList()
             return (0 until arr.length()).map {
                 val m = arr.getJSONObject(it)
-                HistMsg(m.optInt("index", -1), m.optString("role"), m.optString("text"), m.optLong("ts"))
+                HistMsg(m.optInt("index", -1), m.optString("role"), m.optString("text"), m.optLong("ts"), readUsage(m.optJSONObject("usage")))
             }
         }
 
@@ -189,7 +189,7 @@ data class UsageEstimateInfo(
 )
 
 /** One past message from a session's server-served history. */
-data class HistMsg(val index: Int, val role: String, val text: String, val ts: Long = 0L)
+data class HistMsg(val index: Int, val role: String, val text: String, val ts: Long = 0L, val usage: TokenUsage? = null)
 
 /** A Claude session found on disk (via `discover`); may be adopted into the app. */
 data class DiscoveredInfo(

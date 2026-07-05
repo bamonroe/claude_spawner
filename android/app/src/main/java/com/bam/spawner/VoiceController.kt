@@ -830,7 +830,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     // log, ordered chronologically with any live messages, and updates the paging cursor.
     private fun onHistory(msg: ServerMsg.History) {
         val wasLoadOlder = msg.name in loadingOlder // else it's the top page (on (re)attach)
-        val hist = msg.messages.map { ChatMessage(roleOf(it.role), it.text, it.index, ts = it.ts) }
+        val hist = msg.messages.map { ChatMessage(roleOf(it.role), it.text, it.index, usage = it.usage, ts = it.ts) }
         val histIdx = hist.mapNotNull { if (it.index >= 0) it.index else null }.toSet()
         // On a top reload (an attach/reattach), the history page is the authoritative
         // tail of the conversation: drop any live (index < 0) copy whose text now

@@ -68,6 +68,14 @@ Dates are `YYYY-MM-DD`.
       `serveHistory` runs user messages through `stripInjected` to recover the spoken text, so the
       history and live views are consistent and the replayed turn dedupes. Server-only.
 
+- [x] 2026-07-04 — **Feat: persist the per-message token badge across reattach/restart.**
+      The per-bubble context/cache badge was driven only by a live turn's `usage`, so on reattach or
+      server restart the reloaded history came back badge-less (the transcript reader kept only text).
+      `ReadTranscript` now also pulls each claude line's aggregate `usage`, attaching it to the
+      **final** assistant line of a turn (matching the live closing-message badge, so a multi-line
+      tool turn shows one badge, not several); `Message.usage` rides the `history` message and the app
+      carries it into the chat bubble. So the badges are the same before and after a reload.
+
 - [x] 2026-07-04 — **Feat: show context size immediately on attach (from the transcript).**
       The 🧠 title-bar readout was driven only by a live turn's `usage`, so after attaching it stayed
       blank until the first reply — no signal of what a `clear`/`compress` would reclaim. The server

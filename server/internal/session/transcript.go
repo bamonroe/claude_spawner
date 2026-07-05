@@ -30,6 +30,11 @@ type Message struct {
 	Role  string `json:"role"`
 	Text  string `json:"text"`
 	Ts    int64  `json:"ts"` // unix seconds from the transcript line's timestamp (0 if absent)
+	// Usage is the token accounting for a "claude" turn, carried so the per-message
+	// context/cache badge survives a reattach or server restart. Set only on the
+	// final assistant line of a turn (matching the live badge, which lands on the
+	// closing message), and nil on user turns. Omitted from the wire when nil.
+	Usage *Usage `json:"usage,omitempty"`
 }
 
 // transcriptLine is the subset of a Claude transcript JSONL line we read.
@@ -144,8 +149,22 @@ func ReadTranscript(path string) ([]Message, error) {
 		if strings.TrimSpace(text) == "" {
 			continue // tool-only turn, tool_result, etc.
 		}
-		out = append(out, Message{Index: idx, Role: role, Text: text, Ts: parseTs(l.Timestamp)})
+		m := Message{Index: idx, Role: role, Text: text, Ts: parseTs(l.Timestamp)}
+		if role == "claude" {
+			if u := l.Message.Usage; u.Input+u.CacheRead+u.CacheWrite > 0 {
+				m.Usage = &Usage{Input: u.Input, Output: u.Output, CacheWrite: u.CacheWrite, CacheRead: u.CacheRead}
+			}
+		}
+		out = append(out, m)
 		idx++
+	}
+	// A dictation turn can span several assistant text lines (text interleaved with
+	// tool calls); the live badge lands only on the turn's closing message. Match
+	// that: keep usage on the last claude line of each run, clearing earlier ones.
+	for i := 0; i+1 < len(out); i++ {
+		if out[i].Role == "claude" && out[i+1].Role == "claude" {
+			out[i].Usage = nil
+		}
 	}
 	return out, sc.Err()
 }

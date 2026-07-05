@@ -172,3 +172,42 @@ func TestLastUsageInFile(t *testing.T) {
 		t.Errorf("want nil for usage-less transcript, got %+v", got)
 	}
 }
+
+// TestReadTranscriptCarriesTurnUsage confirms per-message usage is attached only
+// to the final assistant line of each turn (matching the live closing-message
+// badge): an intermediate assistant line in a multi-line turn carries none, and
+// user turns never do.
+func TestReadTranscriptCarriesTurnUsage(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "t.jsonl")
+	// Turn 1: user, then two assistant lines (text + tool-call-then-text) → only
+	// the second keeps usage. Turn 2: user, one assistant line → it keeps usage.
+	lines := `{"type":"user","message":{"content":"go"}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"working"}],"usage":{"input_tokens":1,"cache_read_input_tokens":50}}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"done"}],"usage":{"input_tokens":3,"output_tokens":9,"cache_creation_input_tokens":10,"cache_read_input_tokens":80}}}
+{"type":"user","message":{"content":"again"}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":2,"output_tokens":4,"cache_read_input_tokens":90}}}
+`
+	if err := os.WriteFile(path, []byte(lines), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	msgs, err := ReadTranscript(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 5 {
+		t.Fatalf("want 5 messages, got %d", len(msgs))
+	}
+	if msgs[0].Usage != nil || msgs[3].Usage != nil {
+		t.Error("user messages should carry no usage")
+	}
+	if msgs[1].Usage != nil {
+		t.Error("intermediate assistant line should have usage cleared")
+	}
+	if msgs[2].Usage == nil || msgs[2].Usage.CacheRead != 80 {
+		t.Errorf("final assistant line of turn 1 should keep usage, got %+v", msgs[2].Usage)
+	}
+	if msgs[4].Usage == nil || msgs[4].Usage.CacheRead != 90 {
+		t.Errorf("lone assistant line of turn 2 should keep usage, got %+v", msgs[4].Usage)
+	}
+}
