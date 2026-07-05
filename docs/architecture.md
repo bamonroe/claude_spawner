@@ -241,7 +241,7 @@ docker-compose.yml              dev orchestration: spawner + resident whisper/wh
 docker-compose.broker.yml       containerized server (Docker) + host-side broker (podman) deployment
 /sandbox                        Arch-based sandbox image (Containerfile) for `target: sandbox` sessions (see sandbox/README.md)
 /whisper                        Vulkan/CPU Dockerfiles for the resident whisper.cpp server (see whisper/README.md)
-/deploy                         host systemd units + env examples (spawner + spawner-broker) + claude-log helper (see deploy/README.md)
+/deploy                         host broker systemd user service + env example + claude-log helper (see deploy/README.md)
 /android                        Android app (Kotlin/Compose) — see android/README.md
 /docs
   protocol.md                   WebSocket message schema (single source of truth)

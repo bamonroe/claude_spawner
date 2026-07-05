@@ -15,6 +15,22 @@ Dates are `YYYY-MM-DD`.
 ### Server / infra
 - [ ] Decide + implement the auth/transport story beyond the shared token: **TLS/mTLS** (today a
       constant-time-compared shared token, fronted by Tailscale).
+- [x] 2026-07-05 — **Restart button rebuilds + relaunches the containerized server.** The old path
+      (exit non-zero, let a host systemd `ExecStartPre` `go build` relaunch) no longer rebuilds now
+      that the server always runs as a Docker container. `restart` now routes through the broker: a
+      new `opRestart` + `BrokerServer.RestartCmd` (`SPAWNER_BROKER_RESTART_CMD`, a `docker compose …
+      up -d --build`) launched detached on the host; `Restarter` interface + `Driver.Restart`;
+      `doUsage`-style failure report (`restart_failed`) when there's no broker/command. Retired the
+      dead `RequestRestart`/`RestartRequested` + `main()` exit-for-relaunch. Tests: gateway (fake
+      Restarter triggers rebuild + no-broker fails) and broker (unconfigured refuses, configured
+      runs the command).
+- [x] 2026-07-05 — **Docs are Docker-only.** Removed the retired host-native/`go run`/systemd
+      deployment from all docs (README "Try it on the host" section + `deploy/spawner.service` +
+      `deploy/spawner.env.example` deleted; `deploy/README.md` rewritten for the broker; CLAUDE.md,
+      protocol.md, architecture.md, whisper/README.md, compose comments updated). The containerized
+      server + host broker is now the only documented deployment.
+- [x] 2026-07-05 — **`/usage` runs in a jail-allowed root.** `Driver.Usage` no longer hard-codes
+      `/tmp` (rejected by the broker jail); `Driver.UsageDir` is set to the first spawn root.
 - [ ] Vocab-bias tuning: measure whether the `--prompt` session-name biasing actually improves
       recognition of real session names/paths, adjust if not. *(biasing itself is implemented)*
 - [x] 2026-07-05 — **Containerized server + per-session execution target (host vs sandbox).**
@@ -325,7 +341,7 @@ _Robustness / ops (smaller, safe when we get to them):_
       images (Vulkan/GPU vs CPU), their `/inference` + `/load` API, port/model-mount contract, and
       the two deployment modes. Fixed a README inaccuracy that implied the Dockerized spawner uses
       the resident servers — under `docker compose up` it uses the bundled CLI; the resident
-      servers are wired in by the host-native/systemd deploy (`deploy/spawner.env.example`).
+      servers are wired in by the live broker deployment (`docker-compose.broker.yml`).
 - [x] 2026-07-03 — `android/README.md` audited against the Kotlin source and corrected: fixed the
       PCM16-vs-Opus codec contradiction (voice is captured as PCM16, encoded to Ogg/Opus on
       device, sent as Opus); added 6 omitted source files + the `generateCommands` task to the

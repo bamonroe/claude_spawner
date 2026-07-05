@@ -11,7 +11,7 @@
 #   3. docker compose -f docker-compose.broker.yml up -d --build
 #
 # Host networking is used so the server binds :8556 and reaches the resident
-# whisper servers on localhost, exactly like the retired native server did.
+# whisper servers on localhost.
 
 services:
   spawner:

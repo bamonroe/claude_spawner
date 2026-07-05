@@ -214,10 +214,10 @@ Each session picks an **execution target** at spawn time — a durable per-sessi
   runs non-root — live in [`sandbox/`](./sandbox/README.md), verified by the `internal/session`
   live tests.
 
-### Containerizing the server (host execution without host root)
+### The server runs in a container (host execution without host root)
 
-You can run the **server itself** in a container and still have sessions execute on the host —
-without the container holding host root, and without giving it a container-runtime socket. Run the
+The **server always runs in a container**, while sessions still execute on the host — without the
+container holding host root, and without giving it a container-runtime socket. Run the
 small **broker** daemon (`cmd/broker`) on the host as your ordinary user; it listens on a Unix
 socket, and when the server's `SPAWNER_BROKER_SOCKET` points at that socket (bind-mounted into the
 container), the server routes **all** turns *through* the broker. The broker is the single
@@ -242,22 +242,32 @@ broker executes against, and the broker socket lives in a persistent directory t
 bind-mounts (as a directory) so the two can start in any order on reboot. Both auto-start on boot
 (Docker's daemon is enabled; the broker is a lingering user service).
 
+The app's **restart** button (and the `restart` wire message) rebuilds and relaunches the server
+container to pick up new server code. Since the unprivileged container can't rebuild its own image,
+the server asks the broker to run `SPAWNER_BROKER_RESTART_CMD` on the host — set it to `docker
+compose -f docker-compose.broker.yml up -d --build spawner` (see
+[`deploy/spawner-broker.env.example`](./deploy/spawner-broker.env.example)); if it's unset the
+button reports `restart_failed` instead of silently doing nothing.
+
 ---
 
-## Run it in Docker (recommended)
+## Quick all-in-one dev container
 
-The whole execution environment — Go, the `claude` CLI, and **whisper.cpp + a model** —
-is baked into a container so nothing has to be installed on the host. Source stays on the host
-(bind-mounted), so you edit and version normally; only execution is containerized.
+For a simple local trial, the `docker-compose.yml` image bakes the whole execution environment —
+Go, the `claude` CLI, and **whisper.cpp + a model** — into one container that executes turns
+in-process (no broker), so nothing has to be installed on the host. Source stays on the host
+(bind-mounted), so you edit and version normally; only execution is containerized. The **live
+deployment** is the broker setup above; this all-in-one image is the fast path for kicking the
+tires.
 
 `docker compose up` starts three services: the **spawner** and two **resident whisper.cpp HTTP
 servers** — an accurate model on `:8571` and a fast draft/detection model on `:8572`, built with
 Vulkan for the host's AMD GPU (see [`whisper/`](./whisper/README.md)). In this compose setup the
 spawner transcribes with its **bundled whisper.cpp CLI** (a model is baked into its image); it does
 *not* auto-wire to the resident servers. To use them instead, set `SPAWNER_WHISPER_URL` /
-`SPAWNER_WHISPER_FAST_URL` on the spawner — which is exactly what the host-native/systemd
-deployment does (see [`deploy/spawner.env.example`](./deploy/spawner.env.example)). When those URLs
-are set the server prefers the resident servers and falls back to the CLI. Engine details are in
+`SPAWNER_WHISPER_FAST_URL` on the spawner — which is exactly what the live broker deployment does
+(see [`docker-compose.broker.yml`](./docker-compose.broker.yml)). When those URLs are set the server
+prefers the resident servers and falls back to the CLI. Engine details are in
 [`CLAUDE.md`](./CLAUDE.md).
 
 ```bash
@@ -280,24 +290,6 @@ docker compose run --rm spawner \
   `~/.claude.json` (or set `ANTHROPIC_API_KEY` in your shell). See `docker-compose.yml`.
 - Sessions are spawned under `/workspace` (a persisted volume); `SPAWNER_ROOT` jails them there.
 - Bigger/more-accurate model: `docker compose build --build-arg WHISPER_MODEL=small.en`.
-
-## Try it on the host (no Docker)
-
-```bash
-cd server
-mkdir -p /tmp/sandbox
-SPAWNER_TOKEN=secret SPAWNER_ROOT=/tmp/sandbox go run .          # text path only
-# add SPAWNER_WHISPER_MODEL=/path/to/ggml-small.en.bin to enable voice
-```
-
-Then in another terminal, `SPAWNER_TOKEN=secret go run ./cmd/wsclient` and type utterances.
-Requires the `claude` CLI on the host (`tmux` is optional — used only to detect a human-run
-interactive `claude` for conflict warnings). Transcription is **off** unless a whisper model
-or URL is configured (text utterances work either way); the full config-var list lives in
-[`CLAUDE.md`](./CLAUDE.md). Audio in is PCM16LE / 16 kHz / mono (see `docs/protocol.md`).
-
-To run it as a long-lived service (systemd unit + the resident GPU whisper servers) instead of
-`go run`, see [`deploy/`](./deploy/README.md).
 
 ---
 

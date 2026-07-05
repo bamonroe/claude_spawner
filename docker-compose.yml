@@ -8,7 +8,7 @@
 # credentials, mounted below.
 
 services:
-  # Resident whisper.cpp server on the AMD GPU (Vulkan/RX 550). The native
+  # Resident whisper.cpp server on the AMD GPU (Vulkan/RX 550). The broker-mode
   # server + app point at http://localhost:8571. Run standalone with:
   #   docker compose up -d whisper
   # Measured on the RX 550: medium.en ~4.8s/clip, large-v3 ~10.5s, small.en ~2-3s

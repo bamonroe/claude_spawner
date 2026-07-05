@@ -102,8 +102,8 @@ you're changing the data path, the session driver, or STT. Two load-bearing rule
 ## Build, run & repository layout — see `docs/architecture.md` and `README.md`
 
 The **repository layout** (every package and what it does) and the internals are in
-`docs/architecture.md`. **How to build and run** the server (Docker and host-native) is in
-`README.md`. Don't restate either here.
+`docs/architecture.md`. **How to build and run** the server (it always runs as a Docker container,
+with the host-side broker) is in `README.md`. Don't restate either here.
 
 ## Config env vars
 
@@ -122,14 +122,17 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
   CLI — rootless so no host root), `SPAWNER_SANDBOX_CLAUDE_BIN` (`claude`; the binary inside the
   image), `SPAWNER_SANDBOX_MOUNTS` (comma-separated extra `-v` specs, e.g. sharing `$HOME/.claude`),
   `SPAWNER_SANDBOX_RUN_ARGS` (space-separated extra `run` flags, e.g. `--userns=keep-id`).
-- Host broker (for a containerized server): `SPAWNER_BROKER_SOCKET` — Unix socket of the host-side
-  `cmd/broker` daemon. When set, the server routes **all** turns through the broker (staying
-  unprivileged) instead of executing itself — the broker is the single host-side agent for both
-  targets (forks `claude` for host turns, drives the rootless runtime for sandbox turns), so the
-  server container needs neither host root nor a runtime socket. The broker binary reads this same
-  var (the path to **listen** on) plus `SPAWNER_ROOT` (its jail), `SPAWNER_CLAUDE_BIN`, and — for
-  sandbox turns — the same `SPAWNER_SANDBOX_*` vars (it owns the runtime config). Empty = execute
-  directly (native install).
+- Host broker (the containerized server always uses this): `SPAWNER_BROKER_SOCKET` — Unix socket of
+  the host-side `cmd/broker` daemon. When set, the server routes **all** turns through the broker
+  (staying unprivileged) instead of executing itself — the broker is the single host-side agent for
+  both targets (forks `claude` for host turns, drives the rootless runtime for sandbox turns), so
+  the server container needs neither host root nor a runtime socket. The broker binary reads this
+  same var (the path to **listen** on) plus `SPAWNER_ROOT` (its jail), `SPAWNER_CLAUDE_BIN`,
+  `SPAWNER_BROKER_RESTART_CMD` (the shell command it runs to rebuild + relaunch the server container
+  for the app's restart button; empty disables restart), and — for sandbox turns — the same
+  `SPAWNER_SANDBOX_*` vars (it owns the runtime config). Empty socket = the server executes turns
+  in-process (the simple all-in-one dev container, `docker-compose.yml`); the live deployment always
+  sets it.
 
 ## Token discipline — keep the context small
 

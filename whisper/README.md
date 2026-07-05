@@ -38,8 +38,8 @@ Two servers run side by side (see [`../docker-compose.yml`](../docker-compose.ym
 
 The spawner points at them with `SPAWNER_WHISPER_URL` / `SPAWNER_WHISPER_FAST_URL`. **Note:** the
 Dockerized `spawner` service does *not* set these — under `docker compose up` it transcribes with
-its own bundled `whisper-cli`. The resident servers are consumed by the **host-native/systemd**
-deployment, whose [`../deploy/spawner.env.example`](../deploy/spawner.env.example) sets both URLs.
+its own bundled `whisper-cli`. The resident servers are consumed by the **live broker deployment**,
+whose [`../docker-compose.broker.yml`](../docker-compose.broker.yml) sets both URLs.
 
 ## Build & run standalone
 

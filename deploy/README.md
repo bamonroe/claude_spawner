@@ -1,52 +1,28 @@
-# Host deployment (systemd)
+# Host deployment
 
-Files for running the spawner as a long-lived service on the host (as opposed to `docker compose`
-or a bare `go run`). This is the setup that uses the [resident GPU whisper servers](../whisper/README.md).
+The server runs as a **Docker container** ([`docker-compose.broker.yml`](../docker-compose.broker.yml));
+the only thing installed on the host is the small **broker** that executes turns on the server's
+behalf. This directory holds the broker's host service and a transcript helper.
 
-| File                  | What it is                                                                 |
-|-----------------------|----------------------------------------------------------------------------|
-| `spawner.service`     | systemd unit — rebuilds and runs the server under user `bam`.              |
-| `spawner.env.example` | template for the unit's `EnvironmentFile` (token, root, whisper wiring).   |
-| `claude-log.sh`       | helper to read a session's Claude transcript by name.                     |
+| File                        | What it is                                                                 |
+|-----------------------------|----------------------------------------------------------------------------|
+| `spawner-broker.service`    | systemd **user** service for the host-side broker (`cmd/broker`).          |
+| `spawner-broker.env.example`| template for the broker's `EnvironmentFile` (socket, root, claude, sandbox, restart cmd). |
+| `claude-log.sh`             | helper to read a session's Claude transcript by name.                     |
 
-## The unit
+## The broker service
 
-`spawner.service` runs the server as user/group `bam` from `/data/claude_spawner/server`, listening
-on `SPAWNER_ADDR` (`:8555` in the example — the port the Android app defaults to). It rebuilds on
-every (re)start so it always runs current code, then `exec`s the built binary (not `go run`, so
-systemd supervises the real process):
+`spawner-broker.service` runs `cmd/broker` as your ordinary user (never root): it forks `claude`
+for host turns and drives rootless Podman for sandbox turns, on behalf of the unprivileged server
+container. The install steps (build the binary, drop the env file, enable the lingering user
+service) live in the unit file's header comment — follow those. Its config vars are documented in
+[`../CLAUDE.md`](../CLAUDE.md) (the config section — the authoritative list), templated in
+`spawner-broker.env.example`.
 
-```ini
-ExecStartPre=/usr/bin/go build -o /data/claude_spawner/server/spawner .
-ExecStart=/data/claude_spawner/server/spawner
-Restart=on-failure
-```
-
-It reads config from `EnvironmentFile=/home/bam/.config/claude_spawner/spawner.env` and sets `HOME`
-+ a `PATH` that includes `~/.local/bin` (where `go`, `claude`, and `whisper-cli` live). It starts
-`After=docker.service` so the resident whisper containers are up first.
-
-## Install
-
-```bash
-# 1. config from the template (never commit the real token)
-mkdir -p ~/.config/claude_spawner
-cp deploy/spawner.env.example ~/.config/claude_spawner/spawner.env
-$EDITOR ~/.config/claude_spawner/spawner.env      # set SPAWNER_TOKEN, roots, whisper URLs
-
-# 2. resident whisper servers (see ../whisper/README.md)
-docker compose up -d whisper whisper-fast
-
-# 3. the unit
-sudo cp deploy/spawner.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now spawner
-journalctl -u spawner -f                          # logs
-```
-
-Config vars referenced by `spawner.env.example` are documented in [`../CLAUDE.md`](../CLAUDE.md)
-(the config section — the authoritative list). The whisper URLs point at the resident containers,
-with the `whisper-cli` paths as the fallback used only when the URLs are blank.
+The server container itself is brought up with `docker compose -f docker-compose.broker.yml up -d
+--build` after the broker is running; see the repo [`README.md`](../README.md) for the full
+end-to-end bring-up. The app's **restart** button rebuilds and relaunches that container by asking
+the broker to run `SPAWNER_BROKER_RESTART_CMD` (set it in the broker env file).
 
 ## `claude-log.sh` — inspect a session's transcript
 
