@@ -34,9 +34,10 @@ Dates are `YYYY-MM-DD`.
       by `Driver.ReconcileContainers` (matched by the `spawner-` name prefix).
       Each session's target rides the `discovered`/`session_list` feed (`target`, sandbox-only) and
       the app badges sandbox sessions ("📦 sandbox") in the sidebar; APK built, installed on the
-      emulator + Pixel 8a.
-      - [ ] Follow-up: live-verify the sandbox + broker paths on the host (podman image + a real
-            `cmd/broker` run) — unit tests use fakes, not a real runtime.
+      emulator + Pixel 8a. **Live-verified on the host** (`SPAWNER_LIVE=1 go test ./internal/session
+      -run TestLive`): the broker forks the real host `claude` and streams a real turn back; the
+      sandbox lifecycle (create → reuse across turns → list → reconcile/remove) runs against real
+      Docker. These live tests are skipped unless `SPAWNER_LIVE=1` (they hit real claude/runtime).
 
 ### Android
 - (nothing open — hands-free verified; voice rename shipped, see _Done_)
