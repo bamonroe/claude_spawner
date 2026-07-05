@@ -74,6 +74,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -772,19 +773,30 @@ private fun ChatList(
     modifier: Modifier,
 ) {
     val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
     // Bottom item index accounts for the "load older" header (item 0) when present,
     // so we land on the actual newest message, not one above it.
     val bottom = (messages.size - 1 + if (hasMore) 1 else 0).coerceAtLeast(0)
-    // Auto-scroll to the newest message on append. Keyed on the LAST message so
-    // paging OLDER messages in (which doesn't change the last one) never yanks the
-    // view to the bottom.
+    // `pinned` tracks whether the reader is parked at the very bottom — the END of the
+    // newest message is actually in view. It gates the auto-follow: if you've scrolled
+    // up to read earlier messages, a new message must NOT yank you back down. It is set
+    // only while the viewport is stable (see the resize block below) so an append or a
+    // keyboard resize can't corrupt it.
+    var pinned by remember { mutableStateOf(true) }
+    // Auto-scroll to the newest message on append — but only when pinned. Keyed on the
+    // LAST message so paging OLDER messages in (which doesn't change the last one) never
+    // yanks the view to the bottom.
     val last = messages.lastOrNull()
     LaunchedEffect(last) {
-        if (messages.isNotEmpty()) listState.animateScrollToItem(bottom)
+        if (messages.isNotEmpty() && pinned) listState.animateScrollToItem(bottom)
     }
-    // Explicit scroll-to-bottom (attach, typed send, read-last).
+    // Explicit scroll-to-bottom (attach, typed send, read-last). Always follows, and
+    // re-pins so subsequent appends resume auto-following.
     LaunchedEffect(scrollTick) {
-        if (scrollTick > 0 && messages.isNotEmpty()) listState.animateScrollToItem(bottom)
+        if (scrollTick > 0 && messages.isNotEmpty()) {
+            pinned = true
+            listState.animateScrollToItem(bottom)
+        }
     }
     // Keep the newest message pinned above whatever sits below the list — the soft
     // keyboard and the status bars (speaking / activity / draft / mic / warm). They
@@ -799,12 +811,18 @@ private fun ChatList(
     // read false and we'd wrongly skip the follow. `pinned` is therefore updated only
     // while the viewport is stable (a genuine scroll), and merely consulted — not
     // overwritten — on a resize. Snap (not animate) so the pin rides the keyboard.
-    var pinned by remember { mutableStateOf(true) }
+    //
+    // "At the bottom" here means the END of the newest message is actually visible, not
+    // merely that the last item has scrolled into range — so scrolling up even a little
+    // to read earlier text unpins and stops the auto-follow.
     LaunchedEffect(bottom) {
         var lastViewportH = -1
         snapshotFlow {
             val info = listState.layoutInfo
-            info.viewportSize.height to ((info.visibleItemsInfo.lastOrNull()?.index ?: 0) >= bottom)
+            val lastItem = info.visibleItemsInfo.lastOrNull()
+            val atBottom = lastItem != null && lastItem.index >= bottom &&
+                lastItem.offset + lastItem.size <= info.viewportEndOffset + 4
+            info.viewportSize.height to atBottom
         }.collect { (viewportH, atBottom) ->
             if (viewportH == lastViewportH) {
                 pinned = atBottom                                  // stable viewport → real scroll position
@@ -822,14 +840,37 @@ private fun ChatList(
     }
     // LazyColumn is the direct weighted child (wrapping it in a SelectionContainer
     // distorted the Column's height and pushed the input bar off-screen). Selection
-    // is per-bubble instead — long-press a message to select/copy it.
-    LazyColumn(modifier, state = listState) {
-        if (hasMore) item {
-            TextButton(onClick = onLoadOlder, modifier = Modifier.fillMaxWidth()) {
-                Text("⤒ load older messages")
+    // is per-bubble instead — long-press a message to select/copy it. The Box only
+    // overlays a jump-to-latest button; it keeps the same weight the LazyColumn had.
+    Box(modifier) {
+        LazyColumn(Modifier.fillMaxSize(), state = listState) {
+            if (hasMore) item {
+                TextButton(onClick = onLoadOlder, modifier = Modifier.fillMaxWidth()) {
+                    Text("⤒ load older messages")
+                }
+            }
+            items(messages) { Bubble(it, badgeMode) }
+        }
+        // When scrolled up, offer a one-tap jump back to the newest message. Sits at
+        // the bottom of the chat area, just above the status bars / input bar.
+        AnimatedVisibility(
+            visible = !pinned && messages.isNotEmpty(),
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp),
+        ) {
+            Surface(
+                onClick = {
+                    pinned = true
+                    scope.launch { listState.animateScrollToItem(bottom) }
+                },
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                shadowElevation = 4.dp,
+                modifier = Modifier.size(36.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) { Text("↓", fontSize = 20.sp) }
             }
         }
-        items(messages) { Bubble(it, badgeMode) }
     }
 }
 
