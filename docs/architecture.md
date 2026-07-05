@@ -89,6 +89,67 @@ terminal. `internal/tmux` exposes just `ClaudeDirs` — the set of directories w
 human is editing live. (An earlier design had the server itself open a "babysit" pane via a
 `Babysit`/`List`/`Exists`/`Close` API; that was dropped — the server never creates panes now.)
 
+## 🔭 PROPOSED: containerized server + per-session execution target (host vs sandbox)
+
+Status: **design only, not implemented.** Tracked in `TODO.md`. Recorded here so it isn't
+re-litigated. Goal: run the **server** in a container for clean deployment, while letting each
+spawned Claude session run *either* directly on the host (real host files/toolchains) *or* inside
+an isolated container sandbox (disposable, root-inside-the-sandbox) — chosen **per session**.
+
+### The single seam
+
+Every turn already funnels through one place: `session.Driver.Turn()` (`internal/session/
+session.go`), which `exec`s the `claude` binary in the session's `Dir` and parses its
+`stream-json` stdout. Nothing else in the server knows *how* that process is launched. So the whole
+feature reduces to making that launch pluggable:
+
+- Introduce an **`Executor`** interface (start a `claude` turn given `Dir` + args, return a stdout
+  stream). The existing direct-`exec` becomes the `host` executor; a new `sandbox` executor runs
+  the turn inside a container. `Turn()` selects one and is otherwise unchanged — the NDJSON parsing,
+  `Setpgid` group-kill, and event fan-out all stay put.
+- Add an **execution-target field** to the `Session` record (`store.go`), set at spawn time and
+  persisted in `sessions.json`, so host-vs-sandbox is a durable per-session property the spawn
+  dialog chooses. Default = `host` (today's behavior).
+
+### The problem containerizing the server introduces
+
+A process inside a container **cannot fork a process on the host**. So once the server is
+containerized, "run this session directly on the host" needs a bridge back out. The privileged
+shortcuts (a `--privileged` server with `--pid=host` + `nsenter` into PID 1) were considered and
+**rejected**: they give the server container full host root, which defeats the point of isolating
+it. We want *no component* to hold host root.
+
+### The broker (host-execution without host root)
+
+Run a small **host-side session broker** — a daemon on the host, as the ordinary user (not root),
+listening on a Unix socket that's bind-mounted into the server container. The server sends it a
+narrow, validated request ("start a `claude` turn in directory X"); the **broker** does the actual
+`fork`/`exec` on the host and streams stdout back over the socket. Consequences:
+
+- The **server container stays unprivileged** — it can only ask for the one constrained action the
+  broker exposes, never arbitrary host commands.
+- The **broker isn't root either** — it runs as the user and forks `claude` as the user, which is
+  exactly the identity we want touching the user's files.
+- The broker is the natural home for the **`SPAWNER_ROOT` jail** enforcement — it's the last hop
+  before a host process launches, so path validation there is authoritative even if the server is
+  compromised. (This is the tmux client/server split from the project's early thinking, generalized
+  into a proper broker.)
+
+### Sandbox sessions (also without host root)
+
+For `sandbox`-target sessions the `sandbox` executor launches the turn in a fresh container. To
+avoid granting host root here too, point the executor at a **rootless Podman / rootless Docker**
+socket rather than the root Docker socket — the sandbox gets root *inside itself* and a disposable
+FS, but spinning it up doesn't require host root. Session `Dir` is bind-mounted (or a fresh volume
+for a truly throwaway project); `~/.claude` auth is mounted read-only as needed.
+
+### Net security posture
+
+No component holds host root: server container = unprivileged; broker = plain user; sandboxes via a
+rootless runtime. Cost is one new moving part (the broker daemon) plus the `Executor` seam. See
+`docs/protocol.md` if a spawn-time target selector reaches the wire protocol (it may not — the
+dialog can carry it server-side, like `rename`).
+
 ## Transcription (internal/transcribe)
 
 The gateway depends only on the `Transcriber` interface; there are **two implementations** and

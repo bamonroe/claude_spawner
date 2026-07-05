@@ -17,6 +17,13 @@ Dates are `YYYY-MM-DD`.
       constant-time-compared shared token, fronted by Tailscale).
 - [ ] Vocab-bias tuning: measure whether the `--prompt` session-name biasing actually improves
       recognition of real session names/paths, adjust if not. *(biasing itself is implemented)*
+- [ ] **Containerized server + per-session execution target (host vs sandbox).** Make
+      `session.Driver.Turn()`'s launch pluggable via an `Executor` interface; add a durable
+      execution-target field to the `Session` record (spawn-time choice, default `host`). Host-target
+      turns run through a **host-side broker daemon** (unprivileged server container → Unix socket →
+      broker forks `claude` as the user, enforces the `SPAWNER_ROOT` jail); sandbox-target turns run
+      in a fresh container via a **rootless Podman/Docker** socket. Goal: no component holds host root.
+      Full design in `docs/architecture.md` (🔭 PROPOSED section). Design only so far.
 
 ### Android
 - (nothing open — hands-free verified; voice rename shipped, see _Done_)
