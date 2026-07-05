@@ -150,7 +150,7 @@ client) lives in `internal/session` so the broker can reuse the executors withou
 
 For `sandbox`-target sessions the container's lifetime is **bound to the session**, not the turn:
 the `SandboxExecutor` creates a long-lived container at spawn (`Ensure` → `run -d … sleep
-infinity`, named `spawner-<hex>` from `Session.Container`), each turn runs via `exec -w <dir>`
+infinity`, named `spawner-sbx-<hex>` from `Session.Container`), each turn runs via `exec -w <dir>`
 into it, and it's destroyed when the session is deleted (`Remove` → `rm -f`). So packages
 installed and services started in one turn persist to the next — a real environment, not a fresh
 box per turn. `Ensure` is idempotent and re-run before every turn, so a container lost to a server
@@ -162,7 +162,7 @@ transcript's project encoding matches the host); share `$HOME/.claude` via `SPAW
 to keep history/discovery working. Lifecycle hooks live in the gateway spawn (`ensureSandbox`) and
 delete (`removeSandbox`) paths; `Driver.EnsureContainer`/`RemoveContainer` bridge to the executor.
 At startup `Driver.ReconcileContainers` sweeps **orphans** — managed containers (matched by the
-`spawner-` name prefix) whose session record no longer exists, e.g. deleted while the server was
+`spawner-sbx-` name prefix) whose session record no longer exists, e.g. deleted while the server was
 down — so they don't accumulate; live sessions' containers are left for `Ensure`-before-turn. When
 the server is containerized (broker mode), every one of these — ensure, remove, list, and the turn
 `exec` — is forwarded to the broker, which runs the runtime on the host; the server itself never

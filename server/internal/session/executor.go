@@ -42,9 +42,12 @@ type Executor interface {
 	Start(ctx context.Context, s *Session, args []string) (Proc, error)
 }
 
-// containerPrefix names every sandbox container this server manages, so they can
-// be listed for orphan reconciliation and told apart from unrelated containers.
-const containerPrefix = "spawner-"
+// containerPrefix names every sandbox SESSION container this server manages, so
+// they can be listed for orphan reconciliation and told apart from unrelated
+// containers. It is deliberately specific ("spawner-sbx-", not "spawner-") so the
+// reconcile's name filter can't match infrastructure containers like the server's
+// own container (e.g. "claude-spawner-server") and remove it as an orphan.
+const containerPrefix = "spawner-sbx-"
 
 // SandboxLifecycle is implemented by executors that own a per-session container
 // bound to the session's lifetime: created at spawn (Ensure), reused by every

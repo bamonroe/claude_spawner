@@ -395,7 +395,7 @@ func (d *Driver) Usage(ctx context.Context) (string, error) {
 	return reply, nil
 }
 
-// NewContainerName returns a unique sandbox container name ("spawner-<hex>"),
+// NewContainerName returns a unique sandbox container name ("spawner-sbx-<hex>"),
 // independent of the session name (which can be renamed) and the claude
 // session_id (which rotates on clear/compress), so it stays valid for the
 // session's whole life.

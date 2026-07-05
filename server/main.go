@@ -71,18 +71,24 @@ func main() {
 	if driver.SandboxEnabled() {
 		// Sweep sandbox containers left orphaned by sessions deleted while the server
 		// was down (live ones are recreated on demand by Ensure-before-turn). Routes
-		// through the broker in broker mode, or the local runtime otherwise.
+		// through the broker in broker mode, or the local runtime otherwise. Run it in
+		// the background with a bounded timeout so a slow/hung container runtime can
+		// never delay or wedge startup — orphan cleanup isn't boot-critical.
 		known := map[string]bool{}
 		for _, s := range store.List() {
 			if s.Container != "" {
 				known[s.Container] = true
 			}
 		}
-		if removed, err := driver.ReconcileContainers(context.Background(), known); err != nil {
-			log.Printf("sandbox reconcile: %v", err)
-		} else if len(removed) > 0 {
-			log.Printf("sandbox reconcile: removed %d orphan container(s): %v", len(removed), removed)
-		}
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if removed, err := driver.ReconcileContainers(ctx, known); err != nil {
+				log.Printf("sandbox reconcile: %v", err)
+			} else if len(removed) > 0 {
+				log.Printf("sandbox reconcile: removed %d orphan container(s): %v", len(removed), removed)
+			}
+		}()
 	}
 
 	tmuxMgr := tmux.NewManager()

@@ -18,6 +18,9 @@ services:
       context: ./server
       dockerfile: Dockerfile.broker
     image: spawner-server:latest
+    # Not "spawner-…": the sandbox reconcile filters containers by the
+    # "spawner-sbx-" prefix, and this name must not collide with that.
+    container_name: claude-spawner-server
     # Map the host user into the container so it can read the owner-only broker
     # socket and the host-owned read-only mounts.
     userns_mode: keep-id
