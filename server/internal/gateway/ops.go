@@ -372,7 +372,11 @@ func (c *conn) sendSessionList() {
 	sessions := c.srv.store.List()
 	views := make([]sessionView, 0, len(sessions))
 	for _, s := range sessions {
-		views = append(views, sessionView{Name: s.Name, Dir: s.Dir})
+		v := sessionView{Name: s.Name, Dir: s.Dir}
+		if s.Target == session.TargetSandbox {
+			v.Target = string(s.Target)
+		}
+		views = append(views, v)
 	}
 	c.send(msgSessionList(views))
 }

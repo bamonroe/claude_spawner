@@ -283,6 +283,9 @@ func msgSessionList(sessions []sessionView) map[string]any {
 type sessionView struct {
 	Name string `json:"name"`
 	Dir  string `json:"dir"`
+	// Target is the execution target ("sandbox") when it isn't the default host, so
+	// the app can badge sandbox sessions. Omitted (empty) for host sessions.
+	Target string `json:"target,omitempty"`
 }
 
 // listingEntry is one directory in a browse listing.

@@ -111,7 +111,7 @@ capped at ~120 s.
 | `stop_speaking` | `{}`                                                 | barge-in: the client should halt any in-progress TTS immediately (from "stop" / push-to-talk) |
 | `say`           | `{ "text": "ok bud, where do you want it?" }`        | app should speak this (TTS) + display    |
 | `dialog`        | `{ "state": "await_dir", "prompt": "..." }`          | current dialog state (drives the UI)     |
-| `session_list`  | `{ "sessions": [{ "name", "dir", "attached" }] }`    | response to `list`                       |
+| `session_list`  | `{ "sessions": [{ "name", "dir", "target?" }] }`    | response to `list`. `target` present only for non-host sessions (`"sandbox"`), so the app can badge them |
 | `listing`       | `{ "path": "...", "parent": "...", "entries": [{ "name", "dir" }] }` | directory contents for the New-session picker (response to `browse`; empty `path` = the configured roots) |
 | `attached`      | `{ "name": "claude-xyz", "usage"?: {…}, "usage_at"?: 1720099200 }` | now in passthrough mode. When the session already has an on-disk transcript, `usage` (same `{ "input", "output", "cache_write", "cache_read" }` shape as `output`) carries the **last turn's context size** — read from the transcript, not a live turn — so the app shows the context meter (and how much a `clear`/`compress` would reclaim) immediately on attach. `usage_at` is that turn's unix seconds, anchoring the cache-warm countdown to its real age. Both are omitted for a freshly spawned session that hasn't run a turn. |
 | `detached`      | `{}`                                                  | left passthrough mode                    |
