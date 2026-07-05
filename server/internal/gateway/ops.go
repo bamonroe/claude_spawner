@@ -284,6 +284,19 @@ func (c *conn) doDeleteDiscovered(sessionID string) {
 	}
 	path := session.TranscriptPathByID(sessionID)
 	if path == "" {
+		// No transcript on disk yet (e.g. a just-spawned session that never
+		// took a turn). There's nothing to delete from disk, but we still drop
+		// its registry record so the delete actually removes the session.
+		if s := c.srv.store.GetBySessionID(sessionID); s != nil {
+			if c.attached != nil && c.attached.Name == s.Name {
+				c.doDetach()
+			}
+			_ = c.srv.store.Delete(s.Name)
+			c.srv.dropJob(s.Name)
+			c.sendSessionList()
+			c.doDiscover()
+			return
+		}
 		c.fail("not_found", "no transcript for that session")
 		return
 	}
