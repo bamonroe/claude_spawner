@@ -150,25 +150,13 @@ func main() {
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
-	// Shut down on a signal (systemctl stop / Ctrl-C → clean exit) or on a
-	// client-requested restart (→ non-zero exit so the supervisor relaunches us).
-	restart := false
-	select {
-	case <-stop:
-		log.Println("shutting down...")
-	case <-gw.RestartRequested():
-		log.Println("restart requested by a client; exiting for the supervisor to rebuild and relaunch")
-		restart = true
-	}
+	// Shut down on a signal: `docker compose down/stop`, Ctrl-C, or the container
+	// being recreated by the broker-driven restart (which rebuilds the image and
+	// replaces this container from the host — see the `restart` command).
+	<-stop
+	log.Println("shutting down...")
 	gw.NotifyShutdown() // tell connected apps their in-flight turn was interrupted
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	_ = srv.Shutdown(shutdownCtx)
 	shutdownCancel()
-	if restart {
-		// Exit non-zero so systemd's `Restart=on-failure` fires (its ExecStartPre
-		// rebuilds current code before relaunch). A clean exit would instead leave
-		// the unit stopped. Under `docker`/`go run` there's no supervisor, so the
-		// process simply exits — restart is a systemd-deployment feature.
-		os.Exit(1)
-	}
 }

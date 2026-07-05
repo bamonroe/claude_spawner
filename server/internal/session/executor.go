@@ -71,6 +71,18 @@ type SandboxReaper interface {
 	Remove(ctx context.Context, name string) error
 }
 
+// Restarter is implemented by executors that can rebuild and relaunch the server
+// itself. Only BrokerExecutor implements it: the containerized server can't
+// rebuild its own image, so it asks the host-side broker to. Driver.Restart
+// routes to it, and the "restart" command needs it (there's no restart without a
+// broker to drive the host).
+type Restarter interface {
+	// Restart triggers a host-side rebuild + relaunch of the server. It returns
+	// once the rebuild is LAUNCHED (the server is recreated moments later), or an
+	// error if restart isn't configured.
+	Restart(ctx context.Context) error
+}
+
 // Proc is a launched claude process. The caller reads Stdout to EOF (the
 // stream-json events) and then calls Wait exactly once.
 type Proc interface {
@@ -275,6 +287,16 @@ func (b BrokerExecutor) List(ctx context.Context) ([]string, error) {
 		return nil, errors.New(res.Err)
 	}
 	return res.Names, nil
+}
+
+// Restart asks the broker to rebuild and relaunch the containerized server on the
+// host (the "restart" button). The unprivileged server container can't rebuild
+// its own image, so the host-side broker runs the configured command. This
+// satisfies the Restarter interface, so Driver.Restart routes to it in broker
+// mode. The reply confirms the rebuild was launched, not that it finished — the
+// container is recreated out from under this process moments later.
+func (b BrokerExecutor) Restart(ctx context.Context) error {
+	return b.unary(ctx, brokerRequest{Op: opRestart})
 }
 
 // dialSend dials the broker and writes one request header, returning the open

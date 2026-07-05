@@ -512,14 +512,22 @@ func (c *conn) doSetWhisperModel(name string) {
 	}()
 }
 
-// doRestart tells every connected app the server is going down, then signals
-// main() to exit so the process supervisor (the systemd unit) rebuilds and
-// relaunches it — picking up any new server code. The app auto-reconnects once
-// the fresh process is listening again. Any authenticated client may trigger
-// this; the trust boundary is the same as spawning arbitrary commands.
+// doRestart asks the host-side broker to rebuild and relaunch the containerized
+// server, picking up any new server code. The unprivileged server container can't
+// rebuild its own image, so the broker (running on the host) runs the configured
+// `docker compose … up -d --build` command; it recreates this container out from
+// under us, and the app auto-reconnects once the fresh process is listening. Any
+// authenticated client may trigger this; the trust boundary is the same as
+// spawning arbitrary commands. Reports back if restart isn't configured (no
+// broker, or SPAWNER_BROKER_RESTART_CMD unset) instead of pretending it worked.
 func (c *conn) doRestart() {
-	c.srv.broadcast(msgSay("restarting the server — back in a moment."))
-	c.srv.RequestRestart()
+	go func() {
+		if err := c.srv.driver.Restart(context.Background()); err != nil {
+			c.fail("restart_failed", err.Error())
+			return
+		}
+		c.srv.broadcast(msgSay("rebuilding and restarting the server — back in a moment."))
+	}()
 }
 
 // abortTurn cancels the running turn on the attached session (kills the claude

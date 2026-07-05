@@ -818,8 +818,19 @@ func TestCompressSummarizesAndSeedsNextTurn(t *testing.T) {
 	}
 }
 
-func TestRestartBroadcastsAndSignals(t *testing.T) {
+// fakeRestarter is a host executor that also implements session.Restarter, so
+// Driver.Restart routes to it (as BrokerExecutor does in the live deployment).
+type fakeRestarter struct {
+	session.HostExecutor
+	restarts int
+}
+
+func (f *fakeRestarter) Restart(context.Context) error { f.restarts++; return nil }
+
+func TestRestartTriggersRebuildAndBroadcasts(t *testing.T) {
 	ts, _, gw := newTestServerGW(t, nil)
+	fr := &fakeRestarter{}
+	gw.driver.Execs[session.TargetHost] = fr
 
 	// Two clients: the one that asks and a bystander. Both should hear the `say`.
 	asker := dial(t, ts)
@@ -836,14 +847,22 @@ func TestRestartBroadcastsAndSignals(t *testing.T) {
 	if m := readUntil(t, other, "say"); !strings.Contains(m["text"].(string), "restarting") {
 		t.Fatalf("bystander say = %v, want a restarting notice", m["text"])
 	}
-
-	// main() would now exit-for-relaunch: the restart channel must be closed.
-	select {
-	case <-gw.RestartRequested():
-	case <-time.After(2 * time.Second):
-		t.Fatal("RestartRequested was not signaled")
+	if fr.restarts != 1 {
+		t.Fatalf("Restart called %d times, want 1", fr.restarts)
 	}
+}
 
-	// Idempotent: a second request must not panic on a double close.
-	gw.RequestRestart()
+// TestRestartFailsWithoutBroker: with a plain host executor (no Restarter), the
+// server can't rebuild its own container, so restart reports a failure instead of
+// silently doing nothing.
+func TestRestartFailsWithoutBroker(t *testing.T) {
+	ts, _, _ := newTestServerGW(t, nil)
+	ws := dial(t, ts)
+	send(t, ws, map[string]any{"type": "hello", "token": "secret"})
+	readUntil(t, ws, "hello_ok")
+
+	send(t, ws, map[string]any{"type": "restart"})
+	if m := readUntil(t, ws, "error"); !strings.Contains(m["code"].(string), "restart_failed") {
+		t.Fatalf("error code = %v, want restart_failed", m["code"])
+	}
 }

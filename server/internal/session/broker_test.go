@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // writeFakeClaude writes a shell script that emits a stream-json result event
@@ -53,6 +54,38 @@ func TestBrokerExecutorRoundTrip(t *testing.T) {
 	if reply != "pong" {
 		t.Errorf("reply = %q, want pong", reply)
 	}
+}
+
+func TestBrokerRestart(t *testing.T) {
+	// With no RestartCmd configured, restart is refused with a clear error.
+	sock := startBroker(t, func(d string) (string, error) { return d, nil }, "claude")
+	client := BrokerExecutor{Socket: sock}
+	if err := client.Restart(context.Background()); err == nil {
+		t.Fatal("expected an error when restart is not configured")
+	} else if !strings.Contains(err.Error(), "not configured") {
+		t.Errorf("error %q should say restart is not configured", err)
+	}
+
+	// With a command set, the broker launches it; the marker file proves it ran.
+	marker := filepath.Join(t.TempDir(), "restarted")
+	sock2 := startBrokerSrv(t, &BrokerServer{
+		Validate:   func(d string) (string, error) { return d, nil },
+		Host:       HostExecutor{Bin: "claude"},
+		RestartCmd: "touch " + marker,
+		Logf:       t.Logf,
+	})
+	client2 := BrokerExecutor{Socket: sock2}
+	if err := client2.Restart(context.Background()); err != nil {
+		t.Fatalf("Restart: %v", err)
+	}
+	// The command runs detached; poll briefly for its side effect.
+	for i := 0; i < 100; i++ {
+		if _, err := os.Stat(marker); err == nil {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("restart command did not run (marker file never appeared)")
 }
 
 func TestBrokerExecutorJailRejection(t *testing.T) {

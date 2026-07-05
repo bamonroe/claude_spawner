@@ -23,6 +23,13 @@ type BrokerServer struct {
 	Host       HostExecutor
 	Sandbox    SandboxExecutor
 	HasSandbox bool // Sandbox is configured (sandbox-target requests are accepted)
+	// RestartCmd is a shell command (run via `sh -c`) that rebuilds and relaunches
+	// the containerized server on the host, e.g. `docker compose -f
+	// docker-compose.broker.yml up -d --build spawner`. The server asks the broker
+	// to run it for the "restart" button — the broker is on the host and can drive
+	// docker, while the unprivileged server container cannot rebuild its own image.
+	// Empty disables restart (opRestart returns an error the app surfaces).
+	RestartCmd string
 	Logf       func(format string, args ...any)
 }
 
@@ -71,6 +78,8 @@ func (s *BrokerServer) handle(conn net.Conn) {
 	case opList:
 		names, err := s.list()
 		s.sendResult(conn, brokerResult{Names: names, Err: errStr(err)})
+	case opRestart:
+		s.sendResult(conn, brokerResult{Err: errStr(s.restart())})
 	default:
 		s.sendResult(conn, brokerResult{Err: "unknown op " + string(req.Op)})
 	}
@@ -167,6 +176,31 @@ func (s *BrokerServer) list() ([]string, error) {
 		return nil, nil
 	}
 	return s.Sandbox.List(context.Background())
+}
+
+// restart runs the configured rebuild-and-relaunch command DETACHED and returns
+// as soon as it has launched. It must not wait: RestartCmd recreates the server
+// container, which kills the very connection this reply travels on — so we reply
+// first (launch ok / not configured) and let the rebuild proceed in the
+// background, logging its eventual outcome. The broker itself is a separate host
+// service and survives the server's recreation.
+func (s *BrokerServer) restart() error {
+	if s.RestartCmd == "" {
+		return errors.New("server restart is not configured (set SPAWNER_BROKER_RESTART_CMD on the broker)")
+	}
+	cmd := exec.Command("sh", "-c", s.RestartCmd)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	s.logf("broker: launched server rebuild+restart: %s", s.RestartCmd)
+	go func() {
+		if err := cmd.Wait(); err != nil {
+			s.logf("broker: server rebuild+restart failed: %v", err)
+		} else {
+			s.logf("broker: server rebuild+restart finished")
+		}
+	}()
+	return nil
 }
 
 func (s *BrokerServer) sendExit(conn net.Conn, code int, errMsg string) {

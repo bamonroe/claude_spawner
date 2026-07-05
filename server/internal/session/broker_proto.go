@@ -35,10 +35,11 @@ const maxFrame = 16 << 20
 type brokerOp string
 
 const (
-	opTurn   brokerOp = "turn"   // run a turn (streamed): fork claude or exec into the sandbox
-	opEnsure brokerOp = "ensure" // create/start a session's sandbox container
-	opRemove brokerOp = "remove" // delete a session's sandbox container
-	opList   brokerOp = "list"   // list managed sandbox containers (for reconcile)
+	opTurn    brokerOp = "turn"    // run a turn (streamed): fork claude or exec into the sandbox
+	opEnsure  brokerOp = "ensure"  // create/start a session's sandbox container
+	opRemove  brokerOp = "remove"  // delete a session's sandbox container
+	opList    brokerOp = "list"    // list managed sandbox containers (for reconcile)
+	opRestart brokerOp = "restart" // rebuild + relaunch the (containerized) server on the host
 )
 
 // brokerRequest is the client→broker header. Target/Container are set for turns

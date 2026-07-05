@@ -174,6 +174,17 @@ func (d *Driver) ReconcileContainers(ctx context.Context, known map[string]bool)
 	return removed, nil
 }
 
+// Restart asks the host-side broker to rebuild and relaunch the server (the
+// "restart" command). It routes to the host executor when that's a broker client
+// (the live deployment); with no broker there's no way to rebuild the container
+// from inside it, so it returns an error the caller surfaces to the app.
+func (d *Driver) Restart(ctx context.Context) error {
+	if r, ok := d.Execs[TargetHost].(Restarter); ok {
+		return r.Restart(ctx)
+	}
+	return fmt.Errorf("restart requires the host-side broker (SPAWNER_BROKER_SOCKET)")
+}
+
 // ToolUse describes a tool Claude invoked during a turn. FilePath is set for
 // file-editing tools (Edit/Write/MultiEdit/NotebookEdit) so the caller can show
 // which file changed.
