@@ -38,7 +38,24 @@ type transcriptLine struct {
 	Timestamp string `json:"timestamp"` // ISO-8601 when Claude Code wrote the line
 	Message   struct {
 		Content json.RawMessage `json:"content"` // string OR []{type,text,...}
+		// Usage is the aggregate token accounting Claude records on each assistant
+		// line (Anthropic API field names). Absent on user lines — the zero value.
+		Usage struct {
+			Input      int `json:"input_tokens"`
+			Output     int `json:"output_tokens"`
+			CacheWrite int `json:"cache_creation_input_tokens"`
+			CacheRead  int `json:"cache_read_input_tokens"`
+		} `json:"usage"`
 	} `json:"message"`
+}
+
+// ContextSnapshot is a session's current on-disk context size: the token usage
+// of its most recent assistant turn and when that turn ran (unix seconds), read
+// from the transcript so a client can show the context meter — and how much a
+// clear/compress would reclaim — immediately on attach, before any live turn.
+type ContextSnapshot struct {
+	Usage Usage
+	At    int64 // unix seconds of the turn (0 if the line had no timestamp)
 }
 
 // TranscriptPath locates a session's Claude transcript.
@@ -152,6 +169,51 @@ func ReadTranscriptChain(ids []string) ([]Message, error) {
 		all[i].Index = i
 	}
 	return all, nil
+}
+
+// LastContextUsage returns the context snapshot for a session's transcript
+// chain: the most recent assistant turn's token usage (fresh input + cached
+// prefix = the live context size) and its timestamp. ids is oldest-first (as
+// from TranscriptIDs); the newest transcript carrying a usage-bearing assistant
+// line wins. Returns nil when none exists yet (a session that hasn't run a turn).
+func LastContextUsage(ids []string) *ContextSnapshot {
+	for i := len(ids) - 1; i >= 0; i-- {
+		if cx := lastUsageInFile(TranscriptPathByID(ids[i])); cx != nil {
+			return cx
+		}
+	}
+	return nil
+}
+
+// lastUsageInFile scans one transcript for the last assistant line reporting a
+// non-zero prompt size, returning its usage + timestamp (nil if none/unreadable).
+func lastUsageInFile(path string) *ContextSnapshot {
+	if path == "" {
+		return nil
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	sc := newLineScanner(f)
+	var last *ContextSnapshot
+	for sc.Scan() {
+		var l transcriptLine
+		if json.Unmarshal(sc.Bytes(), &l) != nil || l.Type != "assistant" {
+			continue
+		}
+		u := l.Message.Usage
+		if u.Input+u.CacheRead+u.CacheWrite == 0 {
+			continue // no aggregate usage on this line (e.g. tool-only sub-turn)
+		}
+		last = &ContextSnapshot{
+			Usage: Usage{Input: u.Input, Output: u.Output, CacheWrite: u.CacheWrite, CacheRead: u.CacheRead},
+			At:    parseTs(l.Timestamp),
+		}
+	}
+	return last
 }
 
 // extractText pulls prose from a message.content that may be a plain string

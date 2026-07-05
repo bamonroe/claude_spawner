@@ -431,7 +431,7 @@ func (c *conn) doAttach(name string, silent bool) {
 	}
 	c.clearBuffer() // fresh message buffer for the new session
 	c.attached = s
-	c.send(msgAttached(s.Name))
+	c.send(msgAttached(s.Name, session.LastContextUsage(s.TranscriptIDs())))
 	if !silent {
 		c.send(msgSay("attached to " + s.Name + "."))
 	}

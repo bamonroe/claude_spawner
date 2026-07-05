@@ -68,6 +68,14 @@ Dates are `YYYY-MM-DD`.
       `serveHistory` runs user messages through `stripInjected` to recover the spoken text, so the
       history and live views are consistent and the replayed turn dedupes. Server-only.
 
+- [x] 2026-07-04 — **Feat: show context size immediately on attach (from the transcript).**
+      The 🧠 title-bar readout was driven only by a live turn's `usage`, so after attaching it stayed
+      blank until the first reply — no signal of what a `clear`/`compress` would reclaim. The server
+      now reads the last assistant turn's aggregate `usage` (input + cache) straight from the on-disk
+      transcript (`session.LastContextUsage`) and rides it on the `attached` message as `usage` +
+      `usage_at` (that turn's unix time). The app seeds its context meter from it on attach and anchors
+      the cache-warm countdown to the turn's real age, so a stale cache reads cold.
+
 - [x] 2026-07-04 — **Fix: status-bar context-size readout didn't reset on `clear`/`compress`.**
       The title-bar 🧠 token count is driven by the last turn's `usage`, but `clear` (and `compress`)
       only rotated the session and spoke a `say` — neither told the app the context was now fresh, so

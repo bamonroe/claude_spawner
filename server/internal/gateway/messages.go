@@ -82,8 +82,17 @@ func msgDialog(state, prompt string) map[string]any {
 	return map[string]any{"type": "dialog", "state": state, "prompt": prompt}
 }
 
-func msgAttached(name string) map[string]any {
-	return map[string]any{"type": "attached", "name": name}
+// msgAttached confirms the attach. When the session already has an on-disk
+// transcript, it carries the last turn's `usage` (the current context size) and
+// `usage_at` (that turn's unix time) so the app shows the context meter — and the
+// cache-warm state — immediately, without waiting for a live turn to complete.
+func msgAttached(name string, cx *session.ContextSnapshot) map[string]any {
+	m := map[string]any{"type": "attached", "name": name}
+	if cx != nil {
+		m["usage"] = cx.Usage
+		m["usage_at"] = cx.At
+	}
+	return m
 }
 
 func msgDetached() map[string]any {

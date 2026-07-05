@@ -17,7 +17,9 @@ sealed interface ServerMsg {
     data class Activity(val text: String) : ServerMsg // live "Claude is thinking / editing X" indicator
     data class Files(val files: List<String>) : ServerMsg // files changed this turn
     data class Dialog(val state: String, val prompt: String) : ServerMsg
-    data class Attached(val name: String) : ServerMsg
+    // usage/usageAt seed the context meter from the transcript's last turn on
+    // attach (usageAt = that turn's unix seconds, for the cache-warm countdown).
+    data class Attached(val name: String, val usage: TokenUsage? = null, val usageAt: Long = 0) : ServerMsg
     data object Detached : ServerMsg
     data class ContextReset(val name: String) : ServerMsg // Claude context cleared → drop token accounting
     data class Output(val name: String, val text: String, val chunk: Boolean, val usage: TokenUsage? = null) : ServerMsg
@@ -49,7 +51,7 @@ sealed interface ServerMsg {
                 "activity" -> Activity(o.optString("text"))
                 "files" -> Files(readStrings(o.optJSONArray("files")))
                 "dialog" -> Dialog(o.optString("state"), o.optString("prompt"))
-                "attached" -> Attached(o.optString("name"))
+                "attached" -> Attached(o.optString("name"), readUsage(o.optJSONObject("usage")), o.optLong("usage_at"))
                 "detached" -> Detached
                 "context_reset" -> ContextReset(o.optString("name"))
                 "output" -> Output(o.optString("name"), o.optString("text"), o.optBoolean("chunk", false), readUsage(o.optJSONObject("usage")))

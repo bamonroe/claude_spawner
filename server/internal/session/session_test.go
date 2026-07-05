@@ -136,3 +136,39 @@ func TestReadTranscriptParsesTimestamp(t *testing.T) {
 		t.Errorf("timestamp-less line should have Ts 0, got %d", msgs[1].Ts)
 	}
 }
+
+// TestLastUsageInFile confirms the context snapshot is the newest assistant turn
+// with a non-zero prompt (input + cache), carrying its usage and timestamp, and
+// that usage-less lines (user turns, tool-only sub-turns) are skipped.
+func TestLastUsageInFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "t.jsonl")
+	lines := `{"type":"user","message":{"content":"hi"}}
+{"type":"assistant","timestamp":"2026-07-04T11:00:00Z","message":{"content":[{"type":"text","text":"a"}],"usage":{"input_tokens":5,"output_tokens":10,"cache_creation_input_tokens":20,"cache_read_input_tokens":100}}}
+{"type":"assistant","timestamp":"2026-07-04T11:01:00Z","message":{"content":[{"type":"text","text":"b"}],"usage":{"input_tokens":2,"output_tokens":7,"cache_creation_input_tokens":30,"cache_read_input_tokens":200}}}
+{"type":"assistant","message":{"content":[{"type":"tool_use"}],"usage":{"input_tokens":0,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+`
+	if err := os.WriteFile(path, []byte(lines), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cx := lastUsageInFile(path)
+	if cx == nil {
+		t.Fatal("want a snapshot, got nil")
+	}
+	// The last non-zero line wins (the trailing zero-usage line is skipped).
+	want := Usage{Input: 2, Output: 7, CacheWrite: 30, CacheRead: 200}
+	if cx.Usage != want {
+		t.Errorf("usage = %+v, want %+v", cx.Usage, want)
+	}
+	if cx.At != 1783162860 {
+		t.Errorf("At = %d, want 1783162860", cx.At)
+	}
+	// A transcript with no usage-bearing assistant line yields nil.
+	empty := filepath.Join(dir, "e.jsonl")
+	if err := os.WriteFile(empty, []byte(`{"type":"user","message":{"content":"hi"}}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := lastUsageInFile(empty); got != nil {
+		t.Errorf("want nil for usage-less transcript, got %+v", got)
+	}
+}

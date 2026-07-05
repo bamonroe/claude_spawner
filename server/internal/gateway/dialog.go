@@ -376,7 +376,7 @@ func (c *conn) spawnAwaitAttach(text string) {
 		}
 		c.attached = sess
 		c.srv.bindJob(c, sess.Name, true) // register for live turn fan-out (fresh session: no catch-up)
-		c.send(msgAttached(sess.Name))
+		c.send(msgAttached(sess.Name, nil)) // freshly spawned: no transcript, no context size yet
 		c.send(msgSay("attached to " + sess.Name + "."))
 	case negative(text):
 		sess := c.dlg.sess

@@ -714,7 +714,15 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
                 clearTurnInFlight()
                 turnStreamed = false
                 _activity.value = ""
-                _lastTurnUsage.value = null // new session = a different (cold) prompt cache
+                // Seed the context meter from the transcript's last turn so the size
+                // (and how much a clear/compress would reclaim) shows immediately,
+                // before any live turn. Anchor the cache-warm countdown to that turn's
+                // real age so it reads warm only if it genuinely still is; no usage
+                // (fresh session) leaves the meter blank.
+                _lastTurnUsage.value = msg.usage?.let { u ->
+                    val ageMs = if (msg.usageAt > 0) System.currentTimeMillis() - msg.usageAt * 1000 else Long.MAX_VALUE
+                    TurnUsageInfo(u, SystemClock.elapsedRealtime() - ageMs.coerceIn(0, 6 * 60 * 1000L))
+                }
                 _attachedName.value = msg.name
                 settings.lastSession = msg.name
                 _status.value = "attached: ${msg.name}"
