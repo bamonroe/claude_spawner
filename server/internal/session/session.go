@@ -79,6 +79,12 @@ type Driver struct {
 	Execs map[Target]Executor
 	// Bypass adds --dangerously-skip-permissions when true (project default).
 	Bypass bool
+	// UsageDir is the working directory for the account-global /usage check. It has
+	// no session on disk, so any directory works — but in broker mode the broker
+	// enforces the SPAWNER_ROOT jail on the cwd, so this must be inside an allowed
+	// root (the server sets it to a spawn root). Empty falls back to os.TempDir()
+	// for native installs, where there is no jail.
+	UsageDir string
 }
 
 // NewDriver returns a Driver with project defaults: a single host executor
@@ -379,9 +385,14 @@ func (d *Driver) Usage(ctx context.Context) (string, error) {
 	if d.Bypass {
 		args = append(args, "--dangerously-skip-permissions")
 	}
-	// Account-global (no session_id/dir), so always run on the host in a temp dir —
-	// never inside a per-session sandbox.
-	proc, err := d.executor(TargetHost).Start(ctx, &Session{Name: "usage", Dir: os.TempDir()}, args)
+	// Account-global (no session_id/dir), so always run on the host — never inside
+	// a per-session sandbox. UsageDir must be a jail-allowed root in broker mode;
+	// fall back to a temp dir for native installs (no jail).
+	dir := d.UsageDir
+	if dir == "" {
+		dir = os.TempDir()
+	}
+	proc, err := d.executor(TargetHost).Start(ctx, &Session{Name: "usage", Dir: dir}, args)
 	if err != nil {
 		return "", err
 	}

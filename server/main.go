@@ -41,6 +41,11 @@ func main() {
 		log.Fatalf("session store: %v", err)
 	}
 	driver := session.NewDriver()
+	if len(cfg.SpawnRoots) > 0 {
+		// The account-global /usage check runs claude in this dir; in broker mode the
+		// broker jails the cwd to SPAWNER_ROOT, so it must be an allowed root (not /tmp).
+		driver.UsageDir = cfg.SpawnRoots[0]
+	}
 	if cfg.BrokerSocket != "" {
 		// Containerized server: run turns through the host-side broker (this process
 		// stays unprivileged) instead of executing locally. The broker is the single
