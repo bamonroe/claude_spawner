@@ -89,12 +89,12 @@ terminal. `internal/tmux` exposes just `ClaudeDirs` — the set of directories w
 human is editing live. (An earlier design had the server itself open a "babysit" pane via a
 `Babysit`/`List`/`Exists`/`Close` API; that was dropped — the server never creates panes now.)
 
-## 🔭 PROPOSED: containerized server + per-session execution target (host vs sandbox)
+## Containerized server + per-session execution target (host vs sandbox)
 
-Status: **design only, not implemented.** Tracked in `TODO.md`. Recorded here so it isn't
-re-litigated. Goal: run the **server** in a container for clean deployment, while letting each
-spawned Claude session run *either* directly on the host (real host files/toolchains) *or* inside
-an isolated container sandbox (disposable, root-inside-the-sandbox) — chosen **per session**.
+Status: **implemented** (`internal/session/executor.go`, `internal/broker`, `cmd/broker`). Goal:
+run the **server** in a container for clean deployment, while letting each spawned Claude session
+run *either* directly on the host (real host files/toolchains) *or* inside an isolated container
+sandbox (disposable, root-inside-the-sandbox) — chosen **per session** via `Session.Target`.
 
 ### The single seam
 

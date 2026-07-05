@@ -19,6 +19,7 @@ type inbound struct {
 	Name         string            `json:"name"`          // session name for attach/kill/rename
 	NewName      string            `json:"new_name"`      // target name for rename
 	Path         string            `json:"path"`          // directory for browse / spawn_at
+	Target       string            `json:"target"`        // on spawn_at: "host" (default) | "sandbox" execution target
 	Codec        string            `json:"codec"`         // audio codec on wake: "ogg_opus" | "pcm16"
 	ClientID     string            `json:"client_id"`     // stable per-app id, for reconnect/resume
 	HandsFree    bool              `json:"hands_free"`    // set on `wake` when the clip is VAD-gated (hands-free)

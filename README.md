@@ -191,6 +191,35 @@ an auth token from the app, and constrain spawn directories.
 
 ---
 
+## Where sessions run: host vs sandbox
+
+Each session picks an **execution target** at spawn time — a durable per-session choice:
+
+- **host** (default) — turns run as a direct child process on the host, editing real host files
+  with your host toolchain. This is the original behavior and needs no configuration.
+- **sandbox** — turns run inside an isolated, disposable container with root *inside* the
+  container, launched through a **rootless** runtime (Podman by default) so spinning one up needs
+  no host root. Set `SPAWNER_SANDBOX_IMAGE` to a container image carrying `claude` + your
+  toolchain to enable it. Once enabled, the spawn dialog adds a "host or sandbox?" step (voice:
+  say "host" or "in a sandbox"); the app's visual spawn can pass `target` on `spawn_at`. The
+  session's working directory is bind-mounted at the same path so file edits land there and the
+  on-disk transcript stays discoverable (share `$HOME/.claude` via `SPAWNER_SANDBOX_MOUNTS` to
+  keep history working). Tune it with `SPAWNER_SANDBOX_RUNTIME`, `SPAWNER_SANDBOX_CLAUDE_BIN`,
+  `SPAWNER_SANDBOX_MOUNTS`, and `SPAWNER_SANDBOX_RUN_ARGS` (see `CLAUDE.md`).
+
+### Containerizing the server (host execution without host root)
+
+You can run the **server itself** in a container and still have `host`-target sessions execute on
+the host — without the container holding host root. Run the small **broker** daemon (`cmd/broker`)
+on the host as your ordinary user; it listens on a Unix socket, and when the server's
+`SPAWNER_BROKER_SOCKET` points at that socket (bind-mounted into the container), the server routes
+`host` turns *through* the broker instead of forking `claude` itself. The broker forks `claude` as
+you and enforces the `SPAWNER_ROOT` jail, so the server container stays unprivileged and no
+component runs as root. The broker reads `SPAWNER_BROKER_SOCKET` (the path to listen on),
+`SPAWNER_ROOT` (its jail), and `SPAWNER_CLAUDE_BIN`. The full design is in `docs/architecture.md`.
+
+---
+
 ## Run it in Docker (recommended)
 
 The whole execution environment — Go, the `claude` CLI, and **whisper.cpp + a model** —

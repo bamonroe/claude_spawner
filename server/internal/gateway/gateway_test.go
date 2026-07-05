@@ -311,6 +311,72 @@ func TestSpawnCreatesNewFolder(t *testing.T) {
 	}
 }
 
+// newSandboxTestServer builds a gateway with a sandbox image configured, so the
+// spawn dialog gains the host-vs-sandbox target step.
+func newSandboxTestServer(t *testing.T) (*httptest.Server, string, *Server) {
+	t.Helper()
+	root, err := os.MkdirTemp("", "spawner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(root) })
+	cfg := &config.Config{
+		AuthToken:    "secret",
+		SpawnRoots:   []string{root},
+		StatePath:    filepath.Join(t.TempDir(), "sessions.json"),
+		ClaudeBin:    "claude",
+		SandboxImage: "spawner-sandbox:latest",
+	}
+	store, err := session.OpenStore(cfg.StatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	driver := session.NewDriver()
+	driver.HostBin(fakeClaude(t, "pong"))
+	gw := New(cfg, store, driver, tmux.NewManager(), nil, projects.New(cfg.SpawnRoots))
+	ts := httptest.NewServer(http.HandlerFunc(gw.HandleWS))
+	t.Cleanup(ts.Close)
+	return ts, root, gw
+}
+
+// TestSpawnAsksTargetWhenSandboxConfigured: with a sandbox image set, spawning
+// inserts an await_target step and the chosen target is persisted on the record.
+func TestSpawnAsksTargetWhenSandboxConfigured(t *testing.T) {
+	ts, root, gw := newSandboxTestServer(t)
+	if err := os.MkdirAll(filepath.Join(root, "myproj"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ws := dial(t, ts)
+	send(t, ws, map[string]any{"type": "hello", "token": "secret"})
+	readUntil(t, ws, "hello_ok")
+
+	send(t, ws, map[string]any{"type": "utterance", "text": "hey buddy spawn a new session"})
+	readUntil(t, ws, "dialog") // await_root
+	send(t, ws, map[string]any{"type": "utterance", "text": filepath.Base(root)})
+	readUntil(t, ws, "dialog") // await_child
+	send(t, ws, map[string]any{"type": "utterance", "text": "myproj"})
+
+	// The new step: host or sandbox?
+	d := readUntil(t, ws, "dialog")
+	if d["state"] != "await_target" {
+		t.Fatalf("expected await_target, got %v", d["state"])
+	}
+	send(t, ws, map[string]any{"type": "utterance", "text": "in a sandbox"})
+	d = readUntil(t, ws, "dialog")
+	if d["state"] != "await_attach" {
+		t.Fatalf("expected await_attach after target, got %v", d["state"])
+	}
+	send(t, ws, map[string]any{"type": "utterance", "text": "yes"})
+	a := readUntil(t, ws, "attached")
+	name, _ := a["name"].(string)
+
+	if rec := gw.store.Get(name); rec == nil {
+		t.Fatalf("session %q not persisted", name)
+	} else if rec.Target != session.TargetSandbox {
+		t.Errorf("Target = %q, want %q", rec.Target, session.TargetSandbox)
+	}
+}
+
 func TestAudioPathTranscribesAndDispatches(t *testing.T) {
 	stt := &fakeSTT{text: "hey buddy spawn a new session"}
 	ts, _ := newTestServer(t, stt)

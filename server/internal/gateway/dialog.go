@@ -20,11 +20,14 @@ const maxList = 8
 // directory tree, stopping at a project (git repo) or a plain folder.
 type dialog struct {
 	flow   string // "spawn"
-	state  string // await_root | await_child | await_create | await_newname | await_attach
+	state  string // await_root | await_child | await_create | await_newname | await_target | await_attach
 	mode   string // "session" (browse existing) | "new" (create a new project)
 	dir    string // absolute dir once known (for create/attach)
 	browse string // directory currently being navigated
-	sess   *session.Session
+	// attachPrompt is the pending "want to attach?" line, stashed across the
+	// optional host-vs-sandbox target question so the flow resumes cleanly.
+	attachPrompt string
+	sess         *session.Session
 }
 
 // startSpawn begins the spawn dialog. isNew selects create-a-new-project mode;
@@ -91,7 +94,7 @@ func (c *conn) spawnAwaitNewName(text string) {
 		c.dlg = nil
 		return
 	}
-	c.beginAttachQuestion(dir, "created "+name+". want to attach?")
+	c.askTarget(dir, "created "+name+". want to attach?")
 }
 
 // repromptDialog re-issues the current dialog's prompt (used when resuming a
@@ -110,6 +113,9 @@ func (c *conn) repromptDialog() {
 	case "await_create":
 		c.send(msgDialog("await_create", "create it?"))
 		c.send(msgSay("create " + filepath.Base(c.dlg.dir) + "? yes or no."))
+	case "await_target":
+		c.send(msgDialog("await_target", "host or sandbox?"))
+		c.send(msgSay("run " + filepath.Base(c.dlg.dir) + " on the host, or in a sandbox?"))
 	case "await_attach":
 		c.send(msgDialog("await_attach", "want to attach?"))
 		if c.dlg.sess != nil {
@@ -143,6 +149,8 @@ func (c *conn) handleDialog(text string) {
 		c.spawnAwaitCreate(text)
 	case "await_newname":
 		c.spawnAwaitNewName(text)
+	case "await_target":
+		c.spawnAwaitTarget(text)
 	case "await_attach":
 		c.spawnAwaitAttach(text)
 	default:
@@ -173,7 +181,7 @@ func (c *conn) spawnAwaitRoot(text string) {
 func (c *conn) spawnAwaitChild(text string) {
 	switch {
 	case containsAny(text, "here", "this one", "this folder", "use this", "use it", "current"):
-		c.beginAttachQuestion(c.dlg.browse, "ok, "+filepath.Base(c.dlg.browse)+". want to attach?")
+		c.askTarget(c.dlg.browse, "ok, "+filepath.Base(c.dlg.browse)+". want to attach?")
 		return
 	case containsAny(text, "list", "what's in", "what folders", "read them"):
 		all, recent := listMode(text)
@@ -209,7 +217,7 @@ func (c *conn) browseInto(dir string) {
 		c.promptChildren(dir)
 		return
 	}
-	c.beginAttachQuestion(dir, "found "+filepath.Base(dir)+". want to attach?")
+	c.askTarget(dir, "found "+filepath.Base(dir)+". want to attach?")
 }
 
 // promptChildren asks which subfolder, reading them out if there aren't too many.
@@ -218,7 +226,7 @@ func (c *conn) promptChildren(dir string) {
 	label := filepath.Base(dir)
 	switch {
 	case len(kids) == 0:
-		c.beginAttachQuestion(dir, "nothing inside "+label+". use it anyway?")
+		c.askTarget(dir, "nothing inside "+label+". use it anyway?")
 	case len(kids) <= maxList:
 		c.send(msgSay("which folder in " + label + "? " + orList(names(kids)) + "."))
 	default:
@@ -235,7 +243,7 @@ func (c *conn) spawnAwaitCreate(text string) {
 			c.dlg = nil
 			return
 		}
-		c.beginAttachQuestion(c.dlg.dir, "made it. want to attach?")
+		c.askTarget(c.dlg.dir, "made it. want to attach?")
 	case negative(text):
 		c.cancelDialog()
 	default:
@@ -343,12 +351,41 @@ func (c *conn) isRoot(dir string) bool {
 	return false
 }
 
+// askTarget decides where a new session at dir will run. With no sandbox
+// configured every session runs on the host, so we skip straight to the attach
+// question; otherwise we ask host-vs-sandbox first and the answer becomes
+// Session.Target. attachPrompt is the "want to attach?" line to use afterward.
+func (c *conn) askTarget(dir, attachPrompt string) {
+	if c.srv.cfg.SandboxImage == "" {
+		c.beginAttachQuestion(dir, attachPrompt, session.TargetHost)
+		return
+	}
+	c.dlg.dir = dir
+	c.dlg.attachPrompt = attachPrompt
+	c.dlg.state = "await_target"
+	c.send(msgDialog("await_target", "host or sandbox?"))
+	c.send(msgSay("run " + filepath.Base(dir) + " on the host, or in a sandbox?"))
+}
+
+// spawnAwaitTarget records the chosen execution target and continues to the
+// attach question.
+func (c *conn) spawnAwaitTarget(text string) {
+	switch {
+	case containsAny(text, "sandbox", "sandboxed", "container", "isolated"):
+		c.beginAttachQuestion(c.dlg.dir, c.dlg.attachPrompt, session.TargetSandbox)
+	case containsAny(text, "host", "directly", "normal", "local", "machine", "here"):
+		c.beginAttachQuestion(c.dlg.dir, c.dlg.attachPrompt, session.TargetHost)
+	default:
+		c.send(msgSay("host or sandbox?"))
+	}
+}
+
 // beginAttachQuestion prepares a session record for the chosen dir (in memory)
 // and moves to the attach question. The record is only persisted once the user
 // answers, so "cancel" leaves no junk behind.
-func (c *conn) beginAttachQuestion(dir, prompt string) {
+func (c *conn) beginAttachQuestion(dir, prompt string, target session.Target) {
 	base := sanitizeName(filepath.Base(dir))
-	sess, err := c.newSession(base, dir)
+	sess, err := c.newSession(base, dir, target)
 	if err != nil {
 		c.fail("internal", err.Error())
 		c.dlg = nil
@@ -375,9 +412,13 @@ func (c *conn) spawnAwaitAttach(text string) {
 			c.srv.unbindJob(c, c.attached.Name)
 		}
 		c.attached = sess
-		c.srv.bindJob(c, sess.Name, true) // register for live turn fan-out (fresh session: no catch-up)
+		c.srv.bindJob(c, sess.Name, true)   // register for live turn fan-out (fresh session: no catch-up)
 		c.send(msgAttached(sess.Name, nil)) // freshly spawned: no transcript, no context size yet
-		c.send(msgSay("attached to " + sess.Name + "."))
+		where := "."
+		if sess.Target == session.TargetSandbox {
+			where = ", in a sandbox."
+		}
+		c.send(msgSay("attached to " + sess.Name + where))
 	case negative(text):
 		sess := c.dlg.sess
 		if perr := c.srv.store.Put(sess); perr != nil {

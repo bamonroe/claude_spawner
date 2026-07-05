@@ -780,11 +780,11 @@ func negative(text string) bool {
 
 // newSession builds a durable record with a generated session_id, ensuring a
 // unique name derived from base.
-func (c *conn) newSession(base, dir string) (*session.Session, error) {
+func (c *conn) newSession(base, dir string, target session.Target) (*session.Session, error) {
 	id, err := session.NewSessionID()
 	if err != nil {
 		return nil, err
 	}
 	name := c.srv.uniqueName(base)
-	return &session.Session{Name: name, Dir: dir, SessionID: id}, nil
+	return &session.Session{Name: name, Dir: dir, SessionID: id, Target: target}, nil
 }

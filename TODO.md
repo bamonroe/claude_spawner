@@ -17,13 +17,19 @@ Dates are `YYYY-MM-DD`.
       constant-time-compared shared token, fronted by Tailscale).
 - [ ] Vocab-bias tuning: measure whether the `--prompt` session-name biasing actually improves
       recognition of real session names/paths, adjust if not. *(biasing itself is implemented)*
-- [ ] **Containerized server + per-session execution target (host vs sandbox).** Make
-      `session.Driver.Turn()`'s launch pluggable via an `Executor` interface; add a durable
-      execution-target field to the `Session` record (spawn-time choice, default `host`). Host-target
-      turns run through a **host-side broker daemon** (unprivileged server container → Unix socket →
-      broker forks `claude` as the user, enforces the `SPAWNER_ROOT` jail); sandbox-target turns run
-      in a fresh container via a **rootless Podman/Docker** socket. Goal: no component holds host root.
-      Full design in `docs/architecture.md` (🔭 PROPOSED section). Design only so far.
+- [x] 2026-07-05 — **Containerized server + per-session execution target (host vs sandbox).**
+      `session.Driver.Turn()`'s launch is now pluggable via an `Executor` interface
+      (`internal/session/executor.go`); durable `Session.Target` (`host`/`sandbox`, default host)
+      chosen at spawn time (voice `await_target` step + `spawn_at` `target` field, shown only when a
+      sandbox image is configured). Three executors: `HostExecutor` (direct exec), `SandboxExecutor`
+      (rootless container, `SPAWNER_SANDBOX_*`), `BrokerExecutor` → host-side broker daemon
+      (`cmd/broker`, `internal/broker`) so a containerized, unprivileged server runs host turns via a
+      user-owned broker that enforces the `SPAWNER_ROOT` jail (`SPAWNER_BROKER_SOCKET`). No component
+      holds host root. Design in `docs/architecture.md`; tests cover selection, sandbox argv, broker
+      round-trip/jail, and the spawn target step.
+      - [ ] Follow-up: surface each session's target in the app sidebar (server carries it; the app
+            doesn't display it yet). Live-verify the sandbox + broker paths on the host (podman
+            image + a real `cmd/broker` run) — unit tests use fakes, not a real runtime.
 
 ### Android
 - (nothing open — hands-free verified; voice rename shipped, see _Done_)

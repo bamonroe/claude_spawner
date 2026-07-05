@@ -50,7 +50,7 @@ Every JSON message has a `type`. Optional `id` correlates request/response. `ts`
 | `rename`        | `{ "name": "<old>", "new_name": "<new>" }`| rename a session (keeps its session_id) -> `session_list` |
 | `delete`        | `{ "name": "<session>" }`                 | delete a session record -> `session_list`     |
 | `browse`        | `{ "path": "<dir or empty>" }`            | list a directory for the New-session picker (empty = roots) -> `listing` |
-| `spawn_at`      | `{ "path": "<dir>" }`                     | create a session in `path` and attach -> `attached` + `session_list` |
+| `spawn_at`      | `{ "path": "<dir>", "target": "host\|sandbox" }` | create a session in `path` and attach -> `attached` + `session_list`. `target` optional (default `host`); `sandbox` runs turns in an isolated container and errors if no sandbox image is configured |
 | `history`       | `{ "name": "<session>", "before": <int?>, "limit": <int> }` | request a page of that session's past conversation (from Claude's transcript). `before` = exclusive index cursor (omit for the most recent page; page older by passing the oldest index held). Spans context rotations: after a `clear`, the retired transcripts and the current one are stitched into one continuous, contiguously-indexed conversation. -> `history` |
 | `clear`         | `{}`                                      | rotate the attached session's Claude context: retire the current `session_id` (its transcript kept for `history`) and start a fresh one, so the next dictation replays no prior context. No model tokens spent; history still spans the whole chain. -> `context_reset` + `say` |
 | `compress`      | `{}`                                      | compact the attached session's Claude context: run a background turn asking Claude to summarize the conversation, then rotate the `session_id` (old transcript kept for `history`) and carry the summary forward — it seeds the next dictation so Claude continues with the condensed context instead of dropping it (the `/compact` analogue of `clear`). Emits an `activity` breadcrumb while summarizing, then a `context_reset` (readout back to zero) and a `say`. Refused if a turn is in flight (`say`) or no turn has run yet (`say`). -> `activity` + `context_reset` + `say` |
@@ -161,6 +161,10 @@ app -> { "type": "wake" }
 app -> <binary audio...>
 app -> { "type": "audio_end" }
 srv -> { "type": "transcript", "text": "in data claude underscore claude", "final": true }
+// only when a sandbox image is configured — otherwise the flow skips straight to await_attach (host):
+srv -> { "type": "dialog", "state": "await_target", "prompt": "host or sandbox?" }
+srv -> { "type": "say", "text": "run claude-claude on the host, or in a sandbox?" }
+// ... user answers "host" ...
 srv -> { "type": "say", "text": "ok, made that directory. want to attach?" }
 srv -> { "type": "dialog", "state": "await_attach", "prompt": "want to attach?" }
 

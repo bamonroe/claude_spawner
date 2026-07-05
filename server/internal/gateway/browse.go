@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/bam/claude_spawner/server/internal/projects"
+	"github.com/bam/claude_spawner/server/internal/session"
 )
 
 // doBrowse lists a directory for the app's visual "new session" picker. An empty
@@ -39,7 +40,7 @@ func (c *conn) doBrowse(path string) {
 
 // doSpawnAt creates a session in the chosen directory and attaches to it — the
 // visual equivalent of finishing the spawn dialog.
-func (c *conn) doSpawnAt(path string) {
+func (c *conn) doSpawnAt(path string, target session.Target) {
 	abs, err := c.srv.cfg.ValidateSpawnDir(path)
 	if err != nil {
 		c.fail("bad_path", err.Error())
@@ -49,7 +50,11 @@ func (c *conn) doSpawnAt(path string) {
 		c.fail("bad_path", "not a directory")
 		return
 	}
-	sess, err := c.newSession(sanitizeName(filepath.Base(abs)), abs)
+	if target == session.TargetSandbox && c.srv.cfg.SandboxImage == "" {
+		c.fail("bad_path", "sandbox target requested but no sandbox image is configured")
+		return
+	}
+	sess, err := c.newSession(sanitizeName(filepath.Base(abs)), abs, target)
 	if err != nil {
 		c.fail("internal", err.Error())
 		return
@@ -62,7 +67,7 @@ func (c *conn) doSpawnAt(path string) {
 		c.srv.unbindJob(c, c.attached.Name)
 	}
 	c.attached = sess
-	c.srv.bindJob(c, sess.Name, true) // register for live turn fan-out (fresh session: no catch-up)
+	c.srv.bindJob(c, sess.Name, true)   // register for live turn fan-out (fresh session: no catch-up)
 	c.send(msgAttached(sess.Name, nil)) // freshly spawned: no transcript, no context size yet
 	c.sendSessionList()
 }

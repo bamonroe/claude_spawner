@@ -542,14 +542,14 @@ var wireHandlers = map[string]func(c *conn, in inbound){
 	"rename":            func(c *conn, in inbound) { c.doRename(in.Name, in.NewName) },
 	"delete":            func(c *conn, in inbound) { c.doDelete(in.Name) },
 	"browse":            func(c *conn, in inbound) { c.doBrowse(in.Path) },
-	"spawn_at":          func(c *conn, in inbound) { c.doSpawnAt(in.Path) },
+	"spawn_at":          func(c *conn, in inbound) { c.doSpawnAt(in.Path, session.Target(in.Target)) },
 	"cancel":            func(c *conn, in inbound) { c.cancelDialog() },
 	"abort":             func(c *conn, in inbound) { c.abortTurn() },
 	"set_whisper_model": func(c *conn, in inbound) { c.doSetWhisperModel(in.WhisperModel) },
 	"restart":           func(c *conn, in inbound) { c.doRestart() },
 	"wake":              func(c *conn, in inbound) { c.startAudio(in.Codec, in.HandsFree, in.Calibrate) },
-	"commit":            func(c *conn, in inbound) { c.commitMessage() },  // silence-timeout commit of the hands-free buffer
-	"discard_draft":     func(c *conn, in inbound) { c.clearBuffer() },    // drop the uncommitted hands-free draft
+	"commit":            func(c *conn, in inbound) { c.commitMessage() }, // silence-timeout commit of the hands-free buffer
+	"discard_draft":     func(c *conn, in inbound) { c.clearBuffer() },   // drop the uncommitted hands-free draft
 	"history":           func(c *conn, in inbound) { c.serveHistory(in.Name, in.Before, in.Limit) },
 	"clear":             func(c *conn, in inbound) { c.doClear() },
 	"compress":          func(c *conn, in inbound) { c.doCompress() },
