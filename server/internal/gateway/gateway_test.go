@@ -411,6 +411,24 @@ func TestSpawnAsksTargetWhenSandboxConfigured(t *testing.T) {
 		t.Errorf("Ensure(%q) dir = %q, want %q", rec.Container, got, rec.Dir)
 	}
 
+	// The sidebar's `discovered` feed must carry target=sandbox for this session so
+	// the app can badge it.
+	send(t, ws, map[string]any{"type": "discover"})
+	disc := readUntil(t, ws, "discovered")
+	sessions, _ := disc["sessions"].([]any)
+	var found map[string]any
+	for _, s := range sessions {
+		if m, _ := s.(map[string]any); m["name"] == name {
+			found = m
+		}
+	}
+	if found == nil {
+		t.Fatalf("session %q missing from discovered feed", name)
+	}
+	if found["target"] != "sandbox" {
+		t.Errorf("discovered target = %v, want sandbox", found["target"])
+	}
+
 	// Deleting the session must destroy its container.
 	send(t, ws, map[string]any{"type": "delete", "name": name})
 	readUntil(t, ws, "session_list")

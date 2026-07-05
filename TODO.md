@@ -32,9 +32,11 @@ Dates are `YYYY-MM-DD`.
       re-run before each turn so a container lost to a restart is recreated.
       Orphaned sandbox containers (session deleted while the server was down) are swept at startup
       by `Driver.ReconcileContainers` (matched by the `spawner-` name prefix).
-      - [ ] Follow-up: surface each session's target in the app sidebar (server carries it; the app
-            doesn't display it yet). Live-verify the sandbox + broker paths on the host (podman
-            image + a real `cmd/broker` run) — unit tests use fakes, not a real runtime.
+      Each session's target rides the `discovered`/`session_list` feed (`target`, sandbox-only) and
+      the app badges sandbox sessions ("📦 sandbox") in the sidebar; APK built, installed on the
+      emulator + Pixel 8a.
+      - [ ] Follow-up: live-verify the sandbox + broker paths on the host (podman image + a real
+            `cmd/broker` run) — unit tests use fakes, not a real runtime.
 
 ### Android
 - (nothing open — hands-free verified; voice rename shipped, see _Done_)

@@ -258,6 +258,7 @@ type discoveredView struct {
 	Active     bool   `json:"active"`      // interactive claude open in tmux at this dir
 	Registered bool   `json:"registered"`  // already in the spawner registry
 	Busy       bool   `json:"busy"`        // a dictation turn is running for this session now
+	Target     string `json:"target,omitempty"` // execution target ("sandbox") when not the default host
 }
 
 func msgDiscovered(items []discoveredView) map[string]any {

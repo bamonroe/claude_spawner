@@ -1209,6 +1209,10 @@ private fun Sidebar(
                             Text(d.name, style = MaterialTheme.typography.titleSmall,
                                 color = if (isAttached) MaterialTheme.colorScheme.primary else Color.Unspecified,
                                 fontWeight = if (isAttached) FontWeight.Bold else null)
+                            if (d.target == "sandbox") Text("📦 sandbox",
+                                Modifier.padding(start = 6.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.tertiary)
                         }
                         Text(d.dir, style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.outline, maxLines = 1, overflow = TextOverflow.Ellipsis)

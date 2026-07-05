@@ -210,14 +210,14 @@ func (c *conn) doDiscover() {
 	seenDir := map[string]bool{}
 	for _, d := range found {
 		seenDir[d.Dir] = true
-		name, registered := sanitizeName(filepath.Base(d.Dir)), false
+		name, registered, target := sanitizeName(filepath.Base(d.Dir)), false, ""
 		if s := byDir[d.Dir]; s != nil {
-			name, registered = s.Name, true
+			name, registered, target = s.Name, true, sandboxTarget(s)
 		}
 		views = append(views, discoveredView{
 			Name: name, Dir: d.Dir, SessionID: d.SessionID,
 			LastActive: d.LastActive, Active: active[d.Dir], Registered: registered,
-			Busy: registered && c.srv.isBusy(name),
+			Busy: registered && c.srv.isBusy(name), Target: target,
 		})
 	}
 	// Include registered sessions that have no transcript yet (just-spawned) so
@@ -227,7 +227,7 @@ func (c *conn) doDiscover() {
 			views = append(views, discoveredView{
 				Name: s.Name, Dir: s.Dir, SessionID: s.SessionID,
 				LastActive: 0, Active: active[s.Dir], Registered: true,
-				Busy: c.srv.isBusy(s.Name),
+				Busy: c.srv.isBusy(s.Name), Target: sandboxTarget(s),
 			})
 		}
 	}
@@ -366,17 +366,22 @@ const commandHelp = "here's what I know: attach to a session, detach, list sessi
 	"kill a session, spawn a session, spawn a new project, read last, clear the context, compress the context, " +
 	"stop the turn, cancel message, and help. say hey buddy, then the command, then your end token."
 
+// sandboxTarget returns the session's target string only when it's a sandbox
+// session (the non-default target the app badges); "" for host sessions.
+func sandboxTarget(s *session.Session) string {
+	if s.Target == session.TargetSandbox {
+		return string(s.Target)
+	}
+	return ""
+}
+
 // sendSessionList pushes the current sessions to the app without speaking (used
 // for the sidebar / silent refreshes).
 func (c *conn) sendSessionList() {
 	sessions := c.srv.store.List()
 	views := make([]sessionView, 0, len(sessions))
 	for _, s := range sessions {
-		v := sessionView{Name: s.Name, Dir: s.Dir}
-		if s.Target == session.TargetSandbox {
-			v.Target = string(s.Target)
-		}
-		views = append(views, v)
+		views = append(views, sessionView{Name: s.Name, Dir: s.Dir, Target: sandboxTarget(s)})
 	}
 	c.send(msgSessionList(views))
 }
