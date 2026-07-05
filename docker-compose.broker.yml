@@ -27,8 +27,11 @@ services:
     ports:
       - "${SPAWNER_HOST_PORT:-8555}:8080"
     volumes:
-      # Host-side broker socket (must match SPAWNER_BROKER_SOCKET on the broker).
-      - ${XDG_RUNTIME_DIR}/spawner-broker.sock:/run/broker.sock
+      # Broker socket DIRECTORY (not the socket file), same path in the container.
+      # Mounting the dir means the socket can appear whenever the broker starts —
+      # so container/broker boot order doesn't matter on reboot. Must match the dir
+      # holding SPAWNER_BROKER_SOCKET on the broker (its default persistent dir).
+      - ${HOME}/.local/share/claude_spawner/broker:${HOME}/.local/share/claude_spawner/broker
       # Spawn roots, SAME path in the container (read-only — the server only
       # browses them; the broker does the writing on the host). EDIT to yours.
       - ${HOME}/git:${HOME}/git:ro
@@ -43,7 +46,7 @@ services:
       # MUST match the broker's SPAWNER_ROOT and the same-path mounts above.
       SPAWNER_ROOT: ${HOME}/git:/data
       SPAWNER_STATE: /state/sessions.json
-      SPAWNER_BROKER_SOCKET: /run/broker.sock
+      SPAWNER_BROKER_SOCKET: ${HOME}/.local/share/claude_spawner/broker/broker.sock
       # Non-empty enables offering "sandbox" in the spawn dialog; the broker holds
       # the real sandbox runtime config. Leave unset for host-only.
       SPAWNER_SANDBOX_IMAGE: ${SPAWNER_SANDBOX_IMAGE:-spawner-sandbox:latest}
