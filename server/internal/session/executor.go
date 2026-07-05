@@ -2,10 +2,15 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"os/exec"
+	"sync"
 	"syscall"
+
+	"github.com/bam/claude_spawner/server/internal/broker"
 )
 
 // Target names where a session's turns run. It is a durable per-session property
@@ -103,6 +108,114 @@ func (s SandboxExecutor) runArgs(dir string, claudeArgs []string) []string {
 	args = append(args, s.RunArgs...)
 	args = append(args, s.Image, bin)
 	return append(args, claudeArgs...)
+}
+
+// BrokerExecutor runs a turn on the host via the host-side broker daemon, for
+// when the server itself is containerized: the server container stays
+// unprivileged and can only ask the broker (running as the ordinary host user) to
+// launch claude in a jailed directory. This is how a "host" session executes
+// without the server holding host root. See internal/broker and
+// docs/architecture.md.
+type BrokerExecutor struct {
+	// Socket is the path to the broker's Unix socket (bind-mounted into the
+	// server container).
+	Socket string
+}
+
+func (b BrokerExecutor) Start(ctx context.Context, dir string, args []string) (Proc, error) {
+	conn, err := net.Dial("unix", b.Socket)
+	if err != nil {
+		return nil, fmt.Errorf("dial broker: %w", err)
+	}
+	hdr, err := json.Marshal(broker.Request{Dir: dir, Args: args})
+	if err != nil {
+		conn.Close()
+		return nil, err
+	}
+	if err := broker.WriteFrame(conn, broker.FrameHeader, hdr); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("broker header: %w", err)
+	}
+	p := &brokerProc{conn: conn}
+	// Closing the socket is how we signal an abort to the broker (it kills the
+	// turn's process group). Watch ctx and close on cancel; stop the watcher when
+	// the turn ends normally so it doesn't leak.
+	watchDone := make(chan struct{})
+	var once sync.Once
+	p.stop = func() { once.Do(func() { close(watchDone) }) }
+	go func() {
+		select {
+		case <-ctx.Done():
+			conn.Close()
+		case <-watchDone:
+		}
+	}()
+	return p, nil
+}
+
+// brokerProc de-frames the broker's reply: FrameStdout payloads are exposed as a
+// plain stdout stream (Stdout returns the proc itself as an io.Reader); the
+// terminal FrameExit ends the stream (EOF) and its status is surfaced by Wait.
+type brokerProc struct {
+	conn net.Conn
+	stop func()
+
+	buf  []byte       // leftover stdout payload from the last frame
+	exit *broker.Exit // set when the exit frame arrives
+	err  error        // terminal transport error
+	done bool
+}
+
+func (p *brokerProc) Stdout() io.Reader { return p }
+
+func (p *brokerProc) Read(dst []byte) (int, error) {
+	for len(p.buf) == 0 {
+		if p.done {
+			if p.err != nil {
+				return 0, p.err
+			}
+			return 0, io.EOF
+		}
+		typ, payload, err := broker.ReadFrame(p.conn)
+		if err != nil {
+			p.done, p.err = true, err
+			return 0, err
+		}
+		switch typ {
+		case broker.FrameStdout:
+			p.buf = payload
+		case broker.FrameExit:
+			var e broker.Exit
+			_ = json.Unmarshal(payload, &e)
+			p.exit, p.done = &e, true
+			return 0, io.EOF
+		default:
+			p.done = true
+			p.err = fmt.Errorf("broker: unexpected frame %q", typ)
+			return 0, p.err
+		}
+	}
+	n := copy(dst, p.buf)
+	p.buf = p.buf[n:]
+	return n, nil
+}
+
+func (p *brokerProc) Wait() error {
+	if p.stop != nil {
+		p.stop()
+	}
+	p.conn.Close()
+	switch {
+	case p.exit == nil && p.err != nil:
+		return fmt.Errorf("broker transport: %w", p.err)
+	case p.exit == nil:
+		return fmt.Errorf("broker: stream ended without an exit status")
+	case p.exit.Err != "":
+		return fmt.Errorf("broker: %s", p.exit.Err)
+	case p.exit.Code != 0:
+		return fmt.Errorf("status %d", p.exit.Code)
+	}
+	return nil
 }
 
 // startProc launches name+args as a local child process in its own process group

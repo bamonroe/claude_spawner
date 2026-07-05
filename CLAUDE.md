@@ -122,6 +122,10 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
   CLI — rootless so no host root), `SPAWNER_SANDBOX_CLAUDE_BIN` (`claude`; the binary inside the
   image), `SPAWNER_SANDBOX_MOUNTS` (comma-separated extra `-v` specs, e.g. sharing `$HOME/.claude`),
   `SPAWNER_SANDBOX_RUN_ARGS` (space-separated extra `run` flags, e.g. `--userns=keep-id`).
+- Host broker (for a containerized server): `SPAWNER_BROKER_SOCKET` — Unix socket of the host-side
+  `cmd/broker` daemon. When set, the server runs `host`-target turns through the broker (staying
+  unprivileged) instead of forking `claude` itself. The broker binary reads this same var (the path
+  to **listen** on) plus `SPAWNER_ROOT` (its jail) and `SPAWNER_CLAUDE_BIN`. Empty = fork directly.
 
 ## Token discipline — keep the context small
 

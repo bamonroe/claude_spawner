@@ -70,6 +70,11 @@ type Config struct {
 	// SandboxRunArgs are extra container `run` flags for sandbox sessions,
 	// space-separated (e.g. "--userns=keep-id --network=none").
 	SandboxRunArgs []string
+	// BrokerSocket, when set, is the Unix socket of a host-side broker daemon. The
+	// server then runs "host"-target turns through the broker instead of forking
+	// claude itself — the arrangement that lets a containerized, unprivileged
+	// server run turns on the host. Empty = fork claude directly (native install).
+	BrokerSocket string
 }
 
 // Load reads configuration from the environment and validates it.
@@ -93,6 +98,7 @@ func Load() (*Config, error) {
 		SandboxClaudeBin: env("SPAWNER_SANDBOX_CLAUDE_BIN", "claude"),
 		SandboxMounts:    splitList(os.Getenv("SPAWNER_SANDBOX_MOUNTS"), ","),
 		SandboxRunArgs:   strings.Fields(os.Getenv("SPAWNER_SANDBOX_RUN_ARGS")),
+		BrokerSocket:     os.Getenv("SPAWNER_BROKER_SOCKET"),
 	}
 	if c.AuthToken == "" {
 		return nil, fmt.Errorf("SPAWNER_TOKEN is required (refusing to run without auth)")
@@ -105,7 +111,20 @@ func Load() (*Config, error) {
 		}
 		c.WhisperFastMaxSeconds = f
 	}
-	for _, r := range strings.Split(os.Getenv("SPAWNER_ROOT"), ":") {
+	roots, err := ParseRoots(os.Getenv("SPAWNER_ROOT"))
+	if err != nil {
+		return nil, err
+	}
+	c.SpawnRoots = roots
+	return c, nil
+}
+
+// ParseRoots parses a SPAWNER_ROOT value (":"-separated, like PATH) into absolute
+// directories, skipping empties. Exported so the standalone broker can build the
+// same spawn jail without loading the full server config (it has no auth token).
+func ParseRoots(s string) ([]string, error) {
+	var roots []string
+	for _, r := range strings.Split(s, ":") {
 		r = strings.TrimSpace(r)
 		if r == "" {
 			continue
@@ -114,9 +133,9 @@ func Load() (*Config, error) {
 		if err != nil {
 			return nil, fmt.Errorf("SPAWNER_ROOT %q: %w", r, err)
 		}
-		c.SpawnRoots = append(c.SpawnRoots, abs)
+		roots = append(roots, abs)
 	}
-	return c, nil
+	return roots, nil
 }
 
 // ValidateSpawnDir checks that `dir` lives under one of the configured roots.

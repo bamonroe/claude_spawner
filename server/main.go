@@ -41,7 +41,14 @@ func main() {
 		log.Fatalf("session store: %v", err)
 	}
 	driver := session.NewDriver()
-	driver.HostBin(cfg.ClaudeBin)
+	if cfg.BrokerSocket != "" {
+		// Containerized server: run "host"-target turns through the host-side broker
+		// (this process stays unprivileged) instead of forking claude locally.
+		driver.Execs[session.TargetHost] = session.BrokerExecutor{Socket: cfg.BrokerSocket}
+		log.Printf("host target via broker socket %s", cfg.BrokerSocket)
+	} else {
+		driver.HostBin(cfg.ClaudeBin)
+	}
 	if cfg.SandboxImage != "" {
 		driver.Execs[session.TargetSandbox] = session.SandboxExecutor{
 			Runtime: cfg.SandboxRuntime,
