@@ -274,42 +274,51 @@ func (c *conn) doAdopt(sessionID, dir string) {
 }
 
 // doDeleteDiscovered PERMANENTLY deletes a discovered session's Claude
-// transcript from disk (and its registry record, if any). Refuses if the
-// session is live in a terminal — deleting its transcript out from under a
+// transcript from disk and EVERY registry record for its directory. The sidebar
+// is keyed by directory (one row per dir), so a delete clears the whole
+// directory — including shadowed same-dir duplicate records that never show in
+// the list, so none survives as a ghost that still owns a name. Refuses while
+// the directory is live in a terminal — deleting a transcript out from under a
 // running claude would corrupt it. Refreshes the discover + session lists.
 func (c *conn) doDeleteDiscovered(sessionID string) {
 	if sessionID == "" {
 		c.fail("bad_delete", "need session_id")
 		return
 	}
+	// Resolve the directory from the on-disk transcript, or — for a just-spawned
+	// session that never took a turn — from its registry record.
 	path := session.TranscriptPathByID(sessionID)
-	if path == "" {
-		// No transcript on disk yet (e.g. a just-spawned session that never
-		// took a turn). There's nothing to delete from disk, but we still drop
-		// its registry record so the delete actually removes the session.
-		if s := c.srv.store.GetBySessionID(sessionID); s != nil {
-			if c.attached != nil && c.attached.Name == s.Name {
-				c.doDetach()
-			}
-			_ = c.srv.store.Delete(s.Name)
-			c.srv.dropJob(s.Name)
-			c.sendSessionList()
-			c.doDiscover()
+	var dir string
+	if path != "" {
+		dir = session.TranscriptCwd(path)
+	} else if s := c.srv.store.GetBySessionID(sessionID); s != nil {
+		dir = s.Dir
+	}
+	if dir == "" {
+		c.fail("not_found", "no transcript or record for that session")
+		return
+	}
+	if path != "" {
+		// There's a transcript to remove, so guard against corrupting a live one.
+		if c.srv.tmuxMgr.ClaudeDirs(c.ctx)[dir] {
+			c.fail("session_active", "that session is live in a terminal — close it there first")
 			return
 		}
-		c.fail("not_found", "no transcript for that session")
-		return
+		if _, err := session.DeleteSessionsForDir(sessionID, dir); err != nil {
+			c.fail("internal", err.Error())
+			return
+		}
 	}
-	dir := session.TranscriptCwd(path)
-	if c.srv.tmuxMgr.ClaudeDirs(c.ctx)[dir] {
-		c.fail("session_active", "that session is live in a terminal — close it there first")
-		return
-	}
-	if _, err := session.DeleteSessionsForDir(sessionID, dir); err != nil {
-		c.fail("internal", err.Error())
-		return
-	}
-	// Drop any registry records for this directory too (detach if attached).
+	c.deleteRecordsForDir(dir)
+	c.sendSessionList()
+	c.doDiscover() // refreshed list (the whole directory is gone now)
+}
+
+// deleteRecordsForDir drops every registry record pointing at dir (detaching
+// first if we're attached to one) and its job. This is what keeps a delete from
+// stranding a shadowed same-dir duplicate as a ghost — the collision detector
+// (uniqueName / rename) still sees a record the sidebar never shows.
+func (c *conn) deleteRecordsForDir(dir string) {
 	for _, s := range c.srv.store.List() {
 		if s.Dir == dir {
 			if c.attached != nil && c.attached.Name == s.Name {
@@ -319,8 +328,6 @@ func (c *conn) doDeleteDiscovered(sessionID string) {
 			c.srv.dropJob(s.Name)
 		}
 	}
-	c.sendSessionList()
-	c.doDiscover() // refreshed list (the whole directory is gone now)
 }
 
 // serveHistory returns a page of a session's past conversation, read from

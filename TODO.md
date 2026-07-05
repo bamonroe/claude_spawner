@@ -31,6 +31,14 @@ Dates are `YYYY-MM-DD`.
 
 ## Done
 
+- [x] 2026-07-05 — **Delete clears every same-dir record; no more ghost sessions.** The sidebar
+      collapses same-directory sessions to one row, so a second registry record for a dir (born when
+      `uniqueName` appends `-2`) was invisible but still owned a name — blocking a rename onto it.
+      `doDeleteDiscovered`'s no-transcript branch only dropped the single record matched by
+      session_id, stranding same-dir siblings as ghosts. Refactored to resolve the directory (from
+      transcript or record) and delete **every** registry record for it via new `deleteRecordsForDir`
+      helper. `TestDeleteDiscoveredClearsSameDirGhosts`. Cleared two live ghosts (`claude_spawner`,
+      `claude_home-2`) via a `delete`-by-name to the running server (no restart).
 - [x] 2026-07-05 — **Sidebar rename now updates the attached-session title bar.** Renaming the
       attached session (sidebar `rename_discovered` or the `rename` voice command) refreshed the
       drawer list but left the title bar on the old name — the title reads `attachedName`, set only

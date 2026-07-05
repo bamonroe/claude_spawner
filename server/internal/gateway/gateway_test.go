@@ -491,6 +491,40 @@ func TestDeleteSession(t *testing.T) {
 	}
 }
 
+// TestDeleteDiscoveredClearsSameDirGhosts verifies a delete removes EVERY
+// registry record for the session's directory, not just the one matched by
+// session_id. A shadowed same-dir duplicate (the sidebar collapses same-dir
+// rows to one) must not survive as a ghost — it would still own a name and
+// block renaming another session onto it.
+func TestDeleteDiscoveredClearsSameDirGhosts(t *testing.T) {
+	ts, _, gw := newTestServerGW(t, nil)
+	dir := t.TempDir()
+	// Two records for the SAME dir, neither with a transcript on disk (just
+	// spawned) — this exercises the no-transcript delete branch.
+	if err := gw.store.Put(&session.Session{Name: "proj", Dir: dir, SessionID: "id-live"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := gw.store.Put(&session.Session{Name: "proj-2", Dir: dir, SessionID: "id-ghost"}); err != nil {
+		t.Fatal(err)
+	}
+	ws := dial(t, ts)
+	send(t, ws, map[string]any{"type": "hello", "token": "secret"})
+	readUntil(t, ws, "hello_ok")
+
+	// Delete via one session_id; BOTH same-dir records must be gone.
+	send(t, ws, map[string]any{"type": "delete_discovered", "session_id": "id-live"})
+	m := readUntil(t, ws, "session_list")
+	sl, _ := m["sessions"].([]any)
+	for _, s := range sl {
+		if n := s.(map[string]any)["name"]; n == "proj" || n == "proj-2" {
+			t.Fatalf("same-dir record survived delete: %v", m["sessions"])
+		}
+	}
+	if gw.store.Get("proj-2") != nil {
+		t.Fatal("ghost record proj-2 still in store after delete")
+	}
+}
+
 func TestReconnectResumesDialog(t *testing.T) {
 	ts, root := newTestServer(t, nil)
 	if err := os.MkdirAll(filepath.Join(root, "myproj"), 0o755); err != nil {
