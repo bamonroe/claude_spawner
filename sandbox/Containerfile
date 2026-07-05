@@ -1,0 +1,23 @@
+# Arch Linux sandbox image for claude_spawner "sandbox"-target sessions.
+#
+# It matches the Arch host so the in-sandbox toolchain behaves like the host's.
+# Claude itself and its auth are NOT baked in — they're bind-mounted at run time
+# (see SPAWNER_SANDBOX_MOUNTS in ../README.md), so the sandbox always runs the
+# same claude version as the host and picks up your credentials without copying
+# them into the image. The image carries only the base dev toolchain; add more
+# with your own layer FROM this one.
+FROM docker.io/library/archlinux:latest
+
+# A general dev toolchain (base-devel pulls in coreutils → `sleep`, which the
+# session container idles on). Clean the package cache to keep the image lean.
+RUN pacman -Syu --noconfirm \
+        base-devel git nodejs npm python python-pip go rust ripgrep fd less which openssh \
+    && pacman -Scc --noconfirm
+
+# The host wrapper exports these; set them here too so a bind-mounted claude
+# binary skips its self-update/install checks inside the sandbox.
+ENV DISABLE_UPDATES=1 DISABLE_INSTALLATION_CHECKS=1
+
+# The spawner launches the container with `sleep infinity` and execs turns into
+# it; this CMD is only a sensible default if run by hand.
+CMD ["sleep", "infinity"]

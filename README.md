@@ -209,7 +209,10 @@ Each session picks an **execution target** at spawn time — a durable per-sessi
   directory is bind-mounted at the same path so file edits land there and the on-disk transcript
   stays discoverable (share `$HOME/.claude` via `SPAWNER_SANDBOX_MOUNTS` to keep history working).
   Tune it with `SPAWNER_SANDBOX_RUNTIME`, `SPAWNER_SANDBOX_CLAUDE_BIN`, `SPAWNER_SANDBOX_MOUNTS`,
-  and `SPAWNER_SANDBOX_RUN_ARGS` (see `CLAUDE.md`).
+  and `SPAWNER_SANDBOX_RUN_ARGS`. A ready-to-build **Arch Linux** image (matching the host) and the
+  exact rootless-Podman config — mounting the host claude + auth, `--userns=keep-id` so the turn
+  runs non-root — live in [`sandbox/`](./sandbox/README.md), verified by the `internal/session`
+  live tests.
 
 ### Containerizing the server (host execution without host root)
 
