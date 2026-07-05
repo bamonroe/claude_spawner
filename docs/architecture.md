@@ -218,7 +218,10 @@ uppercase letters by voice. Acceptable; documented in `docs/commands.md`.
     messages.go                 wire message constructors
     *_test.go                   httptest+ws integration (auth, spawn, dictation, ask, stream)
   internal/session/session.go   headless claude driver: Driver.Turn (stream-json), NewSessionID
-  internal/session/store.go     durable session registry (file-backed, atomic writes)
+  internal/session/executor.go  pluggable Executor: HostExecutor (direct exec) + SandboxExecutor (runtime)
+  internal/session/broker_proto.go  broker RPC wire protocol (turn/ensure/remove/list ops)
+  internal/session/broker_server.go BrokerServer (host daemon) + BrokerExecutor client
+  internal/session/store.go     durable session registry (file-backed, atomic writes); Session.Target/Container
   internal/session/discover.go  scan ~/.claude/projects for all Claude sessions (adopt/discover)
   internal/session/transcript.go read/stitch on-disk transcripts for `history` (spans clears)
   internal/command/command.go   utterance -> intent parser + StripWake
@@ -226,13 +229,19 @@ uppercase letters by voice. Acceptable; documented in `docs/commands.md`.
   internal/transcribe/          Transcriber interface: WhisperCPP (CLI) + RemoteWhisper (HTTP)
   internal/projects/projects.go spoken-path fuzzy matching against the spawn roots
   internal/tmux/tmux.go         detect a live interactive `claude` in a pane (ClaudeDirs)
+  internal/usage/               per-turn token cost tracking + Estimator (server-global usage %)
   internal/config/config.go     env config + spawn-path validation
+  internal/docsync/             drift tests: env vars/wire messages/error codes ↔ docs + CLAUDE.md
   cmd/wsclient/main.go          text client for manual testing; -audio streams a WAV
   cmd/gencommands/main.go       regenerate docs/commands.json from the command registry
+  cmd/broker/main.go            host-side execution broker: thin main around session.BrokerServer
   Dockerfile / .dockerignore    dev image: Go + claude CLI + whisper.cpp CLI + model (+ tmux for conflict detection)
+  Dockerfile.broker / .broker.dockerignore  lean containerized-server image (broker mode; no host root)
 docker-compose.yml              dev orchestration: spawner + resident whisper/whisper-fast servers
+docker-compose.broker.yml       containerized server (Docker) + host-side broker (podman) deployment
+/sandbox                        Arch-based sandbox image (Containerfile) for `target: sandbox` sessions (see sandbox/README.md)
 /whisper                        Vulkan/CPU Dockerfiles for the resident whisper.cpp server (see whisper/README.md)
-/deploy                         host systemd unit + env example + claude-log helper (see deploy/README.md)
+/deploy                         host systemd units + env examples (spawner + spawner-broker) + claude-log helper (see deploy/README.md)
 /android                        Android app (Kotlin/Compose) — see android/README.md
 /docs
   protocol.md                   WebSocket message schema (single source of truth)
