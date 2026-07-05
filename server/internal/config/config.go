@@ -53,6 +53,23 @@ type Config struct {
 	WhisperLang string
 	// FfmpegBin decodes compressed audio (Ogg/Opus) to WAV for whisper.
 	FfmpegBin string
+	// SandboxImage is the container image used for sessions whose target is
+	// "sandbox". Empty disables the sandbox target (spawns can then only run on the
+	// host). See the containerized-server design in docs/architecture.md.
+	SandboxImage string
+	// SandboxRuntime is the container CLI for sandbox sessions (default "podman"
+	// for rootless — launching a sandbox then needs no host root).
+	SandboxRuntime string
+	// SandboxClaudeBin is the claude binary inside the sandbox image (default
+	// "claude").
+	SandboxClaudeBin string
+	// SandboxMounts are extra `-v` volume specs ("host:container[:opts]") for
+	// sandbox sessions, comma-separated. Typically shares "$HOME/.claude" so
+	// in-sandbox transcripts stay discoverable by the host.
+	SandboxMounts []string
+	// SandboxRunArgs are extra container `run` flags for sandbox sessions,
+	// space-separated (e.g. "--userns=keep-id --network=none").
+	SandboxRunArgs []string
 }
 
 // Load reads configuration from the environment and validates it.
@@ -71,6 +88,11 @@ func Load() (*Config, error) {
 		WhisperModelBase: os.Getenv("SPAWNER_WHISPER_MODEL_BASE"),
 		WhisperLang:      env("SPAWNER_WHISPER_LANG", "en"),
 		FfmpegBin:        env("SPAWNER_FFMPEG_BIN", "ffmpeg"),
+		SandboxImage:     os.Getenv("SPAWNER_SANDBOX_IMAGE"),
+		SandboxRuntime:   env("SPAWNER_SANDBOX_RUNTIME", "podman"),
+		SandboxClaudeBin: env("SPAWNER_SANDBOX_CLAUDE_BIN", "claude"),
+		SandboxMounts:    splitList(os.Getenv("SPAWNER_SANDBOX_MOUNTS"), ","),
+		SandboxRunArgs:   strings.Fields(os.Getenv("SPAWNER_SANDBOX_RUN_ARGS")),
 	}
 	if c.AuthToken == "" {
 		return nil, fmt.Errorf("SPAWNER_TOKEN is required (refusing to run without auth)")
@@ -121,6 +143,7 @@ func (c *Config) ValidateSpawnDir(dir string) (string, error) {
 //   - rel == ".." or "../…"          → abs escapes upward out of root (rejected)
 //   - filepath.IsAbs(rel)            → different volume/root entirely (rejected;
 //     Rel returns an absolute path when the two share no common base)
+//
 // Everything else is a genuine descendant of root.
 func under(root, abs string) bool {
 	rel, err := filepath.Rel(root, abs)
@@ -135,4 +158,15 @@ func env(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// splitList splits s on sep, trimming whitespace and dropping empty fields.
+func splitList(s, sep string) []string {
+	var out []string
+	for _, p := range strings.Split(s, sep) {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

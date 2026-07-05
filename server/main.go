@@ -42,6 +42,16 @@ func main() {
 	}
 	driver := session.NewDriver()
 	driver.HostBin(cfg.ClaudeBin)
+	if cfg.SandboxImage != "" {
+		driver.Execs[session.TargetSandbox] = session.SandboxExecutor{
+			Runtime: cfg.SandboxRuntime,
+			Image:   cfg.SandboxImage,
+			Bin:     cfg.SandboxClaudeBin,
+			Mounts:  cfg.SandboxMounts,
+			RunArgs: cfg.SandboxRunArgs,
+		}
+		log.Printf("sandbox target enabled: %s image %q", cfg.SandboxRuntime, cfg.SandboxImage)
+	}
 
 	tmuxMgr := tmux.NewManager()
 

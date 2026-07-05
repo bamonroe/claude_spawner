@@ -26,6 +26,34 @@ type fakeProc struct{ r io.Reader }
 func (p *fakeProc) Stdout() io.Reader { return p.r }
 func (p *fakeProc) Wait() error       { return nil }
 
+func TestSandboxRunArgs(t *testing.T) {
+	s := SandboxExecutor{
+		Runtime: "podman",
+		Image:   "spawner-sandbox:latest",
+		Mounts:  []string{"/home/bam/.claude:/root/.claude"},
+		RunArgs: []string{"--userns=keep-id", "--network=none"},
+	}
+	got := strings.Join(s.runArgs("/work/proj", []string{"-p", "hi", "--session-id", "sid"}), " ")
+
+	for _, want := range []string{
+		"run --rm -i",                         // disposable, stdin open
+		"-w /work/proj",                       // container workdir = session dir
+		"-v /work/proj:/work/proj",            // same-path mount (transcript encoding)
+		"-v /home/bam/.claude:/root/.claude",  // shared claude state
+		"--userns=keep-id --network=none",     // extra run flags
+		"spawner-sandbox:latest claude -p hi", // image, default bin, then claude args
+		"--session-id sid",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("runArgs missing %q\n got: %s", want, got)
+		}
+	}
+	// The image must precede the claude command, and run-flags must precede the image.
+	if strings.Index(got, "--network=none") > strings.Index(got, "spawner-sandbox") {
+		t.Errorf("run flags must come before the image: %s", got)
+	}
+}
+
 func TestExecutorSelectByTarget(t *testing.T) {
 	host := &fakeExecutor{id: "host"}
 	sandbox := &fakeExecutor{id: "sandbox"}

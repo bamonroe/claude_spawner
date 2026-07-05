@@ -117,6 +117,11 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
 - Resident-server STT: `SPAWNER_WHISPER_URL` (accurate server), `SPAWNER_WHISPER_FAST_URL` (fast
   draft/detection server), `SPAWNER_WHISPER_MODEL_NAME` (`medium.en`; reported to clients),
   `SPAWNER_WHISPER_FAST_MAX_SEC` (`2.5`; clips shorter than this use the fast server).
+- Sandbox sessions (per-session `target: sandbox` execution): `SPAWNER_SANDBOX_IMAGE` (container
+  image; **empty disables** the sandbox target), `SPAWNER_SANDBOX_RUNTIME` (`podman`; the container
+  CLI — rootless so no host root), `SPAWNER_SANDBOX_CLAUDE_BIN` (`claude`; the binary inside the
+  image), `SPAWNER_SANDBOX_MOUNTS` (comma-separated extra `-v` specs, e.g. sharing `$HOME/.claude`),
+  `SPAWNER_SANDBOX_RUN_ARGS` (space-separated extra `run` flags, e.g. `--userns=keep-id`).
 
 ## Token discipline — keep the context small
 

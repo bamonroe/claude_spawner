@@ -55,8 +55,66 @@ type HostExecutor struct {
 }
 
 func (h HostExecutor) Start(ctx context.Context, dir string, args []string) (Proc, error) {
-	cmd := exec.CommandContext(ctx, h.Bin, args...)
-	cmd.Dir = dir
+	return startProc(ctx, h.Bin, args, dir, "start claude")
+}
+
+// SandboxExecutor runs a turn inside an isolated container via a rootless
+// container runtime (Podman rootless, or rootless Docker) — so the sandbox gets
+// root INSIDE itself and a disposable filesystem, without launching it requiring
+// host root. The session's Dir is bind-mounted at the same path and used as the
+// container workdir, so file edits land there AND claude's on-disk transcript is
+// keyed by the same absolute path the host uses (keeping history/discovery
+// working when the host ~/.claude state is shared via Mounts).
+type SandboxExecutor struct {
+	// Runtime is the container CLI (e.g. "podman" for rootless, or "docker").
+	Runtime string
+	// Image is the container image carrying claude + the project toolchain.
+	Image string
+	// Bin is the claude binary inside the image (default "claude").
+	Bin string
+	// Mounts are extra volume specs ("host:container[:opts]") passed as -v, e.g.
+	// sharing "$HOME/.claude" so in-sandbox transcripts stay discoverable by the
+	// host, or mounting auth read-only.
+	Mounts []string
+	// RunArgs are extra `run` flags inserted before the image, e.g.
+	// "--userns=keep-id" (rootless uid mapping) or "--network=none" (offline).
+	RunArgs []string
+}
+
+func (s SandboxExecutor) Start(ctx context.Context, dir string, claudeArgs []string) (Proc, error) {
+	// The runtime CLI is itself a local child process; killing its group on abort
+	// stops the client (the container is reaped by --rm on exit).
+	return startProc(ctx, s.Runtime, s.runArgs(dir, claudeArgs), "", "start sandbox")
+}
+
+// runArgs builds the container runtime's argv: run --rm -i in the session dir
+// (mounted same-path so the transcript's project encoding matches the host), then
+// extra mounts and run-flags, the image, and finally the claude command. Split
+// out from Start so it's unit-testable without launching a container.
+func (s SandboxExecutor) runArgs(dir string, claudeArgs []string) []string {
+	bin := s.Bin
+	if bin == "" {
+		bin = "claude"
+	}
+	args := []string{"run", "--rm", "-i", "-w", dir, "-v", dir + ":" + dir}
+	for _, m := range s.Mounts {
+		args = append(args, "-v", m)
+	}
+	args = append(args, s.RunArgs...)
+	args = append(args, s.Image, bin)
+	return append(args, claudeArgs...)
+}
+
+// startProc launches name+args as a local child process in its own process group
+// and returns a Proc over its stdout. On ctx cancel the whole group is SIGKILLed
+// so a turn's tool children (a build, a sleep, or a container client) die with it,
+// not just the top-level process. dir sets the working directory when non-empty.
+// startErrPrefix labels a launch failure.
+func startProc(ctx context.Context, name string, args []string, dir, startErrPrefix string) (Proc, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {
 		if cmd.Process != nil {
@@ -69,7 +127,7 @@ func (h HostExecutor) Start(ctx context.Context, dir string, args []string) (Pro
 		return nil, err
 	}
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("start claude: %w", err)
+		return nil, fmt.Errorf("%s: %w", startErrPrefix, err)
 	}
 	return &cmdProc{cmd: cmd, stdout: stdout}, nil
 }
