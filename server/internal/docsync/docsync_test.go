@@ -139,22 +139,31 @@ func TestInboundMessagesDocumented(t *testing.T) {
 	_, f := parseGo(t, filepath.Join(root, "server", "internal", "gateway", "gateway.go"))
 	var types []string
 	ast.Inspect(f, func(n ast.Node) bool {
-		sw, ok := n.(*ast.SwitchStmt)
+		// The dispatch table: `var wireHandlers = map[string]...{ "type": ... }`.
+		vs, ok := n.(*ast.ValueSpec)
 		if !ok {
 			return true
 		}
-		// Only the message dispatch: `switch in.Type { ... }`.
-		sel, ok := sw.Tag.(*ast.SelectorExpr)
-		if !ok || sel.Sel.Name != "Type" {
+		isTable := false
+		for _, name := range vs.Names {
+			if name.Name == "wireHandlers" {
+				isTable = true
+			}
+		}
+		if !isTable {
 			return true
 		}
-		for _, stmt := range sw.Body.List {
-			cc, ok := stmt.(*ast.CaseClause)
+		for _, v := range vs.Values {
+			cl, ok := v.(*ast.CompositeLit)
 			if !ok {
 				continue
 			}
-			for _, e := range cc.List {
-				if s := strLit(e); s != "" {
+			for _, elt := range cl.Elts {
+				kv, ok := elt.(*ast.KeyValueExpr)
+				if !ok {
+					continue
+				}
+				if s := strLit(kv.Key); s != "" {
 					types = append(types, s)
 				}
 			}
@@ -162,7 +171,7 @@ func TestInboundMessagesDocumented(t *testing.T) {
 		return true
 	})
 	if len(types) == 0 {
-		t.Fatal("found no inbound message types in gateway.go dispatch — parser broken?")
+		t.Fatal("found no inbound message types in gateway.go wireHandlers — parser broken?")
 	}
 	doc := readDoc(t, root, filepath.Join("docs", "protocol.md"))
 	reportMissing(t, doc, "docs/protocol.md", types,

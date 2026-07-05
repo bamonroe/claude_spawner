@@ -83,6 +83,18 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     private val loadingOlder = mutableSetOf<String>()      // a page request is in flight, per session
     private var currentKey = ""
 
+    // migrateSessionKey re-keys every session-name-keyed piece of client state from
+    // old to new when a session is renamed, so nothing orphans under the stale name
+    // (an orphaned log empties the chat; an orphaned cursor breaks paging). This is
+    // the single site that must know the full set of name-keyed maps — a new one
+    // added above must be migrated here too.
+    private fun migrateSessionKey(old: String, new: String) {
+        logs.remove(old)?.let { logs[new] = it }
+        oldestIndex.remove(old)?.let { oldestIndex[new] = it }
+        hasMore.remove(old)?.let { hasMore[new] = it }
+        if (loadingOlder.remove(old)) loadingOlder.add(new)
+    }
+
     private val _chat = MutableStateFlow<List<ChatMessage>>(emptyList())
     val chat: StateFlow<List<ChatMessage>> = _chat.asStateFlow()
 
@@ -618,6 +630,10 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     }
 
     private fun onMessage(msg: ServerMsg) {
+        // Exhaustive over the ServerMsg sealed interface — deliberately NO `else`
+        // branch, so adding a new server message fails to compile until it's handled
+        // here. Unknown (an unrecognized wire type) is its own explicit no-op case;
+        // don't collapse it into an `else` or that compile-time guard is lost.
         when (msg) {
             is ServerMsg.HelloOk -> {
                 _status.value = "connected"
@@ -746,11 +762,10 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
             is ServerMsg.Renamed -> {
                 // Follow a rename of the session we're attached to so the title bar
                 // tracks the sidebar. In-place update only — no history refetch or
-                // meter reseed (unlike a full re-attach). The log buffer is keyed by
-                // session name, so migrate it to the new key or the chat view empties.
+                // meter reseed (unlike a full re-attach). All client state is keyed by
+                // session name, so migrate every keyed map or the chat/paging orphans.
                 if (_attachedName.value == msg.old) {
-                    logs.remove(msg.old)?.let { logs[msg.name] = it }
-                    hasMore.remove(msg.old)?.let { hasMore[msg.name] = it }
+                    migrateSessionKey(msg.old, msg.name)
                     if (currentKey == msg.old) currentKey = msg.name
                     _attachedName.value = msg.name
                     settings.lastSession = msg.name

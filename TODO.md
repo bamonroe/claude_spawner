@@ -44,18 +44,25 @@ _Done in this pass:_
 - [x] 2026-07-05 — Log (instead of swallow) corrupt-state reads and persist failures in the
       usage estimator (`usage.go`).
 
-_Extensibility (the "easier to extend, not delicate" asks) — bigger, want a green light:_
-- [ ] Server wire dispatch (`gateway.go` type switch) and voice-command dispatch (`ops.go` +
-      the hands-free commit path in `stream.go`) are hand-maintained parallel switches — adding a
-      message/command means editing 3 places with no compile-time guard. Consider a handler
-      registry (`map[string]handler`) and a single shared command-dispatch func.
-- [ ] Android: the `ServerMsg` sealed interface ↔ `Protocol.parse` ↔ VoiceController dispatch are
-      three hand-kept-in-sync switches. Make the dispatch `when` exhaustive (expression form) so a
-      new message type is a compile error, not a silent no-op.
-- [ ] Centralize turn-completion on the client: `_lastTurnUsage`/`_attachedName` are set/reset in
-      4+ scattered spots; route them through one `completeTurn()` / attach helper.
-- [ ] Migrate ALL name-keyed maps together on rename (client already does logs/hasMore; also
-      `oldestIndex`/`loadingOlder`) so a rename mid-page-load can't strand a `loadingOlder` flag.
+_Extensibility (the "easier to extend, not delicate" asks):_
+- [x] 2026-07-05 — Server wire dispatch is now a single registration table (`wireHandlers`
+      `map[string]func(*conn, inbound)` in `gateway.go`); `loop()` just looks up + calls. Adding a
+      message means one map entry (+ a docs/protocol.md line — `docsync` now parses the map keys and
+      still fails the build on an undocumented type). The voice-command path was already single-
+      sourced through `runCommand` (shared by `dispatch` and the hands-free commit in `stream.go`).
+- [x] 2026-07-05 — Android dispatch `when` confirmed compile-time exhaustive: on Kotlin 2.0 a
+      statement `when` over the `ServerMsg` sealed interface with no `else` errors if a variant is
+      unhandled, so a new server message can't be a silent no-op. Documented the intent (and the
+      "don't add an `else`" rule) at the `when` so the guard isn't accidentally removed.
+- [x] 2026-07-05 — Rename now migrates ALL name-keyed client state via one `migrateSessionKey(old,
+      new)` helper (`logs`, `oldestIndex`, `hasMore`, `loadingOlder`) — previously only logs/hasMore,
+      so a rename mid-page-load stranded the `oldestIndex` cursor / `loadingOlder` flag. The helper
+      is the single site that knows the full set, so a future keyed map gets migrated in one place.
+- [~] Centralize turn-completion on the client — SKIPPED. `_lastTurnUsage`/`_attachedName` are
+      written at genuinely distinct transitions (attach/detach/rename/output-done/context-reset)
+      with per-site variations, not repeated duplication; a flag-taking `completeTurn()` helper would
+      reduce clarity, not fragility. The bug this targeted (rename orphaning) is now solved
+      structurally by `migrateSessionKey`. Revisit only if a concrete drift bug reappears.
 
 _Robustness / ops (smaller, safe when we get to them):_
 - [ ] `parseStream` counts malformed lines and reports "stream corrupted (N lines)" instead of a

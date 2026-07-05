@@ -521,9 +521,48 @@ func (c *conn) keepAlive(stop <-chan struct{}) {
 	}
 }
 
+// wireHandlers is the single registration table for the app→server control
+// protocol: each inbound message `type` maps to the handler that services it.
+// Adding a message means adding one entry here (and documenting it in
+// docs/protocol.md — the internal/docsync drift test parses these keys and fails
+// the build if any is undocumented). The hello handshake (authenticate) and
+// binary audio frames (handleAudioFrame) are handled outside this table, before
+// a frame ever reaches dispatch.
+var wireHandlers = map[string]func(c *conn, in inbound){
+	"ping":              func(c *conn, in inbound) { c.send(msgPong()) },
+	"utterance":         func(c *conn, in inbound) { c.gated = false; c.handleUtterance(in.Text) }, // typed/explicit text is never background-gated
+	"reply":             func(c *conn, in inbound) { c.gated = false; c.handleUtterance(in.Text) },
+	"attach":            func(c *conn, in inbound) { c.doAttach(in.Name, in.Silent) },
+	"detach":            func(c *conn, in inbound) { c.doDetach() },
+	"list_sessions":     func(c *conn, in inbound) { c.sendSessionList() },
+	"discover":          func(c *conn, in inbound) { c.doDiscover() },
+	"adopt":             func(c *conn, in inbound) { c.doAdopt(in.SessionID, in.Path) },
+	"delete_discovered": func(c *conn, in inbound) { c.doDeleteDiscovered(in.SessionID) },
+	"rename_discovered": func(c *conn, in inbound) { c.doRenameDiscovered(in.SessionID, in.Path, in.NewName) },
+	"rename":            func(c *conn, in inbound) { c.doRename(in.Name, in.NewName) },
+	"delete":            func(c *conn, in inbound) { c.doDelete(in.Name) },
+	"browse":            func(c *conn, in inbound) { c.doBrowse(in.Path) },
+	"spawn_at":          func(c *conn, in inbound) { c.doSpawnAt(in.Path) },
+	"cancel":            func(c *conn, in inbound) { c.cancelDialog() },
+	"abort":             func(c *conn, in inbound) { c.abortTurn() },
+	"set_whisper_model": func(c *conn, in inbound) { c.doSetWhisperModel(in.WhisperModel) },
+	"restart":           func(c *conn, in inbound) { c.doRestart() },
+	"wake":              func(c *conn, in inbound) { c.startAudio(in.Codec, in.HandsFree, in.Calibrate) },
+	"commit":            func(c *conn, in inbound) { c.commitMessage() },  // silence-timeout commit of the hands-free buffer
+	"discard_draft":     func(c *conn, in inbound) { c.clearBuffer() },    // drop the uncommitted hands-free draft
+	"history":           func(c *conn, in inbound) { c.serveHistory(in.Name, in.Before, in.Limit) },
+	"clear":             func(c *conn, in inbound) { c.doClear() },
+	"compress":          func(c *conn, in inbound) { c.doCompress() },
+	"usage":             func(c *conn, in inbound) { c.doUsage(false, usageCalibrate) }, // tap: show the report, don't speak it
+	"usage_set":         func(c *conn, in inbound) { c.doUsage(false, usageSetBench) },  // "set" button: arm the benchmark
+	"usage_calc":        func(c *conn, in inbound) { c.doUsage(false, usageCalcBench) }, // "calc" button: derive the rate
+	"audio_end":         func(c *conn, in inbound) { c.endAudio() },
+}
+
 // loop reads and dispatches messages until the socket closes. Text frames are
-// JSON control/utterance messages; binary frames are PCM16 audio for the
-// utterance currently being recorded (between `wake` and `audio_end`).
+// JSON control/utterance messages routed through wireHandlers; binary frames are
+// PCM16 audio for the utterance currently being recorded (between `wake` and
+// `audio_end`).
 func (c *conn) loop() {
 	for {
 		mt, data, err := c.ws.ReadMessage()
@@ -541,63 +580,9 @@ func (c *conn) loop() {
 			c.fail("bad_message", "invalid json")
 			continue
 		}
-		switch in.Type {
-		case "ping":
-			c.send(msgPong())
-		case "utterance", "reply":
-			c.gated = false // typed/explicit text is never background-gated
-			c.handleUtterance(in.Text)
-		case "attach":
-			c.doAttach(in.Name, in.Silent)
-		case "detach":
-			c.doDetach()
-		case "list_sessions":
-			c.sendSessionList()
-		case "discover":
-			c.doDiscover()
-		case "adopt":
-			c.doAdopt(in.SessionID, in.Path)
-		case "delete_discovered":
-			c.doDeleteDiscovered(in.SessionID)
-		case "rename_discovered":
-			c.doRenameDiscovered(in.SessionID, in.Path, in.NewName)
-		case "rename":
-			c.doRename(in.Name, in.NewName)
-		case "delete":
-			c.doDelete(in.Name)
-		case "browse":
-			c.doBrowse(in.Path)
-		case "spawn_at":
-			c.doSpawnAt(in.Path)
-		case "cancel":
-			c.cancelDialog()
-		case "abort":
-			c.abortTurn()
-		case "set_whisper_model":
-			c.doSetWhisperModel(in.WhisperModel)
-		case "restart":
-			c.doRestart()
-		case "wake":
-			c.startAudio(in.Codec, in.HandsFree, in.Calibrate)
-		case "commit":
-			c.commitMessage() // silence-timeout commit of the hands-free buffer
-		case "discard_draft":
-			c.clearBuffer() // drop the uncommitted hands-free draft (e.g. hands-free toggled off)
-		case "history":
-			c.serveHistory(in.Name, in.Before, in.Limit)
-		case "clear":
-			c.doClear()
-		case "compress":
-			c.doCompress()
-		case "usage":
-			c.doUsage(false, usageCalibrate) // tap-triggered: show the report, don't speak it
-		case "usage_set":
-			c.doUsage(false, usageSetBench) // "set" button: arm the two-point benchmark
-		case "usage_calc":
-			c.doUsage(false, usageCalcBench) // "calc" button: derive the rate from the benchmark
-		case "audio_end":
-			c.endAudio()
-		default:
+		if h := wireHandlers[in.Type]; h != nil {
+			h(c, in)
+		} else {
 			c.fail("bad_message", "unknown message type: "+in.Type)
 		}
 	}
