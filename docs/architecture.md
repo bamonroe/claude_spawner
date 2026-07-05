@@ -143,7 +143,7 @@ uppercase letters by voice. Acceptable; documented in `docs/commands.md`.
   internal/config/config.go     env config + spawn-path validation
   cmd/wsclient/main.go          text client for manual testing; -audio streams a WAV
   cmd/gencommands/main.go       regenerate docs/commands.json from the command registry
-  Dockerfile / .dockerignore    dev image: Go + tmux + claude CLI + whisper.cpp CLI + model
+  Dockerfile / .dockerignore    dev image: Go + claude CLI + whisper.cpp CLI + model (+ tmux for conflict detection)
 docker-compose.yml              dev orchestration: spawner + resident whisper/whisper-fast servers
 /whisper                        Vulkan/CPU Dockerfiles for the resident whisper.cpp server (see whisper/README.md)
 /deploy                         host systemd unit + env example + claude-log helper (see deploy/README.md)

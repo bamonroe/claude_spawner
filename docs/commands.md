@@ -48,7 +48,7 @@ Reject paths that escape the allowed root unless the user explicitly opts in.
 | `attach`        | "attach to `<name>`"                     | Attaches; subsequent speech is dictated           |
 | `detach`        | "detach" / "stop dictating"              | Leaves passthrough mode                            |
 | `list`          | "list sessions" / "what sessions"        | Reads back known sessions                          |
-| `kill`          | "kill session `<name>`"                  | Confirms, then kills the tmux session             |
+| `kill`          | "kill session `<name>`"                  | Confirms, then deletes the session's registry record |
 | `status`        | "what's the status" / "what's it doing"  | Snapshot of the attached session's recent output  |
 | `read_last`     | "read last" / "read last 3" / "read the last two" / "say that again" / "repeat that" | Re-reads aloud (TTS) + scrolls to the last N Claude replies in the current session (N defaults to 1; digit or number-word). |
 | `clear`         | "clear" / "clear context" / "clear session" / "clear the context" / "reset context" / "start fresh" / "wipe context" | Rotates the attached session's Claude context to a fresh `session_id`, so the next dictation replays **no** prior history (no re-read, no re-billing of the whole transcript). The old transcript is **kept on disk** and still shows in `history`. Deliberately NOT matched: "clear history" — clear never deletes. No-op if no turn has run yet; refused while a turn is in flight. |

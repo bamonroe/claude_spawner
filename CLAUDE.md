@@ -40,8 +40,8 @@ second file (link to the owner instead). This table is itself the index: read it
 
 1. **Android app** (Kotlin) — listens for the wake word **"hey buddy"**, captures voice,
    and acts as a passthrough terminal to remote Claude Code sessions.
-2. **Server** (Go) — runs on the user's machine, spawns and manages **tmux** sessions with
-   Claude Code running inside them, and bridges voice/text between the app and those sessions.
+2. **Server** (Go) — runs on the user's machine, spawns and manages **Claude Code sessions**
+   (driven headless), and bridges voice/text between the app and those sessions.
 
 The user speaks; the app transcribes (via server-side Whisper); the text is either interpreted
 as a **reserved control command** or passed through to the currently attached Claude Code

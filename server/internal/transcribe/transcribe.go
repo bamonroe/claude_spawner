@@ -37,7 +37,7 @@ type Transcriber interface {
 }
 
 // WhisperCPP shells out to the whisper.cpp CLI (one process per utterance),
-// mirroring how the rest of the server drives `claude` and `tmux`.
+// mirroring how the rest of the server shells out to `claude`.
 type WhisperCPP struct {
 	// Bin is the whisper.cpp binary (default "whisper-cli"; older builds: "main").
 	Bin string

@@ -3,7 +3,7 @@
 A voice-driven remote control for [Claude Code](https://claude.com/claude-code).
 
 Speak to an **Android app**, and it relays your voice to a **server** on your machine that
-spawns and manages **tmux sessions** running Claude Code. The app is a hands-free passthrough:
+spawns and manages **Claude Code sessions**, driving them headless. The app is a hands-free passthrough:
 say a command and it's executed; attach to a session and your dictation goes straight to Claude,
 with Claude's replies streamed back and read aloud.
 
@@ -36,7 +36,7 @@ App:   (attached — now everything you say is dictated to Claude Code)
 
 | Part        | Choice                                                              |
 |-------------|---------------------------------------------------------------------|
-| Server      | **Go** — WebSocket gateway, tmux session manager, Whisper glue      |
+| Server      | **Go** — WebSocket gateway, headless session manager, Whisper glue  |
 | Android app | **Kotlin** — Porcupine wake word, audio capture, TTS, WS client     |
 | Wake word   | **On-device** (Porcupine)                                           |
 | STT         | **Server-side Whisper** (hybrid: wake on-device, dictation on server)|
@@ -193,7 +193,7 @@ an auth token from the app, and constrain spawn directories.
 
 ## Run it in Docker (recommended)
 
-The whole execution environment — Go, `tmux`, the `claude` CLI, and **whisper.cpp + a model** —
+The whole execution environment — Go, the `claude` CLI, and **whisper.cpp + a model** —
 is baked into a container so nothing has to be installed on the host. Source stays on the host
 (bind-mounted), so you edit and version normally; only execution is containerized.
 
@@ -238,7 +238,8 @@ SPAWNER_TOKEN=secret SPAWNER_ROOT=/tmp/sandbox go run .          # text path onl
 ```
 
 Then in another terminal, `SPAWNER_TOKEN=secret go run ./cmd/wsclient` and type utterances.
-Requires the `claude` CLI and `tmux` on the host. Transcription is **off** unless a whisper model
+Requires the `claude` CLI on the host (`tmux` is optional — used only to detect a human-run
+interactive `claude` for conflict warnings). Transcription is **off** unless a whisper model
 or URL is configured (text utterances work either way); the full config-var list lives in
 [`CLAUDE.md`](./CLAUDE.md). Audio in is PCM16LE / 16 kHz / mono (see `docs/protocol.md`).
 
@@ -281,7 +282,7 @@ To run it as a long-lived service (systemd unit + the resident GPU whisper serve
 - [x] Spoken-path normalization (fuzzy dir matching in `internal/projects`; STT is lowercase — see CLAUDE.md)
 - [x] Audio-stream ingest: `wake` + binary PCM16 frames + `audio_end` → WAV → transcript → `utterance`
 - [x] Whisper integration behind a `Transcriber` interface (`internal/transcribe`, whisper.cpp shell-out)
-- [x] Dockerized dev environment (Go + tmux + claude CLI + whisper.cpp + model)
+- [x] Dockerized dev environment (Go + claude CLI + whisper.cpp + model; tmux for conflict detection)
 - [x] Verify a real audio turn end-to-end (jfk.wav / spoken clip → transcript → Claude reply),
       on both the resident GPU whisper server and the CLI fallback
 - [x] Vocab biasing (`--prompt`) to improve recognition of session names / paths
