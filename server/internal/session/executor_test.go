@@ -62,6 +62,50 @@ func TestSandboxExecArgs(t *testing.T) {
 	}
 }
 
+// fakeReaper is a sandbox executor that lists a fixed container set and records
+// removals, for testing orphan reconciliation.
+type fakeReaper struct {
+	all     []string
+	removed []string
+}
+
+func (f *fakeReaper) Start(context.Context, *Session, []string) (Proc, error) { return nil, nil }
+func (f *fakeReaper) Ensure(context.Context, string, string) error            { return nil }
+func (f *fakeReaper) List(context.Context) ([]string, error)                  { return f.all, nil }
+func (f *fakeReaper) Remove(_ context.Context, name string) error {
+	f.removed = append(f.removed, name)
+	return nil
+}
+
+func TestReconcileContainersRemovesOrphans(t *testing.T) {
+	reaper := &fakeReaper{all: []string{"spawner-keep", "spawner-orphan1", "spawner-orphan2"}}
+	d := &Driver{Execs: map[Target]Executor{TargetHost: HostExecutor{}, TargetSandbox: reaper}}
+
+	removed, err := d.ReconcileContainers(context.Background(), map[string]bool{"spawner-keep": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"spawner-orphan1", "spawner-orphan2"}
+	if strings.Join(removed, ",") != strings.Join(want, ",") {
+		t.Errorf("removed = %v, want %v", removed, want)
+	}
+	// The live session's container must be left alone.
+	for _, n := range reaper.removed {
+		if n == "spawner-keep" {
+			t.Errorf("reconcile removed a live container %q", n)
+		}
+	}
+}
+
+func TestReconcileContainersNoReaper(t *testing.T) {
+	// Host-only driver: nothing to reconcile, no error.
+	d := &Driver{Execs: map[Target]Executor{TargetHost: HostExecutor{}}}
+	removed, err := d.ReconcileContainers(context.Background(), nil)
+	if err != nil || removed != nil {
+		t.Errorf("got (%v, %v), want (nil, nil)", removed, err)
+	}
+}
+
 func TestExecutorSelectByTarget(t *testing.T) {
 	host := &fakeExecutor{id: "host"}
 	sandbox := &fakeExecutor{id: "sandbox"}

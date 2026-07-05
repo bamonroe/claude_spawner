@@ -58,6 +58,20 @@ func main() {
 			RunArgs: cfg.SandboxRunArgs,
 		}
 		log.Printf("sandbox target enabled: %s image %q", cfg.SandboxRuntime, cfg.SandboxImage)
+
+		// Sweep sandbox containers left orphaned by sessions deleted while the
+		// server was down (live ones are recreated on demand by Ensure-before-turn).
+		known := map[string]bool{}
+		for _, s := range store.List() {
+			if s.Container != "" {
+				known[s.Container] = true
+			}
+		}
+		if removed, err := driver.ReconcileContainers(context.Background(), known); err != nil {
+			log.Printf("sandbox reconcile: %v", err)
+		} else if len(removed) > 0 {
+			log.Printf("sandbox reconcile: removed %d orphan container(s): %v", len(removed), removed)
+		}
 	}
 
 	tmuxMgr := tmux.NewManager()

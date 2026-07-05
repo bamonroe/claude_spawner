@@ -150,6 +150,9 @@ root *inside itself* and a disposable FS. Session `Dir` is bind-mounted same-pat
 transcript's project encoding matches the host); share `$HOME/.claude` via `SPAWNER_SANDBOX_MOUNTS`
 to keep history/discovery working. Lifecycle hooks live in the gateway spawn (`ensureSandbox`) and
 delete (`removeSandbox`) paths; `Driver.EnsureContainer`/`RemoveContainer` bridge to the executor.
+At startup `Driver.ReconcileContainers` sweeps **orphans** — managed containers (matched by the
+`spawner-` name prefix) whose session record no longer exists, e.g. deleted while the server was
+down — so they don't accumulate; live sessions' containers are left for `Ensure`-before-turn.
 
 ### Net security posture
 

@@ -133,6 +133,33 @@ func (d *Driver) RemoveContainer(ctx context.Context, s *Session) error {
 	return nil
 }
 
+// ReconcileContainers sweeps orphaned sandbox containers at startup: any managed
+// container whose name isn't in `known` (the set of container names still owned by
+// live session records) is removed — it belonged to a session deleted while the
+// server was down. Returns the names removed. A no-op when the sandbox executor
+// can't list its containers.
+func (d *Driver) ReconcileContainers(ctx context.Context, known map[string]bool) ([]string, error) {
+	reaper, ok := d.Execs[TargetSandbox].(SandboxReaper)
+	if !ok {
+		return nil, nil
+	}
+	names, err := reaper.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var removed []string
+	for _, n := range names {
+		if known[n] {
+			continue
+		}
+		if err := reaper.Remove(ctx, n); err != nil {
+			return removed, fmt.Errorf("remove orphan %s: %w", n, err)
+		}
+		removed = append(removed, n)
+	}
+	return removed, nil
+}
+
 // ToolUse describes a tool Claude invoked during a turn. FilePath is set for
 // file-editing tools (Edit/Write/MultiEdit/NotebookEdit) so the caller can show
 // which file changed.
@@ -369,7 +396,7 @@ func NewContainerName() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return "spawner-" + strings.ReplaceAll(id, "-", "")[:12], nil
+	return containerPrefix + strings.ReplaceAll(id, "-", "")[:12], nil
 }
 
 // NewSessionID returns a random RFC-4122 v4 UUID for use with --session-id.

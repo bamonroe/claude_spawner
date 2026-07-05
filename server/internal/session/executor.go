@@ -43,6 +43,10 @@ type Executor interface {
 	Start(ctx context.Context, s *Session, args []string) (Proc, error)
 }
 
+// containerPrefix names every sandbox container this server manages, so they can
+// be listed for orphan reconciliation and told apart from unrelated containers.
+const containerPrefix = "spawner-"
+
 // SandboxLifecycle is implemented by executors that own a per-session container
 // bound to the session's lifetime: created at spawn (Ensure), reused by every
 // turn, and destroyed on delete (Remove). Driver.EnsureContainer /
@@ -52,6 +56,16 @@ type SandboxLifecycle interface {
 	// rooted at dir, creating it if absent. Idempotent.
 	Ensure(ctx context.Context, name, dir string) error
 	// Remove force-deletes the named container (no error if it's already gone).
+	Remove(ctx context.Context, name string) error
+}
+
+// SandboxReaper lists this server's sandbox containers so orphans (containers
+// whose session was deleted while the server was down) can be swept at startup.
+type SandboxReaper interface {
+	// List returns the names of all sandbox containers this server manages,
+	// running or stopped.
+	List(ctx context.Context) ([]string, error)
+	// Remove force-deletes the named container.
 	Remove(ctx context.Context, name string) error
 }
 
@@ -147,6 +161,22 @@ func (s SandboxExecutor) Remove(ctx context.Context, name string) error {
 		return err
 	}
 	return nil
+}
+
+// List returns the names of all sandbox containers this server manages (running
+// or stopped), matched by the shared name prefix.
+func (s SandboxExecutor) List(ctx context.Context) ([]string, error) {
+	out, err := runCLI(ctx, s.Runtime, []string{"ps", "-a", "--filter", "name=" + containerPrefix, "--format", "{{.Names}}"})
+	if err != nil {
+		return nil, fmt.Errorf("list sandboxes: %w: %s", err, strings.TrimSpace(out))
+	}
+	var names []string
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			names = append(names, line)
+		}
+	}
+	return names, nil
 }
 
 // running reports whether the named container exists and is currently running.
