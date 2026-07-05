@@ -77,9 +77,11 @@ func Load() (*Config, error) {
 	}
 	c.WhisperFastMaxSeconds = 2.5 // default cutoff
 	if v := os.Getenv("SPAWNER_WHISPER_FAST_MAX_SEC"); v != "" {
-		if f, err := strconv.ParseFloat(v, 64); err == nil {
-			c.WhisperFastMaxSeconds = f
+		f, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return nil, fmt.Errorf("SPAWNER_WHISPER_FAST_MAX_SEC %q: %w", v, err)
 		}
+		c.WhisperFastMaxSeconds = f
 	}
 	for _, r := range strings.Split(os.Getenv("SPAWNER_ROOT"), ":") {
 		r = strings.TrimSpace(r)

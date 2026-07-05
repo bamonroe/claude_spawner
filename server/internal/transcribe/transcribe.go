@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Options selects how a clip is transcribed. Mode "" or "dynamic" picks the
@@ -163,7 +164,11 @@ func OggOpusToPCM(ffmpegBin string, ogg []byte) ([]byte, error) {
 	}
 	defer cleanup()
 
-	cmd := exec.Command(ffmpegBin,
+	// Bound the decode so a hung ffmpeg (corrupt clip, wedged process) can't pin a
+	// goroutine forever — a clip is seconds of audio, so 30s is a generous ceiling.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, ffmpegBin,
 		"-hide_banner", "-loglevel", "error",
 		"-i", path,
 		"-ar", "16000", "-ac", "1", "-f", "s16le", "pipe:1",

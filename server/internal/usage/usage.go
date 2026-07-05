@@ -9,6 +9,7 @@ package usage
 
 import (
 	"encoding/json"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -99,7 +100,11 @@ func Open(path string) *Estimator {
 	e := &Estimator{path: path, st: state{SessRate: defaultSessRate, WeekRate: defaultWeekRate}}
 	if path != "" {
 		if data, err := os.ReadFile(path); err == nil {
-			_ = json.Unmarshal(data, &e.st)
+			if err := json.Unmarshal(data, &e.st); err != nil {
+				log.Printf("usage: state file %s is corrupt (%v); starting from seed rates", path, err)
+			}
+		} else if !os.IsNotExist(err) {
+			log.Printf("usage: cannot read state file %s (%v); starting from seed rates", path, err)
 		}
 	}
 	if e.st.SessRate <= 0 {
@@ -318,10 +323,15 @@ func (e *Estimator) persist() {
 		return
 	}
 	if err := os.MkdirAll(filepath.Dir(e.path), 0o755); err != nil {
+		log.Printf("usage: cannot create state dir for %s (%v); estimate not persisted", e.path, err)
 		return
 	}
 	tmp := e.path + ".tmp"
-	if os.WriteFile(tmp, data, 0o600) == nil {
-		_ = os.Rename(tmp, e.path)
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		log.Printf("usage: cannot write state to %s (%v); estimate not persisted", tmp, err)
+		return
+	}
+	if err := os.Rename(tmp, e.path); err != nil {
+		log.Printf("usage: cannot commit state to %s (%v); estimate not persisted", e.path, err)
 	}
 }

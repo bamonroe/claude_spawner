@@ -29,6 +29,44 @@ Dates are `YYYY-MM-DD`.
 - [ ] On-device fallback STT when offline.
 - [ ] iOS app.
 
+## Hardening backlog (2026-07-05 fragility audit)
+
+Ranked, verified findings from a full-codebase audit. The store's `flush` and usage `persist`
+are already atomic (temp+rename), so several "corruption" claims were discounted; the per-conn
+read loop is single-goroutine, so several "attach/detach race" claims were discounted too. What
+remains real:
+
+_Done in this pass:_
+- [x] 2026-07-05 — Surface `SPAWNER_WHISPER_FAST_MAX_SEC` parse errors at startup instead of
+      silently falling back to 2.5s (`config.go`).
+- [x] 2026-07-05 — Bound `OggOpusToPCM` ffmpeg decode with a 30s context timeout so a hung
+      ffmpeg can't pin a goroutine forever (`transcribe.go`).
+- [x] 2026-07-05 — Log (instead of swallow) corrupt-state reads and persist failures in the
+      usage estimator (`usage.go`).
+
+_Extensibility (the "easier to extend, not delicate" asks) — bigger, want a green light:_
+- [ ] Server wire dispatch (`gateway.go` type switch) and voice-command dispatch (`ops.go` +
+      the hands-free commit path in `stream.go`) are hand-maintained parallel switches — adding a
+      message/command means editing 3 places with no compile-time guard. Consider a handler
+      registry (`map[string]handler`) and a single shared command-dispatch func.
+- [ ] Android: the `ServerMsg` sealed interface ↔ `Protocol.parse` ↔ VoiceController dispatch are
+      three hand-kept-in-sync switches. Make the dispatch `when` exhaustive (expression form) so a
+      new message type is a compile error, not a silent no-op.
+- [ ] Centralize turn-completion on the client: `_lastTurnUsage`/`_attachedName` are set/reset in
+      4+ scattered spots; route them through one `completeTurn()` / attach helper.
+- [ ] Migrate ALL name-keyed maps together on rename (client already does logs/hasMore; also
+      `oldestIndex`/`loadingOlder`) so a rename mid-page-load can't strand a `loadingOlder` flag.
+
+_Robustness / ops (smaller, safe when we get to them):_
+- [ ] `parseStream` counts malformed lines and reports "stream corrupted (N lines)" instead of a
+      generic "no result event" when Claude's stdout truncates.
+- [ ] Cache `LastContextUsage` / `ReadTranscriptChain` per session (invalidate on new turn) to stop
+      re-scanning whole transcripts on every attach/history page.
+- [ ] Validate the audio `codec` field and reject unknown values (`audio.go`) instead of silently
+      treating them as PCM16.
+- [ ] Loud startup warning when `SPAWNER_ROOT` is empty (unrestricted spawn scope).
+- [ ] Graceful shutdown waits briefly for an in-flight turn instead of a hard 5s HTTP-server kill.
+
 ## Done
 
 - [x] 2026-07-05 — **Delete clears every same-dir record; no more ghost sessions.** The sidebar
