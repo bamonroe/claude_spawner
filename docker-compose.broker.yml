@@ -21,9 +21,9 @@ services:
     # Not "spawner-…": the sandbox reconcile filters containers by the
     # "spawner-sbx-" prefix, and this name must not collide with that.
     container_name: claude-spawner-server
-    # Map the host user into the container so it can read the owner-only broker
-    # socket and the host-owned read-only mounts.
-    userns_mode: keep-id
+    # Under rootful Docker (no userns-remap) the image's uid 1000 maps 1:1 to the
+    # host user, so it reads the owner-only broker socket and host-owned mounts as
+    # you. Under rootless Podman instead, add: userns_mode: keep-id
     ports:
       - "${SPAWNER_HOST_PORT:-8555}:8080"
     volumes:
