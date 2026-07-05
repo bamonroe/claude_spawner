@@ -229,14 +229,18 @@ The broker reads `SPAWNER_BROKER_SOCKET` (the path to listen on), `SPAWNER_ROOT`
 `SPAWNER_CLAUDE_BIN`, and — for sandbox turns — the same `SPAWNER_SANDBOX_*` vars (the broker, not
 the server, owns the runtime config). The full design is in `docs/architecture.md`.
 
-**To run it** (verified end to end with rootless Podman, host + sandbox turns): (1) install the
-broker as a systemd user service — [`deploy/spawner-broker.service`](./deploy/spawner-broker.service)
-+ [`deploy/spawner-broker.env.example`](./deploy/spawner-broker.env.example); (2) bring up the
-lean server container — [`docker-compose.broker.yml`](./docker-compose.broker.yml) (image
+**This is the live deployment.** The server runs as a **Docker** container
+([`docker-compose.broker.yml`](./docker-compose.broker.yml), image
 [`server/Dockerfile.broker`](./server/Dockerfile.broker): just the compiled binary + ffmpeg, no
-claude/podman/tmux inside). Edit both for your host paths — the `SPAWNER_ROOT` dirs are bind-mounted
-into the container at the **same path** so they match what the broker executes against, and the
-socket path must agree on both sides.
+claude/podman/tmux inside), and the broker runs as a **systemd user service**
+([`deploy/spawner-broker.service`](./deploy/spawner-broker.service) +
+[`deploy/spawner-broker.env.example`](./deploy/spawner-broker.env.example)) driving **rootless
+Podman** for sandboxes. To reproduce it: (1) install + enable the broker service; (2)
+`docker compose -f docker-compose.broker.yml up -d --build`. Edit both for your host paths — the
+`SPAWNER_ROOT` dirs are bind-mounted into the container at the **same path** so they match what the
+broker executes against, and the broker socket lives in a persistent directory that the container
+bind-mounts (as a directory) so the two can start in any order on reboot. Both auto-start on boot
+(Docker's daemon is enabled; the broker is a lingering user service).
 
 ---
 
