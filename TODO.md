@@ -129,6 +129,14 @@ Dates are `YYYY-MM-DD`.
       from tokens/percent-gained (no EMA), so the multi-percent move drowns out the integer rounding.
       Sub-1% moves are refused. `bench_*` fields on `usage_estimate`; buttons + benchmark line in the
       app's usage sheet. `TestBenchmarkTwoPoint`.
+- [x] 2026-07-04 — **Chat: don't snap to latest while scrolled up; add a jump-to-latest button.** A
+      new message arriving mid-turn now auto-follows only when the reader is `pinned` — the END of the
+      newest message is actually in view (the `snapshotFlow` at-bottom test tightened from "last item
+      index in range" to "last item's `offset + size <= viewportEndOffset`"), so scrolling up even a
+      little to read earlier text stops the yank. `LaunchedEffect(last)` is gated on `pinned`; the
+      explicit `scrollTick` path (attach / typed send / read-last) re-pins. A round ↓ button overlays
+      the bottom of `ChatList` (BottomCenter, above the status bars/input bar) while `!pinned`; tapping
+      it re-pins and animates to the newest message. Built + installed on emulator and Pixel 8a.
 - [x] 2026-07-04 — **Chat: keep the newest message pinned above the keyboard AND the status bars**
       (supersedes/unifies the two earlier same-day re-pin fixes — the `barsKey` toggle and the
       `WindowInsets.ime` follow — which each handled only one shrink source and, for the keyboard,
