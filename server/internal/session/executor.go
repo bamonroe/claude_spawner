@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -10,8 +11,6 @@ import (
 	"strings"
 	"sync"
 	"syscall"
-
-	"github.com/bam/claude_spawner/server/internal/broker"
 )
 
 // Target names where a session's turns run. It is a durable per-session property
@@ -214,11 +213,14 @@ func runCLI(ctx context.Context, name string, args []string) (string, error) {
 	return string(out), err
 }
 
-// BrokerExecutor runs a turn on the host via the host-side broker daemon, for
+// BrokerExecutor is the client to the host-side broker daemon (BrokerServer), for
 // when the server itself is containerized: the server container stays
-// unprivileged and can only ask the broker (running as the ordinary host user) to
-// launch claude in a jailed directory. This is how a "host" session executes
-// without the server holding host root. See internal/broker and
+// unprivileged and asks the broker (running as the ordinary host user) to execute
+// on its behalf. It is the single client for BOTH targets — Start reads the
+// session's Target and the broker forks claude for a host turn or drives the
+// container runtime for a sandbox turn — and it implements SandboxLifecycle /
+// SandboxReaper by forwarding the ensure/remove/list ops, so the containerized
+// server needs neither host root nor a runtime socket. See broker_proto.go and
 // docs/architecture.md.
 type BrokerExecutor struct {
 	// Socket is the path to the broker's Unix socket (bind-mounted into the
@@ -227,18 +229,11 @@ type BrokerExecutor struct {
 }
 
 func (b BrokerExecutor) Start(ctx context.Context, s *Session, args []string) (Proc, error) {
-	conn, err := net.Dial("unix", b.Socket)
+	conn, err := b.dialSend(brokerRequest{
+		Op: opTurn, Target: string(s.Target), Dir: s.Dir, Container: s.Container, Args: args,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("dial broker: %w", err)
-	}
-	hdr, err := json.Marshal(broker.Request{Dir: s.Dir, Args: args})
-	if err != nil {
-		conn.Close()
 		return nil, err
-	}
-	if err := broker.WriteFrame(conn, broker.FrameHeader, hdr); err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("broker header: %w", err)
 	}
 	p := &brokerProc{conn: conn}
 	// Closing the socket is how we signal an abort to the broker (it kills the
@@ -257,16 +252,94 @@ func (b BrokerExecutor) Start(ctx context.Context, s *Session, args []string) (P
 	return p, nil
 }
 
-// brokerProc de-frames the broker's reply: FrameStdout payloads are exposed as a
+// Ensure/Remove/List forward the sandbox lifecycle to the broker, so a
+// containerized server's spawn/delete/reconcile hooks drive the host runtime
+// through the broker (which owns the sandbox config) rather than a local one.
+func (b BrokerExecutor) Ensure(ctx context.Context, name, dir string) error {
+	return b.unary(ctx, brokerRequest{Op: opEnsure, Container: name, Dir: dir})
+}
+
+func (b BrokerExecutor) Remove(ctx context.Context, name string) error {
+	return b.unary(ctx, brokerRequest{Op: opRemove, Container: name})
+}
+
+func (b BrokerExecutor) List(ctx context.Context) ([]string, error) {
+	res, err := b.call(ctx, brokerRequest{Op: opList})
+	if err != nil {
+		return nil, err
+	}
+	if res.Err != "" {
+		return nil, errors.New(res.Err)
+	}
+	return res.Names, nil
+}
+
+// dialSend dials the broker and writes one request header, returning the open
+// connection (the caller reads the reply frames).
+func (b BrokerExecutor) dialSend(req brokerRequest) (net.Conn, error) {
+	conn, err := net.Dial("unix", b.Socket)
+	if err != nil {
+		return nil, fmt.Errorf("dial broker: %w", err)
+	}
+	hdr, err := json.Marshal(req)
+	if err != nil {
+		conn.Close()
+		return nil, err
+	}
+	if err := writeFrame(conn, frameHeader, hdr); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("broker header: %w", err)
+	}
+	return conn, nil
+}
+
+// call runs a unary op (ensure/remove/list): send the request, read the single
+// result frame.
+func (b BrokerExecutor) call(ctx context.Context, req brokerRequest) (brokerResult, error) {
+	conn, err := b.dialSend(req)
+	if err != nil {
+		return brokerResult{}, err
+	}
+	defer conn.Close()
+	if ctx != nil {
+		stop := context.AfterFunc(ctx, func() { conn.Close() })
+		defer stop()
+	}
+	typ, payload, err := readFrame(conn)
+	if err != nil {
+		return brokerResult{}, fmt.Errorf("broker result: %w", err)
+	}
+	if typ != frameResult {
+		return brokerResult{}, fmt.Errorf("broker: expected result frame, got %q", typ)
+	}
+	var res brokerResult
+	if err := json.Unmarshal(payload, &res); err != nil {
+		return brokerResult{}, err
+	}
+	return res, nil
+}
+
+func (b BrokerExecutor) unary(ctx context.Context, req brokerRequest) error {
+	res, err := b.call(ctx, req)
+	if err != nil {
+		return err
+	}
+	if res.Err != "" {
+		return errors.New(res.Err)
+	}
+	return nil
+}
+
+// brokerProc de-frames a turn's reply: frameStdout payloads are exposed as a
 // plain stdout stream (Stdout returns the proc itself as an io.Reader); the
-// terminal FrameExit ends the stream (EOF) and its status is surfaced by Wait.
+// terminal frameExit ends the stream (EOF) and its status is surfaced by Wait.
 type brokerProc struct {
 	conn net.Conn
 	stop func()
 
-	buf  []byte       // leftover stdout payload from the last frame
-	exit *broker.Exit // set when the exit frame arrives
-	err  error        // terminal transport error
+	buf  []byte      // leftover stdout payload from the last frame
+	exit *brokerExit // set when the exit frame arrives
+	err  error       // terminal transport error
 	done bool
 }
 
@@ -280,16 +353,16 @@ func (p *brokerProc) Read(dst []byte) (int, error) {
 			}
 			return 0, io.EOF
 		}
-		typ, payload, err := broker.ReadFrame(p.conn)
+		typ, payload, err := readFrame(p.conn)
 		if err != nil {
 			p.done, p.err = true, err
 			return 0, err
 		}
 		switch typ {
-		case broker.FrameStdout:
+		case frameStdout:
 			p.buf = payload
-		case broker.FrameExit:
-			var e broker.Exit
+		case frameExit:
+			var e brokerExit
 			_ = json.Unmarshal(payload, &e)
 			p.exit, p.done = &e, true
 			return 0, io.EOF

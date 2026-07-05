@@ -123,9 +123,13 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
   image), `SPAWNER_SANDBOX_MOUNTS` (comma-separated extra `-v` specs, e.g. sharing `$HOME/.claude`),
   `SPAWNER_SANDBOX_RUN_ARGS` (space-separated extra `run` flags, e.g. `--userns=keep-id`).
 - Host broker (for a containerized server): `SPAWNER_BROKER_SOCKET` — Unix socket of the host-side
-  `cmd/broker` daemon. When set, the server runs `host`-target turns through the broker (staying
-  unprivileged) instead of forking `claude` itself. The broker binary reads this same var (the path
-  to **listen** on) plus `SPAWNER_ROOT` (its jail) and `SPAWNER_CLAUDE_BIN`. Empty = fork directly.
+  `cmd/broker` daemon. When set, the server routes **all** turns through the broker (staying
+  unprivileged) instead of executing itself — the broker is the single host-side agent for both
+  targets (forks `claude` for host turns, drives the rootless runtime for sandbox turns), so the
+  server container needs neither host root nor a runtime socket. The broker binary reads this same
+  var (the path to **listen** on) plus `SPAWNER_ROOT` (its jail), `SPAWNER_CLAUDE_BIN`, and — for
+  sandbox turns — the same `SPAWNER_SANDBOX_*` vars (it owns the runtime config). Empty = execute
+  directly (native install).
 
 ## Token discipline — keep the context small
 

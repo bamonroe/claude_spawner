@@ -216,14 +216,18 @@ Each session picks an **execution target** at spawn time — a durable per-sessi
 
 ### Containerizing the server (host execution without host root)
 
-You can run the **server itself** in a container and still have `host`-target sessions execute on
-the host — without the container holding host root. Run the small **broker** daemon (`cmd/broker`)
-on the host as your ordinary user; it listens on a Unix socket, and when the server's
-`SPAWNER_BROKER_SOCKET` points at that socket (bind-mounted into the container), the server routes
-`host` turns *through* the broker instead of forking `claude` itself. The broker forks `claude` as
-you and enforces the `SPAWNER_ROOT` jail, so the server container stays unprivileged and no
-component runs as root. The broker reads `SPAWNER_BROKER_SOCKET` (the path to listen on),
-`SPAWNER_ROOT` (its jail), and `SPAWNER_CLAUDE_BIN`. The full design is in `docs/architecture.md`.
+You can run the **server itself** in a container and still have sessions execute on the host —
+without the container holding host root, and without giving it a container-runtime socket. Run the
+small **broker** daemon (`cmd/broker`) on the host as your ordinary user; it listens on a Unix
+socket, and when the server's `SPAWNER_BROKER_SOCKET` points at that socket (bind-mounted into the
+container), the server routes **all** turns *through* the broker. The broker is the single
+host-side agent for both targets: it forks `claude` as you for **host** sessions, and drives
+rootless Podman as you for **sandbox** sessions (create/exec/remove the container) — so sandbox
+sessions work from a containerized server with no podman-in-podman and no socket mount. It enforces
+the `SPAWNER_ROOT` jail, so the server container stays unprivileged and no component runs as root.
+The broker reads `SPAWNER_BROKER_SOCKET` (the path to listen on), `SPAWNER_ROOT` (its jail),
+`SPAWNER_CLAUDE_BIN`, and — for sandbox turns — the same `SPAWNER_SANDBOX_*` vars (the broker, not
+the server, owns the runtime config). The full design is in `docs/architecture.md`.
 
 ---
 

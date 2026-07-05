@@ -356,7 +356,7 @@ func (c *conn) isRoot(dir string) bool {
 // question; otherwise we ask host-vs-sandbox first and the answer becomes
 // Session.Target. attachPrompt is the "want to attach?" line to use afterward.
 func (c *conn) askTarget(dir, attachPrompt string) {
-	if c.srv.cfg.SandboxImage == "" {
+	if !c.srv.driver.SandboxEnabled() {
 		c.beginAttachQuestion(dir, attachPrompt, session.TargetHost)
 		return
 	}

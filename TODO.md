@@ -22,11 +22,14 @@ Dates are `YYYY-MM-DD`.
       (`internal/session/executor.go`); durable `Session.Target` (`host`/`sandbox`, default host)
       chosen at spawn time (voice `await_target` step + `spawn_at` `target` field, shown only when a
       sandbox image is configured). Three executors: `HostExecutor` (direct exec), `SandboxExecutor`
-      (rootless container, `SPAWNER_SANDBOX_*`), `BrokerExecutor` → host-side broker daemon
-      (`cmd/broker`, `internal/broker`) so a containerized, unprivileged server runs host turns via a
-      user-owned broker that enforces the `SPAWNER_ROOT` jail (`SPAWNER_BROKER_SOCKET`). No component
-      holds host root. Design in `docs/architecture.md`; tests cover selection, sandbox argv, broker
-      round-trip/jail, and the spawn target step.
+      (rootless container, `SPAWNER_SANDBOX_*`), and `BrokerExecutor` → host-side broker daemon
+      (`cmd/broker` + `internal/session/broker_*.go`). The broker is the **single host-side agent for
+      both targets**: a containerized, unprivileged server routes ALL turns through it
+      (`SPAWNER_BROKER_SOCKET`) — it forks `claude` for host turns and drives rootless Podman for
+      sandbox turns (ensure/exec/remove/list ops), reusing the same executor code, so the server needs
+      neither host root nor a runtime socket. The broker enforces the `SPAWNER_ROOT` jail and owns the
+      sandbox runtime config. No component holds host root. Design in `docs/architecture.md`; tests
+      cover selection, sandbox argv, broker round-trip/jail, and the spawn target step.
       Sandbox containers are **persistent per session**: created at spawn (`ensureSandbox`), reused
       by every turn via `exec`, removed on delete (`removeSandbox`); `Ensure` is idempotent and
       re-run before each turn so a container lost to a restart is recreated.
@@ -38,8 +41,9 @@ Dates are `YYYY-MM-DD`.
       -run TestLive`, skipped otherwise): the broker forks the real host `claude` and streams a real
       turn back; the persistent sandbox lifecycle (create → reuse across turns → list →
       reconcile/remove) runs on **rootless Podman**; and a **real Claude turn runs inside the Arch
-      sandbox** (`sandbox/`, host claude + auth bind-mounted, `--userns=keep-id`). Nothing left open
-      on this feature.
+      sandbox** (`sandbox/`, host claude + auth bind-mounted, `--userns=keep-id`); and a **real Claude
+      sandbox turn driven THROUGH the broker** (ensure → turn → reconcile over the socket). Nothing
+      left open on this feature.
 
 ### Android
 - (nothing open — hands-free verified; voice rename shipped, see _Done_)

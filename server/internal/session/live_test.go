@@ -160,20 +160,7 @@ func TestLiveSandboxRealClaude(t *testing.T) {
 	}
 	home := isolatedClaudeHome(t) // safe copy of the host credentials
 	dir := t.TempDir()
-	se := SandboxExecutor{
-		Runtime: rt,
-		Image:   img,
-		Bin:     "claude",
-		Mounts: []string{
-			"/opt/claude-code:/opt/claude-code:ro",
-			"/usr/bin/claude:/usr/bin/claude:ro",
-			home + "/.claude:" + home + "/.claude",
-			home + "/.claude.json:" + home + "/.claude.json",
-		},
-		// Rootless: map the host user in (claude refuses to run as root) and point
-		// HOME at the mounted credentials. exec inherits both.
-		RunArgs: []string{"--userns=keep-id", "-e", "HOME=" + home},
-	}
+	se := liveSandboxExecutor(rt, img, home)
 	cn, err := NewContainerName()
 	if err != nil {
 		t.Fatal(err)
@@ -197,6 +184,96 @@ func TestLiveSandboxRealClaude(t *testing.T) {
 		t.Fatalf("reply lacked the token (auth/exec issue?): %q", reply)
 	}
 	t.Logf("sandbox → real claude reply: %q", reply)
+}
+
+// liveSandboxExecutor builds the production-shaped sandbox executor: the host
+// claude binary + credentials bind-mounted, rootless keep-id so the turn runs
+// non-root but can write the mounted auth (exec inherits the user + HOME).
+func liveSandboxExecutor(runtime, image, home string) SandboxExecutor {
+	return SandboxExecutor{
+		Runtime: runtime,
+		Image:   image,
+		Bin:     "claude",
+		Mounts: []string{
+			"/opt/claude-code:/opt/claude-code:ro",
+			"/usr/bin/claude:/usr/bin/claude:ro",
+			home + "/.claude:" + home + "/.claude",
+			home + "/.claude.json:" + home + "/.claude.json",
+		},
+		RunArgs: []string{"--userns=keep-id", "-e", "HOME=" + home},
+	}
+}
+
+// TestLiveSandboxViaBroker proves the full containerized-server path: a real
+// Claude sandbox turn driven THROUGH the broker. The broker holds the sandbox
+// config and drives the runtime; the client (as a containerized server would)
+// only sends ensure/turn/remove ops over the socket — it never touches the
+// runtime itself.
+func TestLiveSandboxViaBroker(t *testing.T) {
+	if os.Getenv("SPAWNER_LIVE") == "" {
+		t.Skip("set SPAWNER_LIVE=1 to run (real claude in a sandbox, via the broker)")
+	}
+	rt := liveRuntime(t)
+	img := liveImage(t, rt)
+	if _, err := os.Stat("/opt/claude-code/bin/claude"); err != nil {
+		t.Skip("host claude bundle /opt/claude-code not present")
+	}
+	home := isolatedClaudeHome(t)
+	dir := t.TempDir()
+
+	// Broker owns the sandbox config; the client only speaks the op protocol.
+	srv := &BrokerServer{
+		Validate:   func(d string) (string, error) { return d, nil },
+		Host:       HostExecutor{Bin: "claude"},
+		Sandbox:    liveSandboxExecutor(rt, img, home),
+		HasSandbox: true,
+		Logf:       t.Logf,
+	}
+	sock := startBrokerSrv(t, srv)
+	client := BrokerExecutor{Socket: sock}
+	d := &Driver{Execs: map[Target]Executor{TargetHost: client, TargetSandbox: client}, Bypass: true}
+
+	id, err := NewSessionID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cn, err := NewContainerName()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Session{Name: "live", Dir: dir, SessionID: id, Target: TargetSandbox, Container: cn}
+	t.Cleanup(func() { _ = d.RemoveContainer(context.Background(), s) })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
+	defer cancel()
+
+	// Spawn hook → broker ensures the container.
+	if err := d.EnsureContainer(ctx, s); err != nil {
+		t.Fatalf("EnsureContainer via broker: %v", err)
+	}
+	// Turn → broker execs real claude in the sandbox.
+	reply, _, err := d.Turn(ctx, s, "Reply with exactly the token BROKERSANDBOXOK and nothing else.", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("sandbox turn via broker: %v", err)
+	}
+	if !strings.Contains(reply, "BROKERSANDBOXOK") {
+		t.Fatalf("reply lacked the token: %q", reply)
+	}
+	// Reconcile via broker (List+Remove ops) cleans the orphan.
+	removed, err := d.ReconcileContainers(ctx, map[string]bool{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gone := false
+	for _, n := range removed {
+		if n == cn {
+			gone = true
+		}
+	}
+	if !gone {
+		t.Errorf("reconcile via broker removed %v, expected %q", removed, cn)
+	}
+	t.Logf("broker → sandbox → real claude reply: %q", reply)
 }
 
 // isolatedClaudeHome builds a throwaway HOME under t.TempDir() holding a copy of

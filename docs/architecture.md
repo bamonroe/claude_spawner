@@ -91,7 +91,8 @@ human is editing live. (An earlier design had the server itself open a "babysit"
 
 ## Containerized server + per-session execution target (host vs sandbox)
 
-Status: **implemented** (`internal/session/executor.go`, `internal/broker`, `cmd/broker`). Goal:
+Status: **implemented** (`internal/session/executor.go`, `internal/session/broker_*.go`,
+`cmd/broker`). Goal:
 run the **server** in a container for clean deployment, while letting each spawned Claude session
 run *either* directly on the host (real host files/toolchains) *or* inside an isolated container
 sandbox (disposable, root-inside-the-sandbox) — chosen **per session** via `Session.Target`.
@@ -121,19 +122,29 @@ it. We want *no component* to hold host root.
 
 ### The broker (host-execution without host root)
 
-Run a small **host-side session broker** — a daemon on the host, as the ordinary user (not root),
-listening on a Unix socket that's bind-mounted into the server container. The server sends it a
-narrow, validated request ("start a `claude` turn in directory X"); the **broker** does the actual
-`fork`/`exec` on the host and streams stdout back over the socket. Consequences:
+Run a small **host-side session broker** (`BrokerServer`, `cmd/broker`) — a daemon on the host, as
+the ordinary user (not root), listening on a Unix socket that's bind-mounted into the server
+container. It is the **single host-side execution agent for both targets**: the server sends it a
+narrow op (turn / ensure / remove / list) and the broker forks `claude` for a host turn, or drives
+the rootless runtime for a sandbox turn (create/exec/remove), streaming stdout back. Crucially it
+reuses the *same* `HostExecutor`/`SandboxExecutor` code the server uses natively — the broker is a
+thin RPC in front of those, and the client (`BrokerExecutor`) implements `Executor` +
+`SandboxLifecycle` + `SandboxReaper`, so in broker mode one client is registered for both targets
+and `Driver.Turn`/`EnsureContainer`/`ReconcileContainers` are unchanged. Consequences:
 
-- The **server container stays unprivileged** — it can only ask for the one constrained action the
-  broker exposes, never arbitrary host commands.
-- The **broker isn't root either** — it runs as the user and forks `claude` as the user, which is
-  exactly the identity we want touching the user's files.
+- The **server container stays unprivileged** and needs **no container-runtime socket** — it can
+  only ask for the constrained ops the broker exposes, never arbitrary host commands or podman
+  flags (the broker owns the sandbox config: image, mounts, run-args).
+- The **broker isn't root either** — it runs as the user, forks `claude` as the user, and drives
+  *rootless* Podman as the user.
 - The broker is the natural home for the **`SPAWNER_ROOT` jail** enforcement — it's the last hop
-  before a host process launches, so path validation there is authoritative even if the server is
+  before anything launches, so path validation there is authoritative even if the server is
   compromised. (This is the tmux client/server split from the project's early thinking, generalized
   into a proper broker.)
+
+The whole execution layer (`Executor`, host/sandbox executors, and the broker protocol/daemon/
+client) lives in `internal/session` so the broker can reuse the executors without an import cycle;
+`cmd/broker` is a thin `main` around `session.BrokerServer`.
 
 ### Sandbox sessions (also without host root)
 
@@ -152,7 +163,10 @@ to keep history/discovery working. Lifecycle hooks live in the gateway spawn (`e
 delete (`removeSandbox`) paths; `Driver.EnsureContainer`/`RemoveContainer` bridge to the executor.
 At startup `Driver.ReconcileContainers` sweeps **orphans** — managed containers (matched by the
 `spawner-` name prefix) whose session record no longer exists, e.g. deleted while the server was
-down — so they don't accumulate; live sessions' containers are left for `Ensure`-before-turn.
+down — so they don't accumulate; live sessions' containers are left for `Ensure`-before-turn. When
+the server is containerized (broker mode), every one of these — ensure, remove, list, and the turn
+`exec` — is forwarded to the broker, which runs the runtime on the host; the server itself never
+touches Podman.
 
 ### Net security posture
 

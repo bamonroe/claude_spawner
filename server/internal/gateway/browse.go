@@ -50,8 +50,8 @@ func (c *conn) doSpawnAt(path string, target session.Target) {
 		c.fail("bad_path", "not a directory")
 		return
 	}
-	if target == session.TargetSandbox && c.srv.cfg.SandboxImage == "" {
-		c.fail("bad_path", "sandbox target requested but no sandbox image is configured")
+	if target == session.TargetSandbox && !c.srv.driver.SandboxEnabled() {
+		c.fail("bad_path", "sandbox target requested but the sandbox target is not enabled")
 		return
 	}
 	sess, err := c.newSession(sanitizeName(filepath.Base(abs)), abs, target)

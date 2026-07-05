@@ -97,6 +97,14 @@ func NewDriver() *Driver {
 // Execs[TargetHost].
 func (d *Driver) HostBin(bin string) { d.Execs[TargetHost] = HostExecutor{Bin: bin} }
 
+// SandboxEnabled reports whether the sandbox target is available (an executor is
+// registered for it), so the spawn flow only offers "host or sandbox?" when
+// sandbox sessions can actually run.
+func (d *Driver) SandboxEnabled() bool {
+	_, ok := d.Execs[TargetSandbox]
+	return ok
+}
+
 // executor resolves a Target to its Executor, falling back to the host executor
 // for the empty string or any target with no registered executor.
 func (d *Driver) executor(t Target) Executor {

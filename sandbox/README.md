@@ -47,3 +47,9 @@ Why these:
 The container is **persistent for the session's lifetime**: created at spawn (`run -d … sleep
 infinity`), each turn `exec`s into it, and it's removed on delete. Orphans (a session deleted while
 the server was down) are swept at startup. See [`docs/architecture.md`](../docs/architecture.md).
+
+**Containerized server?** Put these `SPAWNER_SANDBOX_*` vars on the **broker** (`cmd/broker`), not
+the server — in broker mode the server routes sandbox turns through the broker, which owns the
+runtime config and drives Podman on the host. The server just needs `SPAWNER_BROKER_SOCKET` (and
+`SPAWNER_SANDBOX_IMAGE` set to any value, to offer sandbox in the spawn dialog). See the
+containerized-server section in the root README.

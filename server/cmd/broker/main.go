@@ -1,14 +1,17 @@
 // Command broker is the host-side session broker. It runs on the host as the
-// ordinary user (NOT root) and lets a containerized, unprivileged spawner run
-// claude turns directly on the host: the server dials the Unix socket and asks
-// the broker to launch claude in a directory; the broker enforces the SPAWNER_ROOT
-// jail and forks claude as the user. The server never gains the ability to run
-// arbitrary host commands — only this one constrained action. See internal/broker
-// and docs/architecture.md.
+// ordinary user (NOT root) and executes turns on behalf of a containerized,
+// unprivileged spawner: the server dials the Unix socket and the broker enforces
+// the SPAWNER_ROOT jail and runs the turn — forking claude for a "host" turn, or
+// driving the rootless container runtime for a "sandbox" turn (create/exec/remove
+// of the session's container). The server never gains the ability to run
+// arbitrary host commands. See internal/session (broker_server.go) and
+// docs/architecture.md.
 //
 // Env: SPAWNER_BROKER_SOCKET (required, the Unix socket path to listen on),
 // SPAWNER_ROOT (the spawn jail, shared with the server), SPAWNER_CLAUDE_BIN
-// (the claude binary, default "claude").
+// (host claude binary). Sandbox turns additionally read the same SPAWNER_SANDBOX_*
+// vars the server uses (IMAGE enables sandbox; RUNTIME, CLAUDE_BIN, MOUNTS,
+// RUN_ARGS) — here the broker, not the server, owns the runtime config.
 package main
 
 import (
@@ -16,10 +19,11 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
-	"github.com/bam/claude_spawner/server/internal/broker"
 	"github.com/bam/claude_spawner/server/internal/config"
+	"github.com/bam/claude_spawner/server/internal/session"
 )
 
 func env(key, def string) string {
@@ -27,6 +31,17 @@ func env(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// splitList splits a comma-separated value, trimming and dropping empties.
+func splitList(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func main() {
@@ -39,10 +54,26 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 	if len(roots) == 0 {
-		log.Printf("WARNING: SPAWNER_ROOT is empty — the broker will launch claude in ANY " +
+		log.Printf("WARNING: SPAWNER_ROOT is empty — the broker will run turns in ANY " +
 			"directory the server asks for (no jail). Set SPAWNER_ROOT to constrain it.")
 	}
 	cfg := &config.Config{SpawnRoots: roots}
+
+	srv := &session.BrokerServer{
+		Validate: cfg.ValidateSpawnDir,
+		Host:     session.HostExecutor{Bin: env("SPAWNER_CLAUDE_BIN", "claude")},
+		Logf:     log.Printf,
+	}
+	if img := os.Getenv("SPAWNER_SANDBOX_IMAGE"); img != "" {
+		srv.Sandbox = session.SandboxExecutor{
+			Runtime: env("SPAWNER_SANDBOX_RUNTIME", "podman"),
+			Image:   img,
+			Bin:     env("SPAWNER_SANDBOX_CLAUDE_BIN", "claude"),
+			Mounts:  splitList(os.Getenv("SPAWNER_SANDBOX_MOUNTS")),
+			RunArgs: strings.Fields(os.Getenv("SPAWNER_SANDBOX_RUN_ARGS")),
+		}
+		srv.HasSandbox = true
+	}
 
 	// Fresh socket: remove a stale file from a previous run, then restrict access
 	// to the owner (only local processes that can reach the socket may drive it).
@@ -55,8 +86,8 @@ func main() {
 	}
 	defer os.Remove(sockPath)
 
-	srv := &broker.Server{Validate: cfg.ValidateSpawnDir, ClaudeBin: env("SPAWNER_CLAUDE_BIN", "claude")}
-	log.Printf("broker listening on %s (claude=%q, roots=%v)", sockPath, srv.ClaudeBin, roots)
+	log.Printf("broker listening on %s (claude=%q, sandbox=%v, roots=%v)",
+		sockPath, srv.Host.Bin, srv.HasSandbox, roots)
 
 	// Close the listener on SIGINT/SIGTERM so Serve returns and the socket file is
 	// cleaned up.

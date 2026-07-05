@@ -42,25 +42,36 @@ func main() {
 	}
 	driver := session.NewDriver()
 	if cfg.BrokerSocket != "" {
-		// Containerized server: run "host"-target turns through the host-side broker
-		// (this process stays unprivileged) instead of forking claude locally.
-		driver.Execs[session.TargetHost] = session.BrokerExecutor{Socket: cfg.BrokerSocket}
-		log.Printf("host target via broker socket %s", cfg.BrokerSocket)
+		// Containerized server: run turns through the host-side broker (this process
+		// stays unprivileged) instead of executing locally. The broker is the single
+		// host-side agent for BOTH targets — it forks claude for host turns and drives
+		// the runtime for sandbox turns — so the same client backs both, and the
+		// server needs neither host root nor a container-runtime socket. SANDBOX_IMAGE
+		// here just enables offering sandbox; the broker owns the real runtime config.
+		client := session.BrokerExecutor{Socket: cfg.BrokerSocket}
+		driver.Execs[session.TargetHost] = client
+		log.Printf("host turns via broker socket %s", cfg.BrokerSocket)
+		if cfg.SandboxImage != "" {
+			driver.Execs[session.TargetSandbox] = client
+			log.Printf("sandbox turns via broker socket %s", cfg.BrokerSocket)
+		}
 	} else {
 		driver.HostBin(cfg.ClaudeBin)
-	}
-	if cfg.SandboxImage != "" {
-		driver.Execs[session.TargetSandbox] = session.SandboxExecutor{
-			Runtime: cfg.SandboxRuntime,
-			Image:   cfg.SandboxImage,
-			Bin:     cfg.SandboxClaudeBin,
-			Mounts:  cfg.SandboxMounts,
-			RunArgs: cfg.SandboxRunArgs,
+		if cfg.SandboxImage != "" {
+			driver.Execs[session.TargetSandbox] = session.SandboxExecutor{
+				Runtime: cfg.SandboxRuntime,
+				Image:   cfg.SandboxImage,
+				Bin:     cfg.SandboxClaudeBin,
+				Mounts:  cfg.SandboxMounts,
+				RunArgs: cfg.SandboxRunArgs,
+			}
+			log.Printf("sandbox target enabled: %s image %q", cfg.SandboxRuntime, cfg.SandboxImage)
 		}
-		log.Printf("sandbox target enabled: %s image %q", cfg.SandboxRuntime, cfg.SandboxImage)
-
-		// Sweep sandbox containers left orphaned by sessions deleted while the
-		// server was down (live ones are recreated on demand by Ensure-before-turn).
+	}
+	if driver.SandboxEnabled() {
+		// Sweep sandbox containers left orphaned by sessions deleted while the server
+		// was down (live ones are recreated on demand by Ensure-before-turn). Routes
+		// through the broker in broker mode, or the local runtime otherwise.
 		known := map[string]bool{}
 		for _, s := range store.List() {
 			if s.Container != "" {

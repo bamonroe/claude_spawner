@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/bam/claude_spawner/server/internal/broker"
 )
 
 // writeFakeClaude writes a shell script that emits a stream-json result event
@@ -23,15 +21,20 @@ func writeFakeClaude(t *testing.T, result string) string {
 	return p
 }
 
-// startBroker runs a broker.Server on a temp unix socket and returns its path.
+// startBroker runs a host-only BrokerServer on a temp unix socket and returns its
+// path. startBrokerSrv is the general form (with a sandbox executor).
 func startBroker(t *testing.T, validate func(string) (string, error), claudeBin string) string {
+	t.Helper()
+	return startBrokerSrv(t, &BrokerServer{Validate: validate, Host: HostExecutor{Bin: claudeBin}, Logf: t.Logf})
+}
+
+func startBrokerSrv(t *testing.T, srv *BrokerServer) string {
 	t.Helper()
 	sock := filepath.Join(t.TempDir(), "broker.sock")
 	l, err := net.Listen("unix", sock)
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := &broker.Server{Validate: validate, ClaudeBin: claudeBin, Logf: t.Logf}
 	go srv.Serve(l)
 	t.Cleanup(func() { l.Close() })
 	return sock
