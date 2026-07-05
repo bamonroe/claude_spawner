@@ -8,7 +8,32 @@ behalf. This directory holds the broker's host service and a transcript helper.
 |-----------------------------|----------------------------------------------------------------------------|
 | `spawner-broker.service`    | systemd **user** service for the host-side broker (`cmd/broker`).          |
 | `spawner-broker.env.example`| template for the broker's `EnvironmentFile` (socket, root, claude, sandbox, restart cmd). |
+| `rebuild.sh`                | rebuild + relaunch the whole stack (whisper servers, broker, server container). |
+| `spawner-rebuild.sudoers`   | optional passwordless-sudo drop-in for `rebuild.sh` (rebuilds don't need root). |
 | `claude-log.sh`             | helper to read a session's Claude transcript by name.                     |
+
+## Transcription depends on the resident whisper servers
+
+The live server transcribes via two **resident whisper.cpp HTTP servers** (accurate on `:8571`,
+fast draft on `:8572`) defined in the root [`docker-compose.yml`](../docker-compose.yml) — the
+broker compose does **not** start them. They carry `restart: unless-stopped`, so once created they
+survive reboots, but a `docker compose down` removes them and voice goes silent until they're
+recreated. Bring them back with `docker compose up -d whisper whisper-fast` (or just run
+`rebuild.sh`, which does it first). See [`../whisper/README.md`](../whisper/README.md).
+
+## Rebuilding the stack
+
+`rebuild.sh` rebuilds and relaunches everything in order — whisper servers, the broker binary +
+user service, then the server container image. It needs **no root**: user `bam` is in the `docker`
+group and the broker is a systemd *user* service, so run it directly:
+
+```bash
+deploy/rebuild.sh
+```
+
+If you want it invokable via `sudo` without a password (e.g. non-interactively), install
+`spawner-rebuild.sudoers` per its header comment — it scopes NOPASSWD to a single root-owned copy of
+the script (`/usr/local/sbin/spawner-rebuild`), and the script re-execs its work back as `bam`.
 
 ## The broker service
 

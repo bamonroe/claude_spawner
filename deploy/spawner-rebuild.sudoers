@@ -1,0 +1,18 @@
+# Passwordless sudo for the claude_spawner rebuild script — so the rebuild can be
+# triggered non-interactively (e.g. by the agent) without a password prompt.
+#
+# NOTE: rebuilds do NOT actually need root — user `bam` is in the `docker` group
+# and the broker is a systemd *user* service, so `deploy/rebuild.sh` runs fine
+# as bam with no sudo. This rule is only for when you want to invoke it via
+# `sudo` anyway; the script re-execs its work as bam.
+#
+# SECURITY: a NOPASSWD rule on a script is only as safe as the script's file
+# permissions. If `bam` can edit the target, this is passwordless root. So the
+# rule points at a ROOT-OWNED copy outside the repo, not the git working tree.
+# Install:
+#   sudo install -m 0755 -o root -g root deploy/rebuild.sh /usr/local/sbin/spawner-rebuild
+#   sudo install -m 0440 -o root -g root deploy/spawner-rebuild.sudoers /etc/sudoers.d/claude-spawner-rebuild
+#   sudo visudo -cf /etc/sudoers.d/claude-spawner-rebuild   # validate
+# Re-run the first line after editing rebuild.sh to refresh the root-owned copy.
+
+bam ALL=(root) NOPASSWD: /usr/local/sbin/spawner-rebuild
