@@ -108,6 +108,16 @@ func msgContextReset(name string) map[string]any {
 	return map[string]any{"type": "context_reset", "name": name}
 }
 
+// msgRenamed tells the app that the currently-attached session was renamed
+// (from the sidebar or the `rename` voice command). It carries the old and new
+// names so the app can update the attached-session title in place, without the
+// heavy re-attach side effects (history refetch, context-meter reseed) that a
+// fresh `attached` message would trigger. Only sent when the rename follows the
+// connection's attached session.
+func msgRenamed(old, name string) map[string]any {
+	return map[string]any{"type": "renamed", "old": old, "name": name}
+}
+
 // msgOutput carries session output for display + TTS. Live prose streams as
 // chunk=true messages; the final chunk=false message closes the turn and (only
 // then) carries the turn's token `usage`, which the app renders as a per-message

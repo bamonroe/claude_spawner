@@ -31,6 +31,13 @@ Dates are `YYYY-MM-DD`.
 
 ## Done
 
+- [x] 2026-07-05 — **Sidebar rename now updates the attached-session title bar.** Renaming the
+      attached session (sidebar `rename_discovered` or the `rename` voice command) refreshed the
+      drawer list but left the title bar on the old name — the title reads `attachedName`, set only
+      by the `attached` message, which a rename never re-sent. `doRename` now emits a lightweight
+      `renamed` (`{old, name}`) message when the rename follows this connection's attached session;
+      the app updates the title in place (and migrates the name-keyed log buffer) with no history
+      refetch / meter reseed. New wire message documented in `docs/protocol.md`.
 - [x] 2026-07-04 — **Open the sessions drawer with a left-edge swipe.** Besides the ☰ button, a
       narrow strip pinned to the far-left edge opens the navigation drawer on a rightward drag
       (`detectHorizontalDragGestures` overlay in `MainActivity.kt`). The drawer's built-in gestures

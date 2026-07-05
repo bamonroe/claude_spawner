@@ -652,6 +652,7 @@ func (c *conn) doRename(old, newName string) bool {
 	if c.attached != nil && c.attached.Name == old {
 		c.srv.renameJob(old, newName)
 		c.attached = c.srv.store.Get(newName)
+		c.send(msgRenamed(old, newName)) // update the attached-session title in place
 	}
 	c.sendSessionList() // push the refreshed list back to the app (quietly)
 	return true

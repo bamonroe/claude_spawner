@@ -743,6 +743,20 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
                 _status.value = "connected"
                 showLog("")
             }
+            is ServerMsg.Renamed -> {
+                // Follow a rename of the session we're attached to so the title bar
+                // tracks the sidebar. In-place update only — no history refetch or
+                // meter reseed (unlike a full re-attach). The log buffer is keyed by
+                // session name, so migrate it to the new key or the chat view empties.
+                if (_attachedName.value == msg.old) {
+                    logs.remove(msg.old)?.let { logs[msg.name] = it }
+                    hasMore.remove(msg.old)?.let { hasMore[msg.name] = it }
+                    if (currentKey == msg.old) currentKey = msg.name
+                    _attachedName.value = msg.name
+                    settings.lastSession = msg.name
+                    _status.value = "attached: ${msg.name}"
+                }
+            }
             is ServerMsg.History -> onHistory(msg)
             is ServerMsg.ReadLast -> onReadLast(msg.count)
             is ServerMsg.Discovered -> { _discovered.value = msg.sessions; _discoverError.value = "" }

@@ -22,6 +22,7 @@ sealed interface ServerMsg {
     data class Attached(val name: String, val usage: TokenUsage? = null, val usageAt: Long = 0) : ServerMsg
     data object Detached : ServerMsg
     data class ContextReset(val name: String) : ServerMsg // Claude context cleared → drop token accounting
+    data class Renamed(val old: String, val name: String) : ServerMsg // attached session renamed → update title in place
     data class Output(val name: String, val text: String, val chunk: Boolean, val usage: TokenUsage? = null) : ServerMsg
     data class History(val name: String, val messages: List<HistMsg>, val more: Boolean) : ServerMsg
     data class ReadLast(val count: Int) : ServerMsg
@@ -54,6 +55,7 @@ sealed interface ServerMsg {
                 "attached" -> Attached(o.optString("name"), readUsage(o.optJSONObject("usage")), o.optLong("usage_at"))
                 "detached" -> Detached
                 "context_reset" -> ContextReset(o.optString("name"))
+                "renamed" -> Renamed(o.optString("old"), o.optString("name"))
                 "output" -> Output(o.optString("name"), o.optString("text"), o.optBoolean("chunk", false), readUsage(o.optJSONObject("usage")))
                 "history" -> History(o.optString("name"), readHist(o.optJSONArray("messages")), o.optBoolean("more"))
                 "read_last" -> ReadLast(o.optInt("count", 1))
