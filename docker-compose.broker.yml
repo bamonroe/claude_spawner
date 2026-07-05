@@ -1,0 +1,53 @@
+# Containerized spawner in BROKER mode: the server runs unprivileged in a
+# container and delegates ALL turn execution to the host-side broker
+# (deploy/spawner-broker.service) over a bind-mounted Unix socket — so the
+# container holds no host root and no container-runtime socket. Verified end to
+# end (host + sandbox turns) with rootless Podman.
+#
+#   1. Run the broker first: see deploy/spawner-broker.service.
+#   2. Edit the paths below to your host (SPAWNER_ROOT dirs, socket, ~/.claude).
+#   3. podman compose -f docker-compose.broker.yml up --build   (or `docker compose`)
+#
+# EDIT THESE for your host: the SPAWNER_ROOT dirs are bind-mounted at the SAME
+# path so directory strings match what the broker executes against; ~/.claude is
+# mounted read-only so the server can list/replay session history/discovery.
+
+services:
+  spawner:
+    build:
+      context: ./server
+      dockerfile: Dockerfile.broker
+    image: spawner-server:latest
+    # Map the host user into the container so it can read the owner-only broker
+    # socket and the host-owned read-only mounts.
+    userns_mode: keep-id
+    ports:
+      - "${SPAWNER_HOST_PORT:-8555}:8080"
+    volumes:
+      # Host-side broker socket (must match SPAWNER_BROKER_SOCKET on the broker).
+      - ${XDG_RUNTIME_DIR}/spawner-broker.sock:/run/broker.sock
+      # Spawn roots, SAME path in the container (read-only — the server only
+      # browses them; the broker does the writing on the host). EDIT to yours.
+      - ${HOME}/git:${HOME}/git:ro
+      - /data:/data:ro
+      # Session history/discovery: the server reads transcripts the broker writes.
+      - ${HOME}/.claude:/home/app/.claude:ro
+      # Durable session registry (read-write).
+      - spawner-state:/state
+    environment:
+      SPAWNER_TOKEN: ${SPAWNER_TOKEN:?set SPAWNER_TOKEN}
+      SPAWNER_ADDR: ":8080"
+      # MUST match the broker's SPAWNER_ROOT and the same-path mounts above.
+      SPAWNER_ROOT: ${HOME}/git:/data
+      SPAWNER_STATE: /state/sessions.json
+      SPAWNER_BROKER_SOCKET: /run/broker.sock
+      # Non-empty enables offering "sandbox" in the spawn dialog; the broker holds
+      # the real sandbox runtime config. Leave unset for host-only.
+      SPAWNER_SANDBOX_IMAGE: ${SPAWNER_SANDBOX_IMAGE:-spawner-sandbox:latest}
+      # Remote transcription (reach a whisper server; leave unset to disable audio).
+      SPAWNER_WHISPER_URL: ${SPAWNER_WHISPER_URL:-}
+      SPAWNER_WHISPER_FAST_URL: ${SPAWNER_WHISPER_FAST_URL:-}
+    restart: unless-stopped
+
+volumes:
+  spawner-state:

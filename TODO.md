@@ -42,8 +42,12 @@ Dates are `YYYY-MM-DD`.
       turn back; the persistent sandbox lifecycle (create → reuse across turns → list →
       reconcile/remove) runs on **rootless Podman**; and a **real Claude turn runs inside the Arch
       sandbox** (`sandbox/`, host claude + auth bind-mounted, `--userns=keep-id`); and a **real Claude
-      sandbox turn driven THROUGH the broker** (ensure → turn → reconcile over the socket). Nothing
-      left open on this feature.
+      sandbox turn driven THROUGH the broker** (ensure → turn → reconcile over the socket); and the
+      **fully containerized server** — lean broker-mode image (`server/Dockerfile.broker`: binary +
+      ffmpeg only), `docker-compose.broker.yml`, broker as a systemd user service
+      (`deploy/spawner-broker.*`) — verified end to end on scratch (unprivileged server container →
+      broker → real claude for BOTH a host and a sandbox turn). Nothing left open on this feature;
+      cutting the live server over to the container is a user step (it kills the running session).
 
 ### Android
 - (nothing open — hands-free verified; voice rename shipped, see _Done_)

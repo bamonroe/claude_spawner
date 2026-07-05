@@ -1,0 +1,26 @@
+# Host-side session broker for a containerized spawner (systemd USER service).
+#
+# Install:
+#   cp deploy/spawner-broker.env.example ~/.config/claude_spawner/broker.env   # then edit
+#   go build -o ~/.local/bin/spawner-broker ./server/cmd/broker
+#   cp deploy/spawner-broker.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now spawner-broker
+#   loginctl enable-linger $USER   # so it runs without an active login session
+#
+# It runs as your ordinary user (NOT root): it forks claude for host turns and
+# drives rootless Podman for sandbox turns, on behalf of the unprivileged server
+# container. See docs/architecture.md.
+
+[Unit]
+Description=claude_spawner host-side broker
+After=default.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/claude_spawner/broker.env
+ExecStart=%h/.local/bin/spawner-broker
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target
