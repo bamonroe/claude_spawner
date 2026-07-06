@@ -100,19 +100,20 @@ func (c *conn) commitMessage() {
 	}
 }
 
-// vocabBias returns a whisper initial-prompt that biases decoding toward this
-// machine's session names, which STT otherwise mangles (so "attach to sfit"
-// resolves). Empty when there are no sessions.
+// vocabBias returns a whisper initial-prompt that biases decoding toward the
+// control vocabulary and this machine's session names, both of which STT
+// otherwise mangles (so "hey buddy, attach to sfit" resolves). The command
+// words come first (always present); session names are appended when any exist.
 func (c *conn) vocabBias() string {
-	sessions := c.srv.store.List()
-	if len(sessions) == 0 {
-		return ""
+	parts := []string{"Commands: " + strings.Join(command.Vocabulary(), ", ") + "."}
+	if sessions := c.srv.store.List(); len(sessions) > 0 {
+		names := make([]string, 0, len(sessions))
+		for _, s := range sessions {
+			names = append(names, s.Name)
+		}
+		parts = append(parts, "Session names: "+strings.Join(names, ", ")+".")
 	}
-	names := make([]string, 0, len(sessions))
-	for _, s := range sessions {
-		names = append(names, s.Name)
-	}
-	return "Session names: " + strings.Join(names, ", ") + "."
+	return strings.Join(parts, " ")
 }
 
 // clearBuffer discards the pending message + audio and clears the draft.

@@ -66,6 +66,30 @@ var wakePhrases = [][]string{
 	{"heybuddy"},
 }
 
+// commandVocab is the distinctive control-command vocabulary — the verbs and
+// nouns whisper should lean toward when transcribing a "hey buddy" command. It
+// feeds the STT initial-prompt bias (see gateway.vocabBias) so command words
+// survive transcription instead of being mangled into similar-sounding words.
+// It is NOT the parser's matching table (Parse owns that, tolerant of many
+// phrasings); it is the salient subset worth naming to whisper. Add a command's
+// key word here when you add the command.
+var commandVocab = []string{
+	"spawn", "attach", "detach", "list", "kill", "status", "cancel",
+	"stop", "abort", "help", "read last", "clear", "compress", "compact",
+	"usage", "rename", "session", "project",
+}
+
+// Vocabulary returns the control words worth biasing STT toward: the canonical
+// wake phrase (wakePhrases[0]) followed by commandVocab. gateway.vocabBias folds
+// this into the whisper initial-prompt so the wake word and command verbs
+// transcribe reliably. This is the single source of truth for that bias list —
+// nothing hardcodes the command words elsewhere.
+func Vocabulary() []string {
+	out := make([]string, 0, len(commandVocab)+1)
+	out = append(out, strings.Join(wakePhrases[0], " "))
+	return append(out, commandVocab...)
+}
+
 // StripWake removes an optional leading wake phrase (any wakePhrases entry, with
 // optional punctuation) and reports whether it was present. Used to distinguish
 // control commands from plain dictation while attached.
