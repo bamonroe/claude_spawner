@@ -265,6 +265,14 @@ func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool fun
 		return "", Usage{}, err
 	}
 
+	// Once claude has launched with --session-id it has created (or is creating)
+	// the session on disk. Flip Started here — NOT after a clean Wait — so that a
+	// turn interrupted mid-stream (client drop, container restart) still records
+	// that the id now exists. Otherwise the next turn re-runs --session-id on an
+	// id claude already owns, which exits status 1 forever, bricking the session.
+	// The caller persists this even on the error path (see gateway/jobs.go).
+	s.Started = true
+
 	reply, usage, perr := parseStream(proc.Stdout(), onTool, onText, onRateLimit)
 	if werr := proc.Wait(); werr != nil {
 		return "", Usage{}, fmt.Errorf("claude exited: %w", werr)
@@ -272,7 +280,6 @@ func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool fun
 	if perr != nil {
 		return "", Usage{}, perr
 	}
-	s.Started = true
 	return reply, usage, nil
 }
 

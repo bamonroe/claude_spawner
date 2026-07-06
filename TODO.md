@@ -15,6 +15,14 @@ Dates are `YYYY-MM-DD`.
 ### Server / infra
 - [ ] Decide + implement the auth/transport story beyond the shared token: **TLS/mTLS** (today a
       constant-time-compared shared token, fronted by Tailscale).
+- [x] 2026-07-05 — **Fix interrupted-turn session bricking.** `Driver.Turn` flipped `Started`
+      false→true only after a clean `Wait`, but claude creates the session on disk the moment it
+      launches. A turn interrupted mid-stream (client drop, container restart) left `Started=false`
+      with the id already on disk, so every later turn re-ran `--session-id <existing-id>` →
+      `claude exited: status 1` forever (seen live on `claude_spawner`/`claude_spawner-2`; this is
+      the "sessions deleted/rotated / failed" symptom — it's the compaction rotation path plus an
+      interruption). Now `Turn` flips `Started` on launch and `gateway/jobs.go` persists it (and
+      drops the consumed `PendingSeed`) on the error path, so the next turn resumes cleanly.
 - [x] 2026-07-05 — **Restart button rebuilds + relaunches the containerized server.** The old path
       (exit non-zero, let a host systemd `ExecStartPre` `go build` relaunch) no longer rebuilds now
       that the server always runs as a Docker container. `restart` now routes through the broker: a

@@ -213,6 +213,14 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk bool) bo
 				return
 			}
 			log.Printf("turn[%s] error: %v", sess.Name, err)
+			// A failed turn that nonetheless launched claude created the session on
+			// disk (Turn flips Started on launch). Persist that — and drop the seed
+			// it consumed — so the next turn resumes instead of re-attempting
+			// --session-id on an id claude already owns (which fails forever).
+			if sess.Started != wasStarted {
+				sess.PendingSeed = ""
+				_ = s.store.Put(sess)
+			}
 			if spoken := spokenError["turn_failed"]; spoken != "" {
 				j.emit(msgSay(spoken)) // don't leave a voice user with a silent failure
 			}
