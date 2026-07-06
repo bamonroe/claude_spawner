@@ -215,7 +215,7 @@ func (c *conn) doDiscover() {
 		views = append(views, discoveredView{
 			Name: s.Name, Dir: s.Dir, SessionID: s.SessionID,
 			LastActive: discByDir[s.Dir].LastActive, Active: active[s.Dir], Registered: true,
-			Busy: c.srv.isBusy(s.Name), Target: sandboxTarget(s),
+			Busy: c.srv.isBusy(s.SessionID), Target: sandboxTarget(s),
 		})
 	}
 	// Unregistered sessions found on disk — one adoptable row per directory (these
@@ -321,7 +321,7 @@ func (c *conn) doDeleteDiscovered(sessionID string) {
 		}
 		_ = c.srv.store.Delete(rec.Name)
 		c.removeSandbox(rec) // destroy the session's container, if any
-		c.srv.dropJob(rec.Name)
+		c.srv.dropJob(rec.SessionID)
 	}
 	c.sendSessionList()
 	c.doDiscover()
@@ -440,7 +440,7 @@ func (c *conn) doAttach(name string, silent bool) {
 		return
 	}
 	if c.attached != nil {
-		c.srv.unbindJob(c, c.attached.Name)
+		c.srv.unbindJob(c, c.attached.SessionID)
 	}
 	c.clearBuffer() // fresh message buffer for the new session
 	c.attached = s
@@ -449,7 +449,7 @@ func (c *conn) doAttach(name string, silent bool) {
 		c.send(msgSay("attached to " + s.Name + "."))
 	}
 	// Catch up on a job that may still be running (or finished while we were gone).
-	c.srv.bindJob(c, s.Name, silent)
+	c.srv.bindJob(c, s, silent)
 }
 
 // matchKey normalizes a spoken/stored name or dir for fuzzy voice matching:
@@ -528,7 +528,7 @@ func (c *conn) doRestart() {
 // abortTurn cancels the running turn on the attached session (kills the claude
 // child). The turn's goroutine then delivers a `turn_stopped` to clear the app.
 func (c *conn) abortTurn() {
-	if c.attached != nil && c.srv.cancelTurn(c.attached.Name) {
+	if c.attached != nil && c.srv.cancelTurn(c.attached.SessionID) {
 		c.send(msgSay("stopping that."))
 		return
 	}
@@ -540,7 +540,7 @@ func (c *conn) doDetach() {
 		c.send(msgSay("you're not attached to anything."))
 		return
 	}
-	c.srv.unbindJob(c, c.attached.Name)
+	c.srv.unbindJob(c, c.attached.SessionID)
 	c.clearBuffer()
 	c.attached = nil
 	c.send(msgDetached())
@@ -563,7 +563,7 @@ func (c *conn) doClear() {
 		c.send(msgSay("nothing to clear yet."))
 		return
 	}
-	if c.srv.isBusy(s.Name) {
+	if c.srv.isBusy(s.SessionID) {
 		c.send(msgSay("still working on the last one — try clearing when it's done."))
 		return
 	}
@@ -572,6 +572,7 @@ func (c *conn) doClear() {
 		c.fail("internal", err.Error())
 		return
 	}
+	oldID := s.SessionID
 	s.PriorIDs = append(s.PriorIDs, s.SessionID)
 	s.SessionID = newID
 	s.Started = false
@@ -581,6 +582,10 @@ func (c *conn) doClear() {
 		c.fail("internal", err.Error())
 		return
 	}
+	// The session_id rotated: move the hub (holds attached sinks) and the id index
+	// onto the new id so later turns still reach the attached devices.
+	c.srv.rekeyJob(oldID, newID)
+	_ = c.srv.store.ForgetID(oldID)
 	c.clearBuffer()
 	c.send(msgContextReset(s.Name)) // reset the app's context-size readout to zero
 	c.send(msgSay("cleared. starting fresh — your history is still here."))
@@ -604,7 +609,7 @@ func (c *conn) doCompress() {
 		c.send(msgSay("nothing to compress yet."))
 		return
 	}
-	if c.srv.isBusy(s.Name) {
+	if c.srv.isBusy(s.SessionID) {
 		c.send(msgSay("still working on the last one — try compressing when it's done."))
 		return
 	}
@@ -631,7 +636,7 @@ func (c *conn) removeSession(name string) bool {
 		c.attached = nil
 		c.send(msgDetached())
 	}
-	c.srv.dropJob(s.Name)
+	c.srv.dropJob(s.SessionID)
 	c.sendSessionList()
 	return true
 }
@@ -669,10 +674,10 @@ func (c *conn) doRename(old, newName string) bool {
 		c.fail("rename_failed", err.Error())
 		return false
 	}
-	// Follow the rename if we're attached to it. The job hub is keyed by name, so
-	// re-key it too (preserving its sinks + any in-flight turn/buffered result).
+	// Follow the rename if we're attached to it. The job hub and in-flight state are
+	// keyed by session_id (stable across a rename), so nothing there needs re-keying;
+	// just refresh the attached record and update the app's title in place.
 	if c.attached != nil && c.attached.Name == old {
-		c.srv.renameJob(old, newName)
 		c.attached = c.srv.store.Get(newName)
 		c.send(msgRenamed(old, newName, c.attached.SessionID)) // update the attached-session title in place (matched by id)
 	}
@@ -744,7 +749,7 @@ func (c *conn) dictate(text string) {
 		return
 	}
 	// Mirror the prompt onto any other devices attached to this session.
-	c.srv.echoUserPrompt(c.attached.Name, text, c)
+	c.srv.echoUserPrompt(c.attached.SessionID, text, c)
 }
 
 // Scaffolding the server appends to a dictation before sending it to Claude. It's

@@ -13,14 +13,19 @@ import (
 // sessions are durable (a session_id on disk, not a process), the registry
 // survives server restarts: on boot we can list known sessions and reattach.
 type Store struct {
-	path   string
-	mu     sync.RWMutex
+	path string
+	mu   sync.RWMutex
+	// Records are indexed both by their mutable Name (the voice/lookup handle) and
+	// by their stable SessionID (the durable identity). A rename only re-keys
+	// byName; byID never moves — so callers that hold a session_id (attach/rename/
+	// delete, the job hub) resolve it in O(1) and unambiguously.
 	byName map[string]*Session
+	byID   map[string]*Session
 }
 
 // OpenStore loads (or initializes) the registry at path.
 func OpenStore(path string) (*Store, error) {
-	s := &Store{path: path, byName: map[string]*Session{}}
+	s := &Store{path: path, byName: map[string]*Session{}, byID: map[string]*Session{}}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -34,6 +39,9 @@ func OpenStore(path string) (*Store, error) {
 	}
 	for _, rec := range list {
 		s.byName[rec.Name] = rec
+		if rec.SessionID != "" {
+			s.byID[rec.SessionID] = rec
+		}
 	}
 	return s, nil
 }
@@ -65,12 +73,7 @@ func (s *Store) GetByDir(dir string) *Session {
 func (s *Store) GetBySessionID(id string) *Session {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	for _, rec := range s.byName {
-		if rec.SessionID == id {
-			return rec
-		}
-	}
-	return nil
+	return s.byID[id]
 }
 
 // List returns all sessions sorted by name.
@@ -89,6 +92,9 @@ func (s *Store) List() []*Session {
 func (s *Store) Put(rec *Session) error {
 	s.mu.Lock()
 	s.byName[rec.Name] = rec
+	if rec.SessionID != "" {
+		s.byID[rec.SessionID] = rec
+	}
 	s.mu.Unlock()
 	return s.flush()
 }
@@ -96,6 +102,9 @@ func (s *Store) Put(rec *Session) error {
 // Delete removes a session and persists the registry.
 func (s *Store) Delete(name string) error {
 	s.mu.Lock()
+	if rec := s.byName[name]; rec != nil {
+		delete(s.byID, rec.SessionID)
+	}
 	delete(s.byName, name)
 	s.mu.Unlock()
 	return s.flush()
@@ -119,6 +128,17 @@ func (s *Store) Rename(old, newName string) error {
 	s.byName[newName] = rec
 	s.mu.Unlock()
 	return s.flush()
+}
+
+// ForgetID drops a stale session_id from the id index — used after a compact/
+// clear rotates a record onto a new session_id (its old id becomes a prior id and
+// must no longer resolve to the live record). The record itself stays, indexed by
+// its new id via Put. No-op if the id isn't a current index entry.
+func (s *Store) ForgetID(oldID string) error {
+	s.mu.Lock()
+	delete(s.byID, oldID)
+	s.mu.Unlock()
+	return nil
 }
 
 // flush writes the registry atomically (temp file + rename).

@@ -29,10 +29,13 @@ label. (Full code map established 2026-07-05 via two Explore passes — server +
       (`brokerRequest.IDs`) instead of nuking the whole directory. Fixes hidden sessions + renames and
       deletes hitting the wrong one. Tests: discover-shows-every-session, per-session delete (gateway +
       broker). protocol.md updated (docsync green).
-- [ ] **Phase 2 — server keys state by `session_id`.** Store gains a `bySessionID` primary index
-      (name becomes a secondary lookup for voice); `jobs` hub, `inflight` tracker, and `c.attached`
-      operations key by id; `renameJob` becomes a no-op (id is stable). Wire `attach`/`history` accept
-      a `session_id` (name kept for voice/back-compat).
+- [x] 2026-07-05 — **Phase 2 — server keys turn state by `session_id`.** Store gained a `byID` index
+      (O(1) `GetBySessionID`; a rename only re-keys `byName`). The `jobs` hub, `inflight` tracker, and
+      `interrupted` map key by `session_id`; `renameJob` deleted (a rename no longer re-keys anything).
+      Because a compact/clear ROTATES the `session_id`, the two rotation sites now `rekeyJob` the hub
+      and `ForgetID` the old index entry so turns still reach attached devices. Tests: rename-then-turn
+      still delivers; compaction fan-out; per-session delete. (Wire `attach`/`history` still by name —
+      resolved to the record server-side; app-side id keying is Phase 3.)
 - [ ] **Phase 3 — Android keys state by `session_id`.** `logs`/paging maps, `currentKey`,
       `settings.lastSession`, and the sidebar "attached" check key by id; auto-attach on
       reconnect/server-switch uses `lastSessionId`. (Title already tracks id as of 2026-07-05.)

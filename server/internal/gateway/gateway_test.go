@@ -513,6 +513,14 @@ func TestRenameSession(t *testing.T) {
 	if !found {
 		t.Fatalf("renamed session not in list: %v", m["sessions"])
 	}
+
+	// The job hub is keyed by session_id (stable across the rename), so a turn
+	// dictated after the rename must still fan out to this attached connection —
+	// no hub re-keying required. Regression guard for dropping renameJob.
+	send(t, ws, map[string]any{"type": "utterance", "text": "say pong"})
+	if out := readUntil(t, ws, "output"); out["text"] != "pong" {
+		t.Fatalf("no turn output after rename (hub lost across rename?): %v", out["text"])
+	}
 }
 
 // TestVoiceRename drives the "hey buddy rename to <name>" command end to end:

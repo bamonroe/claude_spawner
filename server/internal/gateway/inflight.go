@@ -7,13 +7,14 @@ import (
 	"sync"
 )
 
-// inflightTracker persists the set of sessions that have a turn running right
-// now. Turns don't survive a server restart (the claude child is in this
-// process's cgroup and the jobs map is in memory), so if the server dies
+// inflightTracker persists the set of sessions (by session_id) that have a turn
+// running right now. Turns don't survive a server restart (the claude child is in
+// this process's cgroup and the jobs map is in memory), so if the server dies
 // mid-turn the app would otherwise wait forever on a reply. On the next start we
 // load the leftover set and, when the app re-attaches to one of those sessions,
 // tell it the turn was interrupted (its result, if any, is already in the
-// on-disk transcript the app reloads on attach).
+// on-disk transcript the app reloads on attach). Keyed by session_id, so a rename
+// across the restart can't lose the flag.
 type inflightTracker struct {
 	mu   sync.Mutex
 	path string
@@ -38,20 +39,20 @@ func newInflightTracker(path string) (t *inflightTracker, prior map[string]bool)
 	return t, prior
 }
 
-func (t *inflightTracker) add(name string) {
+func (t *inflightTracker) add(sessID string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if !t.set[name] {
-		t.set[name] = true
+	if !t.set[sessID] {
+		t.set[sessID] = true
 		t.flush()
 	}
 }
 
-func (t *inflightTracker) remove(name string) {
+func (t *inflightTracker) remove(sessID string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.set[name] {
-		delete(t.set, name)
+	if t.set[sessID] {
+		delete(t.set, sessID)
 		t.flush()
 	}
 }

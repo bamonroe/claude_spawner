@@ -128,13 +128,13 @@ func (j *sessionJob) finish(final map[string]any) {
 // jobFor returns the session's job hub, creating it if absent. The hub persists
 // across turns (it holds the attached-connection sinks and any buffered result)
 // until the session is deleted (dropJob).
-func (s *Server) jobFor(name string) *sessionJob {
+func (s *Server) jobFor(sessID string) *sessionJob {
 	s.jobsMu.Lock()
 	defer s.jobsMu.Unlock()
-	j := s.jobs[name]
+	j := s.jobs[sessID]
 	if j == nil {
 		j = &sessionJob{}
-		s.jobs[name] = j
+		s.jobs[sessID] = j
 	}
 	return j
 }
@@ -146,7 +146,7 @@ func (s *Server) jobFor(name string) *sessionJob {
 // (the first interactive turn of a context); on success the session is marked
 // AskPrimed so later turns omit it.
 func (s *Server) startTurn(sess *session.Session, text string, primeAsk bool) bool {
-	j := s.jobFor(sess.Name)
+	j := s.jobFor(sess.SessionID)
 	j.mu.Lock()
 	if j.running {
 		j.mu.Unlock()
@@ -162,10 +162,10 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk bool) bo
 	j.cancel = cancel
 	j.mu.Unlock()
 
-	s.inflight.add(sess.Name) // persist "running" so a restart can flag it interrupted
+	s.inflight.add(sess.SessionID) // persist "running" so a restart can flag it interrupted
 	log.Printf("turn[%s] input: %q", sess.Name, logField(text))
 	go func() {
-		defer s.inflight.remove(sess.Name)
+		defer s.inflight.remove(sess.SessionID)
 		j.emit(msgActivity("🤔 thinking…"))
 		changed := map[string]bool{}
 		onTool := func(t session.ToolUse) {
@@ -283,7 +283,7 @@ const compressPrompt = "Summarize our conversation so far into a compact but com
 // activity breadcrumb while it runs and a final `say` confirmation. Returns false
 // if a turn is already running for the session (the single-writer invariant).
 func (s *Server) startCompress(sess *session.Session) bool {
-	j := s.jobFor(sess.Name)
+	j := s.jobFor(sess.SessionID)
 	j.mu.Lock()
 	if j.running {
 		j.mu.Unlock()
@@ -299,10 +299,10 @@ func (s *Server) startCompress(sess *session.Session) bool {
 	j.cancel = cancel
 	j.mu.Unlock()
 
-	s.inflight.add(sess.Name)
+	s.inflight.add(sess.SessionID)
 	log.Printf("compress[%s] summarizing", sess.Name)
 	go func() {
-		defer s.inflight.remove(sess.Name)
+		defer s.inflight.remove(sess.SessionID)
 		j.emit(msgActivity("🗜️ compressing context…"))
 		onRateLimit := func(rl session.RateLimit) {
 			s.setRateLimit(rl)
@@ -339,6 +339,7 @@ func (s *Server) startCompress(sess *session.Session) bool {
 			j.finish(msgError("internal", err.Error()))
 			return
 		}
+		oldID := sess.SessionID
 		sess.PriorIDs = append(sess.PriorIDs, sess.SessionID)
 		sess.SessionID = newID
 		sess.Started = false
@@ -348,6 +349,10 @@ func (s *Server) startCompress(sess *session.Session) bool {
 			j.finish(msgError("internal", err.Error()))
 			return
 		}
+		// The session_id rotated: move the hub (holds this connection's sink) and the
+		// id index onto the new id so the seeded next turn reaches the same devices.
+		s.rekeyJob(oldID, newID)
+		_ = s.store.ForgetID(oldID)
 		log.Printf("compress[%s] rotated to %s (seed %d bytes)", sess.Name, newID, len(sess.PendingSeed))
 		j.emit(msgContextReset(sess.Name)) // reset the app's context-size readout; the seeded turn sets the new size
 		j.finish(msgSay("compressed. carried a summary forward — your history is still here."))
@@ -420,14 +425,14 @@ func sortedKeys(m map[string]bool) []string {
 // if needed, so future turns fan out to this connection) and catches it up: a
 // running job sends this one connection a "still working" nudge; a finished-but-
 // undelivered job hands it the buffered result.
-func (s *Server) bindJob(c *conn, sessName string, silent bool) {
-	j := s.jobFor(sessName)
+func (s *Server) bindJob(c *conn, sess *session.Session, silent bool) {
+	j := s.jobFor(sess.SessionID)
 	sink := c.jobSink()
 	// A turn that was running when the server last restarted is dead; tell the app
 	// once so it doesn't wait on it (its result, if any, is in the transcript the
 	// app reloads on attach).
-	if s.takeInterrupted(sessName) {
-		sink(msgTurnInterrupted(sessName, "server restarted"))
+	if s.takeInterrupted(sess.SessionID) {
+		sink(msgTurnInterrupted(sess.Name, "server restarted"))
 	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
@@ -458,9 +463,9 @@ func (s *Server) bindJob(c *conn, sessName string, silent bool) {
 // unbindJob removes a connection's sink from the session job (on disconnect or
 // detach). The hub and any buffered result survive so a turn that finishes while
 // nobody is attached is still delivered on the next reconnect.
-func (s *Server) unbindJob(c *conn, sessName string) {
+func (s *Server) unbindJob(c *conn, sessID string) {
 	s.jobsMu.Lock()
-	j := s.jobs[sessName]
+	j := s.jobs[sessID]
 	s.jobsMu.Unlock()
 	if j != nil {
 		j.mu.Lock()
@@ -469,21 +474,10 @@ func (s *Server) unbindJob(c *conn, sessName string) {
 	}
 }
 
-// renameJob re-keys a session's job hub when the session is renamed, so its
-// sinks, in-flight turn, and buffered result carry over to the new name.
-func (s *Server) renameJob(old, newName string) {
-	s.jobsMu.Lock()
-	defer s.jobsMu.Unlock()
-	if j := s.jobs[old]; j != nil {
-		delete(s.jobs, old)
-		s.jobs[newName] = j
-	}
-}
-
 // isBusy reports whether a dictation turn is running for the session now.
-func (s *Server) isBusy(name string) bool {
+func (s *Server) isBusy(sessID string) bool {
 	s.jobsMu.Lock()
-	j := s.jobs[name]
+	j := s.jobs[sessID]
 	s.jobsMu.Unlock()
 	return j != nil && j.isRunning()
 }
@@ -491,9 +485,9 @@ func (s *Server) isBusy(name string) bool {
 // echoUserPrompt shows a just-dictated prompt on the OTHER devices attached to a
 // session (the dictating one already displayed it), so multi-device views stay
 // in sync live rather than only on the next history reload.
-func (s *Server) echoUserPrompt(name, text string, origin *conn) {
+func (s *Server) echoUserPrompt(sessID, text string, origin *conn) {
 	s.jobsMu.Lock()
-	j := s.jobs[name]
+	j := s.jobs[sessID]
 	s.jobsMu.Unlock()
 	if j != nil {
 		j.broadcastExcept(origin, msgTranscript(text, true))
@@ -502,11 +496,11 @@ func (s *Server) echoUserPrompt(name, text string, origin *conn) {
 
 // takeInterrupted reports (and clears) whether a session's turn was cut off by
 // the last server restart, so the app is told once on re-attach.
-func (s *Server) takeInterrupted(name string) bool {
+func (s *Server) takeInterrupted(sessID string) bool {
 	s.interruptedMu.Lock()
 	defer s.interruptedMu.Unlock()
-	if s.interrupted[name] {
-		delete(s.interrupted, name)
+	if s.interrupted[sessID] {
+		delete(s.interrupted, sessID)
 		return true
 	}
 	return false
@@ -514,9 +508,9 @@ func (s *Server) takeInterrupted(name string) bool {
 
 // cancelTurn aborts a session's running turn (kills the claude child). Returns
 // true if a turn was running and got cancelled.
-func (s *Server) cancelTurn(name string) bool {
+func (s *Server) cancelTurn(sessID string) bool {
 	s.jobsMu.Lock()
-	j := s.jobs[name]
+	j := s.jobs[sessID]
 	s.jobsMu.Unlock()
 	if j == nil {
 		return false
@@ -532,8 +526,25 @@ func (s *Server) cancelTurn(name string) bool {
 }
 
 // dropJob forgets a session's job (e.g. when the session is deleted).
-func (s *Server) dropJob(sessName string) {
+func (s *Server) dropJob(sessID string) {
 	s.jobsMu.Lock()
-	delete(s.jobs, sessName)
+	delete(s.jobs, sessID)
 	s.jobsMu.Unlock()
+}
+
+// rekeyJob moves a session's job hub from oldID to newID, preserving its sinks,
+// any in-flight turn, and buffered result. The hub is keyed by session_id, but a
+// compact/clear ROTATES the session_id while the logical session — and the
+// connections attached to it — carry across; without this re-key the next turn
+// would fan out on a fresh hub the attached connections aren't bound to.
+func (s *Server) rekeyJob(oldID, newID string) {
+	if oldID == newID {
+		return
+	}
+	s.jobsMu.Lock()
+	defer s.jobsMu.Unlock()
+	if j := s.jobs[oldID]; j != nil {
+		delete(s.jobs, oldID)
+		s.jobs[newID] = j
+	}
 }

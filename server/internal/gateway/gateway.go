@@ -44,11 +44,11 @@ type Server struct {
 	clients   map[string]*clientState // per-app resume state, keyed by client_id
 
 	jobsMu sync.Mutex
-	jobs   map[string]*sessionJob // running/last dictation turn, keyed by session name
+	jobs   map[string]*sessionJob // running/last dictation turn, keyed by session_id (stable across rename)
 
-	inflight      *inflightTracker // sessions with a turn running now (persisted)
+	inflight      *inflightTracker // sessions with a turn running now (persisted), keyed by session_id
 	interruptedMu sync.Mutex
-	interrupted   map[string]bool // sessions whose turn was cut off by the last restart
+	interrupted   map[string]bool // session_ids whose turn was cut off by the last restart
 
 	connsMu sync.Mutex
 	conns   map[*conn]bool // currently-connected apps, for shutdown broadcasts
@@ -268,7 +268,7 @@ func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
 	// buffers its result for the next reconnect instead of dropping it).
 	c.closed = true
 	if c.attached != nil {
-		c.srv.unbindJob(c, c.attached.Name)
+		c.srv.unbindJob(c, c.attached.SessionID)
 	}
 	c.saveState() // stash state so the next reconnect can resume
 }
