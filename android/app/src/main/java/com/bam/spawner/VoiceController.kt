@@ -117,6 +117,13 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     private val _attachedName = MutableStateFlow<String?>(null)
     val attachedName: StateFlow<String?> = _attachedName.asStateFlow()
 
+    // The stable on-disk id of the attached session. Names diverge between servers
+    // (the same session is "spawner-2" on one, "spawner-3" on another) and change on
+    // rename, so we track the id to keep the title correct: rename matches by id, and
+    // a fresh session list re-derives the title from whatever the current server calls
+    // this id. Empty when detached or when the server didn't send an id (older server).
+    private var _attachedId: String = ""
+
     private val _listing = MutableStateFlow<ServerMsg.Listing?>(null)
     val listing: StateFlow<ServerMsg.Listing?> = _listing.asStateFlow()
 
@@ -739,6 +746,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
                     val ageMs = if (msg.usageAt > 0) System.currentTimeMillis() - msg.usageAt * 1000 else Long.MAX_VALUE
                     TurnUsageInfo(u, SystemClock.elapsedRealtime() - ageMs.coerceIn(0, 6 * 60 * 1000L))
                 }
+                _attachedId = msg.sessionId
                 _attachedName.value = msg.name
                 settings.lastSession = msg.name
                 _status.value = "attached: ${msg.name}"
@@ -754,6 +762,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
             }
             is ServerMsg.Detached -> {
                 turnStreamed = false
+                _attachedId = ""
                 _attachedName.value = null
                 settings.lastSession = ""
                 _status.value = "connected"
@@ -761,12 +770,18 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
             }
             is ServerMsg.Renamed -> {
                 // Follow a rename of the session we're attached to so the title bar
-                // tracks the sidebar. In-place update only — no history refetch or
-                // meter reseed (unlike a full re-attach). All client state is keyed by
-                // session name, so migrate every keyed map or the chat/paging orphans.
-                if (_attachedName.value == msg.old) {
-                    migrateSessionKey(msg.old, msg.name)
-                    if (currentKey == msg.old) currentKey = msg.name
+                // tracks the sidebar. Match by the stable session id (the title's name
+                // may be stale — e.g. a leftover from another server — so a name compare
+                // misses); fall back to the old name only when the server sent no id.
+                // In-place update only — no history refetch or meter reseed (unlike a
+                // full re-attach). Client state is keyed by name, so migrate every keyed
+                // map or the chat/paging orphans.
+                val mine = if (msg.sessionId.isNotEmpty()) _attachedId == msg.sessionId
+                else _attachedName.value == msg.old
+                if (mine) {
+                    val from = _attachedName.value ?: msg.old
+                    migrateSessionKey(from, msg.name)
+                    if (currentKey == from) currentKey = msg.name
                     _attachedName.value = msg.name
                     settings.lastSession = msg.name
                     _status.value = "attached: ${msg.name}"
@@ -774,7 +789,26 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
             }
             is ServerMsg.History -> onHistory(msg)
             is ServerMsg.ReadLast -> onReadLast(msg.count)
-            is ServerMsg.Discovered -> { _discovered.value = msg.sessions; _discoverError.value = "" }
+            is ServerMsg.Discovered -> {
+                _discovered.value = msg.sessions
+                _discoverError.value = ""
+                // Re-derive the attached title from the fresh list by stable id. After a
+                // server switch the same session can carry a different name here, leaving
+                // the title stale; if the current server calls our attached id something
+                // else, migrate the title (and name-keyed state) to match it.
+                if (_attachedId.isNotEmpty()) {
+                    val cur = msg.sessions.find { it.sessionId == _attachedId }?.name
+                    if (cur != null && cur != _attachedName.value) {
+                        _attachedName.value?.let { from ->
+                            migrateSessionKey(from, cur)
+                            if (currentKey == from) currentKey = cur
+                        }
+                        _attachedName.value = cur
+                        settings.lastSession = cur
+                        _status.value = "attached: $cur"
+                    }
+                }
+            }
             is ServerMsg.Listing -> _listing.value = msg
             is ServerMsg.Err -> {
                 if (msg.code == "turn_failed") { clearTurnInFlight(); turnStreamed = false }

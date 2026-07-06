@@ -449,7 +449,7 @@ func (c *conn) doAttach(name string, silent bool) {
 	}
 	c.clearBuffer() // fresh message buffer for the new session
 	c.attached = s
-	c.send(msgAttached(s.Name, session.LastContextUsage(s.TranscriptIDs())))
+	c.send(msgAttached(s.Name, s.SessionID, session.LastContextUsage(s.TranscriptIDs())))
 	if !silent {
 		c.send(msgSay("attached to " + s.Name + "."))
 	}
@@ -679,7 +679,7 @@ func (c *conn) doRename(old, newName string) bool {
 	if c.attached != nil && c.attached.Name == old {
 		c.srv.renameJob(old, newName)
 		c.attached = c.srv.store.Get(newName)
-		c.send(msgRenamed(old, newName)) // update the attached-session title in place
+		c.send(msgRenamed(old, newName, c.attached.SessionID)) // update the attached-session title in place (matched by id)
 	}
 	c.sendSessionList() // push the refreshed list back to the app (quietly)
 	return true

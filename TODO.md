@@ -15,6 +15,13 @@ Dates are `YYYY-MM-DD`.
 ### Server / infra
 - [ ] Decide + implement the auth/transport story beyond the shared token: **TLS/mTLS** (today a
       constant-time-compared shared token, fronted by Tailscale).
+- [x] 2026-07-05 — **Attached-session title tracks the session by stable id, not name.** The app
+      keyed the attached session by name; the temporary Dev/Prod toggle gives the same on-disk
+      session different names on each server (e.g. `spawner-2` vs `spawner-3`), so switching servers
+      left the title showing a stale name and a sidebar rename couldn't line up (name compare missed).
+      The `attached` and `renamed` wire messages now carry `session_id`; the app tracks `_attachedId`,
+      matches renames by id, and re-derives the title from every fresh session list by id — so the
+      title always reflects the current server's name for the attached session. (protocol.md updated.)
 - [x] 2026-07-05 — **Restart button can also restart the broker.** New optional
       `SPAWNER_BROKER_RESTART_SELF_CMD` (e.g. `systemctl --user restart --no-block spawner-broker`):
       after launching the server rebuild, the broker runs it to restart itself, so a new broker

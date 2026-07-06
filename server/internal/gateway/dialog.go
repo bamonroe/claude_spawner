@@ -414,7 +414,7 @@ func (c *conn) spawnAwaitAttach(text string) {
 		}
 		c.attached = sess
 		c.srv.bindJob(c, sess.Name, true)   // register for live turn fan-out (fresh session: no catch-up)
-		c.send(msgAttached(sess.Name, nil)) // freshly spawned: no transcript, no context size yet
+		c.send(msgAttached(sess.Name, sess.SessionID, nil)) // freshly spawned: no transcript, no context size yet
 		where := "."
 		if sess.Target == session.TargetSandbox {
 			where = ", in a sandbox."

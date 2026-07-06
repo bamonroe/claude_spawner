@@ -87,8 +87,8 @@ func msgDialog(state, prompt string) map[string]any {
 // transcript, it carries the last turn's `usage` (the current context size) and
 // `usage_at` (that turn's unix time) so the app shows the context meter — and the
 // cache-warm state — immediately, without waiting for a live turn to complete.
-func msgAttached(name string, cx *session.ContextSnapshot) map[string]any {
-	m := map[string]any{"type": "attached", "name": name}
+func msgAttached(name, sessionID string, cx *session.ContextSnapshot) map[string]any {
+	m := map[string]any{"type": "attached", "name": name, "session_id": sessionID}
 	if cx != nil {
 		m["usage"] = cx.Usage
 		m["usage_at"] = cx.At
@@ -111,12 +111,13 @@ func msgContextReset(name string) map[string]any {
 
 // msgRenamed tells the app that the currently-attached session was renamed
 // (from the sidebar or the `rename` voice command). It carries the old and new
-// names so the app can update the attached-session title in place, without the
-// heavy re-attach side effects (history refetch, context-meter reseed) that a
-// fresh `attached` message would trigger. Only sent when the rename follows the
-// connection's attached session.
-func msgRenamed(old, name string) map[string]any {
-	return map[string]any{"type": "renamed", "old": old, "name": name}
+// names — plus the stable `session_id` — so the app can update the
+// attached-session title in place, matching by id (names diverge across servers),
+// without the heavy re-attach side effects (history refetch, context-meter
+// reseed) that a fresh `attached` message would trigger. Only sent when the
+// rename follows the connection's attached session.
+func msgRenamed(old, name, sessionID string) map[string]any {
+	return map[string]any{"type": "renamed", "old": old, "name": name, "session_id": sessionID}
 }
 
 // msgOutput carries session output for display + TTS. Live prose streams as
@@ -254,10 +255,10 @@ type discoveredView struct {
 	Name       string `json:"name"`
 	Dir        string `json:"dir"`
 	SessionID  string `json:"session_id"`
-	LastActive int64  `json:"last_active"` // unix seconds
-	Active     bool   `json:"active"`      // interactive claude open in tmux at this dir
-	Registered bool   `json:"registered"`  // already in the spawner registry
-	Busy       bool   `json:"busy"`        // a dictation turn is running for this session now
+	LastActive int64  `json:"last_active"`      // unix seconds
+	Active     bool   `json:"active"`           // interactive claude open in tmux at this dir
+	Registered bool   `json:"registered"`       // already in the spawner registry
+	Busy       bool   `json:"busy"`             // a dictation turn is running for this session now
 	Target     string `json:"target,omitempty"` // execution target ("sandbox") when not the default host
 }
 
