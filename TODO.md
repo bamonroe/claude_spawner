@@ -43,9 +43,17 @@ label. (Full code map established 2026-07-05 via two Explore passes — server +
       (`attachedId` StateFlow) instead of name. Tapping a session already adopts by id. protocol.md
       updated (docsync green); APK builds clean. (Chat-log map is still name-keyed but self-corrects
       via the history refetch on every attach — deferred as a nicety.)
-- [ ] **Phase 4 — tame auto-naming + Dev/Prod divergence.** Stop silently minting `-2/-3` duplicates
-      in one dir; decide the Dev/Prod naming story (the toggle is temporary) so one `session_id` can't
-      carry two names. Provide a one-shot cleanup for the existing duplicate pileup.
+- [x] 2026-07-05 — **Phase 4 — stop minting same-folder duplicates.** Opening a directory that
+      already has a registered session now attaches to it instead of minting a `-2` — both the app
+      browser (`doSpawnAt`) and the voice spawn dialog (`beginAttachQuestion`) reuse the dir's existing
+      session via `GetByDir`. Test: opening a folder twice reuses the same session. protocol.md
+      `spawn_at` updated. Cleanup of the EXISTING pileup is now a manual step — Phase 1 made every
+      session individually visible and per-session deletable in the sidebar, so duplicates can be
+      pruned there (no destructive auto-cleanup, since which to keep is the user's call).
+- [ ] **Dev/Prod naming divergence** (deferred tail of Phase 4): the temporary toggle keeps two
+      registries, so one `session_id` can carry a different name per server. Now cosmetic only —
+      identity/attach/title all key by `session_id` — so resolve it when the toggle's future is
+      decided (share a registry, or drop the toggle).
 
 ### Server / infra
 - [ ] Decide + implement the auth/transport story beyond the shared token: **TLS/mTLS** (today a

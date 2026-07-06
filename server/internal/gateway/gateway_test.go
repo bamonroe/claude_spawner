@@ -694,6 +694,30 @@ func TestDiscoverShowsEverySessionInADir(t *testing.T) {
 	}
 }
 
+// TestSpawnAtReusesExistingSession verifies opening a folder that already has a
+// session attaches to it instead of minting a same-folder "-2" duplicate.
+func TestSpawnAtReusesExistingSession(t *testing.T) {
+	ts, root := newTestServer(t, nil)
+	dir := filepath.Join(root, "proj")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ws := dial(t, ts)
+	send(t, ws, map[string]any{"type": "hello", "token": "secret"})
+	readUntil(t, ws, "hello_ok")
+
+	// Open the folder twice; the second open must reuse the same session (same
+	// name), not mint a "proj-2" duplicate.
+	send(t, ws, map[string]any{"type": "spawn_at", "path": dir})
+	first := readUntil(t, ws, "attached")["name"].(string)
+	send(t, ws, map[string]any{"type": "spawn_at", "path": dir})
+	second := readUntil(t, ws, "attached")["name"].(string)
+
+	if second != first {
+		t.Fatalf("second open made a new session %q (want reuse of %q)", second, first)
+	}
+}
+
 func TestReconnectResumesDialog(t *testing.T) {
 	ts, root := newTestServer(t, nil)
 	if err := os.MkdirAll(filepath.Join(root, "myproj"), 0o755); err != nil {

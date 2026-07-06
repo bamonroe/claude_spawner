@@ -384,12 +384,17 @@ func (c *conn) spawnAwaitTarget(text string) {
 // and moves to the attach question. The record is only persisted once the user
 // answers, so "cancel" leaves no junk behind.
 func (c *conn) beginAttachQuestion(dir, prompt string, target session.Target) {
-	base := sanitizeName(filepath.Base(dir))
-	sess, err := c.newSession(base, dir, target)
-	if err != nil {
-		c.fail("internal", err.Error())
-		c.dlg = nil
-		return
+	// Reuse the directory's existing session rather than minting a same-folder
+	// duplicate ("-2"); only create a fresh one when the folder has none.
+	sess := c.srv.store.GetByDir(dir)
+	if sess == nil {
+		var err error
+		sess, err = c.newSession(sanitizeName(filepath.Base(dir)), dir, target)
+		if err != nil {
+			c.fail("internal", err.Error())
+			c.dlg = nil
+			return
+		}
 	}
 	c.dlg.sess = sess
 	c.dlg.dir = dir

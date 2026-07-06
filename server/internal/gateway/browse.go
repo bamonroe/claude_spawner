@@ -54,6 +54,14 @@ func (c *conn) doSpawnAt(path string, target session.Target) {
 		c.fail("bad_path", "sandbox target requested but the sandbox target is not enabled")
 		return
 	}
+	// Don't pile up a duplicate session for a directory that already has one — open
+	// the existing session instead of minting a "-2". (This is the main source of
+	// the confusing same-folder duplicates; a genuinely parallel session isn't
+	// offered here — delete or rename the existing one first if you want a fresh id.)
+	if existing := c.srv.store.GetByDir(abs); existing != nil {
+		c.doAttach(existing.Name, false)
+		return
+	}
 	sess, err := c.newSession(sanitizeName(filepath.Base(abs)), abs, target)
 	if err != nil {
 		c.fail("internal", err.Error())
