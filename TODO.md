@@ -61,6 +61,22 @@ label. (Full code map established 2026-07-05 via two Explore passes — server +
       decided (share a registry, or drop the toggle).
 
 ### Server / infra
+- [x] 2026-07-06 — **Reverted the containerized-server + broker split; server runs bare metal.** The
+      host-side broker existed only so an unprivileged, containerized server could execute on the host,
+      but the broker itself ran bare metal and the server never needed root — so the container bought
+      almost no host protection while adding a Unix-socket IPC hop and a wire protocol to maintain.
+      Folded it back into one binary: the server forks `claude` for host turns and drives the rootless
+      runtime for sandbox turns directly (the in-process path that already existed). Deleted
+      `cmd/broker`, `broker_proto.go`, `broker_server.go`, `BrokerExecutor`, and the
+      `Restarter`/`SessionDeleter`/`DirMaker` delegation interfaces. Restart now fires
+      `SPAWNER_RESTART_CMD` (replacing `SPAWNER_BROKER_SOCKET` + the two broker restart vars): a
+      detached command in its own process group that rebuilds + relaunches the server, surviving its
+      own teardown via the systemd unit's `KillMode=process`. Deploy is now a bare-metal systemd user
+      service (`deploy/spawner-server.*`, rewritten `rebuild.sh`); the server Dockerfiles and the
+      broker/dev compose stacks are gone, `docker-compose.yml` is whisper-only. Tests: the live
+      broker/sandbox-via-broker tests became direct host/sandbox tests; the restart tests assert the
+      command fires (or `restart_failed` when unset). Docs (README, architecture with a "don't
+      re-introduce" design note, protocol, CLAUDE.md, deploy/sandbox READMEs) updated; docsync green.
 - [x] 2026-07-05 — **Fix the bouncing 🧠 context-size counter.** The live counter used the stream
       `result` event's usage, which is the turn's AGGREGATE — it sums every internal tool-step of an
       agentic turn (each step re-reads the whole context), so a tool-heavy turn reported millions of

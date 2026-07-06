@@ -89,13 +89,11 @@ terminal. `internal/tmux` exposes just `ClaudeDirs` — the set of directories w
 human is editing live. (An earlier design had the server itself open a "babysit" pane via a
 `Babysit`/`List`/`Exists`/`Close` API; that was dropped — the server never creates panes now.)
 
-## Containerized server + per-session execution target (host vs sandbox)
+## Per-session execution target (host vs sandbox)
 
-Status: **implemented** (`internal/session/executor.go`, `internal/session/broker_*.go`,
-`cmd/broker`). Goal:
-run the **server** in a container for clean deployment, while letting each spawned Claude session
-run *either* directly on the host (real host files/toolchains) *or* inside an isolated container
-sandbox (disposable, root-inside-the-sandbox) — chosen **per session** via `Session.Target`.
+Status: **implemented** (`internal/session/executor.go`). Goal: let each spawned Claude session run
+*either* directly on the host (real host files/toolchains) *or* inside an isolated container sandbox
+(disposable, root-inside-the-sandbox) — chosen **per session** via `Session.Target`.
 
 ### The single seam
 
@@ -104,51 +102,30 @@ session.go`), which `exec`s the `claude` binary in the session's `Dir` and parse
 `stream-json` stdout. Nothing else in the server knows *how* that process is launched. So the whole
 feature reduces to making that launch pluggable:
 
-- Introduce an **`Executor`** interface (start a `claude` turn given `Dir` + args, return a stdout
-  stream). The existing direct-`exec` becomes the `host` executor; a new `sandbox` executor runs
-  the turn inside a container. `Turn()` selects one and is otherwise unchanged — the NDJSON parsing,
-  `Setpgid` group-kill, and event fan-out all stay put.
-- Add an **execution-target field** to the `Session` record (`store.go`), set at spawn time and
+- An **`Executor`** interface (start a `claude` turn given `Dir` + args, return a stdout stream).
+  The direct-`exec` is the `host` executor (`HostExecutor`); a `sandbox` executor
+  (`SandboxExecutor`) runs the turn inside a container. `Turn()` selects one and is otherwise
+  unchanged — the NDJSON parsing, `Setpgid` group-kill, and event fan-out all stay put.
+- An **execution-target field** on the `Session` record (`store.go`), set at spawn time and
   persisted in `sessions.json`, so host-vs-sandbox is a durable per-session property the spawn
-  dialog chooses. Default = `host` (today's behavior).
+  dialog chooses. Default = `host`.
 
-### The problem containerizing the server introduces
+### The server runs bare metal (no broker)
 
-A process inside a container **cannot fork a process on the host**. So once the server is
-containerized, "run this session directly on the host" needs a bridge back out. The privileged
-shortcuts (a `--privileged` server with `--pid=host` + `nsenter` into PID 1) were considered and
-**rejected**: they give the server container full host root, which defeats the point of isolating
-it. We want *no component* to hold host root.
+The server runs **bare metal** as a single binary, as the ordinary user — so it forks `claude` for
+host turns and drives the rootless runtime for sandbox turns **directly**, and enforces the
+`SPAWNER_ROOT` jail itself (the last hop before any launch). No component holds host root: the
+server is a plain user process and sandboxes use a rootless runtime.
 
-### The broker (host-execution without host root)
-
-Run a small **host-side session broker** (`BrokerServer`, `cmd/broker`) — a daemon on the host, as
-the ordinary user (not root), listening on a Unix socket that's bind-mounted into the server
-container. It is the **single host-side execution agent for both targets**: the server sends it a
-narrow op (turn / ensure / remove / list / restart / delete / mkdir) and the broker forks `claude`
-for a host turn, or drives the rootless runtime for a sandbox turn (create/exec/remove), streaming
-stdout back. It also performs the host-side filesystem ops the read-only server container can't:
-`restart` (rebuild + relaunch the server), `delete` (remove a directory's `~/.claude` transcripts),
-and `mkdir` (create a new-project directory under the jailed spawn roots) — both the transcripts and
-the spawn roots are mounted read-only in the container. Crucially it
-reuses the *same* `HostExecutor`/`SandboxExecutor` code the server uses natively — the broker is a
-thin RPC in front of those, and the client (`BrokerExecutor`) implements `Executor` +
-`SandboxLifecycle` + `SandboxReaper`, so in broker mode one client is registered for both targets
-and `Driver.Turn`/`EnsureContainer`/`ReconcileContainers` are unchanged. Consequences:
-
-- The **server container stays unprivileged** and needs **no container-runtime socket** — it can
-  only ask for the constrained ops the broker exposes, never arbitrary host commands or podman
-  flags (the broker owns the sandbox config: image, mounts, run-args).
-- The **broker isn't root either** — it runs as the user, forks `claude` as the user, and drives
-  *rootless* Podman as the user.
-- The broker is the natural home for the **`SPAWNER_ROOT` jail** enforcement — it's the last hop
-  before anything launches, so path validation there is authoritative even if the server is
-  compromised. (This is the tmux client/server split from the project's early thinking, generalized
-  into a proper broker.)
-
-The whole execution layer (`Executor`, host/sandbox executors, and the broker protocol/daemon/
-client) lives in `internal/session` so the broker can reuse the executors without an import cycle;
-`cmd/broker` is a thin `main` around `session.BrokerServer`.
+> **Design note — the containerized-server + broker detour (reverted 2026-07-06).** An earlier design
+> ran the server in a container and put a small host-side **broker** daemon (`cmd/broker`, dialed
+> over a Unix socket) in front of the same `HostExecutor`/`SandboxExecutor` code, so the unprivileged
+> container could reach the host without host root. It worked, but bought little: the broker itself
+> ran bare metal, and the server never needed root, so the container protected the host from almost
+> nothing while adding an IPC hop and a whole wire protocol to maintain. It was folded back into the
+> binary. Don't re-introduce it without a concrete need for the server to be containerized *and*
+> untrusted. (The privileged shortcuts — a `--privileged` server with `--pid=host` + `nsenter` — were
+> rejected for the same "no component holds host root" reason and remain rejected.)
 
 ### Sandbox sessions (also without host root)
 
@@ -167,17 +144,14 @@ to keep history/discovery working. Lifecycle hooks live in the gateway spawn (`e
 delete (`removeSandbox`) paths; `Driver.EnsureContainer`/`RemoveContainer` bridge to the executor.
 At startup `Driver.ReconcileContainers` sweeps **orphans** — managed containers (matched by the
 `spawner-sbx-` name prefix) whose session record no longer exists, e.g. deleted while the server was
-down — so they don't accumulate; live sessions' containers are left for `Ensure`-before-turn. When
-the server is containerized (broker mode), every one of these — ensure, remove, list, and the turn
-`exec` — is forwarded to the broker, which runs the runtime on the host; the server itself never
-touches Podman.
+down — so they don't accumulate; live sessions' containers are left for `Ensure`-before-turn. The
+server drives the runtime (create/exec/remove/list) directly as the user.
 
 ### Net security posture
 
-No component holds host root: server container = unprivileged; broker = plain user; sandboxes via a
-rootless runtime. Cost is one new moving part (the broker daemon) plus the `Executor` seam. See
-`docs/protocol.md` if a spawn-time target selector reaches the wire protocol (it may not — the
-dialog can carry it server-side, like `rename`).
+No component holds host root: the server is a plain user process and sandboxes use a rootless
+runtime. Cost is just the `Executor` seam. See `docs/protocol.md` if a spawn-time target selector
+reaches the wire protocol (it may not — the dialog can carry it server-side, like `rename`).
 
 ## Transcription (internal/transcribe)
 
@@ -223,8 +197,6 @@ uppercase letters by voice. Acceptable; documented in `docs/commands.md`.
     *_test.go                   httptest+ws integration (auth, spawn, dictation, ask, stream)
   internal/session/session.go   headless claude driver: Driver.Turn (stream-json), NewSessionID
   internal/session/executor.go  pluggable Executor: HostExecutor (direct exec) + SandboxExecutor (runtime)
-  internal/session/broker_proto.go  broker RPC wire protocol (turn/ensure/remove/list ops)
-  internal/session/broker_server.go BrokerServer (host daemon) + BrokerExecutor client
   internal/session/store.go     durable session registry (file-backed, atomic writes); Session.Target/Container
   internal/session/discover.go  scan ~/.claude/projects for all Claude sessions (adopt/discover)
   internal/session/transcript.go read/stitch on-disk transcripts for `history` (spans clears)
@@ -238,14 +210,11 @@ uppercase letters by voice. Acceptable; documented in `docs/commands.md`.
   internal/docsync/             drift tests: env vars/wire messages/error codes ↔ docs + CLAUDE.md
   cmd/wsclient/main.go          text client for manual testing; -audio streams a WAV
   cmd/gencommands/main.go       regenerate docs/commands.json from the command registry
-  cmd/broker/main.go            host-side execution broker: thin main around session.BrokerServer
-  Dockerfile / .dockerignore    dev image: Go + claude CLI + whisper.cpp CLI + model (+ tmux for conflict detection)
-  Dockerfile.broker / .broker.dockerignore  lean containerized-server image (broker mode; no host root)
-docker-compose.yml              dev orchestration: spawner + resident whisper/whisper-fast servers
-docker-compose.broker.yml       containerized server (Docker) + host-side broker (podman) deployment
+  main.go                       server entrypoint (built to a single bare-metal binary)
+docker-compose.yml              resident whisper/whisper-fast servers (transcription backend)
 /sandbox                        Arch-based sandbox image (Containerfile) for `target: sandbox` sessions (see sandbox/README.md)
 /whisper                        Vulkan/CPU Dockerfiles for the resident whisper.cpp server (see whisper/README.md)
-/deploy                         host broker systemd user service + env example + claude-log helper (see deploy/README.md)
+/deploy                         server systemd user service + env example + rebuild + claude-log helpers (see deploy/README.md)
 /android                        Android app (Kotlin/Compose) — see android/README.md
 /docs
   protocol.md                   WebSocket message schema (single source of truth)

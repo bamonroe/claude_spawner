@@ -139,50 +139,45 @@ Each session picks an **execution target** at spawn time, a durable per-session 
   with the other `SPAWNER_SANDBOX_*` vars. A ready-to-build Arch image and the rootless-Podman
   config live in [`sandbox/`](./sandbox/README.md).
 
-### The live deployment: containerized server + host broker
+### The live deployment: a bare-metal server under systemd
 
-The **server always runs in a container** while sessions execute on the host — without the container
-holding host root or a runtime socket. A small **broker** daemon (`cmd/broker`) runs on the host as
-your ordinary user; the server's `SPAWNER_BROKER_SOCKET` points at its Unix socket and routes **all**
-turns through it. The broker is the single host-side agent for both targets: it forks `claude` for
-host sessions and drives rootless Podman for sandbox sessions, enforcing the `SPAWNER_ROOT` jail — so
-no component runs as root.
+The **server runs bare metal** as a single Go binary under a **systemd user service**, as your
+ordinary user (never root). It forks `claude` for host sessions and drives rootless Podman for
+sandbox sessions itself, enforcing the `SPAWNER_ROOT` jail — so no component runs as root. There is
+no separate broker: that indirection existed only to let a containerized server reach the host, and
+the server never needed root, so it was folded back into this binary. The only thing still
+containerized is **transcription** — two resident whisper.cpp HTTP servers ([`whisper/`](./whisper/README.md)),
+an accurate model on `:8571` and a fast draft/detection model on `:8572`.
 
-The live setup runs the server as a **Docker** container
-([`docker-compose.broker.yml`](./docker-compose.broker.yml)) plus the broker as a **systemd user
-service** ([`deploy/`](./deploy/)). To reproduce: install + enable the broker service, then
-`docker compose -f docker-compose.broker.yml up -d --build`. The app's **restart** button asks the
-broker to rebuild and relaunch the server container via `SPAWNER_BROKER_RESTART_CMD`. Full design in
-[`docs/architecture.md`](./docs/architecture.md).
+Bring-up lives in [`deploy/`](./deploy/README.md): build the binary, drop the env file, enable the
+lingering user service, and start the whisper servers with `docker compose up -d whisper
+whisper-fast`. The app's **restart** button fires `SPAWNER_RESTART_CMD` (set it to
+[`deploy/rebuild.sh`](./deploy/rebuild.sh)), which rebuilds the binary and restarts the unit on
+current code. Full design in [`docs/architecture.md`](./docs/architecture.md).
 
-## Quick all-in-one dev container
+## Building & running it
 
-For a local trial, `docker-compose.yml` bakes Go, the `claude` CLI, and whisper.cpp + a model into
-one container that executes turns in-process (no broker) — nothing to install on the host. Source
-stays bind-mounted, so you edit and version normally.
-
-`docker compose up` starts the **spawner** plus two **resident whisper.cpp HTTP servers** (an
-accurate model on `:8571`, a fast draft/detection model on `:8572`, Vulkan-built for the host AMD
-GPU — see [`whisper/`](./whisper/README.md)). By default the spawner transcribes with its bundled
-whisper.cpp CLI; set `SPAWNER_WHISPER_URL` / `SPAWNER_WHISPER_FAST_URL` to prefer the resident
-servers instead (as the broker deployment does).
+Build the single binary and run it directly (no container):
 
 ```bash
-# build (compiles whisper.cpp + fetches base.en) and run on :8080
-docker compose up --build
+# build the server (the Go module is under server/)
+go build -C server -o ~/.local/bin/spawner-server .
 
-# drive it with the text client
-docker compose run --rm spawner go run ./cmd/wsclient -url ws://spawner:8080/ws
-#   hey buddy spawn a new session → workspace demo → yes → then dictate to Claude Code
+# run it on :8080 with a spawn jail; add SPAWNER_WHISPER_URL/_FAST_URL for voice
+SPAWNER_TOKEN=devsecret SPAWNER_ADDR=:8080 SPAWNER_ROOT="$HOME/git:/data" \
+  ~/.local/bin/spawner-server
 
-# real voice end-to-end with whisper's sample clip
-docker compose run --rm spawner \
-  go run ./cmd/wsclient -url ws://spawner:8080/ws -audio /opt/whisper.cpp/samples/jfk.wav
+# drive it with the text client (spawn, then dictate to Claude Code)
+go run -C server ./cmd/wsclient -url ws://localhost:8080/ws
+#   hey buddy spawn a new session → git demo → yes → then dictate to Claude Code
 ```
 
-- `claude` authenticates via your host creds, mounted from `~/.claude` + `~/.claude.json` (or set
-  `ANTHROPIC_API_KEY`). Sessions spawn under `/workspace`; `SPAWNER_ROOT` jails them there.
-- Bigger/more-accurate model: `docker compose build --build-arg WHISPER_MODEL=small.en`.
+- `claude` authenticates via your host creds in `~/.claude` + `~/.claude.json` (or set
+  `ANTHROPIC_API_KEY`). Sessions spawn under `SPAWNER_ROOT`, which jails them.
+- Voice end-to-end needs the resident whisper servers running (`docker compose up -d whisper
+  whisper-fast`) and `SPAWNER_WHISPER_URL` / `SPAWNER_WHISPER_FAST_URL` pointed at them.
+- To test a change without killing a live turn, run the fresh binary on a scratch port
+  (`SPAWNER_ADDR=:8557`) with a separate `SPAWNER_STATE` — see [`deploy/README.md`](./deploy/README.md).
 
 ## Project history
 

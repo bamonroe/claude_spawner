@@ -102,8 +102,8 @@ you're changing the data path, the session driver, or STT. Two load-bearing rule
 ## Build, run & repository layout — see `docs/architecture.md` and `README.md`
 
 The **repository layout** (every package and what it does) and the internals are in
-`docs/architecture.md`. **How to build and run** the server (it always runs as a Docker container,
-with the host-side broker) is in `README.md`. Don't restate either here.
+`docs/architecture.md`. **How to build and run** the server (a bare-metal single binary under a
+systemd user service) is in `README.md`. Don't restate either here.
 
 ## Config env vars
 
