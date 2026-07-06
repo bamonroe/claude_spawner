@@ -12,6 +12,32 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+### De-fragilize session identity (epic — make `session_id` the identity, not the name)
+
+**Why:** today a *directory* is treated as the session and the mutable *name* is the primary key
+everywhere — the store (`byName`), the turn hub (`jobs` by name), the in-flight tracker, and every
+wire command resolve by name; discovery collapses to one row per directory; delete wipes a whole
+directory. So multiple `session_id`s in one dir get hidden, renames land on whichever record wins the
+`byDir` map, the Dev/Prod split gives the same session different names, and a rename orphans
+name-keyed client state. Root fix: the stable `session_id` is the identity; the name is a display
+label. (Full code map established 2026-07-05 via two Explore passes — server + Android.)
+
+- [ ] **Phase 1 — server discovery/rename/delete become per-`session_id`.** `doDiscover` emits every
+      registered session as its own row (keyed by its own `session_id`), not one collapsed row per
+      dir; `doRenameDiscovered` resolves the target by `session_id` (not `GetByDir`); delete targets a
+      single `session_id` (new `DeleteSessionByID` primitive + broker op) instead of nuking the whole
+      directory. Fixes hidden sessions + renames/deletes hitting the wrong one.
+- [ ] **Phase 2 — server keys state by `session_id`.** Store gains a `bySessionID` primary index
+      (name becomes a secondary lookup for voice); `jobs` hub, `inflight` tracker, and `c.attached`
+      operations key by id; `renameJob` becomes a no-op (id is stable). Wire `attach`/`history` accept
+      a `session_id` (name kept for voice/back-compat).
+- [ ] **Phase 3 — Android keys state by `session_id`.** `logs`/paging maps, `currentKey`,
+      `settings.lastSession`, and the sidebar "attached" check key by id; auto-attach on
+      reconnect/server-switch uses `lastSessionId`. (Title already tracks id as of 2026-07-05.)
+- [ ] **Phase 4 — tame auto-naming + Dev/Prod divergence.** Stop silently minting `-2/-3` duplicates
+      in one dir; decide the Dev/Prod naming story (the toggle is temporary) so one `session_id` can't
+      carry two names. Provide a one-shot cleanup for the existing duplicate pileup.
+
 ### Server / infra
 - [ ] Decide + implement the auth/transport story beyond the shared token: **TLS/mTLS** (today a
       constant-time-compared shared token, fronted by Tailscale).
