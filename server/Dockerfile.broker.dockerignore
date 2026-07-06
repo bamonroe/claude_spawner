@@ -1,3 +1,0 @@
-# Dockerfile.broker build: needs Go source; exclude only build artifacts.
-spawner
-*_test.go

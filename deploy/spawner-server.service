@@ -1,0 +1,33 @@
+# claude_spawner server (systemd USER service, bare metal — the LIVE deployment).
+#
+# The server runs as your ordinary user (NOT root): it forks claude for host turns
+# and drives rootless Podman for sandbox turns directly. There is no separate
+# broker — that was folded back into this binary. See docs/architecture.md.
+#
+# Install:
+#   cp deploy/spawner-server.env.example ~/.config/claude_spawner/server.env   # then edit
+#   go build -C server -o ~/.local/bin/spawner-server .
+#   cp deploy/spawner-server.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now spawner-server
+#   loginctl enable-linger $USER   # so it runs without an active login session
+
+[Unit]
+Description=claude_spawner server
+After=default.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/claude_spawner/server.env
+ExecStart=%h/.local/bin/spawner-server
+Restart=on-failure
+RestartSec=2
+# Only kill the server's own process on stop/restart, not its whole cgroup. The
+# "restart" button (SPAWNER_RESTART_CMD → deploy/rebuild.sh) rebuilds the binary
+# and runs `systemctl --user restart --no-block spawner-server` from a child this
+# server spawned; with the default control-group kill that rebuild would be killed
+# mid-restart. KillMode=process lets the detached rebuild survive (it reparents to
+# the user manager) and finish, swapping in the new binary.
+KillMode=process
+
+[Install]
+WantedBy=default.target
