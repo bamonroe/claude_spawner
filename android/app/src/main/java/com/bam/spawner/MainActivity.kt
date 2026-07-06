@@ -149,7 +149,7 @@ class MainActivity : ComponentActivity() {
         settings = SettingsStore(this)
         controller = Spawner.controller(this) // shared with VoiceService
         micPermission.launch(Manifest.permission.RECORD_AUDIO)
-        controller.connectIfNeeded(settings.url, settings.token) // auto-connect; then auto-reconnects
+        controller.connectIfNeeded(settings.activeUrl, settings.token) // auto-connect (dev or prod); then auto-reconnects
         if (settings.handsFree) setHandsFree(true) // restore hands-free across restarts
         setContent {
             var mode by remember { mutableStateOf(parseThemeMode(settings.themeMode)) }
@@ -213,7 +213,7 @@ private fun AppRoot(
 ) {
     var screen by rememberSaveable { mutableStateOf("main") }
     // Reconnect re-sends hello (end token / stt / aliases).
-    val reconnect = { controller.connect(settings.url, settings.token) }
+    val reconnect = { controller.connect(settings.activeUrl, settings.token) }
     // System back: settings sub-pages pop to the hub; hub/browse pop to main.
     BackHandler(enabled = screen != "main") {
         screen = if (screen.startsWith("set_")) "settings" else "main"
@@ -1383,6 +1383,8 @@ private fun ServerSettings(
     onBack: () -> Unit,
 ) {
     var url by rememberSaveable { mutableStateOf(settings.url) }
+    var devUrl by rememberSaveable { mutableStateOf(settings.devUrl) }
+    var useDev by rememberSaveable { mutableStateOf(settings.useDev) }
     var token by rememberSaveable { mutableStateOf(settings.token) }
     // The whisper model is server-global: read the current one, pick a new one,
     // then push it. Re-sync the picker whenever the server reports a change (even
@@ -1393,10 +1395,24 @@ private fun ServerSettings(
     val connected by controller.connected.collectAsStateWithLifecycle()
     var restartConfirm by remember { mutableStateOf(false) }
     SettingsScaffold("Server", onBack) {
-        OutlinedTextField(url, { url = it }, label = { Text("Server URL") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(url, { url = it }, label = { Text("Prod server URL") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(devUrl, { devUrl = it }, label = { Text("Dev server URL") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Use dev server", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    if (useDev) "Connecting to the DEV server." else "Connecting to the PROD server.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
+                )
+            }
+            Switch(checked = useDev, onCheckedChange = { useDev = it })
+        }
         OutlinedTextField(token, { token = it }, label = { Text("Token") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        Button(onClick = { settings.url = url; settings.token = token; onSaveConnect(url, token) }) {
-            Text("Save & Connect")
+        Button(onClick = {
+            settings.url = url; settings.devUrl = devUrl; settings.useDev = useDev; settings.token = token
+            onSaveConnect(if (useDev) devUrl else url, token)
+        }) {
+            Text(if (useDev) "Save & Connect (Dev)" else "Save & Connect (Prod)")
         }
         Text("Client ID: ${settings.clientId}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
 
