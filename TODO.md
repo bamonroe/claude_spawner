@@ -212,6 +212,16 @@ _Robustness / ops (smaller, safe when we get to them):_
 
 ## Done
 
+- [x] 2026-07-06 — **Fuzzy-match confirmation in the spawn dialog.** When navigating to a leaf
+      project lands on a folder whose name carries a token the user never said — the matcher
+      stretched "mail" onto `mail_play` because no `mail` folder exists — the flow no longer
+      silently attaches; it asks a new `[await_confirm]` state ("did you mean mail_play?") first.
+      "yes" proceeds to the target/attach question, "no" backs up to the parent's folder list.
+      Exact names and multi-word names spoken in full ("mail play" → `mail_play`) skip it; only
+      leaf commits confirm (a stretch onto a root/namespace just keeps browsing). `descend` now
+      returns an `inexact` flag (`landedExact` = every folder-name token was spoken, exactly or via
+      a fuzzy slip). `gateway.dialog` + `docs/commands.md`; `TestSpawnFuzzyMatchConfirm` /
+      `TestSpawnExactMatchNoConfirm`.
 - [x] 2026-07-06 — **Android mTLS client certificate.** Completes the auth-hardening epic on the app
       side: the phone can now present a client certificate to a mutual-TLS server (`SPAWNER_TLS_CLIENT_CA`).
       New `net/ClientTls.kt` builds an OkHttp `SSLSocketFactory` + `X509TrustManager` from a PKCS#12

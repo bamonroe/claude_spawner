@@ -20,7 +20,7 @@ const maxList = 8
 // directory tree, stopping at a project (git repo) or a plain folder.
 type dialog struct {
 	flow   string // "spawn"
-	state  string // await_root | await_child | await_create | await_newname | await_target | await_attach
+	state  string // await_root | await_child | await_confirm | await_create | await_newname | await_target | await_attach
 	mode   string // "session" (browse existing) | "new" (create a new project)
 	dir    string // absolute dir once known (for create/attach)
 	browse string // directory currently being navigated
@@ -45,7 +45,8 @@ func (c *conn) startSpawn(isNew bool, location string) {
 	// If they named a location inline, resolve it and skip the "where?" prompt.
 	if terms := projects.Terms(location); len(terms) > 0 {
 		if root := c.matchRoot(terms[0]); root != "" {
-			c.arriveAt(c.descend(root, terms[1:]))
+			dir, inexact := c.descend(root, terms[1:])
+			c.arriveAt(dir, inexact)
 			return
 		}
 	}
@@ -65,12 +66,14 @@ func (c *conn) startSpawn(isNew bool, location string) {
 
 // arriveAt handles landing on a directory: in "new" mode ask for the new
 // project's name; otherwise browse it (list/pick existing).
-func (c *conn) arriveAt(dir string) {
+func (c *conn) arriveAt(dir string, inexact bool) {
 	if c.dlg.mode == "new" {
+		// New-project mode names the folder aloud ("...called, in mail_play?"),
+		// so a fuzzy landing is already surfaced — no separate confirm needed.
 		c.promptNewName(dir)
 		return
 	}
-	c.browseInto(dir)
+	c.browseInto(dir, inexact)
 }
 
 // promptNewName asks what to call a new project created under dir.
@@ -107,6 +110,9 @@ func (c *conn) repromptDialog() {
 	case "await_child":
 		c.send(msgDialog("await_child", "which folder?"))
 		c.promptChildren(c.dlg.browse)
+	case "await_confirm":
+		c.send(msgDialog("await_confirm", "did you mean "+filepath.Base(c.dlg.dir)+"?"))
+		c.send(msgSay("did you mean " + filepath.Base(c.dlg.dir) + "? yes or no."))
 	case "await_newname":
 		c.send(msgDialog("await_newname", "new project name?"))
 		c.send(msgSay("what's the new project called, in " + filepath.Base(c.dlg.browse) + "?"))
@@ -145,6 +151,8 @@ func (c *conn) handleDialog(text string) {
 		c.spawnAwaitRoot(text)
 	case "await_child":
 		c.spawnAwaitChild(text)
+	case "await_confirm":
+		c.spawnAwaitConfirm(text)
 	case "await_create":
 		c.spawnAwaitCreate(text)
 	case "await_newname":
@@ -172,7 +180,8 @@ func (c *conn) spawnAwaitRoot(text string) {
 		c.send(msgSay("start with " + orList(c.rootNames()) + "."))
 		return
 	}
-	c.arriveAt(c.descend(root, terms[1:]))
+	dir, inexact := c.descend(root, terms[1:])
+	c.arriveAt(dir, inexact)
 }
 
 // spawnAwaitChild navigates within the current browse directory: descend into a
@@ -194,8 +203,8 @@ func (c *conn) spawnAwaitChild(text string) {
 		c.send(msgSay("say a folder in " + filepath.Base(c.dlg.browse) + ", or 'here'."))
 		return
 	}
-	if dir := c.descend(c.dlg.browse, terms); dir != c.dlg.browse {
-		c.browseInto(dir)
+	if dir, inexact := c.descend(c.dlg.browse, terms); dir != c.dlg.browse {
+		c.browseInto(dir, inexact)
 		return
 	}
 
@@ -209,7 +218,7 @@ func (c *conn) spawnAwaitChild(text string) {
 
 // browseInto prompts for a subfolder when dir is a root or a namespace (a
 // container of repos), otherwise treats dir as the target project.
-func (c *conn) browseInto(dir string) {
+func (c *conn) browseInto(dir string, inexact bool) {
 	if c.isRoot(dir) || projects.IsNamespace(dir) {
 		c.dlg.browse = dir
 		c.dlg.state = "await_child"
@@ -217,7 +226,40 @@ func (c *conn) browseInto(dir string) {
 		c.promptChildren(dir)
 		return
 	}
+	// A leaf project — we'd commit to it next. If we only got here by a fuzzy
+	// match, confirm the folder name before proceeding to attach.
+	if inexact {
+		c.confirmMatch(dir)
+		return
+	}
 	c.askTarget(dir, "found "+filepath.Base(dir)+". want to attach?")
+}
+
+// confirmMatch asks the user to confirm a fuzzy-matched folder before committing
+// to it ("did you mean mail_play?"), so a misheard name doesn't silently attach
+// to the wrong project.
+func (c *conn) confirmMatch(dir string) {
+	c.dlg.dir = dir
+	c.dlg.state = "await_confirm"
+	c.send(msgDialog("await_confirm", "did you mean "+filepath.Base(dir)+"?"))
+	c.send(msgSay("i don't see that exactly — did you mean " + filepath.Base(dir) + "? yes or no."))
+}
+
+// spawnAwaitConfirm handles the yes/no after a fuzzy-match confirmation.
+func (c *conn) spawnAwaitConfirm(text string) {
+	switch {
+	case affirmative(text):
+		c.askTarget(c.dlg.dir, "found "+filepath.Base(c.dlg.dir)+". want to attach?")
+	case negative(text):
+		// Back up to the parent so they can pick again.
+		parent := filepath.Dir(c.dlg.dir)
+		c.dlg.browse = parent
+		c.dlg.state = "await_child"
+		c.send(msgDialog("await_child", "which folder?"))
+		c.promptChildren(parent)
+	default:
+		c.send(msgSay("yes or no — did you mean " + filepath.Base(c.dlg.dir) + "?"))
+	}
 }
 
 // promptChildren asks which subfolder, reading them out if there aren't too many.
@@ -253,7 +295,8 @@ func (c *conn) spawnAwaitCreate(text string) {
 
 // descend walks `segs` down from dir, taking the best-matching child per
 // segment; it stops at the first segment that matches nothing.
-func (c *conn) descend(dir string, segs []string) string {
+func (c *conn) descend(dir string, segs []string) (string, bool) {
+	start := dir
 	for _, seg := range segs {
 		ranked := projects.Rank(seg, projects.Children(dir))
 		if len(ranked) == 0 {
@@ -261,7 +304,30 @@ func (c *conn) descend(dir string, segs []string) string {
 		}
 		dir = ranked[0].Path
 	}
-	return dir
+	// Flag a fuzzy landing: the matcher stretched to a folder whose name carries
+	// a token the user never said ("mail" -> "mail_play"). A multi-word folder
+	// the user actually named in full ("mail play" -> "mail_play") is exact.
+	inexact := dir != start && !landedExact(filepath.Base(dir), segs)
+	return dir, inexact
+}
+
+// landedExact reports whether every token in the destination folder's name was
+// actually spoken (exactly or via a fuzzy transcription slip). A folder with an
+// unspoken token means the matcher stretched to a longer name than was said.
+func landedExact(name string, spoken []string) bool {
+	for _, tok := range projects.Terms(name) {
+		matched := false
+		for _, s := range spoken {
+			if strings.EqualFold(s, tok) || projects.FuzzyEqual(s, tok) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+	return true
 }
 
 // listMode parses "list" qualifiers: "all"/"alphabetical" list everything,

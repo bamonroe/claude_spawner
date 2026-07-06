@@ -97,6 +97,11 @@ once ("git personal askii").
         everything alphabetical / everything newest-first by mtime), stays [await_child]
   user: "here"/"use it" -> use the current folder -> [await_attach]
   user: "<new name>"    -> nothing matches -> [await_create]
+[await_confirm]   (only when a leaf was reached by a *stretched* fuzzy match —
+                   the folder carries a token you never said, e.g. "mail" -> "mail_play")
+  app : "i don't see that exactly — did you mean <name>? yes or no."
+  user: "yes"  -> proceed with that folder -> [await_target]
+  user: "no"   -> back up to its parent -> [await_child]
 [await_create]
   user: "yes"  -> mkdir <browse>/<name> (validated against roots) -> [await_target]
   user: "no"   -> abort
@@ -124,6 +129,13 @@ match. Roots come from `SPAWNER_ROOT` — a `:`-separated list (e.g. `/home/bam/
 **Transcription-error tolerance.** Root and folder matching use edit distance, so whisper slips
 like "get" → `git` or "personel" → `personal` still resolve. (`projects.Levenshtein` /
 `FuzzyEqual`, used in `matchRoot` and `Rank`.)
+
+**Fuzzy-match confirmation.** When navigating to a **leaf** project lands on a folder whose name
+carries a token you never said — the matcher stretched "mail" onto `mail_play` because no `mail`
+folder exists — the flow doesn't silently attach; it asks `[await_confirm]` ("did you mean
+mail_play?") first. Exact names and multi-word names you spoke in full ("mail play" → `mail_play`)
+skip the confirmation. Only leaf commits confirm; a stretch onto a root/namespace just keeps
+browsing, so it re-prompts anyway.
 
 **Entry points.** The whole path can ride on the command:
 - `spawn a session in git personal` → jump to `~/git/personal` and browse it (skip the "where?" prompt).

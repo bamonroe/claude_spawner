@@ -192,6 +192,65 @@ func TestSpawnDialogAndDictation(t *testing.T) {
 	}
 }
 
+// TestSpawnFuzzyMatchConfirm: a spoken folder name that only fuzzy-matches an
+// existing folder ("mail" -> "mail_play") prompts a yes/no confirmation before
+// committing, so a misheard name doesn't silently attach to the wrong project.
+func TestSpawnFuzzyMatchConfirm(t *testing.T) {
+	ts, root := newTestServer(t, nil)
+	if err := os.MkdirAll(filepath.Join(root, "mail_play"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ws := dial(t, ts)
+	send(t, ws, map[string]any{"type": "hello", "token": "secret"})
+	readUntil(t, ws, "hello_ok")
+
+	send(t, ws, map[string]any{"type": "utterance", "text": "hey buddy spawn a new session"})
+	readUntil(t, ws, "dialog") // await_root
+	send(t, ws, map[string]any{"type": "utterance", "text": filepath.Base(root)})
+	readUntil(t, ws, "dialog") // await_child
+
+	// "mail" fuzzy-matches "mail_play" -> confirm rather than attach.
+	send(t, ws, map[string]any{"type": "utterance", "text": "mail"})
+	if d := readUntil(t, ws, "dialog"); d["state"] != "await_confirm" {
+		t.Fatalf("expected await_confirm, got %v", d["state"])
+	}
+
+	// "no" backs up to the folder list.
+	send(t, ws, map[string]any{"type": "utterance", "text": "no"})
+	if d := readUntil(t, ws, "dialog"); d["state"] != "await_child" {
+		t.Fatalf("expected await_child after decline, got %v", d["state"])
+	}
+
+	// Try again and confirm -> proceeds to the attach question.
+	send(t, ws, map[string]any{"type": "utterance", "text": "mail"})
+	readUntil(t, ws, "dialog") // await_confirm
+	send(t, ws, map[string]any{"type": "utterance", "text": "yes"})
+	if d := readUntil(t, ws, "dialog"); d["state"] != "await_attach" {
+		t.Fatalf("expected await_attach after confirm, got %v", d["state"])
+	}
+}
+
+// TestSpawnExactMatchNoConfirm: an exact folder name skips the confirmation and
+// goes straight to attach (the confirm step is only for fuzzy hits).
+func TestSpawnExactMatchNoConfirm(t *testing.T) {
+	ts, root := newTestServer(t, nil)
+	if err := os.MkdirAll(filepath.Join(root, "mail_play"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ws := dial(t, ts)
+	send(t, ws, map[string]any{"type": "hello", "token": "secret"})
+	readUntil(t, ws, "hello_ok")
+
+	send(t, ws, map[string]any{"type": "utterance", "text": "hey buddy spawn a new session"})
+	readUntil(t, ws, "dialog") // await_root
+	send(t, ws, map[string]any{"type": "utterance", "text": filepath.Base(root)})
+	readUntil(t, ws, "dialog") // await_child
+	send(t, ws, map[string]any{"type": "utterance", "text": "mail play"})
+	if d := readUntil(t, ws, "dialog"); d["state"] != "await_attach" {
+		t.Fatalf("expected await_attach for exact match, got %v", d["state"])
+	}
+}
+
 // TestMultiDeviceLiveFanout: two connections attached to the same session both
 // receive a dictated turn's reply live (not just the one that dictated).
 func TestMultiDeviceLiveFanout(t *testing.T) {
