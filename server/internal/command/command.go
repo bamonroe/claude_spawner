@@ -200,10 +200,18 @@ func Parse(text string) Intent {
 	// Spawn: "spawn … session/project", or a leading new-session/project phrase.
 	case first == "spawn" && contains(t, "session", "project"),
 		leadsWith(t, "new session", "new project", "create a session", "create a project", "start a session", "start a project"):
+		// Prefer an explicit preposition ("spawn a session in git personal"); if
+		// there's none, take whatever path was spoken right after "session"/
+		// "project" ("spawn a new session bam git personal") so a one-shot command
+		// with an inline location still jumps straight there instead of dropping it.
+		loc := afterAny(t, "in", "at", "under", "inside")
+		if loc == "" {
+			loc = afterAny(t, "session", "project")
+		}
 		return Intent{
 			Kind:     Spawn,
 			New:      contains(t, "new project", "new repo", "new folder", "create a project", "start a project"),
-			Location: afterAny(t, "in", "at", "under", "inside"),
+			Location: loc,
 		}
 
 	// Detach: bare "detach"/"detach now", or an explicit phrase.

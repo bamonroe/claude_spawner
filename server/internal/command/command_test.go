@@ -180,6 +180,10 @@ func TestParseSpawn(t *testing.T) {
 		{"spawn a new project in git personal", true, "git personal"},
 		{"spawn a new project", true, ""},
 		{"start a project under data", true, "data"},
+		// Inline location with no preposition: the path after "session"/"project"
+		// is still captured so a one-shot command jumps straight there.
+		{"spawn a new session bam git personal", false, "bam git personal"},
+		{"new project data askii", true, "data askii"},
 	}
 	for _, c := range cases {
 		got := Parse(c.in)
