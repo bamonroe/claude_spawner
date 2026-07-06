@@ -261,7 +261,18 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk bool) bo
 			j.finish(msgAsk(sess.Name, qs))
 			return
 		}
-		j.finish(msgOutput(sess.Name, reply, false, &turnUsage))
+		// The context-size badge must reflect the CURRENT context window, not the turn's
+		// AGGREGATE usage. The result event sums every internal tool-step of an agentic
+		// turn (each re-reads the whole context), so turnUsage can be many times the real
+		// context and bounces with tool-use count. Read the true size the way attach does
+		// — the transcript's last assistant message — so live matches on-attach.
+		// (turnUsage still feeds the cumulative spend estimate above, where summing is
+		// what we want.)
+		badge := turnUsage
+		if cx := session.LastContextUsage(sess.TranscriptIDs()); cx != nil {
+			badge = cx.Usage
+		}
+		j.finish(msgOutput(sess.Name, reply, false, &badge))
 	}()
 	return true
 }

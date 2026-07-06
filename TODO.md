@@ -56,6 +56,14 @@ label. (Full code map established 2026-07-05 via two Explore passes — server +
       decided (share a registry, or drop the toggle).
 
 ### Server / infra
+- [x] 2026-07-05 — **Fix the bouncing 🧠 context-size counter.** The live counter used the stream
+      `result` event's usage, which is the turn's AGGREGATE — it sums every internal tool-step of an
+      agentic turn (each step re-reads the whole context), so a tool-heavy turn reported millions of
+      "context" tokens vs a real ~430k, and it jumped around with tool-use count. It also disagreed
+      with the on-attach value (which correctly reads the transcript's last assistant message). Fixed:
+      the post-turn `output` badge now derives context size from `LastContextUsage` (last message),
+      the same source as attach, so live and on-attach agree. `turnUsage` still feeds the cumulative
+      spend estimate, where summing across steps is correct.
 - [ ] Decide + implement the auth/transport story beyond the shared token: **TLS/mTLS** (today a
       constant-time-compared shared token, fronted by Tailscale).
 - [x] 2026-07-05 — **Attached-session title tracks the session by stable id, not name.** The app
