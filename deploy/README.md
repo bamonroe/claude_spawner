@@ -9,6 +9,7 @@ behalf. This directory holds the broker's host service and a transcript helper.
 | `spawner-broker.service`    | systemd **user** service for the host-side broker (`cmd/broker`).          |
 | `spawner-broker.env.example`| template for the broker's `EnvironmentFile` (socket, root, claude, sandbox, restart cmd). |
 | `rebuild.sh`                | rebuild + relaunch the whole stack (whisper servers, broker, server container). |
+| `rebuild-broker.sh`         | rebuild the broker binary + restart its user service (wired to the restart button's self-cmd). |
 | `claude-log.sh`             | helper to read a session's Claude transcript by name.                     |
 
 ## Transcription depends on the resident whisper servers
@@ -42,7 +43,11 @@ service) live in the unit file's header comment — follow those. Its config var
 The server container itself is brought up with `docker compose -f docker-compose.broker.yml up -d
 --build` after the broker is running; see the repo [`README.md`](../README.md) for the full
 end-to-end bring-up. The app's **restart** button rebuilds and relaunches that container by asking
-the broker to run `SPAWNER_BROKER_RESTART_CMD` (set it in the broker env file).
+the broker to run `SPAWNER_BROKER_RESTART_CMD` (set it in the broker env file). Because the broker
+is a **separate host process** from the container, it also runs `SPAWNER_BROKER_RESTART_SELF_CMD`
+right after — point that at `rebuild-broker.sh` so the broker binary is rebuilt and restarted in the
+same press. Otherwise a server rebuild leaves the old broker running, and it rejects any newly-added
+broker op with `unknown op ...` until you rebuild it by hand (e.g. `deploy/rebuild.sh`).
 
 ## `claude-log.sh` — inspect a session's transcript
 
