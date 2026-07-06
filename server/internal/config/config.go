@@ -2,6 +2,8 @@
 package config
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -75,6 +77,18 @@ type Config struct {
 	// claude itself — the arrangement that lets a containerized, unprivileged
 	// server run turns on the host. Empty = fork claude directly (native install).
 	BrokerSocket string
+	// TLSCert and TLSKey are the PEM cert/key files for serving wss:// (HTTPS).
+	// Both or neither: setting one without the other is a config error. When both
+	// are set the listener serves TLS; empty means plain ws:// (fine behind a
+	// Tailscale/WireGuard tunnel, which already encrypts the hop).
+	TLSCert string
+	TLSKey  string
+	// TLSClientCA is a PEM bundle of certificate authorities that sign the client
+	// certificates the app must present — enabling mutual TLS. When set, a client
+	// must prove possession of a private key signed by one of these CAs *in
+	// addition to* the shared token, so a leaked token alone can't attach. Requires
+	// TLSCert/TLSKey (mTLS is layered on server TLS). Empty = no client-cert check.
+	TLSClientCA string
 }
 
 // Load reads configuration from the environment and validates it.
@@ -99,9 +113,18 @@ func Load() (*Config, error) {
 		SandboxMounts:    splitList(os.Getenv("SPAWNER_SANDBOX_MOUNTS"), ","),
 		SandboxRunArgs:   strings.Fields(os.Getenv("SPAWNER_SANDBOX_RUN_ARGS")),
 		BrokerSocket:     os.Getenv("SPAWNER_BROKER_SOCKET"),
+		TLSCert:          os.Getenv("SPAWNER_TLS_CERT"),
+		TLSKey:           os.Getenv("SPAWNER_TLS_KEY"),
+		TLSClientCA:      os.Getenv("SPAWNER_TLS_CLIENT_CA"),
 	}
 	if c.AuthToken == "" {
 		return nil, fmt.Errorf("SPAWNER_TOKEN is required (refusing to run without auth)")
+	}
+	if (c.TLSCert == "") != (c.TLSKey == "") {
+		return nil, fmt.Errorf("SPAWNER_TLS_CERT and SPAWNER_TLS_KEY must be set together")
+	}
+	if c.TLSClientCA != "" && !c.TLSEnabled() {
+		return nil, fmt.Errorf("SPAWNER_TLS_CLIENT_CA requires SPAWNER_TLS_CERT and SPAWNER_TLS_KEY (mTLS is layered on server TLS)")
 	}
 	c.WhisperFastMaxSeconds = 2.5 // default cutoff
 	if v := os.Getenv("SPAWNER_WHISPER_FAST_MAX_SEC"); v != "" {
@@ -117,6 +140,36 @@ func Load() (*Config, error) {
 	}
 	c.SpawnRoots = roots
 	return c, nil
+}
+
+// TLSEnabled reports whether the server should serve wss:// — true when both a
+// cert and key are configured (Load guarantees they're set together).
+func (c *Config) TLSEnabled() bool { return c.TLSCert != "" && c.TLSKey != "" }
+
+// MutualTLS reports whether clients must present a valid client certificate.
+func (c *Config) MutualTLS() bool { return c.TLSClientCA != "" }
+
+// BuildTLSConfig constructs the server's *tls.Config, loading the client-CA pool
+// and requiring client certs when mTLS is enabled. Returns (nil, nil) when TLS is
+// disabled, so callers fall back to a plain listener.
+func (c *Config) BuildTLSConfig() (*tls.Config, error) {
+	if !c.TLSEnabled() {
+		return nil, nil
+	}
+	t := &tls.Config{MinVersion: tls.VersionTLS12}
+	if c.MutualTLS() {
+		pem, err := os.ReadFile(c.TLSClientCA)
+		if err != nil {
+			return nil, fmt.Errorf("SPAWNER_TLS_CLIENT_CA %q: %w", c.TLSClientCA, err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(pem) {
+			return nil, fmt.Errorf("SPAWNER_TLS_CLIENT_CA %q: no PEM certificates found", c.TLSClientCA)
+		}
+		t.ClientCAs = pool
+		t.ClientAuth = tls.RequireAndVerifyClientCert
+	}
+	return t, nil
 }
 
 // ParseRoots parses a SPAWNER_ROOT value (":"-separated, like PATH) into absolute

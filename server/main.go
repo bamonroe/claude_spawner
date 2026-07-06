@@ -133,17 +133,37 @@ func main() {
 	})
 	mux.HandleFunc("/ws", gw.HandleWS)
 
+	tlsConf, err := cfg.BuildTLSConfig()
+	if err != nil {
+		log.Fatalf("tls: %v", err)
+	}
 	srv := &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
+		TLSConfig:         tlsConf,
 	}
 
 	go func() {
 		known := store.List()
-		log.Printf("spawner listening on %s (roots: %v, %d known session(s))",
-			cfg.Addr, cfg.SpawnRoots, len(known))
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		scheme := "ws"
+		if cfg.TLSEnabled() {
+			scheme = "wss"
+			if cfg.MutualTLS() {
+				scheme = "wss+mTLS"
+			}
+		}
+		log.Printf("spawner listening on %s [%s] (roots: %v, %d known session(s))",
+			cfg.Addr, scheme, cfg.SpawnRoots, len(known))
+		var err error
+		if cfg.TLSEnabled() {
+			// Certs are also referenced by TLSConfig-less path; passing the files
+			// here lets ListenAndServeTLS load them into the (mTLS) TLSConfig.
+			err = srv.ListenAndServeTLS(cfg.TLSCert, cfg.TLSKey)
+		} else {
+			err = srv.ListenAndServe()
+		}
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("listen: %v", err)
 		}
 	}()

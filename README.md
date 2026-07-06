@@ -107,6 +107,22 @@ The server can run arbitrary commands (Claude runs with permissions bypassed). *
 the internet without authentication and TLS.** Use a private network / Tailscale, require an auth
 token from the app, and constrain spawn directories.
 
+### Transport TLS and mutual TLS (optional)
+
+By default the WebSocket is plain `ws://`, which is fine when the only hop is a Tailscale/WireGuard
+tunnel (it already encrypts). To encrypt the channel independently, or to require a client
+certificate on top of the shared token, set these env vars:
+
+- **Server TLS (`wss://`)** — set `SPAWNER_TLS_CERT` and `SPAWNER_TLS_KEY` to a PEM cert/key pair
+  (both or neither; one alone is a startup error). The listener then serves `wss://`; point the app
+  at a `wss://…` URL. With a publicly-trusted cert (e.g. a Tailscale HTTPS/Let's Encrypt cert) the
+  Android client needs no change — just the `wss://` URL.
+- **Mutual TLS** — also set `SPAWNER_TLS_CLIENT_CA` to a PEM bundle of the CA(s) that sign your
+  client certificates. The server then demands a valid client cert **in addition to** the token, so
+  a leaked token alone can't attach. Requires the server cert/key pair. (The Android app does not yet
+  ship a client certificate — mTLS is ready server-side and reachable today by CLI/`wsclient`
+  clients; app-side client-cert support is tracked in `TODO.md`.)
+
 ## Where sessions run: host vs. sandbox
 
 Each session picks an **execution target** at spawn time, a durable per-session choice:

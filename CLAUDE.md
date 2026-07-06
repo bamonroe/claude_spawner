@@ -111,6 +111,11 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
 
 - `SPAWNER_ADDR` (`:8080`), `SPAWNER_TOKEN` (**required**), `SPAWNER_ROOT` (colon-separated
   spawn-dir jail), `SPAWNER_STATE` (`sessions.json`), `SPAWNER_CLAUDE_BIN` (`claude`).
+- Transport TLS (all optional; empty = plain `ws://`, fine behind Tailscale): `SPAWNER_TLS_CERT`
+  and `SPAWNER_TLS_KEY` (PEM cert/key — set **both** to serve `wss://`; one without the other is a
+  startup error), `SPAWNER_TLS_CLIENT_CA` (PEM CA bundle — when set, the app must present a client
+  certificate signed by one of these CAs **in addition to** the token → mutual TLS; requires the
+  cert/key pair).
 - CLI STT: `SPAWNER_WHISPER_BIN` (`whisper-cli`), `SPAWNER_WHISPER_MODEL` (path; enables STT),
   `SPAWNER_WHISPER_MODEL_FAST` / `SPAWNER_WHISPER_MODEL_BASE` (per-size model paths for the
   clip-length model picker), `SPAWNER_WHISPER_LANG` (`en`), `SPAWNER_FFMPEG_BIN` (`ffmpeg`).

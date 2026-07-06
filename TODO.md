@@ -64,8 +64,17 @@ label. (Full code map established 2026-07-05 via two Explore passes — server +
       the post-turn `output` badge now derives context size from `LastContextUsage` (last message),
       the same source as attach, so live and on-attach agree. `turnUsage` still feeds the cumulative
       spend estimate, where summing across steps is correct.
-- [ ] Decide + implement the auth/transport story beyond the shared token: **TLS/mTLS** (today a
-      constant-time-compared shared token, fronted by Tailscale).
+- [x] 2026-07-06 — **Auth/transport hardening: optional server TLS + mutual TLS.** Layered on top of
+      the shared token and fully backward compatible (empty = plain `ws://`, still fine behind
+      Tailscale). New env vars `SPAWNER_TLS_CERT`/`SPAWNER_TLS_KEY` (both or neither → serve `wss://`)
+      and `SPAWNER_TLS_CLIENT_CA` (PEM CA bundle → `tls.RequireAndVerifyClientCert`, so a client must
+      present a cert signed by that CA *in addition to* the token; requires the server pair). Config
+      validates the cross-constraints at startup; `Config.BuildTLSConfig()` builds the pool; `main.go`
+      switches to `ListenAndServeTLS` and logs the scheme (`ws`/`wss`/`wss+mTLS`). Tests:
+      `TestLoadTLSValidation` (all cert/key/CA combos) + `TestBuildTLSConfig` (disabled/bad-CA/real-CA
+      → mTLS). docsync green (three vars documented in CLAUDE.md); README security section documents
+      setup. mTLS is reachable today by CLI clients; the Android client-cert half is the follow-up
+      below.
 - [x] 2026-07-05 — **Attached-session title tracks the session by stable id, not name.** The app
       keyed the attached session by name; the temporary Dev/Prod toggle gives the same on-disk
       session different names on each server (e.g. `spawner-2` vs `spawner-3`), so switching servers
@@ -149,6 +158,10 @@ label. (Full code map established 2026-07-05 via two Explore passes — server +
       aliases (→ `docs/commands.json` → `generateCommands` → app), so wake mishearings are visible
       and **editable in the app's alias editor** like regular commands. Server list is authoritative
       today; this makes it user-tunable on-device.
+- [ ] **Android mTLS client certificate.** Server-side mutual TLS shipped (2026-07-06); the app can
+      already talk `wss://` but has no way to present a client cert. Add keystore/PKCS#12 import + a
+      custom `SSLSocketFactory`/`X509KeyManager` on the OkHttp client so the phone can satisfy
+      `SPAWNER_TLS_CLIENT_CA`. Until then mTLS is CLI-only.
 - [ ] On-device fallback STT when offline.
 - [ ] iOS app.
 
