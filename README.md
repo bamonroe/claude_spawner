@@ -2,10 +2,10 @@
 
 A voice-driven remote control for [Claude Code](https://claude.com/claude-code).
 
-Speak to an **Android app**, and it relays your voice to a **server** on your machine that
-spawns and manages **Claude Code sessions**, driving them headless. The app is a hands-free passthrough:
-say a command and it's executed; attach to a session and your dictation goes straight to Claude,
-with Claude's replies streamed back and read aloud.
+Speak to an **Android app**, and it relays your voice to a **server** on your machine that spawns
+and manages **Claude Code sessions**, driving them headless. The app is a hands-free passthrough:
+say a command and it runs; attach to a session and your dictation goes straight to Claude, with
+replies streamed back and read aloud.
 
 ## How it works
 
@@ -21,16 +21,15 @@ App:   (attached — now everything you say is dictated to Claude Code)
 ```
 
 - **Wake word** "hey buddy" is detected **on your phone** (Porcupine / Picovoice).
-- **Speech-to-text** runs on the **server** (Whisper) for accuracy.
-- The **server** drives Claude Code **headless** (`claude -p --output-format stream-json`) with
-  `--dangerously-skip-permissions`. A session is a durable `session_id` on disk, reattached each
-  turn with `--resume` — so responses come back as clean structured text, never scraped from a
-  terminal UI.
-- While **attached**, your speech is dictated into the session and Claude's response is
-  streamed back to the phone (display + text-to-speech).
-- Optionally, you can run `claude --resume <id>` in a real terminal yourself to watch or take over
-  the **same** on-disk session (the server detects this and warns rather than driving it at the
-  same time).
+- **Speech-to-text** runs on the **server** (Whisper).
+- The **server** drives Claude Code **headless** (`claude -p --output-format stream-json`, with
+  `--dangerously-skip-permissions`). A session is a durable `session_id` on disk, reattached each
+  turn with `--resume`, so replies come back as clean structured text — never scraped from a
+  terminal UI. (Design notes: [`CLAUDE.md`](./CLAUDE.md), [`docs/architecture.md`](./docs/architecture.md).)
+- While **attached**, your speech is dictated into the session and Claude's reply is streamed back
+  to the phone (display + text-to-speech). You can also `claude --resume <id>` in a real terminal to
+  watch or take over the same session — the server detects this and warns rather than driving it
+  concurrently.
 
 ## Stack
 
@@ -43,9 +42,7 @@ App:   (attached — now everything you say is dictated to Claude Code)
 | Sessions    | **headless `claude -p` (stream-json)**, durable via `session_id` on disk |
 | Conflict check| **tmux** inspected to detect a `claude` a human has open in a pane      |
 
-See [`CLAUDE.md`](./CLAUDE.md) for the full architecture, data flow, and design notes.
-
-## Reserved commands (planned)
+## Reserved commands
 
 All prefixed with **"hey buddy"**:
 
@@ -58,310 +55,124 @@ All prefixed with **"hey buddy"**:
 - `what's the status` / `what's it doing`
 - `read last` / `read last 3` — re-read Claude's recent replies aloud
 - `clear the context` — start Claude fresh **without** losing your history (see below)
-- `compress the context` — like `clear`, but carries a **summary** forward instead of dropping context (see below)
+- `compress the context` — like `clear`, but carries a **summary** forward (see below)
 
-Anything spoken **while attached** that isn't a reserved command is dictated to the session.
+Anything spoken **while attached** that isn't a reserved command is dictated to the session. When a
+command fails (a bad path, a name that's taken, a session live in a terminal…), the server speaks a
+plain-language reason instead of failing silently.
 
-When a spoken command **fails** (a bad path, a name that's taken, a session that's live in a
-terminal, a turn that errored…), the server speaks a plain-language reason — "that path won't work,
-bud", "couldn't rename it — that name might already be taken" — instead of failing silently, so you
-know what happened without looking at the screen.
+**Without your voice:** swipe up on the message box for a **command tray** of tap buttons — one per
+command that needs no argument (`detach`, `clear`, `compress`, `status`, `usage`, …). Open the
+**sessions drawer** with the ☰ menu or by swiping in from the left edge (just inside the edge — the
+very edge is Android's back gesture). See [`docs/commands.md`](docs/commands.md).
 
-**Without your voice, too:** swipe up on the message box to pop a **command tray** of tap buttons —
-one per command that needs no argument (`detach`, `clear`, `compress`, `status`, `usage`, …).
-Tapping fires the command and closes the tray; swipe back down — or tap anywhere outside it — to
-dismiss it. Handy when you'd rather not talk (see
-[`docs/commands.md`](docs/commands.md#non-voice-the-command-tray)).
+### Clearing vs. compressing context
 
-Open the **sessions drawer** either by tapping the ☰ menu or by **swiping in from the left edge** of
-the screen (start just inside the edge — the very edge belongs to Android's system back gesture).
+Every dictated turn resumes the session with `--resume`, so Claude re-reads the whole conversation
+each turn — which makes a long session progressively more expensive.
 
-### Clearing context (keep history, stop paying to replay it)
+- **"hey buddy, clear the context"** rotates to a fresh `session_id`: the next turn starts Claude
+  with empty context (no re-read, no re-billing). Nothing is deleted — the old transcript stays on
+  disk and still scrolls back in the app; Claude just stops seeing it. Use it when starting
+  unrelated work in the same directory.
+- **"hey buddy, compress the context"** is the `/compact` analogue: the server has Claude summarize
+  the conversation, rotates to a fresh `session_id`, and prepends that summary to your next
+  dictation — so Claude keeps a compact recap instead of the full transcript. Costs one model turn.
+  Use it to keep going on the same task while trimming cost.
 
-A session is a durable `session_id` on disk, and every dictated turn resumes it with `--resume` —
-which means Claude re-reads the **entire** conversation each turn (that's how it keeps context, and
-it's what makes a long session progressively more expensive per turn).
+### Token & usage displays
 
-Saying **"hey buddy, clear the context"** (or "clear context" / "start fresh") **rotates** the
-session instead of deleting it: the current `session_id` is retired and a fresh one takes over, so
-the next thing you say starts Claude with an empty context — no re-read, no re-billing of the whole
-transcript. The retired transcript is **kept on disk**, so the app still shows your full history;
-the server just stitches the retired and current transcripts together when you scroll back. Claude
-simply stops seeing the old turns.
+All screen-only (nothing spoken), so hands-free dictation is unaffected. The numbers come straight
+from the headless `result` usage — no estimation. See [`docs/protocol.md`](./docs/protocol.md).
 
-Use it whenever you've finished one line of work and want to start another in the same directory
-without carrying (and paying for) all the prior context. It never deletes anything — "clear
-history" is intentionally *not* a command, because clearing keeps the history.
+- **Token badge** under each reply (toggle in Settings → Appearance): the turn's context and output
+  tokens (`24k↑ 340↓`), a **⚡** when it reused a warm prompt cache, and a detailed mode that splits
+  fresh vs. cached input.
+- **Cache-warm timer** — counts down the ~5-minute window in which your next turn reuses the warm
+  prompt cache rather than rebuilding the whole context.
+- **Title bar** shows the attached session's current context size (`🧠 24k`).
+- **Session limit** at the bottom of the sessions drawer — which Claude usage window (rolling 5-hour
+  or weekly) is binding and when it resets, from the CLI's `rate_limit_event` (refreshes each turn).
+- **📊 Check usage** (drawer button, or "hey buddy, usage") runs `claude -p "/usage"` for the exact
+  session/weekly percentages the desktop TUI's `/usage` shows; the voice form also speaks a one-line
+  summary. Between checks, a free **drift estimate** (`~68%`, marked `(est)`) keeps a current-ish
+  figure and snaps back to the real numbers each time you check.
 
-### Compressing context (keep going, but condensed)
+Each live message also carries a small date/time badge.
 
-Sometimes you *don't* want to drop the context — you're mid-task and Claude still needs to know what
-you've been doing — you just want to stop replaying the whole long transcript every turn. Saying
-**"hey buddy, compress the context"** (or "compact" / "condense context") is the `/compact` analogue
-of `clear`: the server asks Claude to **summarize** the conversation so far, then rotates to a fresh
-`session_id` exactly like `clear` — but stashes that summary and **prepends it to your next
-dictation**. So Claude picks up with a compact recap of the task, decisions, and current state
-instead of either the full (expensive) transcript or a blank slate.
+## Security
 
-It costs **one** model turn (the summary) and, like `clear`, keeps the old transcript on disk so your
-full history still scrolls back. Reach for `clear` when you're starting something unrelated, and
-`compress` when you want to keep going on the same work but trim the running cost.
+The server can run arbitrary commands (Claude runs with permissions bypassed). **Do not expose it to
+the internet without authentication and TLS.** Use a private network / Tailscale, require an auth
+token from the app, and constrain spawn directories.
 
-### Seeing token usage (and the warm-cache window)
+## Where sessions run: host vs. sandbox
 
-Each turn's token cost rides back on the reply, so the app can show what a turn actually used.
-Two independent, toggleable displays live in **Settings → Appearance**:
+Each session picks an **execution target** at spawn time, a durable per-session choice:
 
-- **Token badge** — a small caption under each Claude reply. **Compact** (the default) shows the
-  turn's total context tokens and Claude's output (`24k↑ 340↓`), plus a **⚡** when the turn reused a
-  warm prompt cache. **Detailed** breaks the input apart — fresh input vs. `cached` (a cheap
-  cache-read) vs. newly-cached (`new`) tokens — then the output. **Off** hides it entirely.
-- **Cache-warm timer** — a status-bar line counting down the ~5-minute window during which your
-  **next** turn will reuse the warm prompt cache (`⚡ cache warm · 3:12 left`) rather than paying to
-  rebuild the whole context (`❄ cache cold — next turn rebuilds context`). Each turn resets the
-  countdown; attaching to a different session resets it (that session has its own, cold, cache).
+- **host** (default) — turns run as a child process on the host, editing real host files with your
+  host toolchain. No configuration needed.
+- **sandbox** — turns run inside an isolated container (root *inside* the container) via a
+  **rootless** runtime (Podman by default), so no host root is needed. The container is
+  **persistent for the session's lifetime** — packages you install and services you start survive
+  between turns — and is destroyed when you delete the session. Set `SPAWNER_SANDBOX_IMAGE` to an
+  image carrying `claude` + your toolchain to enable it; the spawn dialog then adds a "host or
+  sandbox?" step. The working directory is bind-mounted at the same path so edits land there. Tune
+  with the other `SPAWNER_SANDBOX_*` vars. A ready-to-build Arch image and the rootless-Podman
+  config live in [`sandbox/`](./sandbox/README.md).
 
-The **title bar** shows the attached session's current context size (`🧠 24k`) — the last turn's
-context tokens (fresh input plus cached), so you can see the context growing at a glance.
+### The live deployment: containerized server + host broker
 
-Each live message also carries a small **date/time badge** below the token line — bottom-left on
-Claude's replies, bottom-right on your own messages. Replayed history is stamped too, from each
-message's transcript timestamp (older transcripts that predate this field show no badge).
+The **server always runs in a container** while sessions execute on the host — without the container
+holding host root or a runtime socket. A small **broker** daemon (`cmd/broker`) runs on the host as
+your ordinary user; the server's `SPAWNER_BROKER_SOCKET` points at its Unix socket and routes **all**
+turns through it. The broker is the single host-side agent for both targets: it forks `claude` for
+host sessions and drives rootless Podman for sandbox sessions, enforcing the `SPAWNER_ROOT` jail — so
+no component runs as root.
 
-Nothing here is spoken — it's screen-only, so hands-free dictation is unaffected. The numbers come
-straight from the headless `result` event's usage (no estimation); see the `output.usage` field in
-[`docs/protocol.md`](./docs/protocol.md).
-
-### Seeing your Claude plan's session limit
-
-At the **bottom of the sessions drawer** (the ☰ menu) is a readout of your Claude subscription's
-usage window — e.g. `⏳ Claude 5-hour session limit · resets 3:00pm · in 2h 13m`. It comes from the
-`rate_limit_event` the headless CLI emits early in every turn, so it refreshes each turn (no polling).
-`limit_type` tells you which window is binding — the rolling **5-hour session** window or the **weekly**
-cap — and `resets_at` is the exact reset time. If the status leaves `allowed` (you're nearing/at the
-cap) the line turns amber; an overage note appears if you're drawing on pay-as-you-go credits.
-
-One honest caveat: the `rate_limit_event` exposes only a **coarse** status, not an exact remaining
-quota — so the *drawer readout* shows *which* limit and *when it resets*, reliably, but not a "62%
-used" fuel gauge. For the exact numbers, use **Check usage** (below).
-
-### Checking exactly how much you have left
-
-For the real percentages — the same figures the desktop TUI's `/usage` shows — tap **📊 Check usage**
-at the bottom of the sessions drawer, or say **"hey buddy, usage"** (also "how much usage left" /
-"check usage"). The server runs `claude -p "/usage"` and returns a report; the app shows a sheet with:
-
-- **Session** and **This week** as percent-used bars, each with its reset time.
-- The full contributing breakdown (request/session counts, high-context and subagent-heavy shares,
-  top skills/subagents) — an approximation based on this machine's local sessions.
-
-The voice form also speaks a one-line summary ("you've used 47% of this session and 42% of the week").
-Unlike the drawer readout (which piggybacks on each turn for free), this is **on-demand**: it's a
-real, if lightweight, `claude` invocation, so it runs only when you ask. See the `usage` command in
-[`docs/commands.md`](./docs/commands.md) and the `usage` messages in [`docs/protocol.md`](./docs/protocol.md).
-
-### A live running estimate (between checks)
-
-Because the real `/usage` numbers cost a `claude` call, the server keeps its own **drift-live
-estimate** so you always have a current-ish figure for free. It's shown at the bottom of the drawer as
-`📊 Session ~68% · Week ~43% (est)` and, in more detail, at the top of the usage sheet.
-
-How it works: the server sums the token cost of **every turn, across all sessions and all clients**,
-into a running odometer, and nudges the estimated session/weekly percent upward each turn. It converts
-tokens→percent using a **rate it learns from your `/usage` checks** (the tokens consumed between two
-checks vs. the percent they moved). Each time you run **Check usage**, the estimate **snaps back to
-Claude's real numbers** and refines that rate — so it self-corrects and gets more accurate the more you
-check. A rolled-over 5-hour window (detected from the reset time) restarts the session estimate from
-zero. The estimate is server-global (everyone connected sees the same number) and persists across
-restarts. It's an estimate, clearly marked `~`/`(est)` — the authoritative figure is always **Check
-usage**. See the `usage_estimate` message in [`docs/protocol.md`](./docs/protocol.md).
-
-## How responses are captured (the once-hard problem, now solved)
-
-Claude Code's interactive TUI would be miserable to screen-scrape (ANSI, redraws, spinners), so
-we **don't**. The server drives Claude **headless** in `stream-json` mode and reads the clean
-`result` event for each turn — verified end-to-end against `claude` 2.1.196, including multi-turn
-memory via `--resume`. Details in [`CLAUDE.md`](./CLAUDE.md#-resolved-how-we-capture-claudes-responses-do-not-scrape-the-tui).
-
-## Security note
-
-The server can run arbitrary commands (Claude runs with permissions bypassed). **Do not expose
-it to the internet without authentication and TLS.** Use a private network / Tailscale, require
-an auth token from the app, and constrain spawn directories.
-
----
-
-## Where sessions run: host vs sandbox
-
-Each session picks an **execution target** at spawn time — a durable per-session choice:
-
-- **host** (default) — turns run as a direct child process on the host, editing real host files
-  with your host toolchain. This is the original behavior and needs no configuration.
-- **sandbox** — turns run inside an isolated container with root *inside* the container, launched
-  through a **rootless** runtime (Podman by default) so spinning one up needs no host root. The
-  container is **persistent for the session's lifetime**: it's created when you spawn the session,
-  every turn runs inside that same container (so packages you install and services you start
-  persist between turns — a real environment, not a fresh box each turn), and it's destroyed when
-  you delete the session. Set `SPAWNER_SANDBOX_IMAGE` to a container image carrying `claude` +
-  your toolchain to enable it (the image needs a shell so the container can idle on `sleep
-  infinity`). Once enabled, the spawn dialog adds a "host or sandbox?" step (voice: say "host" or
-  "in a sandbox"); the app's visual spawn can pass `target` on `spawn_at`. The session's working
-  directory is bind-mounted at the same path so file edits land there and the on-disk transcript
-  stays discoverable (share `$HOME/.claude` via `SPAWNER_SANDBOX_MOUNTS` to keep history working).
-  Tune it with `SPAWNER_SANDBOX_RUNTIME`, `SPAWNER_SANDBOX_CLAUDE_BIN`, `SPAWNER_SANDBOX_MOUNTS`,
-  and `SPAWNER_SANDBOX_RUN_ARGS`. A ready-to-build **Arch Linux** image (matching the host) and the
-  exact rootless-Podman config — mounting the host claude + auth, `--userns=keep-id` so the turn
-  runs non-root — live in [`sandbox/`](./sandbox/README.md), verified by the `internal/session`
-  live tests.
-
-### The server runs in a container (host execution without host root)
-
-The **server always runs in a container**, while sessions still execute on the host — without the
-container holding host root, and without giving it a container-runtime socket. Run the
-small **broker** daemon (`cmd/broker`) on the host as your ordinary user; it listens on a Unix
-socket, and when the server's `SPAWNER_BROKER_SOCKET` points at that socket (bind-mounted into the
-container), the server routes **all** turns *through* the broker. The broker is the single
-host-side agent for both targets: it forks `claude` as you for **host** sessions, and drives
-rootless Podman as you for **sandbox** sessions (create/exec/remove the container) — so sandbox
-sessions work from a containerized server with no podman-in-podman and no socket mount. It enforces
-the `SPAWNER_ROOT` jail, so the server container stays unprivileged and no component runs as root.
-The broker reads `SPAWNER_BROKER_SOCKET` (the path to listen on), `SPAWNER_ROOT` (its jail),
-`SPAWNER_CLAUDE_BIN`, and — for sandbox turns — the same `SPAWNER_SANDBOX_*` vars (the broker, not
-the server, owns the runtime config). The full design is in `docs/architecture.md`.
-
-**This is the live deployment.** The server runs as a **Docker** container
-([`docker-compose.broker.yml`](./docker-compose.broker.yml), image
-[`server/Dockerfile.broker`](./server/Dockerfile.broker): just the compiled binary + ffmpeg, no
-claude/podman/tmux inside), and the broker runs as a **systemd user service**
-([`deploy/spawner-broker.service`](./deploy/spawner-broker.service) +
-[`deploy/spawner-broker.env.example`](./deploy/spawner-broker.env.example)) driving **rootless
-Podman** for sandboxes. To reproduce it: (1) install + enable the broker service; (2)
-`docker compose -f docker-compose.broker.yml up -d --build`. Edit both for your host paths — the
-`SPAWNER_ROOT` dirs are bind-mounted into the container at the **same path** so they match what the
-broker executes against, and the broker socket lives in a persistent directory that the container
-bind-mounts (as a directory) so the two can start in any order on reboot. Both auto-start on boot
-(Docker's daemon is enabled; the broker is a lingering user service).
-
-The app's **restart** button (and the `restart` wire message) rebuilds and relaunches the server
-container to pick up new server code. Since the unprivileged container can't rebuild its own image,
-the server asks the broker to run `SPAWNER_BROKER_RESTART_CMD` on the host — set it to `docker
-compose -f docker-compose.broker.yml up -d --build spawner` (see
-[`deploy/spawner-broker.env.example`](./deploy/spawner-broker.env.example)); if it's unset the
-button reports `restart_failed` instead of silently doing nothing.
-
----
+The live setup runs the server as a **Docker** container
+([`docker-compose.broker.yml`](./docker-compose.broker.yml)) plus the broker as a **systemd user
+service** ([`deploy/`](./deploy/)). To reproduce: install + enable the broker service, then
+`docker compose -f docker-compose.broker.yml up -d --build`. The app's **restart** button asks the
+broker to rebuild and relaunch the server container via `SPAWNER_BROKER_RESTART_CMD`. Full design in
+[`docs/architecture.md`](./docs/architecture.md).
 
 ## Quick all-in-one dev container
 
-For a simple local trial, the `docker-compose.yml` image bakes the whole execution environment —
-Go, the `claude` CLI, and **whisper.cpp + a model** — into one container that executes turns
-in-process (no broker), so nothing has to be installed on the host. Source stays on the host
-(bind-mounted), so you edit and version normally; only execution is containerized. The **live
-deployment** is the broker setup above; this all-in-one image is the fast path for kicking the
-tires.
+For a local trial, `docker-compose.yml` bakes Go, the `claude` CLI, and whisper.cpp + a model into
+one container that executes turns in-process (no broker) — nothing to install on the host. Source
+stays bind-mounted, so you edit and version normally.
 
-`docker compose up` starts three services: the **spawner** and two **resident whisper.cpp HTTP
-servers** — an accurate model on `:8571` and a fast draft/detection model on `:8572`, built with
-Vulkan for the host's AMD GPU (see [`whisper/`](./whisper/README.md)). In this compose setup the
-spawner transcribes with its **bundled whisper.cpp CLI** (a model is baked into its image); it does
-*not* auto-wire to the resident servers. To use them instead, set `SPAWNER_WHISPER_URL` /
-`SPAWNER_WHISPER_FAST_URL` on the spawner — which is exactly what the live broker deployment does
-(see [`docker-compose.broker.yml`](./docker-compose.broker.yml)). When those URLs are set the server
-prefers the resident servers and falls back to the CLI. Engine details are in
-[`CLAUDE.md`](./CLAUDE.md).
+`docker compose up` starts the **spawner** plus two **resident whisper.cpp HTTP servers** (an
+accurate model on `:8571`, a fast draft/detection model on `:8572`, Vulkan-built for the host AMD
+GPU — see [`whisper/`](./whisper/README.md)). By default the spawner transcribes with its bundled
+whisper.cpp CLI; set `SPAWNER_WHISPER_URL` / `SPAWNER_WHISPER_FAST_URL` to prefer the resident
+servers instead (as the broker deployment does).
 
 ```bash
-# build (compiles whisper.cpp + fetches a model; base.en by default) and run on :8080
+# build (compiles whisper.cpp + fetches base.en) and run on :8080
 docker compose up --build
 
-# drive it with the text client (from inside the same environment)
+# drive it with the text client
 docker compose run --rm spawner go run ./cmd/wsclient -url ws://spawner:8080/ws
-#   hey buddy spawn a new session
-#   workspace demo
-#   yes
-#   <anything> -> dictated to Claude Code; reply comes back as 💬
+#   hey buddy spawn a new session → workspace demo → yes → then dictate to Claude Code
 
-# test real voice transcription end-to-end with whisper's sample clip
+# real voice end-to-end with whisper's sample clip
 docker compose run --rm spawner \
   go run ./cmd/wsclient -url ws://spawner:8080/ws -audio /opt/whisper.cpp/samples/jfk.wav
 ```
 
-- `claude` inside the container authenticates via your host creds, mounted from `~/.claude` +
-  `~/.claude.json` (or set `ANTHROPIC_API_KEY` in your shell). See `docker-compose.yml`.
-- Sessions are spawned under `/workspace` (a persisted volume); `SPAWNER_ROOT` jails them there.
+- `claude` authenticates via your host creds, mounted from `~/.claude` + `~/.claude.json` (or set
+  `ANTHROPIC_API_KEY`). Sessions spawn under `/workspace`; `SPAWNER_ROOT` jails them there.
 - Bigger/more-accurate model: `docker compose build --build-arg WHISPER_MODEL=small.en`.
 
----
+## Project history
 
-## To-Do / Roadmap
-
-> This is the **historical, phase-by-phase record** of how the project was built. For the live
-> list of what's in flight or recently finished, see [`TODO.md`](./TODO.md) — that's the
-> authoritative task tracker; this section is kept as a completed-phases narrative.
-
-### Phase 0 — Decisions & spec ✅
-- [x] Response-capture decision: **headless `claude -p --output-format stream-json`**, durable
-      `session_id` on disk + `--resume` — verified end-to-end. (No TUI scraping.)
-- [x] `docs/protocol.md` — WebSocket message schema
-- [x] `docs/commands.md` — "hey buddy" command grammar + dialog flows
-- [→] Auth mechanism / transport beyond the shared token (mTLS? Tailscale? reverse proxy?) —
-      still open; tracked in [`TODO.md`](./TODO.md).
-
-### Phase 1 — Server skeleton (Go)
-- [x] Project scaffold (`/server`), env config, graceful shutdown, `/healthz`
-- [x] `internal/session`: headless `claude` driver (`Driver.Turn`, stream-json parsing,
-      tool-event breadcrumbs, error subtypes) + `NewSessionID`
-- [x] `internal/session`: durable, file-backed session registry (`Store`) with atomic writes
-- [x] `internal/tmux`: detect a live interactive `claude` in a pane (`ClaudeDirs`) for conflict warnings
-- [x] Spawn-path validation against an allowed root (`config.ValidateSpawnDir`, tested)
-- [x] WebSocket gateway + auth handshake (`internal/gateway`, gorilla/websocket)
-- [x] `spawn` action: generate `session_id`, mkdir (validated), persist record
-- [x] Wire `list` / `attach` / `detach` / `kill` actions to the store + driver
-- [x] Dictation turn loop: attached utterance → `Driver.Turn` → `output` (async, tool breadcrumbs)
-- [x] `cmd/wsclient`: interactive text client for manual testing (no app needed)
-- [x] **Verified live**: spawn → attach → dictate → real claude reply → `--resume` recall
-
-### Phase 2 — Transcription & dialog
-- [x] Command parser: control command vs passthrough dictation (`internal/command`)
-- [x] Dialog state machine (the "ok bud, where?" → "want to attach?" flow, `internal/gateway`)
-- [x] Spoken-path normalization (fuzzy dir matching in `internal/projects`; STT is lowercase — see CLAUDE.md)
-- [x] Audio-stream ingest: `wake` + binary PCM16 frames + `audio_end` → WAV → transcript → `utterance`
-- [x] Whisper integration behind a `Transcriber` interface (`internal/transcribe`, whisper.cpp shell-out)
-- [x] Dockerized dev environment (Go + claude CLI + whisper.cpp + model; tmux for conflict detection)
-- [x] Verify a real audio turn end-to-end (jfk.wav / spoken clip → transcript → Claude reply),
-      on both the resident GPU whisper server and the CLI fallback
-- [x] Vocab biasing (`--prompt`) to improve recognition of session names / paths
-
-### Phase 3 — Android app (Kotlin / Compose)
-- [x] Project scaffold (`/android`), mic permission, foreground-service stub
-- [x] Compose UI: connect, push-to-talk, text-utterance input, conversation log
-- [x] WebSocket client (OkHttp) speaking the protocol; hello/auth handshake
-- [x] Audio capture (PCM16/16k/mono) streamed over the voice path (wake→frames→audio_end)
-- [x] Receive transcripts / dialog / session output; TTS playback of say/output
-- [x] **Verified live on emulator + phone**: app → server → real Claude reply, full spawn/attach/dictate
-- [x] Always-listening **hands-free** mode (server-side wake-word detection in the transcript;
-      Porcupine on-device was dropped) via a mic `VoiceService`
-- [→] Verify the hands-free voice model on a real device (built, not yet voice-tested) —
-      tracked in [`TODO.md`](./TODO.md).
-
-### Phase 4 — Passthrough & attach ✅
-- [x] Attach binds voice I/O to a session; dictation becomes the prompt for `Driver.Turn`
-- [x] Stream the `result` text + tool breadcrumbs back as `output`/`activity` messages
-- [x] Detach / switch sessions; **live fan-out to all devices** attached to a session
-- [x] Read Claude's responses aloud; **audio-output picker** (earpiece/speaker/Bluetooth)
-
-### Phase 5 — Polish
-- [x] Auto-connect + auto-reconnect with backoff; resume last session / in-progress dialog
-- [x] Barge-in ("hey bud stop" / push-to-talk halts TTS); markdown stripped from speech
-- [x] Robust turns across disconnect + **server keepalive**; **abort a running turn**;
-      turns interrupted by a restart are flagged
-- [x] **Busy flags** + quick voice switching ("attach to X"); **post-turn diff summary**
-- [x] Persist session list across server restarts (durable `session_id`s in the store)
-- [x] Whisper **vocab biasing** toward session names; **brief-reply** toggle for TTS
-- [x] **Notifications** when a backgrounded turn finishes
-
-### What's left
-
-Open work (TLS/mTLS beyond the shared token, vocab-bias tuning, on-device fallback STT, iOS)
-is **not listed here** — it lives in [`TODO.md`](./TODO.md), the single live task tracker, so it
-doesn't drift against this historical record.
+Built in phases: the response-capture decision and spec (Phase 0), the Go server (Phase 1),
+transcription and dialog (Phase 2), the Kotlin/Compose app (Phase 3), passthrough/attach (Phase 4),
+and polish (Phase 5 — auto-reconnect, barge-in, abort-a-turn, notifications, and the token/usage
+displays above). All phases are complete and verified live. The authoritative live task list — and
+remaining open work (TLS/mTLS beyond the shared token, on-device fallback STT, iOS) — is in
+[`TODO.md`](./TODO.md).
+</content>
+</invoke>
