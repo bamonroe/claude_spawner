@@ -10,15 +10,27 @@ import (
 	"time"
 )
 
-// These are real end-to-end checks against the host: the broker one forks the
-// real `claude` binary (uses tokens/network); the sandbox ones drive a real
-// container runtime (Podman by default, matching the Arch host). They're skipped
-// unless SPAWNER_LIVE=1 so normal `go test` stays hermetic. Run:
+// These are real end-to-end checks against the host: the host one forks the real
+// `claude` binary (uses tokens/network); the sandbox ones drive a real container
+// runtime (Podman by default, matching the Arch host). They're skipped unless
+// SPAWNER_LIVE=1 so normal `go test` stays hermetic. Run:
 //
 //	SPAWNER_LIVE=1 go test ./internal/session/ -run TestLive -v
 //
 // Overrides: SPAWNER_LIVE_RUNTIME (default "podman"), SPAWNER_LIVE_IMAGE
 // (default "spawner-sandbox:latest" — build it from ../../sandbox/Containerfile).
+
+// writeFakeClaude writes a stub `claude` that emits one stream-json result event,
+// so the sandbox lifecycle can be exercised without real credentials.
+func writeFakeClaude(t *testing.T, result string) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "fake-claude")
+	script := "#!/bin/sh\nprintf '%s\\n' '{\"type\":\"result\",\"subtype\":\"success\",\"result\":\"" + result + "\"}'\n"
+	if err := os.WriteFile(p, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
 
 func liveRuntime(t *testing.T) string {
 	rt := os.Getenv("SPAWNER_LIVE_RUNTIME")
@@ -42,14 +54,12 @@ func liveImage(t *testing.T, rt string) string {
 	return img
 }
 
-func TestLiveBrokerRealClaude(t *testing.T) {
+func TestLiveHostRealClaude(t *testing.T) {
 	if os.Getenv("SPAWNER_LIVE") == "" {
-		t.Skip("set SPAWNER_LIVE=1 to run (forks the real claude via the broker)")
+		t.Skip("set SPAWNER_LIVE=1 to run (forks the real claude on the host)")
 	}
 	dir := t.TempDir()
-	// Broker with the real host claude; validator allows the temp dir.
-	sock := startBroker(t, func(d string) (string, error) { return d, nil }, "claude")
-	d := &Driver{Execs: map[Target]Executor{TargetHost: BrokerExecutor{Socket: sock}}, Bypass: true}
+	d := &Driver{Execs: map[Target]Executor{TargetHost: HostExecutor{Bin: "claude"}}, Bypass: true}
 
 	id, err := NewSessionID()
 	if err != nil {
@@ -58,14 +68,14 @@ func TestLiveBrokerRealClaude(t *testing.T) {
 	s := &Session{Name: "live", Dir: dir, SessionID: id}
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
-	reply, _, err := d.Turn(ctx, s, "Reply with exactly the token LIVEBROKEROK and nothing else.", nil, nil, nil)
+	reply, _, err := d.Turn(ctx, s, "Reply with exactly the token LIVEHOSTOK and nothing else.", nil, nil, nil)
 	if err != nil {
-		t.Fatalf("live broker turn: %v", err)
+		t.Fatalf("live host turn: %v", err)
 	}
-	if !strings.Contains(reply, "LIVEBROKEROK") {
-		t.Fatalf("reply lacked the token (broker didn't run real claude?): %q", reply)
+	if !strings.Contains(reply, "LIVEHOSTOK") {
+		t.Fatalf("reply lacked the token (didn't run real claude?): %q", reply)
 	}
-	t.Logf("broker → real claude reply: %q", reply)
+	t.Logf("host → real claude reply: %q", reply)
 }
 
 // TestLiveSandboxContainer exercises the persistent-container lifecycle (create,
@@ -202,78 +212,6 @@ func liveSandboxExecutor(runtime, image, home string) SandboxExecutor {
 		},
 		RunArgs: []string{"--userns=keep-id", "-e", "HOME=" + home},
 	}
-}
-
-// TestLiveSandboxViaBroker proves the full containerized-server path: a real
-// Claude sandbox turn driven THROUGH the broker. The broker holds the sandbox
-// config and drives the runtime; the client (as a containerized server would)
-// only sends ensure/turn/remove ops over the socket — it never touches the
-// runtime itself.
-func TestLiveSandboxViaBroker(t *testing.T) {
-	if os.Getenv("SPAWNER_LIVE") == "" {
-		t.Skip("set SPAWNER_LIVE=1 to run (real claude in a sandbox, via the broker)")
-	}
-	rt := liveRuntime(t)
-	img := liveImage(t, rt)
-	if _, err := os.Stat("/opt/claude-code/bin/claude"); err != nil {
-		t.Skip("host claude bundle /opt/claude-code not present")
-	}
-	home := isolatedClaudeHome(t)
-	dir := t.TempDir()
-
-	// Broker owns the sandbox config; the client only speaks the op protocol.
-	srv := &BrokerServer{
-		Validate:   func(d string) (string, error) { return d, nil },
-		Host:       HostExecutor{Bin: "claude"},
-		Sandbox:    liveSandboxExecutor(rt, img, home),
-		HasSandbox: true,
-		Logf:       t.Logf,
-	}
-	sock := startBrokerSrv(t, srv)
-	client := BrokerExecutor{Socket: sock}
-	d := &Driver{Execs: map[Target]Executor{TargetHost: client, TargetSandbox: client}, Bypass: true}
-
-	id, err := NewSessionID()
-	if err != nil {
-		t.Fatal(err)
-	}
-	cn, err := NewContainerName()
-	if err != nil {
-		t.Fatal(err)
-	}
-	s := &Session{Name: "live", Dir: dir, SessionID: id, Target: TargetSandbox, Container: cn}
-	t.Cleanup(func() { _ = d.RemoveContainer(context.Background(), s) })
-
-	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
-	defer cancel()
-
-	// Spawn hook → broker ensures the container.
-	if err := d.EnsureContainer(ctx, s); err != nil {
-		t.Fatalf("EnsureContainer via broker: %v", err)
-	}
-	// Turn → broker execs real claude in the sandbox.
-	reply, _, err := d.Turn(ctx, s, "Reply with exactly the token BROKERSANDBOXOK and nothing else.", nil, nil, nil)
-	if err != nil {
-		t.Fatalf("sandbox turn via broker: %v", err)
-	}
-	if !strings.Contains(reply, "BROKERSANDBOXOK") {
-		t.Fatalf("reply lacked the token: %q", reply)
-	}
-	// Reconcile via broker (List+Remove ops) cleans the orphan.
-	removed, err := d.ReconcileContainers(ctx, map[string]bool{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	gone := false
-	for _, n := range removed {
-		if n == cn {
-			gone = true
-		}
-	}
-	if !gone {
-		t.Errorf("reconcile via broker removed %v, expected %q", removed, cn)
-	}
-	t.Logf("broker → sandbox → real claude reply: %q", reply)
 }
 
 // isolatedClaudeHome builds a throwaway HOME under t.TempDir() holding a copy of

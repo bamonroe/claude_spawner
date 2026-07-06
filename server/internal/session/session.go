@@ -13,8 +13,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"os"
+	"os/exec"
 	"strings"
+	"syscall"
 )
 
 // newLineScanner returns a bufio.Scanner for newline-delimited JSON. It starts
@@ -74,17 +77,18 @@ func (s *Session) TranscriptIDs() []string {
 type Driver struct {
 	// Execs maps an execution Target to the Executor that launches its turns. Turn
 	// and Usage select by the session's Target (empty/unknown falls back to
-	// TargetHost, which must always be registered). Register additional targets
-	// (sandbox, broker) to make host-vs-container a per-session choice.
+	// TargetHost, which must always be registered). Register a sandbox target to
+	// make host-vs-container a per-session choice.
 	Execs map[Target]Executor
 	// Bypass adds --dangerously-skip-permissions when true (project default).
 	Bypass bool
 	// UsageDir is the working directory for the account-global /usage check. It has
-	// no session on disk, so any directory works — but in broker mode the broker
-	// enforces the SPAWNER_ROOT jail on the cwd, so this must be inside an allowed
-	// root (the server sets it to a spawn root). Empty falls back to os.TempDir()
-	// for native installs, where there is no jail.
+	// no session on disk, so any directory works; empty falls back to os.TempDir().
 	UsageDir string
+	// RestartCmd is the shell command (run via `sh -c`, detached) that rebuilds and
+	// relaunches the server for the app's "restart" button. Empty disables restart.
+	// See Driver.Restart.
+	RestartCmd string
 }
 
 // NewDriver returns a Driver with project defaults: a single host executor
@@ -174,48 +178,48 @@ func (d *Driver) ReconcileContainers(ctx context.Context, known map[string]bool)
 	return removed, nil
 }
 
-// Restart asks the host-side broker to rebuild and relaunch the server (the
-// "restart" command). It routes to the host executor when that's a broker client
-// (the live deployment); with no broker there's no way to rebuild the container
-// from inside it, so it returns an error the caller surfaces to the app.
+// Restart fires the configured RestartCmd to rebuild and relaunch the server (the
+// app's "restart" button). The command is run detached in its own process group
+// via `sh -c`, so it survives the server's own termination when it restarts the
+// unit (the systemd unit must use KillMode=process). It returns once the rebuild
+// is LAUNCHED — the process is replaced moments later — or an error if restart
+// isn't configured. Errors from the detached command are logged, not returned.
 func (d *Driver) Restart(ctx context.Context) error {
-	if r, ok := d.Execs[TargetHost].(Restarter); ok {
-		return r.Restart(ctx)
+	if d.RestartCmd == "" {
+		return fmt.Errorf("server restart is not configured (set SPAWNER_RESTART_CMD)")
 	}
-	return fmt.Errorf("restart requires the host-side broker (SPAWNER_BROKER_SOCKET)")
+	cmd := exec.Command("sh", "-c", d.RestartCmd)
+	// Own process group so a `systemctl restart` inside the command doesn't take
+	// this detached child down with the server (KillMode=process on the unit does
+	// the rest — only the main process is killed, not the whole cgroup).
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	log.Printf("restart: launched %q", d.RestartCmd)
+	go func() {
+		if err := cmd.Wait(); err != nil {
+			log.Printf("restart command failed: %v", err)
+		}
+	}()
+	return nil
 }
 
-// DeleteSessionsForDir removes a directory's Claude transcripts. In broker mode
-// the containerized server mounts ~/.claude read-only, so it routes deletion to
-// the host-side broker (which owns the files); otherwise (the all-in-one dev
-// container that runs turns in-process) it deletes them directly. Returns how
-// many transcripts were removed (0 via the broker, which doesn't report a count).
+// DeleteSessionsForDir removes a directory's Claude transcripts. Returns how many
+// transcripts were removed.
 func (d *Driver) DeleteSessionsForDir(ctx context.Context, sessionID, dir string) (int, error) {
-	if del, ok := d.Execs[TargetHost].(SessionDeleter); ok {
-		return 0, del.DeleteSessions(ctx, sessionID, dir)
-	}
 	return DeleteSessionsForDir(sessionID, dir)
 }
 
-// MakeSpawnDir creates a brand-new project directory for a spawn. In broker mode
-// the containerized server mounts the spawn roots read-only, so it routes the
-// mkdir to the host-side broker (which owns the files and re-checks the jail);
-// otherwise (the all-in-one dev container that runs turns in-process) it creates
-// the directory directly. The caller is expected to have jail-validated dir.
+// MakeSpawnDir creates a brand-new project directory for a spawn. The caller is
+// expected to have jail-validated dir.
 func (d *Driver) MakeSpawnDir(ctx context.Context, dir string) error {
-	if mk, ok := d.Execs[TargetHost].(DirMaker); ok {
-		return mk.MakeDir(ctx, dir)
-	}
 	return os.MkdirAll(dir, 0o755)
 }
 
 // DeleteSessionByIDs removes exactly the given session_ids' transcripts (one
-// logical session), routing through the broker in broker mode (the container's
-// ~/.claude is read-only) and falling back to in-process deletion otherwise.
+// logical session), leaving its dir-mates intact.
 func (d *Driver) DeleteSessionByIDs(ctx context.Context, ids []string) (int, error) {
-	if del, ok := d.Execs[TargetHost].(SessionDeleter); ok {
-		return 0, del.DeleteSessionIDs(ctx, ids)
-	}
 	return DeleteSessionsByIDs(ids)
 }
 

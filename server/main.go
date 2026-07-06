@@ -41,42 +41,26 @@ func main() {
 		log.Fatalf("session store: %v", err)
 	}
 	driver := session.NewDriver()
+	driver.RestartCmd = cfg.RestartCmd
 	if len(cfg.SpawnRoots) > 0 {
-		// The account-global /usage check runs claude in this dir; in broker mode the
-		// broker jails the cwd to SPAWNER_ROOT, so it must be an allowed root (not /tmp).
+		// The account-global /usage check runs claude in this dir; use a spawn root so
+		// it lands somewhere sane (rather than /tmp).
 		driver.UsageDir = cfg.SpawnRoots[0]
 	}
-	if cfg.BrokerSocket != "" {
-		// Containerized server: run turns through the host-side broker (this process
-		// stays unprivileged) instead of executing locally. The broker is the single
-		// host-side agent for BOTH targets — it forks claude for host turns and drives
-		// the runtime for sandbox turns — so the same client backs both, and the
-		// server needs neither host root nor a container-runtime socket. SANDBOX_IMAGE
-		// here just enables offering sandbox; the broker owns the real runtime config.
-		client := session.BrokerExecutor{Socket: cfg.BrokerSocket}
-		driver.Execs[session.TargetHost] = client
-		log.Printf("host turns via broker socket %s", cfg.BrokerSocket)
-		if cfg.SandboxImage != "" {
-			driver.Execs[session.TargetSandbox] = client
-			log.Printf("sandbox turns via broker socket %s", cfg.BrokerSocket)
+	driver.HostBin(cfg.ClaudeBin)
+	if cfg.SandboxImage != "" {
+		driver.Execs[session.TargetSandbox] = session.SandboxExecutor{
+			Runtime: cfg.SandboxRuntime,
+			Image:   cfg.SandboxImage,
+			Bin:     cfg.SandboxClaudeBin,
+			Mounts:  cfg.SandboxMounts,
+			RunArgs: cfg.SandboxRunArgs,
 		}
-	} else {
-		driver.HostBin(cfg.ClaudeBin)
-		if cfg.SandboxImage != "" {
-			driver.Execs[session.TargetSandbox] = session.SandboxExecutor{
-				Runtime: cfg.SandboxRuntime,
-				Image:   cfg.SandboxImage,
-				Bin:     cfg.SandboxClaudeBin,
-				Mounts:  cfg.SandboxMounts,
-				RunArgs: cfg.SandboxRunArgs,
-			}
-			log.Printf("sandbox target enabled: %s image %q", cfg.SandboxRuntime, cfg.SandboxImage)
-		}
+		log.Printf("sandbox target enabled: %s image %q", cfg.SandboxRuntime, cfg.SandboxImage)
 	}
 	if driver.SandboxEnabled() {
 		// Sweep sandbox containers left orphaned by sessions deleted while the server
-		// was down (live ones are recreated on demand by Ensure-before-turn). Routes
-		// through the broker in broker mode, or the local runtime otherwise. Run it in
+		// was down (live ones are recreated on demand by Ensure-before-turn). Run it in
 		// the background with a bounded timeout so a slow/hung container runtime can
 		// never delay or wedge startup — orphan cleanup isn't boot-critical.
 		known := map[string]bool{}
@@ -170,9 +154,9 @@ func main() {
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
-	// Shut down on a signal: `docker compose down/stop`, Ctrl-C, or the container
-	// being recreated by the broker-driven restart (which rebuilds the image and
-	// replaces this container from the host — see the `restart` command).
+	// Shut down on a signal: Ctrl-C, `systemctl --user stop`, or the process being
+	// replaced by the restart command (which rebuilds the binary and restarts the
+	// unit from the host — see the `restart` command and Driver.Restart).
 	<-stop
 	log.Println("shutting down...")
 	gw.NotifyShutdown() // tell connected apps their in-flight turn was interrupted

@@ -72,11 +72,13 @@ type Config struct {
 	// SandboxRunArgs are extra container `run` flags for sandbox sessions,
 	// space-separated (e.g. "--userns=keep-id --network=none").
 	SandboxRunArgs []string
-	// BrokerSocket, when set, is the Unix socket of a host-side broker daemon. The
-	// server then runs "host"-target turns through the broker instead of forking
-	// claude itself — the arrangement that lets a containerized, unprivileged
-	// server run turns on the host. Empty = fork claude directly (native install).
-	BrokerSocket string
+	// RestartCmd is a shell command (run via `sh -c`, detached) that rebuilds and
+	// relaunches the server for the app's "restart" button — e.g. a script that
+	// rebuilds the binary and runs `systemctl --user restart --no-block
+	// spawner-server`. It is fired fire-and-forget in its own process group so it
+	// survives the server's own teardown (the unit must use KillMode=process).
+	// Empty disables restart (the app's button reports it isn't configured).
+	RestartCmd string
 	// TLSCert and TLSKey are the PEM cert/key files for serving wss:// (HTTPS).
 	// Both or neither: setting one without the other is a config error. When both
 	// are set the listener serves TLS; empty means plain ws:// (fine behind a
@@ -112,7 +114,7 @@ func Load() (*Config, error) {
 		SandboxClaudeBin: env("SPAWNER_SANDBOX_CLAUDE_BIN", "claude"),
 		SandboxMounts:    splitList(os.Getenv("SPAWNER_SANDBOX_MOUNTS"), ","),
 		SandboxRunArgs:   strings.Fields(os.Getenv("SPAWNER_SANDBOX_RUN_ARGS")),
-		BrokerSocket:     os.Getenv("SPAWNER_BROKER_SOCKET"),
+		RestartCmd:       os.Getenv("SPAWNER_RESTART_CMD"),
 		TLSCert:          os.Getenv("SPAWNER_TLS_CERT"),
 		TLSKey:           os.Getenv("SPAWNER_TLS_KEY"),
 		TLSClientCA:      os.Getenv("SPAWNER_TLS_CLIENT_CA"),
@@ -173,8 +175,8 @@ func (c *Config) BuildTLSConfig() (*tls.Config, error) {
 }
 
 // ParseRoots parses a SPAWNER_ROOT value (":"-separated, like PATH) into absolute
-// directories, skipping empties. Exported so the standalone broker can build the
-// same spawn jail without loading the full server config (it has no auth token).
+// directories, skipping empties. Exported so callers can build the same spawn jail
+// without loading the full server config.
 func ParseRoots(s string) ([]string, error) {
 	var roots []string
 	for _, r := range strings.Split(s, ":") {

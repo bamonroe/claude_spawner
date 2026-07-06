@@ -127,20 +127,14 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
   CLI — rootless so no host root), `SPAWNER_SANDBOX_CLAUDE_BIN` (`claude`; the binary inside the
   image), `SPAWNER_SANDBOX_MOUNTS` (comma-separated extra `-v` specs, e.g. sharing `$HOME/.claude`),
   `SPAWNER_SANDBOX_RUN_ARGS` (space-separated extra `run` flags, e.g. `--userns=keep-id`).
-- Host broker (the containerized server always uses this): `SPAWNER_BROKER_SOCKET` — Unix socket of
-  the host-side `cmd/broker` daemon. When set, the server routes **all** turns through the broker
-  (staying unprivileged) instead of executing itself — the broker is the single host-side agent for
-  both targets (forks `claude` for host turns, drives the rootless runtime for sandbox turns), so
-  the server container needs neither host root nor a runtime socket. The broker binary reads this
-  same var (the path to **listen** on) plus `SPAWNER_ROOT` (its jail), `SPAWNER_CLAUDE_BIN`,
-  `SPAWNER_BROKER_RESTART_CMD` (the shell command it runs to rebuild + relaunch the server container
-  for the app's restart button; empty disables restart), `SPAWNER_BROKER_RESTART_SELF_CMD` (optional
-  second command run right after, to restart the broker itself so a new broker binary / `broker.env`
-  is picked up too — e.g. `systemctl --user restart --no-block spawner-broker`; needs the broker unit
-  at `KillMode=process` so the detached server rebuild survives the broker's own teardown), and — for
-  sandbox turns — the same `SPAWNER_SANDBOX_*` vars (it owns the runtime config). Empty socket = the server executes turns
-  in-process (the simple all-in-one dev container, `docker-compose.yml`); the live deployment always
-  sets it.
+- Restart: `SPAWNER_RESTART_CMD` — a shell command (run via `sh -c`, detached) fired by the app's
+  restart button to rebuild + relaunch the server; empty disables restart. The server runs bare
+  metal (a single binary, not containerized), so it forks `claude` for host turns and drives the
+  rootless runtime for sandbox turns itself — there is no separate host broker. The restart command
+  is fired in its own process group so it survives the server's own teardown; the deployment points
+  it at `deploy/rebuild.sh` (rebuild the binary + `systemctl --user restart --no-block
+  spawner-server`), which requires the systemd unit at `KillMode=process` so the detached rebuild
+  outlives the process it's replacing.
 
 ## Token discipline — keep the context small
 

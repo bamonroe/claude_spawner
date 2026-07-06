@@ -530,14 +530,14 @@ func (c *conn) doSetWhisperModel(name string) {
 	}()
 }
 
-// doRestart asks the host-side broker to rebuild and relaunch the containerized
-// server, picking up any new server code. The unprivileged server container can't
-// rebuild its own image, so the broker (running on the host) runs the configured
-// `docker compose … up -d --build` command; it recreates this container out from
-// under us, and the app auto-reconnects once the fresh process is listening. Any
-// authenticated client may trigger this; the trust boundary is the same as
-// spawning arbitrary commands. Reports back if restart isn't configured (no
-// broker, or SPAWNER_BROKER_RESTART_CMD unset) instead of pretending it worked.
+// doRestart fires the configured restart command to rebuild and relaunch the
+// server, picking up any new server code. The command (SPAWNER_RESTART_CMD) runs
+// detached on the host — typically rebuilding the binary and `systemctl --user
+// restart`-ing the unit — so the process is replaced out from under us and the app
+// auto-reconnects once the fresh one is listening. Any authenticated client may
+// trigger this; the trust boundary is the same as spawning arbitrary commands.
+// Reports back if restart isn't configured (SPAWNER_RESTART_CMD unset) instead of
+// pretending it worked.
 func (c *conn) doRestart() {
 	go func() {
 		if err := c.srv.driver.Restart(context.Background()); err != nil {

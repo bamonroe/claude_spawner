@@ -984,19 +984,12 @@ func TestCompressSummarizesAndSeedsNextTurn(t *testing.T) {
 	}
 }
 
-// fakeRestarter is a host executor that also implements session.Restarter, so
-// Driver.Restart routes to it (as BrokerExecutor does in the live deployment).
-type fakeRestarter struct {
-	session.HostExecutor
-	restarts int
-}
-
-func (f *fakeRestarter) Restart(context.Context) error { f.restarts++; return nil }
-
 func TestRestartTriggersRebuildAndBroadcasts(t *testing.T) {
 	ts, _, gw := newTestServerGW(t, nil)
-	fr := &fakeRestarter{}
-	gw.driver.Execs[session.TargetHost] = fr
+	// A restart command that leaves a sentinel file, so the test can confirm it
+	// actually fired (Driver.Restart runs it detached and returns immediately).
+	marker := filepath.Join(t.TempDir(), "restarted")
+	gw.driver.RestartCmd = "touch " + marker
 
 	// Two clients: the one that asks and a bystander. Both should hear the `say`.
 	asker := dial(t, ts)
@@ -1013,15 +1006,22 @@ func TestRestartTriggersRebuildAndBroadcasts(t *testing.T) {
 	if m := readUntil(t, other, "say"); !strings.Contains(m["text"].(string), "restarting") {
 		t.Fatalf("bystander say = %v, want a restarting notice", m["text"])
 	}
-	if fr.restarts != 1 {
-		t.Fatalf("Restart called %d times, want 1", fr.restarts)
+	// The detached command runs asynchronously; poll briefly for its side effect.
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if _, err := os.Stat(marker); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("restart command did not run (sentinel %q never appeared)", marker)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 
-// TestRestartFailsWithoutBroker: with a plain host executor (no Restarter), the
-// server can't rebuild its own container, so restart reports a failure instead of
-// silently doing nothing.
-func TestRestartFailsWithoutBroker(t *testing.T) {
+// TestRestartFailsWithoutCmd: with no SPAWNER_RESTART_CMD configured, restart
+// reports a failure instead of silently doing nothing.
+func TestRestartFailsWithoutCmd(t *testing.T) {
 	ts, _, _ := newTestServerGW(t, nil)
 	ws := dial(t, ts)
 	send(t, ws, map[string]any{"type": "hello", "token": "secret"})

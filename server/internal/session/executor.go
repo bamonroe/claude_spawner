@@ -2,14 +2,10 @@ package session
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"net"
 	"os/exec"
 	"strings"
-	"sync"
 	"syscall"
 )
 
@@ -30,11 +26,11 @@ const (
 )
 
 // Executor launches one `claude` invocation and exposes its stdout stream and
-// lifecycle. It is the seam that lets a turn run on the host (direct exec), inside
-// a container sandbox, or via a host-side broker without Driver.Turn knowing which
-// — Turn builds the claude args and parses the stream; the Executor only decides
-// how the process is spawned. Implementations must run the process in the given
-// working directory and kill it (and its children) when ctx is cancelled.
+// lifecycle. It is the seam that lets a turn run on the host (direct exec) or
+// inside a container sandbox without Driver.Turn knowing which — Turn builds the
+// claude args and parses the stream; the Executor only decides how the process is
+// spawned. Implementations must run the process in the given working directory and
+// kill it (and its children) when ctx is cancelled.
 type Executor interface {
 	// Start launches `claude <args...>` for session s (it reads s.Dir, and for the
 	// sandbox target s.Container) and returns a running Proc. The caller reads
@@ -69,44 +65,6 @@ type SandboxReaper interface {
 	List(ctx context.Context) ([]string, error)
 	// Remove force-deletes the named container.
 	Remove(ctx context.Context, name string) error
-}
-
-// Restarter is implemented by executors that can rebuild and relaunch the server
-// itself. Only BrokerExecutor implements it: the containerized server can't
-// rebuild its own image, so it asks the host-side broker to. Driver.Restart
-// routes to it, and the "restart" command needs it (there's no restart without a
-// broker to drive the host).
-type Restarter interface {
-	// Restart triggers a host-side rebuild + relaunch of the server. It returns
-	// once the rebuild is LAUNCHED (the server is recreated moments later), or an
-	// error if restart isn't configured.
-	Restart(ctx context.Context) error
-}
-
-// SessionDeleter is implemented by executors that delete a directory's Claude
-// transcripts on the host. Only BrokerExecutor implements it: the containerized
-// server mounts ~/.claude read-only, so it can't remove the files itself and asks
-// the host-side broker (running as the file owner) to. Driver.DeleteSessionsForDir
-// routes to it in broker mode, falling back to in-process deletion otherwise.
-type SessionDeleter interface {
-	// DeleteSessions removes every transcript whose cwd is dir; sessionID is any
-	// session known to live there, used to locate the project folder. (Legacy
-	// whole-directory delete.)
-	DeleteSessions(ctx context.Context, sessionID, dir string) error
-	// DeleteSessionIDs removes exactly the given session_ids' transcripts — one
-	// logical session (its current id plus rotated prior ids) — not the whole dir.
-	DeleteSessionIDs(ctx context.Context, ids []string) error
-}
-
-// DirMaker is implemented by executors that create a new project directory on
-// the host. Only BrokerExecutor implements it: the containerized server mounts
-// the spawn roots read-only, so it can't mkdir a new project itself and asks the
-// host-side broker (running as the file owner, with the jail) to. Driver.
-// MakeSpawnDir routes to it in broker mode, falling back to in-process mkdir.
-type DirMaker interface {
-	// MakeDir creates dir (and any missing parents) on the host, jailed to the
-	// spawn roots. No error if it already exists.
-	MakeDir(ctx context.Context, dir string) error
 }
 
 // Proc is a launched claude process. The caller reads Stdout to EOF (the
@@ -252,220 +210,6 @@ func (s SandboxExecutor) execArgs(name, dir string, claudeArgs []string) []strin
 func runCLI(ctx context.Context, name string, args []string) (string, error) {
 	out, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
 	return string(out), err
-}
-
-// BrokerExecutor is the client to the host-side broker daemon (BrokerServer), for
-// when the server itself is containerized: the server container stays
-// unprivileged and asks the broker (running as the ordinary host user) to execute
-// on its behalf. It is the single client for BOTH targets — Start reads the
-// session's Target and the broker forks claude for a host turn or drives the
-// container runtime for a sandbox turn — and it implements SandboxLifecycle /
-// SandboxReaper by forwarding the ensure/remove/list ops, so the containerized
-// server needs neither host root nor a runtime socket. See broker_proto.go and
-// docs/architecture.md.
-type BrokerExecutor struct {
-	// Socket is the path to the broker's Unix socket (bind-mounted into the
-	// server container).
-	Socket string
-}
-
-func (b BrokerExecutor) Start(ctx context.Context, s *Session, args []string) (Proc, error) {
-	conn, err := b.dialSend(brokerRequest{
-		Op: opTurn, Target: string(s.Target), Dir: s.Dir, Container: s.Container, Args: args,
-	})
-	if err != nil {
-		return nil, err
-	}
-	p := &brokerProc{conn: conn}
-	// Closing the socket is how we signal an abort to the broker (it kills the
-	// turn's process group). Watch ctx and close on cancel; stop the watcher when
-	// the turn ends normally so it doesn't leak.
-	watchDone := make(chan struct{})
-	var once sync.Once
-	p.stop = func() { once.Do(func() { close(watchDone) }) }
-	go func() {
-		select {
-		case <-ctx.Done():
-			conn.Close()
-		case <-watchDone:
-		}
-	}()
-	return p, nil
-}
-
-// Ensure/Remove/List forward the sandbox lifecycle to the broker, so a
-// containerized server's spawn/delete/reconcile hooks drive the host runtime
-// through the broker (which owns the sandbox config) rather than a local one.
-func (b BrokerExecutor) Ensure(ctx context.Context, name, dir string) error {
-	return b.unary(ctx, brokerRequest{Op: opEnsure, Container: name, Dir: dir})
-}
-
-func (b BrokerExecutor) Remove(ctx context.Context, name string) error {
-	return b.unary(ctx, brokerRequest{Op: opRemove, Container: name})
-}
-
-func (b BrokerExecutor) List(ctx context.Context) ([]string, error) {
-	res, err := b.call(ctx, brokerRequest{Op: opList})
-	if err != nil {
-		return nil, err
-	}
-	if res.Err != "" {
-		return nil, errors.New(res.Err)
-	}
-	return res.Names, nil
-}
-
-// Restart asks the broker to rebuild and relaunch the containerized server on the
-// host (the "restart" button). The unprivileged server container can't rebuild
-// its own image, so the host-side broker runs the configured command. This
-// satisfies the Restarter interface, so Driver.Restart routes to it in broker
-// mode. The reply confirms the rebuild was launched, not that it finished — the
-// container is recreated out from under this process moments later.
-func (b BrokerExecutor) Restart(ctx context.Context) error {
-	return b.unary(ctx, brokerRequest{Op: opRestart})
-}
-
-// DeleteSessions asks the broker to remove a directory's Claude transcripts on
-// the host. The server container's ~/.claude is read-only, so it can't delete
-// them itself. This satisfies SessionDeleter, so Driver.DeleteSessionsForDir
-// routes to it in broker mode.
-func (b BrokerExecutor) DeleteSessions(ctx context.Context, sessionID, dir string) error {
-	return b.unary(ctx, brokerRequest{Op: opDelete, SessionID: sessionID, Dir: dir})
-}
-
-// DeleteSessionIDs asks the broker to remove exactly the given session_ids'
-// transcripts host-side (one logical session), leaving its dir-mates intact.
-func (b BrokerExecutor) DeleteSessionIDs(ctx context.Context, ids []string) error {
-	return b.unary(ctx, brokerRequest{Op: opDelete, IDs: ids})
-}
-
-// MakeDir asks the broker to create a new project directory on the host. The
-// server container mounts the spawn roots read-only, so it can't mkdir there
-// itself. This satisfies DirMaker, so Driver.MakeSpawnDir routes to it in broker
-// mode. The broker jail-checks the path before creating it.
-func (b BrokerExecutor) MakeDir(ctx context.Context, dir string) error {
-	return b.unary(ctx, brokerRequest{Op: opMkdir, Dir: dir})
-}
-
-// dialSend dials the broker and writes one request header, returning the open
-// connection (the caller reads the reply frames).
-func (b BrokerExecutor) dialSend(req brokerRequest) (net.Conn, error) {
-	conn, err := net.Dial("unix", b.Socket)
-	if err != nil {
-		return nil, fmt.Errorf("dial broker: %w", err)
-	}
-	hdr, err := json.Marshal(req)
-	if err != nil {
-		conn.Close()
-		return nil, err
-	}
-	if err := writeFrame(conn, frameHeader, hdr); err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("broker header: %w", err)
-	}
-	return conn, nil
-}
-
-// call runs a unary op (ensure/remove/list): send the request, read the single
-// result frame.
-func (b BrokerExecutor) call(ctx context.Context, req brokerRequest) (brokerResult, error) {
-	conn, err := b.dialSend(req)
-	if err != nil {
-		return brokerResult{}, err
-	}
-	defer conn.Close()
-	if ctx != nil {
-		stop := context.AfterFunc(ctx, func() { conn.Close() })
-		defer stop()
-	}
-	typ, payload, err := readFrame(conn)
-	if err != nil {
-		return brokerResult{}, fmt.Errorf("broker result: %w", err)
-	}
-	if typ != frameResult {
-		return brokerResult{}, fmt.Errorf("broker: expected result frame, got %q", typ)
-	}
-	var res brokerResult
-	if err := json.Unmarshal(payload, &res); err != nil {
-		return brokerResult{}, err
-	}
-	return res, nil
-}
-
-func (b BrokerExecutor) unary(ctx context.Context, req brokerRequest) error {
-	res, err := b.call(ctx, req)
-	if err != nil {
-		return err
-	}
-	if res.Err != "" {
-		return errors.New(res.Err)
-	}
-	return nil
-}
-
-// brokerProc de-frames a turn's reply: frameStdout payloads are exposed as a
-// plain stdout stream (Stdout returns the proc itself as an io.Reader); the
-// terminal frameExit ends the stream (EOF) and its status is surfaced by Wait.
-type brokerProc struct {
-	conn net.Conn
-	stop func()
-
-	buf  []byte      // leftover stdout payload from the last frame
-	exit *brokerExit // set when the exit frame arrives
-	err  error       // terminal transport error
-	done bool
-}
-
-func (p *brokerProc) Stdout() io.Reader { return p }
-
-func (p *brokerProc) Read(dst []byte) (int, error) {
-	for len(p.buf) == 0 {
-		if p.done {
-			if p.err != nil {
-				return 0, p.err
-			}
-			return 0, io.EOF
-		}
-		typ, payload, err := readFrame(p.conn)
-		if err != nil {
-			p.done, p.err = true, err
-			return 0, err
-		}
-		switch typ {
-		case frameStdout:
-			p.buf = payload
-		case frameExit:
-			var e brokerExit
-			_ = json.Unmarshal(payload, &e)
-			p.exit, p.done = &e, true
-			return 0, io.EOF
-		default:
-			p.done = true
-			p.err = fmt.Errorf("broker: unexpected frame %q", typ)
-			return 0, p.err
-		}
-	}
-	n := copy(dst, p.buf)
-	p.buf = p.buf[n:]
-	return n, nil
-}
-
-func (p *brokerProc) Wait() error {
-	if p.stop != nil {
-		p.stop()
-	}
-	p.conn.Close()
-	switch {
-	case p.exit == nil && p.err != nil:
-		return fmt.Errorf("broker transport: %w", p.err)
-	case p.exit == nil:
-		return fmt.Errorf("broker: stream ended without an exit status")
-	case p.exit.Err != "":
-		return fmt.Errorf("broker: %s", p.exit.Err)
-	case p.exit.Code != 0:
-		return fmt.Errorf("status %d", p.exit.Code)
-	}
-	return nil
 }
 
 // startProc launches name+args as a local child process in its own process group
