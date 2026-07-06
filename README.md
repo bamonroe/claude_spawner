@@ -171,8 +171,7 @@ docker compose run --rm spawner \
 Built in phases: the response-capture decision and spec (Phase 0), the Go server (Phase 1),
 transcription and dialog (Phase 2), the Kotlin/Compose app (Phase 3), passthrough/attach (Phase 4),
 and polish (Phase 5 — auto-reconnect, barge-in, abort-a-turn, notifications, and the token/usage
-displays above). All phases are complete and verified live. The authoritative live task list — and
-remaining open work (TLS/mTLS beyond the shared token, on-device fallback STT, iOS) — is in
-[`TODO.md`](./TODO.md).
+displays above). All phases are complete and verified live. Active work and any remaining open items
+live in the single task tracker, [`TODO.md`](./TODO.md).
 </content>
 </invoke>
