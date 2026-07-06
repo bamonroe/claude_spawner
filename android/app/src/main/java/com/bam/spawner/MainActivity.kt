@@ -1112,10 +1112,12 @@ private fun InputBar(
                         connected -> awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
                             down.consume()
+                            val startX = down.position.x
                             val startY = down.position.y
                             talking = true; onTalkStart()
                             swipeFraction = 0f // reveal the track
                             var toggled = false
+                            var cancelled = false
                             while (true) {
                                 val event = awaitPointerEvent()
                                 val change = event.changes.firstOrNull { it.id == down.id } ?: break
@@ -1125,6 +1127,13 @@ private fun InputBar(
                                 // actual finger-lift no matter how far the finger wanders.
                                 change.consume()
                                 if (!change.pressed) break // released
+                                // Drift left the full track distance = throw the clip away.
+                                val dx = (startX - change.position.x).coerceAtLeast(0f)
+                                if (!cancelled && dx >= swipeUpPx) {
+                                    cancelled = true
+                                    if (talking) { onTalkCancel(); talking = false }
+                                    break // discarded; nothing is sent or transcribed
+                                }
                                 val dy = (startY - change.position.y).coerceAtLeast(0f)
                                 swipeFraction = (dy / swipeUpPx).coerceIn(0f, 1f)
                                 if (!toggled && dy >= swipeUpPx) {
@@ -1135,6 +1144,7 @@ private fun InputBar(
                             }
                             swipeFraction = null // hide the track
                             when {
+                                cancelled -> {} // discarded — nothing sent, nothing transcribed
                                 toggled -> onToggleHandsFree(true)
                                 talking -> { onTalkStop(); talking = false }
                             }
