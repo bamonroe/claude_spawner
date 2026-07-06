@@ -66,26 +66,32 @@ func TestBrokerRestart(t *testing.T) {
 		t.Errorf("error %q should say restart is not configured", err)
 	}
 
-	// With a command set, the broker launches it; the marker file proves it ran.
-	marker := filepath.Join(t.TempDir(), "restarted")
+	// With both commands set, the broker launches each; two marker files prove
+	// RestartCmd (server rebuild) and RestartSelfCmd (broker self-restart) both ran.
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "restarted")
+	selfMarker := filepath.Join(dir, "self-restarted")
 	sock2 := startBrokerSrv(t, &BrokerServer{
-		Validate:   func(d string) (string, error) { return d, nil },
-		Host:       HostExecutor{Bin: "claude"},
-		RestartCmd: "touch " + marker,
-		Logf:       t.Logf,
+		Validate:       func(d string) (string, error) { return d, nil },
+		Host:           HostExecutor{Bin: "claude"},
+		RestartCmd:     "touch " + marker,
+		RestartSelfCmd: "touch " + selfMarker,
+		Logf:           t.Logf,
 	})
 	client2 := BrokerExecutor{Socket: sock2}
 	if err := client2.Restart(context.Background()); err != nil {
 		t.Fatalf("Restart: %v", err)
 	}
-	// The command runs detached; poll briefly for its side effect.
+	// Both commands run detached; poll briefly for their side effects.
 	for i := 0; i < 100; i++ {
-		if _, err := os.Stat(marker); err == nil {
+		_, e1 := os.Stat(marker)
+		_, e2 := os.Stat(selfMarker)
+		if e1 == nil && e2 == nil {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatal("restart command did not run (marker file never appeared)")
+	t.Fatal("restart commands did not both run (marker files never appeared)")
 }
 
 func TestBrokerDeleteSessions(t *testing.T) {

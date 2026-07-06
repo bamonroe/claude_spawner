@@ -15,6 +15,13 @@ Dates are `YYYY-MM-DD`.
 ### Server / infra
 - [ ] Decide + implement the auth/transport story beyond the shared token: **TLS/mTLS** (today a
       constant-time-compared shared token, fronted by Tailscale).
+- [x] 2026-07-05 — **Restart button can also restart the broker.** New optional
+      `SPAWNER_BROKER_RESTART_SELF_CMD` (e.g. `systemctl --user restart --no-block spawner-broker`):
+      after launching the server rebuild, the broker runs it to restart itself, so a new broker
+      binary / edited `broker.env` is picked up too. Needs `KillMode=process` on the broker unit
+      (added to `deploy/spawner-broker.service`) so the detached server rebuild survives the broker's
+      own teardown. Also documented that the RestartCmd's compose needs `SPAWNER_TOKEN` in the
+      broker env (its absence is why the restart button was silently failing with exit status 1).
 - [x] 2026-07-05 — **Fix interrupted-turn session bricking.** `Driver.Turn` flipped `Started`
       false→true only after a clean `Wait`, but claude creates the session on disk the moment it
       launches. A turn interrupted mid-stream (client drop, container restart) left `Started=false`

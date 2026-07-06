@@ -21,6 +21,12 @@ EnvironmentFile=%h/.config/claude_spawner/broker.env
 ExecStart=%h/.local/bin/spawner-broker
 Restart=on-failure
 RestartSec=2
+# Only kill the broker's own process on stop/restart, not its whole cgroup. The
+# "restart" button can restart the broker itself (SPAWNER_BROKER_RESTART_SELF_CMD)
+# right after launching the detached server rebuild; with the default control-group
+# kill that rebuild would be killed mid-build. KillMode=process lets it survive
+# (it reparents to the user manager) and finish.
+KillMode=process
 
 [Install]
 WantedBy=default.target

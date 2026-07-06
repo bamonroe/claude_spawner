@@ -129,8 +129,11 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
   the server container needs neither host root nor a runtime socket. The broker binary reads this
   same var (the path to **listen** on) plus `SPAWNER_ROOT` (its jail), `SPAWNER_CLAUDE_BIN`,
   `SPAWNER_BROKER_RESTART_CMD` (the shell command it runs to rebuild + relaunch the server container
-  for the app's restart button; empty disables restart), and — for sandbox turns — the same
-  `SPAWNER_SANDBOX_*` vars (it owns the runtime config). Empty socket = the server executes turns
+  for the app's restart button; empty disables restart), `SPAWNER_BROKER_RESTART_SELF_CMD` (optional
+  second command run right after, to restart the broker itself so a new broker binary / `broker.env`
+  is picked up too — e.g. `systemctl --user restart --no-block spawner-broker`; needs the broker unit
+  at `KillMode=process` so the detached server rebuild survives the broker's own teardown), and — for
+  sandbox turns — the same `SPAWNER_SANDBOX_*` vars (it owns the runtime config). Empty socket = the server executes turns
   in-process (the simple all-in-one dev container, `docker-compose.yml`); the live deployment always
   sets it.
 

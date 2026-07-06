@@ -10,7 +10,9 @@
 // Env: SPAWNER_BROKER_SOCKET (required, the Unix socket path to listen on),
 // SPAWNER_ROOT (the spawn jail, shared with the server), SPAWNER_CLAUDE_BIN
 // (host claude binary), SPAWNER_BROKER_RESTART_CMD (shell command that rebuilds +
-// relaunches the server container for the "restart" button; empty disables it).
+// relaunches the server container for the "restart" button; empty disables it),
+// SPAWNER_BROKER_RESTART_SELF_CMD (optional second command run right after, to
+// restart the broker itself so a new broker binary / broker.env is picked up too).
 // Sandbox turns additionally read the same SPAWNER_SANDBOX_* vars the server uses
 // (IMAGE enables sandbox; RUNTIME, CLAUDE_BIN, MOUNTS, RUN_ARGS) — here the
 // broker, not the server, owns the runtime config.
@@ -62,10 +64,11 @@ func main() {
 	cfg := &config.Config{SpawnRoots: roots}
 
 	srv := &session.BrokerServer{
-		Validate:   cfg.ValidateSpawnDir,
-		Host:       session.HostExecutor{Bin: env("SPAWNER_CLAUDE_BIN", "claude")},
-		RestartCmd: os.Getenv("SPAWNER_BROKER_RESTART_CMD"),
-		Logf:       log.Printf,
+		Validate:       cfg.ValidateSpawnDir,
+		Host:           session.HostExecutor{Bin: env("SPAWNER_CLAUDE_BIN", "claude")},
+		RestartCmd:     os.Getenv("SPAWNER_BROKER_RESTART_CMD"),
+		RestartSelfCmd: os.Getenv("SPAWNER_BROKER_RESTART_SELF_CMD"),
+		Logf:           log.Printf,
 	}
 	if img := os.Getenv("SPAWNER_SANDBOX_IMAGE"); img != "" {
 		srv.Sandbox = session.SandboxExecutor{

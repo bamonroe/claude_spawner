@@ -30,7 +30,15 @@ type BrokerServer struct {
 	// docker, while the unprivileged server container cannot rebuild its own image.
 	// Empty disables restart (opRestart returns an error the app surfaces).
 	RestartCmd string
-	Logf       func(format string, args ...any)
+	// RestartSelfCmd, if set, is a second shell command run (detached, right after
+	// RestartCmd) to restart the broker itself — e.g. `systemctl --user restart
+	// --no-block spawner-broker`. This lets the "restart" button also pick up a new
+	// broker binary or a changed broker.env. It must be async/non-blocking: it tears
+	// down this very process. For RestartCmd's rebuild to survive that teardown, the
+	// broker unit must NOT kill its whole cgroup on restart (set KillMode=process).
+	// Empty keeps the old behavior (restart rebuilds only the server container).
+	RestartSelfCmd string
+	Logf           func(format string, args ...any)
 }
 
 func (s *BrokerServer) logf(format string, args ...any) {
@@ -202,6 +210,18 @@ func (s *BrokerServer) restart() error {
 			s.logf("broker: server rebuild+restart finished")
 		}
 	}()
+	// Optionally restart the broker itself so a new broker binary / broker.env is
+	// picked up too. Fire-and-forget: this command kills this process, so we can't
+	// Wait on it. The server rebuild above survives because the broker unit uses
+	// KillMode=process (only the main process dies, not the detached rebuild).
+	if s.RestartSelfCmd != "" {
+		self := exec.Command("sh", "-c", s.RestartSelfCmd)
+		if err := self.Start(); err != nil {
+			s.logf("broker: launch self-restart failed: %v", err)
+		} else {
+			s.logf("broker: launched broker self-restart: %s", s.RestartSelfCmd)
+		}
+	}
 	return nil
 }
 
