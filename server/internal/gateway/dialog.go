@@ -92,7 +92,7 @@ func (c *conn) spawnAwaitNewName(text string) {
 		return
 	}
 	dir := filepath.Join(c.dlg.browse, name)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := c.srv.driver.MakeSpawnDir(c.ctx, dir); err != nil {
 		c.fail("spawn_failed", err.Error())
 		c.dlg = nil
 		return
@@ -280,7 +280,7 @@ func (c *conn) promptChildren(dir string) {
 func (c *conn) spawnAwaitCreate(text string) {
 	switch {
 	case affirmative(text):
-		if err := os.MkdirAll(c.dlg.dir, 0o755); err != nil {
+		if err := c.srv.driver.MakeSpawnDir(c.ctx, c.dlg.dir); err != nil {
 			c.fail("spawn_failed", err.Error())
 			c.dlg = nil
 			return

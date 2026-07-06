@@ -53,7 +53,7 @@ func (c *conn) doSpawnAt(path string, target session.Target, create bool) {
 			c.fail("bad_path", "that folder already exists")
 			return
 		}
-		if e := os.MkdirAll(abs, 0o755); e != nil {
+		if e := c.srv.driver.MakeSpawnDir(c.ctx, abs); e != nil {
 			c.fail("spawn_failed", e.Error())
 			return
 		}

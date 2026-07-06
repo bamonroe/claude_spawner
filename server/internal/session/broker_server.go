@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"os"
 	"os/exec"
 )
 
@@ -90,6 +91,8 @@ func (s *BrokerServer) handle(conn net.Conn) {
 		s.sendResult(conn, brokerResult{Err: errStr(s.restart())})
 	case opDelete:
 		s.sendResult(conn, brokerResult{Err: errStr(s.deleteSessions(req))})
+	case opMkdir:
+		s.sendResult(conn, brokerResult{Err: errStr(s.mkdir(req))})
 	default:
 		s.sendResult(conn, brokerResult{Err: "unknown op " + string(req.Op)})
 	}
@@ -237,6 +240,20 @@ func (s *BrokerServer) deleteSessions(req brokerRequest) error {
 	}
 	_, err := DeleteSessionsForDir(req.SessionID, req.Dir)
 	return err
+}
+
+// mkdir creates a brand-new project directory on the host. The server container
+// mounts the spawn roots read-only (turns write through the broker, not the
+// container), so the "create a new project" spawn can't mkdir itself — it
+// delegates here, where the broker runs as the host user with write access. The
+// dir is jail-checked exactly like a turn's working directory before creation.
+func (s *BrokerServer) mkdir(req brokerRequest) error {
+	dir, err := s.Validate(req.Dir)
+	if err != nil {
+		s.logf("broker: rejected mkdir %q: %v", req.Dir, err)
+		return err
+	}
+	return os.MkdirAll(dir, 0o755)
 }
 
 func (s *BrokerServer) sendExit(conn net.Conn, code int, errMsg string) {

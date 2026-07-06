@@ -41,6 +41,7 @@ const (
 	opList    brokerOp = "list"    // list managed sandbox containers (for reconcile)
 	opRestart brokerOp = "restart" // rebuild + relaunch the (containerized) server on the host
 	opDelete  brokerOp = "delete"  // permanently remove a directory's Claude transcripts (host-side)
+	opMkdir   brokerOp = "mkdir"   // create a new (jailed) project directory host-side
 )
 
 // brokerRequest is the client→broker header. Target/Container are set for turns

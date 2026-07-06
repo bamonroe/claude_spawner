@@ -151,6 +151,34 @@ func TestBrokerDeleteSessionIDs(t *testing.T) {
 	}
 }
 
+func TestBrokerMakeDir(t *testing.T) {
+	// The read-only server container can't mkdir a new project, so MakeSpawnDir
+	// routes to the broker, which creates it (and re-checks the jail). Confine the
+	// broker to a root and confirm a nested new dir appears while an out-of-jail
+	// path is refused.
+	root := t.TempDir()
+	validate := func(d string) (string, error) {
+		if !strings.HasPrefix(d, root) {
+			return "", os.ErrPermission
+		}
+		return d, nil
+	}
+	sock := startBroker(t, validate, "claude")
+	d := &Driver{Execs: map[Target]Executor{TargetHost: BrokerExecutor{Socket: sock}}, Bypass: true}
+
+	newDir := filepath.Join(root, "personal", "eml")
+	if err := d.MakeSpawnDir(context.Background(), newDir); err != nil {
+		t.Fatalf("MakeSpawnDir: %v", err)
+	}
+	if info, err := os.Stat(newDir); err != nil || !info.IsDir() {
+		t.Errorf("new dir not created (stat err = %v)", err)
+	}
+
+	if err := d.MakeSpawnDir(context.Background(), "/etc/nope"); err == nil {
+		t.Error("expected an out-of-jail mkdir to be refused")
+	}
+}
+
 func TestBrokerExecutorJailRejection(t *testing.T) {
 	sock := startBroker(t,
 		func(string) (string, error) { return "", os.ErrPermission },

@@ -125,11 +125,12 @@ it. We want *no component* to hold host root.
 Run a small **host-side session broker** (`BrokerServer`, `cmd/broker`) — a daemon on the host, as
 the ordinary user (not root), listening on a Unix socket that's bind-mounted into the server
 container. It is the **single host-side execution agent for both targets**: the server sends it a
-narrow op (turn / ensure / remove / list / restart / delete) and the broker forks `claude` for a
-host turn, or drives the rootless runtime for a sandbox turn (create/exec/remove), streaming stdout
-back. It also performs the host-side filesystem ops the read-only server container can't: `restart`
-(rebuild + relaunch the server) and `delete` (remove a directory's `~/.claude` transcripts, which
-the container mounts read-only). Crucially it
+narrow op (turn / ensure / remove / list / restart / delete / mkdir) and the broker forks `claude`
+for a host turn, or drives the rootless runtime for a sandbox turn (create/exec/remove), streaming
+stdout back. It also performs the host-side filesystem ops the read-only server container can't:
+`restart` (rebuild + relaunch the server), `delete` (remove a directory's `~/.claude` transcripts),
+and `mkdir` (create a new-project directory under the jailed spawn roots) — both the transcripts and
+the spawn roots are mounted read-only in the container. Crucially it
 reuses the *same* `HostExecutor`/`SandboxExecutor` code the server uses natively — the broker is a
 thin RPC in front of those, and the client (`BrokerExecutor`) implements `Executor` +
 `SandboxLifecycle` + `SandboxReaper`, so in broker mode one client is registered for both targets

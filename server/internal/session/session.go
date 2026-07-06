@@ -197,6 +197,18 @@ func (d *Driver) DeleteSessionsForDir(ctx context.Context, sessionID, dir string
 	return DeleteSessionsForDir(sessionID, dir)
 }
 
+// MakeSpawnDir creates a brand-new project directory for a spawn. In broker mode
+// the containerized server mounts the spawn roots read-only, so it routes the
+// mkdir to the host-side broker (which owns the files and re-checks the jail);
+// otherwise (the all-in-one dev container that runs turns in-process) it creates
+// the directory directly. The caller is expected to have jail-validated dir.
+func (d *Driver) MakeSpawnDir(ctx context.Context, dir string) error {
+	if mk, ok := d.Execs[TargetHost].(DirMaker); ok {
+		return mk.MakeDir(ctx, dir)
+	}
+	return os.MkdirAll(dir, 0o755)
+}
+
 // DeleteSessionByIDs removes exactly the given session_ids' transcripts (one
 // logical session), routing through the broker in broker mode (the container's
 // ~/.claude is read-only) and falling back to in-process deletion otherwise.

@@ -98,6 +98,17 @@ type SessionDeleter interface {
 	DeleteSessionIDs(ctx context.Context, ids []string) error
 }
 
+// DirMaker is implemented by executors that create a new project directory on
+// the host. Only BrokerExecutor implements it: the containerized server mounts
+// the spawn roots read-only, so it can't mkdir a new project itself and asks the
+// host-side broker (running as the file owner, with the jail) to. Driver.
+// MakeSpawnDir routes to it in broker mode, falling back to in-process mkdir.
+type DirMaker interface {
+	// MakeDir creates dir (and any missing parents) on the host, jailed to the
+	// spawn roots. No error if it already exists.
+	MakeDir(ctx context.Context, dir string) error
+}
+
 // Proc is a launched claude process. The caller reads Stdout to EOF (the
 // stream-json events) and then calls Wait exactly once.
 type Proc interface {
@@ -326,6 +337,14 @@ func (b BrokerExecutor) DeleteSessions(ctx context.Context, sessionID, dir strin
 // transcripts host-side (one logical session), leaving its dir-mates intact.
 func (b BrokerExecutor) DeleteSessionIDs(ctx context.Context, ids []string) error {
 	return b.unary(ctx, brokerRequest{Op: opDelete, IDs: ids})
+}
+
+// MakeDir asks the broker to create a new project directory on the host. The
+// server container mounts the spawn roots read-only, so it can't mkdir there
+// itself. This satisfies DirMaker, so Driver.MakeSpawnDir routes to it in broker
+// mode. The broker jail-checks the path before creating it.
+func (b BrokerExecutor) MakeDir(ctx context.Context, dir string) error {
+	return b.unary(ctx, brokerRequest{Op: opMkdir, Dir: dir})
 }
 
 // dialSend dials the broker and writes one request header, returning the open
