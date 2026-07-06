@@ -33,8 +33,8 @@ services:
       - ${HOME}/.local/share/claude_spawner/broker:${HOME}/.local/share/claude_spawner/broker
       # Spawn roots, SAME path in the container (read-only — the server only
       # browses them; the broker does the writing on the host). EDIT to yours.
-      - ${HOME}/git:${HOME}/git:ro
       - /data:/data:ro
+      - ${HOME}:${HOME}:ro
       # Session history/discovery: the server reads transcripts the broker writes.
       - ${HOME}/.claude:/home/app/.claude:ro
       # Durable session registry (read-write, on the host).
@@ -43,7 +43,7 @@ services:
       SPAWNER_TOKEN: ${SPAWNER_TOKEN:?set SPAWNER_TOKEN}
       SPAWNER_ADDR: ":8556"
       # MUST match the broker's SPAWNER_ROOT and the same-path mounts above.
-      SPAWNER_ROOT: ${HOME}/git:/data
+      SPAWNER_ROOT: /data:${HOME}
       SPAWNER_STATE: /state/sessions.json
       SPAWNER_BROKER_SOCKET: ${HOME}/.local/share/claude_spawner/broker/broker.sock
       # Non-empty enables offering "sandbox" in the spawn dialog; the broker holds

@@ -28,15 +28,15 @@ services:
     network_mode: host
     volumes:
       - ${HOME}/.local/share/claude_spawner/broker:${HOME}/.local/share/claude_spawner/broker
-      - ${HOME}/git:${HOME}/git:ro
       - /data:/data:ro
+      - ${HOME}:${HOME}:ro
       - ${HOME}/.claude:/home/app/.claude:ro
       # Separate dev state dir (create it first: mkdir -p ~/.local/share/claude_spawner_dev).
       - ${HOME}/.local/share/claude_spawner_dev:/state
     environment:
       SPAWNER_TOKEN: ${SPAWNER_TOKEN:-devsecret}
       SPAWNER_ADDR: ":8557"
-      SPAWNER_ROOT: ${HOME}/git:/data
+      SPAWNER_ROOT: /data:${HOME}
       SPAWNER_STATE: /state/sessions.json
       SPAWNER_BROKER_SOCKET: ${HOME}/.local/share/claude_spawner/broker/broker.sock
       SPAWNER_SANDBOX_IMAGE: ${SPAWNER_SANDBOX_IMAGE:-spawner-sandbox:latest}
