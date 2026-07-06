@@ -22,6 +22,11 @@ directory. So multiple `session_id`s in one dir get hidden, renames land on whic
 name-keyed client state. Root fix: the stable `session_id` is the identity; the name is a display
 label. (Full code map established 2026-07-05 via two Explore passes — server + Android.)
 
+- [x] 2026-07-06 — **Unregistered-dir delete now wipes the whole directory again.** After Phase 1 made
+      delete per-`session_id`, an *unregistered* row (which discover still collapses to one row per dir)
+      only removed one of the dir's loose transcripts, so the row reappeared on a dir-mate and looked
+      undeletable (e.g. the `/data` "data" row with two transcripts). `doDeleteDiscovered` now splits:
+      registered rows delete by ids (unchanged); unregistered rows use `DeleteSessionsForDir`.
 - [x] 2026-07-05 — **Phase 1 — server discovery/rename/delete became per-`session_id`.** `doDiscover`
       emits every registered session as its own row (keyed by its own `session_id`), not one collapsed
       row per dir; `doRenameDiscovered` resolves the target by `session_id` (not `GetByDir`); delete

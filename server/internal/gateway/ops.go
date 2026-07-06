@@ -279,25 +279,23 @@ func (c *conn) doAdopt(sessionID, dir string) {
 	c.doAttach(rec.Name, false)
 }
 
-// doDeleteDiscovered PERMANENTLY deletes ONE session: its transcript(s) — the
-// current session_id plus any rotated prior ids — and its single registry record.
-// It targets the session by id (not its directory), so deleting one session no
-// longer wipes its dir-mates. Refuses while the directory is live in a terminal —
-// deleting a transcript out from under a running claude would corrupt it.
-// Refreshes the discover + session lists.
+// doDeleteDiscovered PERMANENTLY deletes a session row. A REGISTERED row is one
+// session: its transcript(s) — current session_id plus rotated prior ids — and its
+// single registry record; deleting it leaves dir-mates that have their own rows.
+// An UNREGISTERED row stands for a whole directory of loose transcripts (discover
+// shows one adoptable row per dir), so it wipes every transcript in that dir — else
+// deleting one just re-surfaces the row on a sibling. Refuses while the directory is
+// live in a terminal (deleting under a running claude corrupts it). Refreshes the
+// discover + session lists.
 func (c *conn) doDeleteDiscovered(sessionID string) {
 	if sessionID == "" {
 		c.fail("bad_delete", "need session_id")
 		return
 	}
 	rec := c.srv.store.GetBySessionID(sessionID)
-	// Collect the transcript ids to remove: for a registered session that's its
-	// current id plus rotated prior ids; for an unregistered one, just the id.
-	ids := []string{sessionID}
 	var dir string
 	if rec != nil {
 		dir = rec.Dir
-		ids = append([]string{rec.SessionID}, rec.PriorIDs...)
 	} else if p := session.TranscriptPathByID(sessionID); p != "" {
 		dir = session.TranscriptCwd(p)
 	}
@@ -311,7 +309,19 @@ func (c *conn) doDeleteDiscovered(sessionID string) {
 		c.fail("session_active", "that session is live in a terminal — close it there first")
 		return
 	}
-	if _, err := c.srv.driver.DeleteSessionByIDs(c.ctx, ids); err != nil {
+	// A registered row is one session — remove exactly its transcripts (current id
+	// plus rotated prior ids), leaving any dir-mates that have their own rows. An
+	// unregistered row stands for the WHOLE directory (discover collapses a dir's
+	// loose transcripts into a single adoptable row), so wipe every transcript in
+	// that dir — otherwise deleting one just re-surfaces the row on a dir-mate.
+	var err error
+	if rec != nil {
+		ids := append([]string{rec.SessionID}, rec.PriorIDs...)
+		_, err = c.srv.driver.DeleteSessionByIDs(c.ctx, ids)
+	} else {
+		_, err = c.srv.driver.DeleteSessionsForDir(c.ctx, sessionID, dir)
+	}
+	if err != nil {
 		c.fail("internal", err.Error())
 		return
 	}
