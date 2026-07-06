@@ -1,10 +1,16 @@
-# Scratch DEV server — identical to the live broker deployment
-# (docker-compose.broker.yml) but on a DIFFERENT port with its own container,
-# image tag, and session state. Point the app at :8557 to test a build; rebuild
-# it freely without touching the live :8556 server (so a rebuild never kills an
-# in-flight turn on the real server).
+# Scratch DEV server — the SAME code/image as the live broker deployment
+# (docker-compose.broker.yml), only on a DIFFERENT port + container + session
+# state. Point the app at :8557 to test a build; rebuild it freely without
+# touching the live :8556 server (so a rebuild never kills an in-flight turn on
+# the real server).
 #
 #   SPAWNER_TOKEN=devsecret docker compose -f docker-compose.dev.yml up -d --build
+#
+# IMPORTANT: this uses the SAME image tag as prod (spawner-server:latest), so the
+# two can NEVER drift to different code — the only differences are the port
+# (:8557 vs :8556), the container name, and the session-state dir. Rebuilding here
+# rebuilds that shared image; only this container is recreated, so prod keeps
+# running its existing container until you promote by recreating it too.
 #
 # Reuses the SAME host broker and the SAME resident whisper servers as live.
 # Its session registry is separate (~/.local/share/claude_spawner_dev) so dev
@@ -17,7 +23,7 @@ services:
     build:
       context: ./server
       dockerfile: Dockerfile.broker
-    image: spawner-server:dev
+    image: spawner-server:latest
     container_name: claude-spawner-dev
     network_mode: host
     volumes:
