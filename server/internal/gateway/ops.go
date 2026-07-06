@@ -305,7 +305,7 @@ func (c *conn) doDeleteDiscovered(sessionID string) {
 			c.fail("session_active", "that session is live in a terminal — close it there first")
 			return
 		}
-		if _, err := session.DeleteSessionsForDir(sessionID, dir); err != nil {
+		if _, err := c.srv.driver.DeleteSessionsForDir(c.ctx, sessionID, dir); err != nil {
 			c.fail("internal", err.Error())
 			return
 		}

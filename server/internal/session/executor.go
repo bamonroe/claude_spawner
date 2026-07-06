@@ -83,6 +83,17 @@ type Restarter interface {
 	Restart(ctx context.Context) error
 }
 
+// SessionDeleter is implemented by executors that delete a directory's Claude
+// transcripts on the host. Only BrokerExecutor implements it: the containerized
+// server mounts ~/.claude read-only, so it can't remove the files itself and asks
+// the host-side broker (running as the file owner) to. Driver.DeleteSessionsForDir
+// routes to it in broker mode, falling back to in-process deletion otherwise.
+type SessionDeleter interface {
+	// DeleteSessions removes every transcript whose cwd is dir; sessionID is any
+	// session known to live there, used to locate the project folder.
+	DeleteSessions(ctx context.Context, sessionID, dir string) error
+}
+
 // Proc is a launched claude process. The caller reads Stdout to EOF (the
 // stream-json events) and then calls Wait exactly once.
 type Proc interface {
@@ -297,6 +308,14 @@ func (b BrokerExecutor) List(ctx context.Context) ([]string, error) {
 // container is recreated out from under this process moments later.
 func (b BrokerExecutor) Restart(ctx context.Context) error {
 	return b.unary(ctx, brokerRequest{Op: opRestart})
+}
+
+// DeleteSessions asks the broker to remove a directory's Claude transcripts on
+// the host. The server container's ~/.claude is read-only, so it can't delete
+// them itself. This satisfies SessionDeleter, so Driver.DeleteSessionsForDir
+// routes to it in broker mode.
+func (b BrokerExecutor) DeleteSessions(ctx context.Context, sessionID, dir string) error {
+	return b.unary(ctx, brokerRequest{Op: opDelete, SessionID: sessionID, Dir: dir})
 }
 
 // dialSend dials the broker and writes one request header, returning the open

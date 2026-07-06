@@ -88,6 +88,33 @@ func TestBrokerRestart(t *testing.T) {
 	t.Fatal("restart command did not run (marker file never appeared)")
 }
 
+func TestBrokerDeleteSessions(t *testing.T) {
+	// The broker runs as the host user that owns ~/.claude, so a delete op there
+	// removes transcripts the read-only server container can't. Point HOME at a
+	// temp dir and plant a transcript for a known cwd.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cwd := "/home/bam/git/proj"
+	proj := filepath.Join(home, ".claude", "projects", "enc")
+	if err := os.MkdirAll(proj, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	transcript := filepath.Join(proj, "sid.jsonl")
+	line := `{"cwd":"` + cwd + `","type":"user"}` + "\n"
+	if err := os.WriteFile(transcript, []byte(line), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	sock := startBroker(t, func(d string) (string, error) { return d, nil }, "claude")
+	client := BrokerExecutor{Socket: sock}
+	if err := client.DeleteSessions(context.Background(), "sid", cwd); err != nil {
+		t.Fatalf("DeleteSessions: %v", err)
+	}
+	if _, err := os.Stat(transcript); !os.IsNotExist(err) {
+		t.Errorf("transcript still present after delete (stat err = %v)", err)
+	}
+}
+
 func TestBrokerExecutorJailRejection(t *testing.T) {
 	sock := startBroker(t,
 		func(string) (string, error) { return "", os.ErrPermission },

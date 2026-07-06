@@ -40,6 +40,7 @@ const (
 	opRemove  brokerOp = "remove"  // delete a session's sandbox container
 	opList    brokerOp = "list"    // list managed sandbox containers (for reconcile)
 	opRestart brokerOp = "restart" // rebuild + relaunch the (containerized) server on the host
+	opDelete  brokerOp = "delete"  // permanently remove a directory's Claude transcripts (host-side)
 )
 
 // brokerRequest is the client→broker header. Target/Container are set for turns
@@ -50,6 +51,7 @@ type brokerRequest struct {
 	Dir       string   `json:"dir,omitempty"`
 	Args      []string `json:"args,omitempty"`
 	Container string   `json:"container,omitempty"`
+	SessionID string   `json:"session_id,omitempty"` // opDelete: any session known to live in Dir
 }
 
 // brokerExit is the turn trailer: claude's exit status (0 = success); Err carries

@@ -80,6 +80,8 @@ func (s *BrokerServer) handle(conn net.Conn) {
 		s.sendResult(conn, brokerResult{Names: names, Err: errStr(err)})
 	case opRestart:
 		s.sendResult(conn, brokerResult{Err: errStr(s.restart())})
+	case opDelete:
+		s.sendResult(conn, brokerResult{Err: errStr(s.deleteSessions(req))})
 	default:
 		s.sendResult(conn, brokerResult{Err: "unknown op " + string(req.Op)})
 	}
@@ -201,6 +203,16 @@ func (s *BrokerServer) restart() error {
 		}
 	}()
 	return nil
+}
+
+// deleteSessions removes a directory's Claude transcripts on the host. The
+// containerized server mounts ~/.claude read-only, so it can't delete them
+// itself — it delegates here, where the broker runs as the host user that owns
+// the files. The operation is inherently bounded to ~/.claude/projects
+// transcripts matching the given cwd, so it needs no jail check.
+func (s *BrokerServer) deleteSessions(req brokerRequest) error {
+	_, err := DeleteSessionsForDir(req.SessionID, req.Dir)
+	return err
 }
 
 func (s *BrokerServer) sendExit(conn net.Conn, code int, errMsg string) {

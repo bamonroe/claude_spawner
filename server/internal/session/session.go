@@ -185,6 +185,18 @@ func (d *Driver) Restart(ctx context.Context) error {
 	return fmt.Errorf("restart requires the host-side broker (SPAWNER_BROKER_SOCKET)")
 }
 
+// DeleteSessionsForDir removes a directory's Claude transcripts. In broker mode
+// the containerized server mounts ~/.claude read-only, so it routes deletion to
+// the host-side broker (which owns the files); otherwise (the all-in-one dev
+// container that runs turns in-process) it deletes them directly. Returns how
+// many transcripts were removed (0 via the broker, which doesn't report a count).
+func (d *Driver) DeleteSessionsForDir(ctx context.Context, sessionID, dir string) (int, error) {
+	if del, ok := d.Execs[TargetHost].(SessionDeleter); ok {
+		return 0, del.DeleteSessions(ctx, sessionID, dir)
+	}
+	return DeleteSessionsForDir(sessionID, dir)
+}
+
 // ToolUse describes a tool Claude invoked during a turn. FilePath is set for
 // file-editing tools (Edit/Write/MultiEdit/NotebookEdit) so the caller can show
 // which file changed.
