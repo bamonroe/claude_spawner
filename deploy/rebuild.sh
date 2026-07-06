@@ -27,7 +27,8 @@ echo "==> [1/3] resident whisper servers (accurate :8571 + fast :8572)"
 docker compose up -d whisper whisper-fast
 
 echo "==> [2/3] broker binary + user service"
-go build -o "$HOME/.local/bin/spawner-broker" ./server/cmd/broker
+# The Go module is in server/, not the repo root — build with -C so `go` finds it.
+go build -C server -o "$HOME/.local/bin/spawner-broker" ./cmd/broker
 systemctl --user restart spawner-broker
 
 echo "==> [3/3] server container (rebuild image + recreate)"

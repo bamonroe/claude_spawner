@@ -24,5 +24,6 @@ export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 # broker untouched. --no-block: don't wait on the unit that is tearing us down.
 # KillMode=process on the unit lets this script (and the detached server rebuild
 # launched alongside it) survive the old broker's teardown and finish.
-"$GO" build -o "$OUT" ./server/cmd/broker
+# The Go module is in server/, not the repo root — build with -C so `go` finds it.
+"$GO" build -C server -o "$OUT" ./cmd/broker
 systemctl --user restart --no-block spawner-broker
