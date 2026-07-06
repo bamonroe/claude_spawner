@@ -386,6 +386,13 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
         client?.send(Outbound.spawnAt(path)) // the resulting `attached` switches the view
     }
 
+    /** Create a new project folder `name` under `parent` and spawn a session in it. */
+    fun spawnNewFolder(parent: String, name: String) {
+        val clean = name.trim().trim('/')
+        if (clean.isEmpty()) return
+        client?.send(Outbound.spawnAt("$parent/$clean", create = true))
+    }
+
     // --- Hands-free (always-listening VAD; only speech is sent) ---
     private var handsFree: HandsFreeRecorder? = null
     @Volatile private var hfOn = false

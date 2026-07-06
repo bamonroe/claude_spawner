@@ -777,6 +777,48 @@ func TestSpawnAtReusesExistingSession(t *testing.T) {
 	}
 }
 
+// TestSpawnAtCreatesNewFolder: spawn_at with create=true makes a brand-new
+// (jailed) directory before attaching, so the picker can start a project in a
+// folder that doesn't exist yet.
+func TestSpawnAtCreatesNewFolder(t *testing.T) {
+	ts, root := newTestServer(t, nil)
+	dir := filepath.Join(root, "brand-new-proj")
+	ws := dial(t, ts)
+	send(t, ws, map[string]any{"type": "hello", "token": "secret"})
+	readUntil(t, ws, "hello_ok")
+
+	send(t, ws, map[string]any{"type": "spawn_at", "path": dir, "create": true})
+	if name := readUntil(t, ws, "attached")["name"].(string); name == "" {
+		t.Fatal("expected a session name after creating the folder")
+	}
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		t.Fatalf("folder %q was not created: %v", dir, err)
+	}
+
+	// Creating the same folder again fails (it exists now) rather than clobbering.
+	send(t, ws, map[string]any{"type": "spawn_at", "path": dir, "create": true})
+	if m := readUntil(t, ws, "error"); m["code"] != "bad_path" {
+		t.Fatalf("expected bad_path re-creating an existing folder, got %v", m)
+	}
+}
+
+// TestSpawnAtCreateJailed: create=true still can't escape the spawn roots.
+func TestSpawnAtCreateJailed(t *testing.T) {
+	ts, root := newTestServer(t, nil)
+	ws := dial(t, ts)
+	send(t, ws, map[string]any{"type": "hello", "token": "secret"})
+	readUntil(t, ws, "hello_ok")
+
+	escape := filepath.Join(root, "..", "escaped")
+	send(t, ws, map[string]any{"type": "spawn_at", "path": escape, "create": true})
+	if m := readUntil(t, ws, "error"); m["code"] != "bad_path" {
+		t.Fatalf("expected bad_path for an out-of-jail create, got %v", m)
+	}
+	if _, err := os.Stat(filepath.Clean(escape)); err == nil {
+		t.Fatal("out-of-jail folder was created")
+	}
+}
+
 func TestReconnectResumesDialog(t *testing.T) {
 	ts, root := newTestServer(t, nil)
 	if err := os.MkdirAll(filepath.Join(root, "myproj"), 0o755); err != nil {

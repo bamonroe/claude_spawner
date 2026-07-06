@@ -212,6 +212,13 @@ _Robustness / ops (smaller, safe when we get to them):_
 
 ## Done
 
+- [x] 2026-07-06 — **Start a new project in a non-existing folder from the sidebar picker.** The
+      New-session browser could only spawn in folders that already exist. Added a "New project
+      folder here…" action (below "Start session here") that prompts for a name, creates the folder
+      under the currently-browsed directory, and attaches. Server: `spawn_at` gained an optional
+      `create` flag — `doSpawnAt` `mkdir`s the (root-jailed) path first, erroring `bad_path` if it
+      already exists or escapes the roots. Android: `Outbound.spawnAt(create=)` + `spawnNewFolder`
+      + the picker dialog. `docs/protocol.md`; `TestSpawnAtCreatesNewFolder` / `TestSpawnAtCreateJailed`.
 - [x] 2026-07-06 — **Fuzzy-match confirmation in the spawn dialog.** When navigating to a leaf
       project lands on a folder whose name carries a token the user never said — the matcher
       stretched "mail" onto `mail_play` because no `mail` folder exists — the flow no longer

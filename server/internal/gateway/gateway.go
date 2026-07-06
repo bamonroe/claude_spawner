@@ -526,7 +526,7 @@ var wireHandlers = map[string]func(c *conn, in inbound){
 	"rename":            func(c *conn, in inbound) { c.doRename(in.Name, in.NewName) },
 	"delete":            func(c *conn, in inbound) { c.doDelete(in.Name) },
 	"browse":            func(c *conn, in inbound) { c.doBrowse(in.Path) },
-	"spawn_at":          func(c *conn, in inbound) { c.doSpawnAt(in.Path, session.Target(in.Target)) },
+	"spawn_at":          func(c *conn, in inbound) { c.doSpawnAt(in.Path, session.Target(in.Target), in.Create) },
 	"cancel":            func(c *conn, in inbound) { c.cancelDialog() },
 	"abort":             func(c *conn, in inbound) { c.abortTurn() },
 	"set_whisper_model": func(c *conn, in inbound) { c.doSetWhisperModel(in.WhisperModel) },

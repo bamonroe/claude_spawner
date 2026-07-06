@@ -1889,6 +1889,34 @@ private fun BrowseScreen(controller: VoiceController, onStarted: () -> Unit, onB
     val listing by controller.listing.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { controller.browse("") } // load the roots on open
     val atRoots = listing?.path.isNullOrEmpty()
+    var newFolder by remember { mutableStateOf<String?>(null) } // non-null = the New-folder dialog is open
+
+    if (newFolder != null) {
+        val parent = listing?.path ?: ""
+        AlertDialog(
+            onDismissRequest = { newFolder = null },
+            title = { Text("New project") },
+            text = {
+                Column {
+                    Text("Create a folder in ${parent.ifEmpty { "…" }} and start a session in it.", style = MaterialTheme.typography.bodySmall)
+                    OutlinedTextField(
+                        value = newFolder ?: "",
+                        onValueChange = { newFolder = it },
+                        singleLine = true,
+                        label = { Text("folder name") },
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !newFolder.isNullOrBlank(),
+                    onClick = { controller.spawnNewFolder(parent, newFolder!!); newFolder = null; onStarted() },
+                ) { Text("Create & start") }
+            },
+            dismissButton = { TextButton(onClick = { newFolder = null }) { Text("Cancel") } },
+        )
+    }
 
     Column(
         Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
@@ -1935,6 +1963,11 @@ private fun BrowseScreen(controller: VoiceController, onStarted: () -> Unit, onB
             enabled = !atRoots,
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
         ) { Text(if (atRoots) "Choose a folder…" else "Start session here") }
+        OutlinedButton(
+            onClick = { newFolder = "" },
+            enabled = !atRoots, // need a location under a root to create inside
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+        ) { Text("New project folder here…") }
     }
 }
 

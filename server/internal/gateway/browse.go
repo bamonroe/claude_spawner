@@ -40,11 +40,23 @@ func (c *conn) doBrowse(path string) {
 
 // doSpawnAt creates a session in the chosen directory and attaches to it — the
 // visual equivalent of finishing the spawn dialog.
-func (c *conn) doSpawnAt(path string, target session.Target) {
+func (c *conn) doSpawnAt(path string, target session.Target, create bool) {
 	abs, err := c.srv.cfg.ValidateSpawnDir(path)
 	if err != nil {
 		c.fail("bad_path", err.Error())
 		return
+	}
+	// create: make a brand-new project folder (jailed to a root) before spawning,
+	// so the picker can start a session in a directory that doesn't exist yet.
+	if create {
+		if _, e := os.Stat(abs); e == nil {
+			c.fail("bad_path", "that folder already exists")
+			return
+		}
+		if e := os.MkdirAll(abs, 0o755); e != nil {
+			c.fail("spawn_failed", e.Error())
+			return
+		}
 	}
 	if info, e := os.Stat(abs); e != nil || !info.IsDir() {
 		c.fail("bad_path", "not a directory")
