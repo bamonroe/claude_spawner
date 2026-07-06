@@ -119,9 +119,10 @@ certificate on top of the shared token, set these env vars:
   Android client needs no change — just the `wss://` URL.
 - **Mutual TLS** — also set `SPAWNER_TLS_CLIENT_CA` to a PEM bundle of the CA(s) that sign your
   client certificates. The server then demands a valid client cert **in addition to** the token, so
-  a leaked token alone can't attach. Requires the server cert/key pair. (The Android app does not yet
-  ship a client certificate — mTLS is ready server-side and reachable today by CLI/`wsclient`
-  clients; app-side client-cert support is tracked in `TODO.md`.)
+  a leaked token alone can't attach. Requires the server cert/key pair. In the Android app, open
+  **Settings → Server → Client certificate (mTLS)**, import your `.p12`/PKCS#12 file, and enter its
+  passphrase; the app presents it on every (re)connect. A bad passphrase or corrupt file is reported
+  and the app falls back to a cert-less connection.
 
 ## Where sessions run: host vs. sandbox
 

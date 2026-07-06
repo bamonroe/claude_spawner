@@ -6,10 +6,14 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
+import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.contract.ActivityResultContracts.RequestPermission
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.material3.Switch
 import androidx.core.content.ContextCompat
 import com.bam.spawner.service.VoiceService
@@ -1440,6 +1444,23 @@ private fun ServerSettings(
     var devUrl by rememberSaveable { mutableStateOf(settings.devUrl) }
     var useDev by rememberSaveable { mutableStateOf(settings.useDev) }
     var token by rememberSaveable { mutableStateOf(settings.token) }
+    // Client certificate (mutual TLS): pick a .p12 via the Storage Access
+    // Framework, copy it into private storage, and remember its passphrase.
+    val context = LocalContext.current
+    var certName by remember { mutableStateOf(settings.clientCertName) }
+    var certPass by rememberSaveable { mutableStateOf(settings.clientCertPass) }
+    val certPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            if (bytes != null) {
+                val name = context.contentResolver
+                    .query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+                    ?.use { c -> if (c.moveToFirst()) c.getString(0) else null } ?: "client.p12"
+                settings.importClientCert(bytes, name)
+                certName = name
+            }
+        }
+    }
     // The whisper model is server-global: read the current one, pick a new one,
     // then push it. Re-sync the picker whenever the server reports a change (even
     // one made from another device).
@@ -1464,11 +1485,42 @@ private fun ServerSettings(
         OutlinedTextField(token, { token = it }, label = { Text("Token") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         Button(onClick = {
             settings.url = url; settings.devUrl = devUrl; settings.useDev = useDev; settings.token = token
+            settings.clientCertPass = certPass
             onSaveConnect(if (useDev) devUrl else url, token)
         }) {
             Text(if (useDev) "Save & Connect (Dev)" else "Save & Connect (Prod)")
         }
         Text("Client ID: ${settings.clientId}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+
+        HorizontalDivider()
+        Text("Client certificate (mTLS)", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Optional. If the server requires mutual TLS, import your .p12 client certificate and "
+                + "enter its passphrase — the app presents it on top of the token. Only used for "
+                + "wss:// servers; leave empty otherwise.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
+        )
+        Text(
+            if (certName.isBlank()) "No certificate imported." else "Imported: $certName",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
+        )
+        OutlinedTextField(
+            certPass, { certPass = it }, label = { Text("Certificate passphrase") },
+            singleLine = true, visualTransformation = PasswordVisualTransformation(),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { certPicker.launch(arrayOf("*/*")) }) { Text("Import .p12…") }
+            if (certName.isNotBlank()) {
+                OutlinedButton(onClick = {
+                    settings.clearClientCert(); certName = ""; certPass = ""
+                }) { Text("Remove") }
+            }
+        }
+        Text(
+            "Changes take effect on the next Save & Connect above.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
+        )
 
         HorizontalDivider()
         Text("Whisper model", style = MaterialTheme.typography.titleMedium)

@@ -158,10 +158,6 @@ label. (Full code map established 2026-07-05 via two Explore passes — server +
       aliases (→ `docs/commands.json` → `generateCommands` → app), so wake mishearings are visible
       and **editable in the app's alias editor** like regular commands. Server list is authoritative
       today; this makes it user-tunable on-device.
-- [ ] **Android mTLS client certificate.** Server-side mutual TLS shipped (2026-07-06); the app can
-      already talk `wss://` but has no way to present a client cert. Add keystore/PKCS#12 import + a
-      custom `SSLSocketFactory`/`X509KeyManager` on the OkHttp client so the phone can satisfy
-      `SPAWNER_TLS_CLIENT_CA`. Until then mTLS is CLI-only.
 - [ ] On-device fallback STT when offline.
 - [ ] iOS app.
 
@@ -216,6 +212,16 @@ _Robustness / ops (smaller, safe when we get to them):_
 
 ## Done
 
+- [x] 2026-07-06 — **Android mTLS client certificate.** Completes the auth-hardening epic on the app
+      side: the phone can now present a client certificate to a mutual-TLS server (`SPAWNER_TLS_CLIENT_CA`).
+      New `net/ClientTls.kt` builds an OkHttp `SSLSocketFactory` + `X509TrustManager` from a PKCS#12
+      keystore (server still verified against the system trust store — only a client key is added);
+      `SpawnerClient` takes an optional `ClientTls` and applies `sslSocketFactory(...)`. `SettingsStore`
+      persists the imported `.p12` in private storage + its passphrase (`importClientCert`/`clearClientCert`/
+      `hasClientCert`). `VoiceController.connect` loads it when present and surfaces a load/passphrase error,
+      falling back cert-less. UI: **Settings → Server → Client certificate (mTLS)** — SAF `.p12` import
+      (`rememberLauncherForActivityResult` + `OpenDocument`), passphrase field, Remove. APK built +
+      installed on the Pixel 8a. README security section updated.
 - [x] 2026-07-06 — **Sessions drawer auto-refreshes on open + pull-to-refresh.** Opening the drawer
       now calls `controller.discover()` (folded into the existing `drawerState.targetValue == Open`
       effect), and the session list is wrapped in a Material3 `PullToRefreshBox` so pulling down

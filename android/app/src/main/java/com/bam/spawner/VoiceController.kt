@@ -294,7 +294,20 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
             settings.endToken, settings.sttMode, settings.sttModel, settings.aliasMap(),
             settings.whisperUrl, settings.brief, settings.interactive,
         )
-        client = SpawnerClient(url, token, settings.clientId, hello, ::onMessage, ::onConnected)
+        // Present a client certificate when one is imported (mutual-TLS servers).
+        // A bad passphrase / corrupt file is surfaced, then we fall back to a
+        // cert-less connection (fine for plain ws:// or one-way wss://).
+        val tls = if (settings.hasClientCert()) {
+            try {
+                com.bam.spawner.net.buildClientTls(settings.clientCertFile, settings.clientCertPass)
+            } catch (e: Exception) {
+                _status.value = "client cert error: ${e.message}"
+                null
+            }
+        } else {
+            null
+        }
+        client = SpawnerClient(url, token, settings.clientId, hello, ::onMessage, ::onConnected, tls)
             .also { it.connect() }
     }
 

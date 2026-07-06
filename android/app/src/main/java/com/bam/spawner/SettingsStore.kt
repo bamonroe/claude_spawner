@@ -1,9 +1,11 @@
 package com.bam.spawner
 
 import android.content.Context
+import java.io.File
 
 /** Persists the server URL, auth token, and per-connection voice settings. */
 class SettingsStore(context: Context) {
+    private val appContext = context.applicationContext
     private val prefs = context.getSharedPreferences("spawner", Context.MODE_PRIVATE)
 
     var url: String
@@ -26,6 +28,37 @@ class SettingsStore(context: Context) {
     var token: String
         get() = prefs.getString("token", DEFAULT_TOKEN) ?: DEFAULT_TOKEN
         set(v) = prefs.edit().putString("token", v).apply()
+
+    /** Display name of the imported PKCS#12 client certificate (empty = none).
+     *  For mutual-TLS servers (SPAWNER_TLS_CLIENT_CA); the .p12 bytes live in
+     *  private storage at [clientCertFile]. */
+    var clientCertName: String
+        get() = prefs.getString("client_cert_name", "") ?: ""
+        set(v) = prefs.edit().putString("client_cert_name", v).apply()
+
+    /** Passphrase for the PKCS#12 client certificate. */
+    var clientCertPass: String
+        get() = prefs.getString("client_cert_pass", "") ?: ""
+        set(v) = prefs.edit().putString("client_cert_pass", v).apply()
+
+    /** Where the imported .p12 is copied in app-private storage. */
+    val clientCertFile: File get() = File(appContext.filesDir, "client_cert.p12")
+
+    /** True when a client certificate has been imported and its file is present. */
+    fun hasClientCert(): Boolean = clientCertName.isNotEmpty() && clientCertFile.exists()
+
+    /** Copy an imported .p12's bytes into private storage and remember its name. */
+    fun importClientCert(bytes: ByteArray, name: String) {
+        clientCertFile.writeBytes(bytes)
+        clientCertName = name
+    }
+
+    /** Forget the client certificate (delete the file, clear name + passphrase). */
+    fun clearClientCert() {
+        clientCertFile.delete()
+        clientCertName = ""
+        clientCertPass = ""
+    }
 
     /** Stable per-install id so the server can resume our state on reconnect. */
     val clientId: String

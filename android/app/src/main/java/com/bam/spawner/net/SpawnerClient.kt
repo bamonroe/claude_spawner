@@ -27,10 +27,14 @@ class SpawnerClient(
     private val hello: HelloConfig,
     private val onMessage: (ServerMsg) -> Unit,
     private val onConnected: (Boolean) -> Unit,
+    // Optional client certificate for mutual-TLS servers (wss:// with a client-CA
+    // requirement). Null = no client cert (plain ws:// or one-way wss://).
+    private val tls: ClientTls? = null,
 ) {
     private val http = OkHttpClient.Builder()
         .pingInterval(20, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.MILLISECONDS)
+        .apply { tls?.let { sslSocketFactory(it.socketFactory, it.trustManager) } }
         .build()
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
