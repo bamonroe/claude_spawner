@@ -1055,6 +1055,10 @@ private fun InputBar(
         // One button, WhatsApp-style: SEND when there's text (tap to send, hold to
         // clear); MIC when the box is empty (hold to talk; drag up the track to
         // switch to hands-free); HEADSET when hands-free is on (tap to turn off).
+        // The upward drag distance to switch into hands-free — shared so the visual
+        // track is exactly as long as the finger must actually travel.
+        val swipeUpDp = 120.dp
+        val trackWidth = 36.dp // 75% of the 48dp button
         Box(contentAlignment = Alignment.BottomCenter) {
             // The drag track: only visible while the mic is held. It shows the
             // path (and how far) you must drag up to switch into hands-free, and
@@ -1063,8 +1067,8 @@ private fun InputBar(
                 Box(
                     Modifier
                         .offset(y = (-54).dp) // float just above the mic button
-                        .size(width = 22.dp, height = 58.dp)
-                        .clip(RoundedCornerShape(11.dp))
+                        .size(width = trackWidth, height = swipeUpDp)
+                        .clip(RoundedCornerShape(trackWidth / 2))
                         .background(MaterialTheme.colorScheme.surfaceVariant),
                     contentAlignment = Alignment.BottomCenter,
                 ) {
@@ -1095,7 +1099,7 @@ private fun InputBar(
                     // Distance the finger must travel upward for a hold to be
                     // reinterpreted as switching into hands-free instead of push-to-talk.
                     // Deliberately long so a small drift never trips it.
-                    val swipeUpPx = 120.dp.toPx()
+                    val swipeUpPx = swipeUpDp.toPx()
                     when {
                         hasText -> detectTapGestures(
                             onTap = { if (connected) { onSend(draft); draft = "" } },
