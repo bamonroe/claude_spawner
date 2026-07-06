@@ -1094,7 +1094,8 @@ private fun InputBar(
                 modifier = Modifier.size(48.dp).pointerInput(hasText, handsFree, connected) {
                     // Distance the finger must travel upward for a hold to be
                     // reinterpreted as switching into hands-free instead of push-to-talk.
-                    val swipeUpPx = 48.dp.toPx()
+                    // Deliberately long so a small drift never trips it.
+                    val swipeUpPx = 120.dp.toPx()
                     when {
                         hasText -> detectTapGestures(
                             onTap = { if (connected) { onSend(draft); draft = "" } },
@@ -1106,6 +1107,7 @@ private fun InputBar(
                         // drag up past the track to switch into hands-free.
                         connected -> awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
+                            down.consume()
                             val startY = down.position.y
                             talking = true; onTalkStart()
                             swipeFraction = 0f // reveal the track
@@ -1113,6 +1115,11 @@ private fun InputBar(
                             while (true) {
                                 val event = awaitPointerEvent()
                                 val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                // Own the gesture: consuming keeps a parent (scroll /
+                                // swipe-up tray) from stealing it when the finger drifts
+                                // off the small button, so we hold the recording until an
+                                // actual finger-lift no matter how far the finger wanders.
+                                change.consume()
                                 if (!change.pressed) break // released
                                 val dy = (startY - change.position.y).coerceAtLeast(0f)
                                 swipeFraction = (dy / swipeUpPx).coerceIn(0f, 1f)
