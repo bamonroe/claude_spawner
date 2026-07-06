@@ -203,6 +203,12 @@ _Robustness / ops (smaller, safe when we get to them):_
 
 ## Done
 
+- [x] 2026-07-06 — **Sessions drawer auto-refreshes on open + pull-to-refresh.** Opening the drawer
+      now calls `controller.discover()` (folded into the existing `drawerState.targetValue == Open`
+      effect), and the session list is wrapped in a Material3 `PullToRefreshBox` so pulling down
+      refreshes it; the spinner clears when a fresh list lands or after a 1.5 s cap (discover is
+      fire-and-forget and an unchanged list won't re-emit). The `⟳ Refresh` button is gone.
+      `MainActivity.kt`; APK built, installed on the phone.
 - [x] 2026-07-05 — **Delete clears every same-dir record; no more ghost sessions.** The sidebar
       collapses same-directory sessions to one row, so a second registry record for a dir (born when
       `uniqueName` appends `-2`) was invisible but still owned a name — blocking a rename onto it.

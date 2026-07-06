@@ -64,7 +64,8 @@ plain-language reason instead of failing silently.
 **Without your voice:** swipe up on the message box for a **command tray** of tap buttons — one per
 command that needs no argument (`detach`, `clear`, `compress`, `status`, `usage`, …). Open the
 **sessions drawer** with the ☰ menu or by swiping in from the left edge (just inside the edge — the
-very edge is Android's back gesture). See [`docs/commands.md`](docs/commands.md).
+very edge is Android's back gesture). The session list **auto-refreshes each time the drawer opens**,
+and you can **pull down on the list to refresh** it at any time. See [`docs/commands.md`](docs/commands.md).
 
 ### Clearing vs. compressing context
 

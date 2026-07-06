@@ -55,6 +55,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -115,7 +117,10 @@ import com.bam.spawner.ui.MarkdownText
 import com.bam.spawner.ui.SpawnerTheme
 import com.bam.spawner.ui.ThemeMode
 import com.bam.spawner.ui.parseThemeMode
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 class MainActivity : ComponentActivity() {
     private lateinit var controller: VoiceController
@@ -268,10 +273,14 @@ private fun MainScreen(
     // System back closes the open drawer instead of leaving the app.
     BackHandler(enabled = drawerState.isOpen) { scope.launch { drawerState.close() } }
     // Opening the drawer dismisses the keyboard (clearing the input field's focus
-    // hides the IME) so it can't overlap the sidebar. targetValue fires as the open
+    // hides the IME) so it can't overlap the sidebar, and auto-refreshes the session
+    // list so it's current every time it's opened. targetValue fires as the open
     // animation begins, not after it settles.
     LaunchedEffect(drawerState.targetValue) {
-        if (drawerState.targetValue == DrawerValue.Open) focus.clearFocus()
+        if (drawerState.targetValue == DrawerValue.Open) {
+            focus.clearFocus()
+            controller.discover()
+        }
     }
 
     val status by controller.status.collectAsStateWithLifecycle()
@@ -287,6 +296,16 @@ private fun MainScreen(
     var confirmOpen by remember { mutableStateOf<DiscoveredInfo?>(null) }
     var deleteTarget by remember { mutableStateOf<DiscoveredInfo?>(null) }
     var renameTarget by remember { mutableStateOf<DiscoveredInfo?>(null) }
+    // Pull-to-refresh on the session list: kick a discover, then drop the spinner
+    // when a fresh list lands or after a short cap so it never hangs (discover is
+    // fire-and-forget over the socket, and an unchanged list won't re-emit).
+    var refreshing by remember { mutableStateOf(false) }
+    LaunchedEffect(refreshing) {
+        if (!refreshing) return@LaunchedEffect
+        controller.discover()
+        withTimeoutOrNull(1500) { snapshotFlow { discovered }.drop(1).first() }
+        refreshing = false
+    }
     val openSession = { d: DiscoveredInfo ->
         controller.adopt(d.sessionId, d.dir); scope.launch { drawerState.close() }; Unit
     }
@@ -323,7 +342,8 @@ private fun MainScreen(
                     attached = attached,
                     attachedId = attachedId,
                     onNew = { onNewSession(); scope.launch { drawerState.close() } },
-                    onRefresh = { controller.discover() },
+                    refreshing = refreshing,
+                    onRefresh = { refreshing = true },
                     onOpen = { d -> if (d.active) confirmOpen = d else openSession(d) },
                     onRename = { renameTarget = it },
                     onDelete = { deleteTarget = it },
@@ -1196,6 +1216,7 @@ private fun CommandTray(connected: Boolean, onCommand: (String) -> Unit) {
 
 /** The drawer's session list: EVERY Claude session on the machine (discovery),
  * with registry names/attach merged in. Tap to open; ✏️ rename; 🗑 delete. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun Sidebar(
     discovered: List<DiscoveredInfo>,
@@ -1203,6 +1224,7 @@ private fun Sidebar(
     attached: String?,
     attachedId: String,
     onNew: () -> Unit,
+    refreshing: Boolean,
     onRefresh: () -> Unit,
     onOpen: (DiscoveredInfo) -> Unit,
     onRename: (DiscoveredInfo) -> Unit,
@@ -1216,14 +1238,19 @@ private fun Sidebar(
         Text("Sessions", style = MaterialTheme.typography.titleLarge)
         Row {
             TextButton(onClick = onNew) { Text("＋ New") }
-            TextButton(onClick = onRefresh) { Text("⟳ Refresh") }
         }
         if (discoverError.isNotBlank()) {
             Text("⚠️ $discoverError", color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall)
         }
         HorizontalDivider()
-        LazyColumn(Modifier.weight(1f)) {
+        // Pull down anywhere on the list to refresh; it also auto-refreshes on open.
+        PullToRefreshBox(
+            isRefreshing = refreshing,
+            onRefresh = onRefresh,
+            modifier = Modifier.weight(1f),
+        ) {
+        LazyColumn(Modifier.fillMaxSize()) {
             items(discovered) { d ->
                 // Highlight the attached row by stable id, not name — the same session
                 // can be named differently here than when we attached (e.g. server switch).
@@ -1255,6 +1282,7 @@ private fun Sidebar(
                 }
                 HorizontalDivider()
             }
+        }
         }
         if (attached != null) {
             HorizontalDivider()
