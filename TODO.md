@@ -22,11 +22,13 @@ directory. So multiple `session_id`s in one dir get hidden, renames land on whic
 name-keyed client state. Root fix: the stable `session_id` is the identity; the name is a display
 label. (Full code map established 2026-07-05 via two Explore passes — server + Android.)
 
-- [ ] **Phase 1 — server discovery/rename/delete become per-`session_id`.** `doDiscover` emits every
-      registered session as its own row (keyed by its own `session_id`), not one collapsed row per
-      dir; `doRenameDiscovered` resolves the target by `session_id` (not `GetByDir`); delete targets a
-      single `session_id` (new `DeleteSessionByID` primitive + broker op) instead of nuking the whole
-      directory. Fixes hidden sessions + renames/deletes hitting the wrong one.
+- [x] 2026-07-05 — **Phase 1 — server discovery/rename/delete became per-`session_id`.** `doDiscover`
+      emits every registered session as its own row (keyed by its own `session_id`), not one collapsed
+      row per dir; `doRenameDiscovered` resolves the target by `session_id` (not `GetByDir`); delete
+      targets a single session's transcript(s) via `DeleteSessionsByIDs` + a per-id broker path
+      (`brokerRequest.IDs`) instead of nuking the whole directory. Fixes hidden sessions + renames and
+      deletes hitting the wrong one. Tests: discover-shows-every-session, per-session delete (gateway +
+      broker). protocol.md updated (docsync green).
 - [ ] **Phase 2 — server keys state by `session_id`.** Store gains a `bySessionID` primary index
       (name becomes a secondary lookup for voice); `jobs` hub, `inflight` tracker, and `c.attached`
       operations key by id; `renameJob` becomes a no-op (id is stable). Wire `attach`/`history` accept

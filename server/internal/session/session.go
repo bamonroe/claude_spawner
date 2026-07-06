@@ -197,6 +197,16 @@ func (d *Driver) DeleteSessionsForDir(ctx context.Context, sessionID, dir string
 	return DeleteSessionsForDir(sessionID, dir)
 }
 
+// DeleteSessionByIDs removes exactly the given session_ids' transcripts (one
+// logical session), routing through the broker in broker mode (the container's
+// ~/.claude is read-only) and falling back to in-process deletion otherwise.
+func (d *Driver) DeleteSessionByIDs(ctx context.Context, ids []string) (int, error) {
+	if del, ok := d.Execs[TargetHost].(SessionDeleter); ok {
+		return 0, del.DeleteSessionIDs(ctx, ids)
+	}
+	return DeleteSessionsByIDs(ids)
+}
+
 // ToolUse describes a tool Claude invoked during a turn. FilePath is set for
 // file-editing tools (Edit/Write/MultiEdit/NotebookEdit) so the caller can show
 // which file changed.

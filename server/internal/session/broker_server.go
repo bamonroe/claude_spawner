@@ -231,6 +231,10 @@ func (s *BrokerServer) restart() error {
 // the files. The operation is inherently bounded to ~/.claude/projects
 // transcripts matching the given cwd, so it needs no jail check.
 func (s *BrokerServer) deleteSessions(req brokerRequest) error {
+	if len(req.IDs) > 0 {
+		_, err := DeleteSessionsByIDs(req.IDs)
+		return err
+	}
 	_, err := DeleteSessionsForDir(req.SessionID, req.Dir)
 	return err
 }

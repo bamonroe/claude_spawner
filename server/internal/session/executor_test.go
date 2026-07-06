@@ -36,11 +36,11 @@ func TestSandboxCreateArgs(t *testing.T) {
 	got := strings.Join(s.createArgs("spawner-abc123", "/work/proj"), " ")
 
 	for _, want := range []string{
-		"run -d --name spawner-abc123",       // detached, session-named container
-		"-w /work/proj",                      // container workdir = session dir
-		"-v /work/proj:/work/proj",           // same-path mount (transcript encoding)
-		"-v /home/bam/.claude:/root/.claude", // shared claude state
-		"--userns=keep-id --network=none",    // extra run flags
+		"run -d --name spawner-abc123",          // detached, session-named container
+		"-w /work/proj",                         // container workdir = session dir
+		"-v /work/proj:/work/proj",              // same-path mount (transcript encoding)
+		"-v /home/bam/.claude:/root/.claude",    // shared claude state
+		"--userns=keep-id --network=none",       // extra run flags
 		"spawner-sandbox:latest sleep infinity", // image, then keep-alive command
 	} {
 		if !strings.Contains(got, want) {

@@ -121,6 +121,36 @@ func TestBrokerDeleteSessions(t *testing.T) {
 	}
 }
 
+func TestBrokerDeleteSessionIDs(t *testing.T) {
+	// Per-session delete: two sessions share a project folder; deleting one by id
+	// must remove only its transcript and leave the sibling untouched.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	proj := filepath.Join(home, ".claude", "projects", "enc")
+	if err := os.MkdirAll(proj, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gone := filepath.Join(proj, "id-gone.jsonl")
+	keep := filepath.Join(proj, "id-keep.jsonl")
+	for _, f := range []string{gone, keep} {
+		if err := os.WriteFile(f, []byte(`{"cwd":"/x","type":"user"}`+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	sock := startBroker(t, func(d string) (string, error) { return d, nil }, "claude")
+	client := BrokerExecutor{Socket: sock}
+	if err := client.DeleteSessionIDs(context.Background(), []string{"id-gone"}); err != nil {
+		t.Fatalf("DeleteSessionIDs: %v", err)
+	}
+	if _, err := os.Stat(gone); !os.IsNotExist(err) {
+		t.Errorf("targeted transcript still present after delete (stat err = %v)", err)
+	}
+	if _, err := os.Stat(keep); err != nil {
+		t.Errorf("sibling transcript wrongly removed: %v", err)
+	}
+}
+
 func TestBrokerExecutorJailRejection(t *testing.T) {
 	sock := startBroker(t,
 		func(string) (string, error) { return "", os.ErrPermission },

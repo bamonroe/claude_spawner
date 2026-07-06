@@ -20,7 +20,7 @@ import (
 type transcriptCacheEntry struct {
 	size    int64
 	modTime time.Time
-	msgs    []Message        // ReadTranscript's parse; valid only when msgsSet
+	msgs    []Message // ReadTranscript's parse; valid only when msgsSet
 	msgsSet bool
 	snap    *ContextSnapshot // lastUsageInFile's parse; valid only when snapSet
 	snapSet bool
@@ -166,12 +166,32 @@ func TranscriptPathByID(sessionID string) string {
 	return ""
 }
 
+// DeleteSessionsByIDs permanently removes the transcript for each given
+// session_id (the file <session_id>.jsonl), leaving every OTHER session in the
+// same directory untouched. This is how one logical session is deleted — its
+// current id plus any rotated prior ids — now that Discover shows each session
+// individually instead of collapsing a directory to a single row. Returns how
+// many transcript files were removed.
+func DeleteSessionsByIDs(ids []string) (int, error) {
+	n := 0
+	for _, id := range ids {
+		p := TranscriptPathByID(id)
+		if p == "" {
+			continue
+		}
+		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
+}
+
 // DeleteSessionsForDir permanently removes EVERY Claude transcript whose working
-// directory is `dir` — because Discover shows one entry per directory, deleting
-// that entry should clear all of the directory's sessions (otherwise the entry
-// reappears with the next-newest session, looking like a failed delete).
-// anySessionID is any session known to live in that dir, used to locate the
-// project folder. Returns how many transcripts were deleted.
+// directory is `dir`. Retained for the legacy whole-directory delete path;
+// per-session deletes go through DeleteSessionsByIDs. anySessionID is any session
+// known to live in that dir, used to locate the project folder. Returns how many
+// transcripts were deleted.
 func DeleteSessionsForDir(anySessionID, dir string) (int, error) {
 	path := TranscriptPathByID(anySessionID)
 	if path == "" {

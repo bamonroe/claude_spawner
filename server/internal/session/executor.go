@@ -90,8 +90,12 @@ type Restarter interface {
 // routes to it in broker mode, falling back to in-process deletion otherwise.
 type SessionDeleter interface {
 	// DeleteSessions removes every transcript whose cwd is dir; sessionID is any
-	// session known to live there, used to locate the project folder.
+	// session known to live there, used to locate the project folder. (Legacy
+	// whole-directory delete.)
 	DeleteSessions(ctx context.Context, sessionID, dir string) error
+	// DeleteSessionIDs removes exactly the given session_ids' transcripts — one
+	// logical session (its current id plus rotated prior ids) — not the whole dir.
+	DeleteSessionIDs(ctx context.Context, ids []string) error
 }
 
 // Proc is a launched claude process. The caller reads Stdout to EOF (the
@@ -316,6 +320,12 @@ func (b BrokerExecutor) Restart(ctx context.Context) error {
 // routes to it in broker mode.
 func (b BrokerExecutor) DeleteSessions(ctx context.Context, sessionID, dir string) error {
 	return b.unary(ctx, brokerRequest{Op: opDelete, SessionID: sessionID, Dir: dir})
+}
+
+// DeleteSessionIDs asks the broker to remove exactly the given session_ids'
+// transcripts host-side (one logical session), leaving its dir-mates intact.
+func (b BrokerExecutor) DeleteSessionIDs(ctx context.Context, ids []string) error {
+	return b.unary(ctx, brokerRequest{Op: opDelete, IDs: ids})
 }
 
 // dialSend dials the broker and writes one request header, returning the open

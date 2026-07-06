@@ -619,12 +619,11 @@ func TestDeleteSession(t *testing.T) {
 	}
 }
 
-// TestDeleteDiscoveredClearsSameDirGhosts verifies a delete removes EVERY
-// registry record for the session's directory, not just the one matched by
-// session_id. A shadowed same-dir duplicate (the sidebar collapses same-dir
-// rows to one) must not survive as a ghost — it would still own a name and
-// block renaming another session onto it.
-func TestDeleteDiscoveredClearsSameDirGhosts(t *testing.T) {
+// TestDeleteDiscoveredIsPerSession verifies a delete removes ONLY the session
+// matched by session_id, leaving other sessions in the same directory intact.
+// Now that Discover shows every session individually (no dir collapse), each is
+// separately deletable — deleting one must not take its dir-mates with it.
+func TestDeleteDiscoveredIsPerSession(t *testing.T) {
 	ts, _, gw := newTestServerGW(t, nil)
 	dir := t.TempDir()
 	// Two records for the SAME dir, neither with a transcript on disk (just
@@ -632,24 +631,58 @@ func TestDeleteDiscoveredClearsSameDirGhosts(t *testing.T) {
 	if err := gw.store.Put(&session.Session{Name: "proj", Dir: dir, SessionID: "id-live"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := gw.store.Put(&session.Session{Name: "proj-2", Dir: dir, SessionID: "id-ghost"}); err != nil {
+	if err := gw.store.Put(&session.Session{Name: "proj-2", Dir: dir, SessionID: "id-keep"}); err != nil {
 		t.Fatal(err)
 	}
 	ws := dial(t, ts)
 	send(t, ws, map[string]any{"type": "hello", "token": "secret"})
 	readUntil(t, ws, "hello_ok")
 
-	// Delete via one session_id; BOTH same-dir records must be gone.
+	// Delete ONE session by id: only "proj" goes; its same-dir sibling survives.
 	send(t, ws, map[string]any{"type": "delete_discovered", "session_id": "id-live"})
 	m := readUntil(t, ws, "session_list")
 	sl, _ := m["sessions"].([]any)
 	for _, s := range sl {
-		if n := s.(map[string]any)["name"]; n == "proj" || n == "proj-2" {
-			t.Fatalf("same-dir record survived delete: %v", m["sessions"])
+		if s.(map[string]any)["name"] == "proj" {
+			t.Fatalf("deleted session proj survived: %v", m["sessions"])
 		}
 	}
-	if gw.store.Get("proj-2") != nil {
-		t.Fatal("ghost record proj-2 still in store after delete")
+	if gw.store.Get("proj") != nil {
+		t.Fatal("deleted record proj still in store")
+	}
+	if gw.store.Get("proj-2") == nil {
+		t.Fatal("sibling record proj-2 was wrongly deleted with proj")
+	}
+}
+
+// TestDiscoverShowsEverySessionInADir verifies discovery no longer collapses a
+// directory to a single row: multiple registered sessions sharing a dir each
+// appear as their own entry, keyed by their own session_id (so none is hidden).
+func TestDiscoverShowsEverySessionInADir(t *testing.T) {
+	ts, _, gw := newTestServerGW(t, nil)
+	dir := t.TempDir()
+	if err := gw.store.Put(&session.Session{Name: "proj", Dir: dir, SessionID: "id-a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := gw.store.Put(&session.Session{Name: "proj-2", Dir: dir, SessionID: "id-b"}); err != nil {
+		t.Fatal(err)
+	}
+	ws := dial(t, ts)
+	send(t, ws, map[string]any{"type": "hello", "token": "secret"})
+	readUntil(t, ws, "hello_ok")
+
+	send(t, ws, map[string]any{"type": "discover"})
+	m := readUntil(t, ws, "discovered")
+	got := map[string]string{} // name -> session_id
+	for _, s := range m["sessions"].([]any) {
+		sm := s.(map[string]any)
+		got[sm["name"].(string)], _ = sm["session_id"].(string)
+	}
+	if got["proj"] != "id-a" {
+		t.Errorf("proj row missing or wrong id: %v", m["sessions"])
+	}
+	if got["proj-2"] != "id-b" {
+		t.Errorf("proj-2 row missing or wrong id (dir was collapsed?): %v", m["sessions"])
 	}
 }
 

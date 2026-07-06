@@ -200,49 +200,54 @@ func (c *conn) doDiscover() {
 	}
 	active := c.srv.tmuxMgr.ClaudeDirs(c.ctx)
 	registered := c.srv.store.List()
-	// index registry by DIRECTORY so custom (renamed) names carry over even if the
-	// dir's newest session_id differs from the pinned one.
-	byDir := map[string]*session.Session{}
-	for _, s := range registered {
-		byDir[s.Dir] = s
-	}
-	views := make([]discoveredView, 0, len(found)+1)
-	seenDir := map[string]bool{}
+	// last-active per dir, from discovery (used only to timestamp registered rows).
+	discByDir := map[string]session.Discovered{}
 	for _, d := range found {
-		seenDir[d.Dir] = true
-		name, registered, target := sanitizeName(filepath.Base(d.Dir)), false, ""
-		if s := byDir[d.Dir]; s != nil {
-			name, registered, target = s.Name, true, sandboxTarget(s)
-		}
+		discByDir[d.Dir] = d
+	}
+	views := make([]discoveredView, 0, len(registered)+len(found))
+	regDirs := map[string]bool{}
+	// One row per REGISTERED session, keyed by its own session_id — no directory
+	// collapse, so multiple sessions in the same dir are each individually visible
+	// and separately renamable/deletable (this is what stops sessions hiding).
+	for _, s := range registered {
+		regDirs[s.Dir] = true
 		views = append(views, discoveredView{
-			Name: name, Dir: d.Dir, SessionID: d.SessionID,
-			LastActive: d.LastActive, Active: active[d.Dir], Registered: registered,
-			Busy: registered && c.srv.isBusy(name), Target: target,
+			Name: s.Name, Dir: s.Dir, SessionID: s.SessionID,
+			LastActive: discByDir[s.Dir].LastActive, Active: active[s.Dir], Registered: true,
+			Busy: c.srv.isBusy(s.Name), Target: sandboxTarget(s),
 		})
 	}
-	// Include registered sessions that have no transcript yet (just-spawned) so
-	// the merged list is complete.
-	for _, s := range registered {
-		if !seenDir[s.Dir] {
-			views = append(views, discoveredView{
-				Name: s.Name, Dir: s.Dir, SessionID: s.SessionID,
-				LastActive: 0, Active: active[s.Dir], Registered: true,
-				Busy: c.srv.isBusy(s.Name), Target: sandboxTarget(s),
-			})
+	// Unregistered sessions found on disk — one adoptable row per directory (these
+	// aren't managed yet, so a per-dir entry to offer adoption is enough).
+	for _, d := range found {
+		if regDirs[d.Dir] {
+			continue
 		}
+		views = append(views, discoveredView{
+			Name: sanitizeName(filepath.Base(d.Dir)), Dir: d.Dir, SessionID: d.SessionID,
+			LastActive: d.LastActive, Active: active[d.Dir], Registered: false,
+		})
 	}
 	c.send(msgDiscovered(views))
 }
 
-// doRenameDiscovered gives a discovered session a custom name: registers it (by
-// dir, without attaching) if needed, then renames the record. Refreshes lists.
+// doRenameDiscovered gives a discovered session a custom name. It resolves the
+// target by SESSION_ID — the stable identity the app sends — not by directory, so
+// with several sessions in one dir the rename lands on exactly the one picked
+// (resolving by dir would hit whichever record won the byDir map). Registers the
+// session (without attaching) if it isn't in the store yet, then renames.
 func (c *conn) doRenameDiscovered(sessionID, dir, newName string) {
-	if dir == "" || sanitizeName(newName) == "" {
-		c.fail("bad_rename", "need dir and a valid new_name")
+	if sanitizeName(newName) == "" {
+		c.fail("bad_rename", "need a valid new_name")
 		return
 	}
-	rec := c.srv.store.GetByDir(dir)
+	rec := c.srv.store.GetBySessionID(sessionID)
 	if rec == nil {
+		if dir == "" {
+			c.fail("bad_rename", "need session_id or dir")
+			return
+		}
 		var err error
 		if rec, err = c.srv.registerDiscovered(sessionID, dir); err != nil {
 			c.fail("internal", err.Error())
@@ -274,62 +279,52 @@ func (c *conn) doAdopt(sessionID, dir string) {
 	c.doAttach(rec.Name, false)
 }
 
-// doDeleteDiscovered PERMANENTLY deletes a discovered session's Claude
-// transcript from disk and EVERY registry record for its directory. The sidebar
-// is keyed by directory (one row per dir), so a delete clears the whole
-// directory — including shadowed same-dir duplicate records that never show in
-// the list, so none survives as a ghost that still owns a name. Refuses while
-// the directory is live in a terminal — deleting a transcript out from under a
-// running claude would corrupt it. Refreshes the discover + session lists.
+// doDeleteDiscovered PERMANENTLY deletes ONE session: its transcript(s) — the
+// current session_id plus any rotated prior ids — and its single registry record.
+// It targets the session by id (not its directory), so deleting one session no
+// longer wipes its dir-mates. Refuses while the directory is live in a terminal —
+// deleting a transcript out from under a running claude would corrupt it.
+// Refreshes the discover + session lists.
 func (c *conn) doDeleteDiscovered(sessionID string) {
 	if sessionID == "" {
 		c.fail("bad_delete", "need session_id")
 		return
 	}
-	// Resolve the directory from the on-disk transcript, or — for a just-spawned
-	// session that never took a turn — from its registry record.
-	path := session.TranscriptPathByID(sessionID)
+	rec := c.srv.store.GetBySessionID(sessionID)
+	// Collect the transcript ids to remove: for a registered session that's its
+	// current id plus rotated prior ids; for an unregistered one, just the id.
+	ids := []string{sessionID}
 	var dir string
-	if path != "" {
-		dir = session.TranscriptCwd(path)
-	} else if s := c.srv.store.GetBySessionID(sessionID); s != nil {
-		dir = s.Dir
+	if rec != nil {
+		dir = rec.Dir
+		ids = append([]string{rec.SessionID}, rec.PriorIDs...)
+	} else if p := session.TranscriptPathByID(sessionID); p != "" {
+		dir = session.TranscriptCwd(p)
 	}
 	if dir == "" {
 		c.fail("not_found", "no transcript or record for that session")
 		return
 	}
-	if path != "" {
-		// There's a transcript to remove, so guard against corrupting a live one.
-		if c.srv.tmuxMgr.ClaudeDirs(c.ctx)[dir] {
-			c.fail("session_active", "that session is live in a terminal — close it there first")
-			return
-		}
-		if _, err := c.srv.driver.DeleteSessionsForDir(c.ctx, sessionID, dir); err != nil {
-			c.fail("internal", err.Error())
-			return
-		}
+	// Guard against corrupting a transcript that a live interactive claude in this
+	// directory might be writing.
+	if c.srv.tmuxMgr.ClaudeDirs(c.ctx)[dir] {
+		c.fail("session_active", "that session is live in a terminal — close it there first")
+		return
 	}
-	c.deleteRecordsForDir(dir)
+	if _, err := c.srv.driver.DeleteSessionByIDs(c.ctx, ids); err != nil {
+		c.fail("internal", err.Error())
+		return
+	}
+	if rec != nil {
+		if c.attached != nil && c.attached.SessionID == rec.SessionID {
+			c.doDetach()
+		}
+		_ = c.srv.store.Delete(rec.Name)
+		c.removeSandbox(rec) // destroy the session's container, if any
+		c.srv.dropJob(rec.Name)
+	}
 	c.sendSessionList()
-	c.doDiscover() // refreshed list (the whole directory is gone now)
-}
-
-// deleteRecordsForDir drops every registry record pointing at dir (detaching
-// first if we're attached to one) and its job. This is what keeps a delete from
-// stranding a shadowed same-dir duplicate as a ghost — the collision detector
-// (uniqueName / rename) still sees a record the sidebar never shows.
-func (c *conn) deleteRecordsForDir(dir string) {
-	for _, s := range c.srv.store.List() {
-		if s.Dir == dir {
-			if c.attached != nil && c.attached.Name == s.Name {
-				c.doDetach()
-			}
-			_ = c.srv.store.Delete(s.Name)
-			c.removeSandbox(s) // destroy the session's container, if any
-			c.srv.dropJob(s.Name)
-		}
-	}
+	c.doDiscover()
 }
 
 // serveHistory returns a page of a session's past conversation, read from

@@ -68,7 +68,7 @@ func (c *conn) doSpawnAt(path string, target session.Target) {
 		c.srv.unbindJob(c, c.attached.Name)
 	}
 	c.attached = sess
-	c.srv.bindJob(c, sess.Name, true)   // register for live turn fan-out (fresh session: no catch-up)
+	c.srv.bindJob(c, sess.Name, true)                   // register for live turn fan-out (fresh session: no catch-up)
 	c.send(msgAttached(sess.Name, sess.SessionID, nil)) // freshly spawned: no transcript, no context size yet
 	c.sendSessionList()
 }

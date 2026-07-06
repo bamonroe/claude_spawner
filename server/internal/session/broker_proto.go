@@ -51,7 +51,8 @@ type brokerRequest struct {
 	Dir       string   `json:"dir,omitempty"`
 	Args      []string `json:"args,omitempty"`
 	Container string   `json:"container,omitempty"`
-	SessionID string   `json:"session_id,omitempty"` // opDelete: any session known to live in Dir
+	SessionID string   `json:"session_id,omitempty"` // opDelete (legacy whole-dir): any session known to live in Dir
+	IDs       []string `json:"ids,omitempty"`        // opDelete (per-session): exact session_ids to remove; when set, Dir/SessionID are ignored
 }
 
 // brokerExit is the turn trailer: claude's exit status (0 = success); Err carries
