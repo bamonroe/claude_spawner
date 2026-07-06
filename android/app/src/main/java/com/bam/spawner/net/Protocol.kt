@@ -245,8 +245,10 @@ object Outbound {
     fun audioEnd() = JSONObject().put("type", "audio_end").toString()
     fun commit() = JSONObject().put("type", "commit").toString() // silence-timeout commit
     fun discardDraft() = JSONObject().put("type", "discard_draft").toString() // drop uncommitted hands-free draft
-    fun attach(name: String, silent: Boolean = false) =
-        JSONObject().put("type", "attach").put("name", name).put("silent", silent).toString()
+    fun attach(name: String, sessionId: String = "", silent: Boolean = false) =
+        JSONObject().put("type", "attach").put("name", name)
+            .apply { if (sessionId.isNotEmpty()) put("session_id", sessionId) }
+            .put("silent", silent).toString()
     fun detach() = JSONObject().put("type", "detach").toString()
     fun history(name: String, before: Int?, limit: Int = 30): String {
         val o = JSONObject().put("type", "history").put("name", name).put("limit", limit)

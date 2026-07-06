@@ -36,9 +36,13 @@ label. (Full code map established 2026-07-05 via two Explore passes — server +
       and `ForgetID` the old index entry so turns still reach attached devices. Tests: rename-then-turn
       still delivers; compaction fan-out; per-session delete. (Wire `attach`/`history` still by name —
       resolved to the record server-side; app-side id keying is Phase 3.)
-- [ ] **Phase 3 — Android keys state by `session_id`.** `logs`/paging maps, `currentKey`,
-      `settings.lastSession`, and the sidebar "attached" check key by id; auto-attach on
-      reconnect/server-switch uses `lastSessionId`. (Title already tracks id as of 2026-07-05.)
+- [x] 2026-07-05 — **Phase 3 — attach by stable id across servers.** Wire `attach` now accepts a
+      `session_id` (server resolves it to the current name; `doAttachBy`), so the app re-attaches to
+      the SAME session even when it's named differently on the other server. App persists
+      `lastSessionId`, auto-attaches by it on reconnect, and highlights the attached sidebar row by id
+      (`attachedId` StateFlow) instead of name. Tapping a session already adopts by id. protocol.md
+      updated (docsync green); APK builds clean. (Chat-log map is still name-keyed but self-corrects
+      via the history refetch on every attach — deferred as a nicety.)
 - [ ] **Phase 4 — tame auto-naming + Dev/Prod divergence.** Stop silently minting `-2/-3` duplicates
       in one dir; decide the Dev/Prod naming story (the toggle is temporary) so one `session_id` can't
       carry two names. Provide a one-shot cleanup for the existing duplicate pileup.

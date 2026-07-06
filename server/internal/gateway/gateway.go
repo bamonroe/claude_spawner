@@ -516,7 +516,7 @@ var wireHandlers = map[string]func(c *conn, in inbound){
 	"ping":              func(c *conn, in inbound) { c.send(msgPong()) },
 	"utterance":         func(c *conn, in inbound) { c.gated = false; c.handleUtterance(in.Text) }, // typed/explicit text is never background-gated
 	"reply":             func(c *conn, in inbound) { c.gated = false; c.handleUtterance(in.Text) },
-	"attach":            func(c *conn, in inbound) { c.doAttach(in.Name, in.Silent) },
+	"attach":            func(c *conn, in inbound) { c.doAttachBy(in.SessionID, in.Name, in.Silent) },
 	"detach":            func(c *conn, in inbound) { c.doDetach() },
 	"list_sessions":     func(c *conn, in inbound) { c.sendSessionList() },
 	"discover":          func(c *conn, in inbound) { c.doDiscover() },

@@ -40,7 +40,7 @@ Every JSON message has a `type`. Optional `id` correlates request/response. `ts`
 | `audio_end`     | `{}`                                      | end of utterance; server finalizes transcript |
 | `utterance`     | `{ "text": "<what the user said>" }`      | **the text seam** — a complete utterance as text (post-STT or typed). Implemented today; the audio path above produces one of these server-side once Whisper lands. |
 | `reply`         | `{ "text": "<user reply>" }`              | alias of `utterance` for dialog replies       |
-| `attach`        | `{ "name": "<session>", "silent": false }`| request attach. `silent: true` suppresses the spoken "attached… go ahead, bud." confirmation (used for the app's auto re-attach on reconnect); a finished turn's buffered result is still delivered. |
+| `attach`        | `{ "session_id"?: "<uuid>", "name"?: "<session>", "silent": false }`| request attach. Prefer `session_id` (the stable handle — survives renames and is the same session across servers); the server resolves it to the current name, falling back to `name` if the id is unknown or absent. `silent: true` suppresses the spoken "attached… go ahead, bud." confirmation (used for the app's auto re-attach on reconnect); a finished turn's buffered result is still delivered. |
 | `detach`        | `{}`                                      | leave passthrough                             |
 | `list_sessions` | `{}`                                      | request the session list (quiet; for the sidebar) -> `session_list` |
 | `discover`      | `{}`                                      | scan `~/.claude/projects` for ALL Claude sessions (spawner-created or not, e.g. interactive `claude` in tmux) -> `discovered` |

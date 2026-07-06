@@ -427,6 +427,19 @@ func (c *conn) doList() {
 // the "still working" catch-up nudge — used for the app's auto-attach on
 // reconnect, so a network blip doesn't re-announce "attached… go ahead."
 // (a finished turn's buffered result is still delivered regardless).
+// doAttachBy attaches by stable session_id when one is given (the app's preferred
+// handle — it survives renames and is the same across servers), falling back to
+// the name otherwise. Resolving id->current name here lets the app auto-reattach
+// across a Dev/Prod switch where the same session carries a different name.
+func (c *conn) doAttachBy(sessionID, name string, silent bool) {
+	if sessionID != "" {
+		if s := c.srv.store.GetBySessionID(sessionID); s != nil {
+			name = s.Name
+		}
+	}
+	c.doAttach(name, silent)
+}
+
 func (c *conn) doAttach(name string, silent bool) {
 	if name == "" {
 		c.send(msgSay("which session?"))

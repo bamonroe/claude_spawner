@@ -121,8 +121,10 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     // (the same session is "spawner-2" on one, "spawner-3" on another) and change on
     // rename, so we track the id to keep the title correct: rename matches by id, and
     // a fresh session list re-derives the title from whatever the current server calls
-    // this id. Empty when detached or when the server didn't send an id (older server).
-    private var _attachedId: String = ""
+    // this id. Exposed so the sidebar highlights the attached row by id (not name).
+    // Empty when detached or when the server didn't send an id (older server).
+    private val _attachedId = MutableStateFlow("")
+    val attachedId: StateFlow<String> = _attachedId.asStateFlow()
 
     private val _listing = MutableStateFlow<ServerMsg.Listing?>(null)
     val listing: StateFlow<ServerMsg.Listing?> = _listing.asStateFlow()
@@ -650,7 +652,9 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
                 }
                 discover() // the drawer lists ALL machine sessions (discovery is the source)
                 settings.lastSession.takeIf { it.isNotEmpty() }?.let {
-                    client?.send(Outbound.attach(it, silent = true)) // reconnect: re-attach quietly
+                    // Prefer the stable id so we re-attach to the SAME session even when it's
+                    // named differently on this server (e.g. after a Dev/Prod switch).
+                    client?.send(Outbound.attach(it, sessionId = settings.lastSessionId, silent = true))
                 }
             }
             is ServerMsg.WhisperModel -> {
@@ -746,9 +750,10 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
                     val ageMs = if (msg.usageAt > 0) System.currentTimeMillis() - msg.usageAt * 1000 else Long.MAX_VALUE
                     TurnUsageInfo(u, SystemClock.elapsedRealtime() - ageMs.coerceIn(0, 6 * 60 * 1000L))
                 }
-                _attachedId = msg.sessionId
+                _attachedId.value = msg.sessionId
                 _attachedName.value = msg.name
                 settings.lastSession = msg.name
+                settings.lastSessionId = msg.sessionId
                 _status.value = "attached: ${msg.name}"
                 showLog(msg.name)
                 // Refetch recent history on EVERY (re)attach, not just the first. A
@@ -762,9 +767,10 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
             }
             is ServerMsg.Detached -> {
                 turnStreamed = false
-                _attachedId = ""
+                _attachedId.value = ""
                 _attachedName.value = null
                 settings.lastSession = ""
+                settings.lastSessionId = ""
                 _status.value = "connected"
                 showLog("")
             }
@@ -776,7 +782,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
                 // In-place update only — no history refetch or meter reseed (unlike a
                 // full re-attach). Client state is keyed by name, so migrate every keyed
                 // map or the chat/paging orphans.
-                val mine = if (msg.sessionId.isNotEmpty()) _attachedId == msg.sessionId
+                val mine = if (msg.sessionId.isNotEmpty()) _attachedId.value == msg.sessionId
                 else _attachedName.value == msg.old
                 if (mine) {
                     val from = _attachedName.value ?: msg.old
@@ -796,8 +802,8 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
                 // server switch the same session can carry a different name here, leaving
                 // the title stale; if the current server calls our attached id something
                 // else, migrate the title (and name-keyed state) to match it.
-                if (_attachedId.isNotEmpty()) {
-                    val cur = msg.sessions.find { it.sessionId == _attachedId }?.name
+                if (_attachedId.value.isNotEmpty()) {
+                    val cur = msg.sessions.find { it.sessionId == _attachedId.value }?.name
                     if (cur != null && cur != _attachedName.value) {
                         _attachedName.value?.let { from ->
                             migrateSessionKey(from, cur)

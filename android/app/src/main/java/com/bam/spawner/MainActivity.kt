@@ -282,6 +282,7 @@ private fun MainScreen(
     val discovered by controller.discovered.collectAsStateWithLifecycle()
     val discoverError by controller.discoverError.collectAsStateWithLifecycle()
     val attached by controller.attachedName.collectAsStateWithLifecycle()
+    val attachedId by controller.attachedId.collectAsStateWithLifecycle()
     // Hoisted dialogs for the drawer's session list.
     var confirmOpen by remember { mutableStateOf<DiscoveredInfo?>(null) }
     var deleteTarget by remember { mutableStateOf<DiscoveredInfo?>(null) }
@@ -320,6 +321,7 @@ private fun MainScreen(
                     discovered = discovered,
                     discoverError = discoverError,
                     attached = attached,
+                    attachedId = attachedId,
                     onNew = { onNewSession(); scope.launch { drawerState.close() } },
                     onRefresh = { controller.discover() },
                     onOpen = { d -> if (d.active) confirmOpen = d else openSession(d) },
@@ -1178,6 +1180,7 @@ private fun Sidebar(
     discovered: List<DiscoveredInfo>,
     discoverError: String,
     attached: String?,
+    attachedId: String,
     onNew: () -> Unit,
     onRefresh: () -> Unit,
     onOpen: (DiscoveredInfo) -> Unit,
@@ -1201,7 +1204,9 @@ private fun Sidebar(
         HorizontalDivider()
         LazyColumn(Modifier.weight(1f)) {
             items(discovered) { d ->
-                val isAttached = d.registered && d.name == attached
+                // Highlight the attached row by stable id, not name — the same session
+                // can be named differently here than when we attached (e.g. server switch).
+                val isAttached = d.registered && attachedId.isNotEmpty() && d.sessionId == attachedId
                 Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f).clickable { onOpen(d) }) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
