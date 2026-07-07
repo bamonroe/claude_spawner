@@ -55,10 +55,13 @@ label. (Full code map established 2026-07-05 via two Explore passes — server +
       `spawn_at` updated. Cleanup of the EXISTING pileup is now a manual step — Phase 1 made every
       session individually visible and per-session deletable in the sidebar, so duplicates can be
       pruned there (no destructive auto-cleanup, since which to keep is the user's call).
-- [ ] **Dev/Prod naming divergence** (deferred tail of Phase 4): the temporary toggle keeps two
-      registries, so one `session_id` can carry a different name per server. Now cosmetic only —
-      identity/attach/title all key by `session_id` — so resolve it when the toggle's future is
-      decided (share a registry, or drop the toggle).
+- [x] 2026-07-07 — **Dev/Prod naming divergence resolved by dropping the toggle** (tail of Phase 4).
+      The temporary Dev/Prod server toggle (which kept two registries, so one `session_id` could
+      carry a different name per server) was removed in `a2a4c48`; the app now targets a single
+      configurable server URL. Cleaned up the last stale "Dev/Prod" comments (`SettingsStore.kt`,
+      `VoiceController.kt`, `gateway/ops.go`) to refer generically to switching servers. Stable
+      `session_id` identity still lets the app re-attach to the same session across any two servers
+      that name it differently.
 
 ### Server / infra
 - [x] 2026-07-07 — **Sandbox containers bind-mount the server's whole `$HOME` read-write** at the

@@ -62,7 +62,7 @@ class SettingsStore(context: Context) {
         set(v) = prefs.edit().putString("last_session", v).apply()
 
     /** The last-attached session's stable id — preferred for re-attach on reconnect
-     *  (survives renames and is the same session across Dev/Prod servers). */
+     *  (survives renames and identifies the same session across different servers). */
     var lastSessionId: String
         get() = prefs.getString("last_session_id", "") ?: ""
         set(v) = prefs.edit().putString("last_session_id", v).apply()

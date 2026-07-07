@@ -673,7 +673,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
                 discover() // the drawer lists ALL machine sessions (discovery is the source)
                 settings.lastSession.takeIf { it.isNotEmpty() }?.let {
                     // Prefer the stable id so we re-attach to the SAME session even when it's
-                    // named differently on this server (e.g. after a Dev/Prod switch).
+                    // named differently on this server (e.g. after switching servers).
                     client?.send(Outbound.attach(it, sessionId = settings.lastSessionId, silent = true))
                 }
             }

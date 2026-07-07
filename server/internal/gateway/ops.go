@@ -440,7 +440,7 @@ func (c *conn) doList() {
 // doAttachBy attaches by stable session_id when one is given (the app's preferred
 // handle — it survives renames and is the same across servers), falling back to
 // the name otherwise. Resolving id->current name here lets the app auto-reattach
-// across a Dev/Prod switch where the same session carries a different name.
+// across a server change where the same session carries a different name.
 func (c *conn) doAttachBy(sessionID, name string, silent bool) {
 	if sessionID != "" {
 		if s := c.srv.store.GetBySessionID(sessionID); s != nil {
