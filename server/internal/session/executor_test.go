@@ -28,10 +28,11 @@ func (p *fakeProc) Wait() error       { return nil }
 
 func TestSandboxCreateArgs(t *testing.T) {
 	s := SandboxExecutor{
-		Runtime: "podman",
-		Image:   "spawner-sandbox:latest",
-		Mounts:  []string{"/home/bam/.claude:/root/.claude"},
-		RunArgs: []string{"--userns=keep-id", "--network=none"},
+		Runtime:   "podman",
+		Image:     "spawner-sandbox:latest",
+		Mounts:    []string{"/home/bam/.claude:/root/.claude"},
+		RunArgs:   []string{"--userns=keep-id", "--network=none"},
+		HomeMount: "/home/bam",
 	}
 	got := strings.Join(s.createArgs("spawner-abc123", "/work/proj"), " ")
 
@@ -39,6 +40,7 @@ func TestSandboxCreateArgs(t *testing.T) {
 		"run -d --name spawner-abc123",          // detached, session-named container
 		"-w /work/proj",                         // container workdir = session dir
 		"-v /work/proj:/work/proj",              // same-path mount (transcript encoding)
+		"-v /home/bam:/home/bam",                // whole host home, read-write
 		"-v /home/bam/.claude:/root/.claude",    // shared claude state
 		"--userns=keep-id --network=none",       // extra run flags
 		"spawner-sandbox:latest sleep infinity", // image, then keep-alive command

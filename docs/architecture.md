@@ -139,8 +139,10 @@ restart or manual `rm` is transparently recreated. Spawn-time `Ensure` is best-e
 fatal); a hard runtime failure surfaces on the first turn. Use a **rootless Podman / rootless
 Docker** runtime (`SPAWNER_SANDBOX_RUNTIME`) so none of this needs host root — the sandbox gets
 root *inside itself* and a disposable FS. Session `Dir` is bind-mounted same-path (so the
-transcript's project encoding matches the host); share `$HOME/.claude` via `SPAWNER_SANDBOX_MOUNTS`
-to keep history/discovery working. Lifecycle hooks live in the gateway spawn (`ensureSandbox`) and
+transcript's project encoding matches the host); the server's whole `$HOME` is also bind-mounted
+**read-write at the same path** by default (`SandboxExecutor.HomeMount`, set from `$HOME`), so
+dotfiles, `~/.claude`, and project checkouts are writable inside the sandbox exactly as on the host.
+Add anything outside `$HOME` via `SPAWNER_SANDBOX_MOUNTS`. Lifecycle hooks live in the gateway spawn (`ensureSandbox`) and
 delete (`removeSandbox`) paths; `Driver.EnsureContainer`/`RemoveContainer` bridge to the executor.
 At startup `Driver.ReconcileContainers` sweeps **orphans** — managed containers (matched by the
 `spawner-sbx-` name prefix) whose session record no longer exists, e.g. deleted while the server was

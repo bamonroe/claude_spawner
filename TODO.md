@@ -61,6 +61,13 @@ label. (Full code map established 2026-07-05 via two Explore passes — server +
       decided (share a registry, or drop the toggle).
 
 ### Server / infra
+- [x] 2026-07-07 — **Sandbox containers bind-mount the server's whole `$HOME` read-write** at the
+      same path by default (`SandboxExecutor.HomeMount`, set from `$HOME` in `main.go`), so dotfiles,
+      `~/.claude`, and project checkouts are writable in the sandbox exactly as on the host. Built the
+      `spawner-sandbox:latest` image from `sandbox/Containerfile` so sandbox turns actually run. Docs
+      (README, architecture, sandbox README) updated; `createArgs` test asserts the home mount.
+- [ ] **Sidebar host-vs-sandbox choice** — the visual new-project flow now offers a target selector
+      (host default) like the voice spawn dialog, sending `target` on `spawn_at`. (In progress.)
 - [x] 2026-07-06 — **Reverted the containerized-server + broker split; server runs bare metal.** The
       host-side broker existed only so an unprivileged, containerized server could execute on the host,
       but the broker itself ran bare metal and the server never needed root — so the container bought

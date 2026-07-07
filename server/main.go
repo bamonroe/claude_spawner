@@ -50,11 +50,12 @@ func main() {
 	driver.HostBin(cfg.ClaudeBin)
 	if cfg.SandboxImage != "" {
 		driver.Execs[session.TargetSandbox] = session.SandboxExecutor{
-			Runtime: cfg.SandboxRuntime,
-			Image:   cfg.SandboxImage,
-			Bin:     cfg.SandboxClaudeBin,
-			Mounts:  cfg.SandboxMounts,
-			RunArgs: cfg.SandboxRunArgs,
+			Runtime:   cfg.SandboxRuntime,
+			Image:     cfg.SandboxImage,
+			Bin:       cfg.SandboxClaudeBin,
+			Mounts:    cfg.SandboxMounts,
+			RunArgs:   cfg.SandboxRunArgs,
+			HomeMount: os.Getenv("HOME"),
 		}
 		log.Printf("sandbox target enabled: %s image %q", cfg.SandboxRuntime, cfg.SandboxImage)
 	}

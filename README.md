@@ -135,8 +135,10 @@ Each session picks an **execution target** at spawn time, a durable per-session 
   **persistent for the session's lifetime** — packages you install and services you start survive
   between turns — and is destroyed when you delete the session. Set `SPAWNER_SANDBOX_IMAGE` to an
   image carrying `claude` + your toolchain to enable it; the spawn dialog then adds a "host or
-  sandbox?" step. The working directory is bind-mounted at the same path so edits land there. Tune
-  with the other `SPAWNER_SANDBOX_*` vars. A ready-to-build Arch image and the rootless-Podman
+  sandbox?" step. The working directory is bind-mounted at the same path so edits land there, and
+  the server's whole `$HOME` is bind-mounted **read-write at the same path** by default so your
+  dotfiles, `~/.claude`, and checkouts are available and writable in the container just like on the
+  host. Tune with the other `SPAWNER_SANDBOX_*` vars. A ready-to-build Arch image and the rootless-Podman
   config live in [`sandbox/`](./sandbox/README.md).
 
 ### The live deployment: a bare-metal server under systemd

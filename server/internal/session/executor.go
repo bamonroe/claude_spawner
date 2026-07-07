@@ -111,6 +111,13 @@ type SandboxExecutor struct {
 	// sharing "$HOME/.claude" so in-sandbox transcripts stay discoverable by the
 	// host, or mounting auth read-only.
 	Mounts []string
+	// HomeMount, when non-empty, is the host home directory bind-mounted
+	// read-write at the same path inside every sandbox (e.g. "/home/bam" ->
+	// "/home/bam"), so the user's whole home — dotfiles, ~/.claude, project
+	// checkouts — is available and writable in the container the same way it is on
+	// the host. Set from the server's $HOME. Skipped when empty or when it would
+	// duplicate the session-dir mount.
+	HomeMount string
 	// RunArgs are extra `run` flags inserted before the image, e.g.
 	// "--userns=keep-id" (rootless uid mapping) or "--network=none" (offline).
 	RunArgs []string
@@ -189,6 +196,11 @@ func (s SandboxExecutor) running(ctx context.Context, name string) bool {
 // command. Split out for unit-testing without a runtime.
 func (s SandboxExecutor) createArgs(name, dir string) []string {
 	args := []string{"run", "-d", "--name", name, "-w", dir, "-v", dir + ":" + dir}
+	if s.HomeMount != "" && s.HomeMount != dir {
+		// Whole host home, read-write, at the same path — dotfiles/.claude/checkouts
+		// writable inside the sandbox exactly as on the host.
+		args = append(args, "-v", s.HomeMount+":"+s.HomeMount)
+	}
 	for _, m := range s.Mounts {
 		args = append(args, "-v", m)
 	}
