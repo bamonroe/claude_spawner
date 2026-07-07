@@ -264,6 +264,8 @@ object Outbound {
         JSONObject().put("type", "rename_discovered").put("session_id", sessionId)
             .put("path", dir).put("new_name", newName).toString()
     fun browse(path: String) = JSONObject().put("type", "browse").put("path", path).toString()
-    fun spawnAt(path: String, create: Boolean = false) =
-        JSONObject().put("type", "spawn_at").put("path", path).put("create", create).toString()
+    fun spawnAt(path: String, create: Boolean = false, target: String = "") =
+        JSONObject().put("type", "spawn_at").put("path", path).put("create", create)
+            .apply { if (target.isNotEmpty()) put("target", target) }
+            .toString()
 }

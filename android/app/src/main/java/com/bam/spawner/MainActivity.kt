@@ -1877,6 +1877,8 @@ private fun BrowseScreen(controller: VoiceController, onStarted: () -> Unit, onB
     LaunchedEffect(Unit) { controller.browse("") } // load the roots on open
     val atRoots = listing?.path.isNullOrEmpty()
     var newFolder by remember { mutableStateOf<String?>(null) } // non-null = the New-folder dialog is open
+    var sandbox by remember { mutableStateOf(false) } // execution target: host (default) vs sandbox
+    val target = if (sandbox) "sandbox" else "host"
 
     if (newFolder != null) {
         val parent = listing?.path ?: ""
@@ -1898,7 +1900,7 @@ private fun BrowseScreen(controller: VoiceController, onStarted: () -> Unit, onB
             confirmButton = {
                 TextButton(
                     enabled = !newFolder.isNullOrBlank(),
-                    onClick = { controller.spawnNewFolder(parent, newFolder!!); newFolder = null; onStarted() },
+                    onClick = { controller.spawnNewFolder(parent, newFolder!!, target); newFolder = null; onStarted() },
                 ) { Text("Create & start") }
             },
             dismissButton = { TextButton(onClick = { newFolder = null }) { Text("Cancel") } },
@@ -1945,10 +1947,21 @@ private fun BrowseScreen(controller: VoiceController, onStarted: () -> Unit, onB
         }
 
         HorizontalDivider()
+        Row(
+            Modifier.fillMaxWidth().padding(top = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                if (sandbox) "Run in sandbox" else "Run on host",
+                Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Switch(checked = sandbox, onCheckedChange = { sandbox = it })
+        }
         Button(
-            onClick = { listing?.path?.let { controller.spawnAt(it) }; onStarted() },
+            onClick = { listing?.path?.let { controller.spawnAt(it, target) }; onStarted() },
             enabled = !atRoots,
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
         ) { Text(if (atRoots) "Choose a folder…" else "Start session here") }
         OutlinedButton(
             onClick = { newFolder = "" },

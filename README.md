@@ -134,8 +134,9 @@ Each session picks an **execution target** at spawn time, a durable per-session 
   **rootless** runtime (Podman by default), so no host root is needed. The container is
   **persistent for the session's lifetime** — packages you install and services you start survive
   between turns — and is destroyed when you delete the session. Set `SPAWNER_SANDBOX_IMAGE` to an
-  image carrying `claude` + your toolchain to enable it; the spawn dialog then adds a "host or
-  sandbox?" step. The working directory is bind-mounted at the same path so edits land there, and
+  image carrying `claude` + your toolchain to enable it; the voice spawn dialog then adds a "host or
+  sandbox?" step, and the visual sidebar's new-session screen shows a **host/sandbox toggle** (host
+  by default) so you can pick the target when starting a project there too. The working directory is bind-mounted at the same path so edits land there, and
   the server's whole `$HOME` is bind-mounted **read-write at the same path** by default so your
   dotfiles, `~/.claude`, and checkouts are available and writable in the container just like on the
   host. Tune with the other `SPAWNER_SANDBOX_*` vars. A ready-to-build Arch image and the rootless-Podman

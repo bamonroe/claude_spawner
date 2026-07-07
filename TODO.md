@@ -66,8 +66,11 @@ label. (Full code map established 2026-07-05 via two Explore passes — server +
       `~/.claude`, and project checkouts are writable in the sandbox exactly as on the host. Built the
       `spawner-sandbox:latest` image from `sandbox/Containerfile` so sandbox turns actually run. Docs
       (README, architecture, sandbox README) updated; `createArgs` test asserts the home mount.
-- [ ] **Sidebar host-vs-sandbox choice** — the visual new-project flow now offers a target selector
-      (host default) like the voice spawn dialog, sending `target` on `spawn_at`. (In progress.)
+- [x] 2026-07-07 — **Sidebar host-vs-sandbox choice.** The visual new-session screen now shows a
+      host/sandbox toggle (host default) like the voice spawn dialog, threading a `target` through
+      `VoiceController.spawnAt`/`spawnNewFolder` into `Outbound.spawnAt` (sent as `target` on
+      `spawn_at`, already in the protocol spec). Picking sandbox on a server without a sandbox image
+      gets a clean `bad_path` error. APK rebuilt.
 - [x] 2026-07-06 — **Reverted the containerized-server + broker split; server runs bare metal.** The
       host-side broker existed only so an unprivileged, containerized server could execute on the host,
       but the broker itself ran bare metal and the server never needed root — so the container bought
