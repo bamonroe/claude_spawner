@@ -3,12 +3,12 @@
 #   1. resident whisper.cpp servers (transcription backend, docker-compose.yml)
 #   2. the server binary + its systemd *user* service
 #
-# It is also wired to the app's "restart" button via SPAWNER_RESTART_CMD: the
-# server fires it detached, it rebuilds the binary, then restarts the unit with
-# --no-block. The build happens FIRST (while the old server keeps serving); the
-# unit is only restarted once the build succeeds, so a failed build leaves the
-# running server untouched. KillMode=process on the unit lets this script survive
-# the old server's teardown and finish the swap.
+# This is the MANUAL deploy step — run it by hand to build + ship new server code.
+# (The app's "restart" button is separate: it only bounces the service via
+# SPAWNER_RESTART_CMD, relaunching whatever binary is already built.) The build
+# happens FIRST (while the old server keeps serving); the unit is only restarted
+# once the build succeeds, so a failed build leaves the running server untouched.
+# --no-block + KillMode=process let the restart proceed without wedging on teardown.
 #
 # It needs NO root: the target user is in the `docker` group and the server is a
 # user service. It also works if invoked via `sudo` — when run as root it re-execs

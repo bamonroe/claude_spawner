@@ -128,13 +128,13 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
   image), `SPAWNER_SANDBOX_MOUNTS` (comma-separated extra `-v` specs, e.g. sharing `$HOME/.claude`),
   `SPAWNER_SANDBOX_RUN_ARGS` (space-separated extra `run` flags, e.g. `--userns=keep-id`).
 - Restart: `SPAWNER_RESTART_CMD` — a shell command (run via `sh -c`, detached) fired by the app's
-  restart button to rebuild + relaunch the server; empty disables restart. The server runs bare
-  metal (a single binary, not containerized), so it forks `claude` for host turns and drives the
-  rootless runtime for sandbox turns itself — there is no separate host broker. The restart command
-  is fired in its own process group so it survives the server's own teardown; the deployment points
-  it at `deploy/rebuild.sh` (rebuild the binary + `systemctl --user restart --no-block
-  spawner-server`), which requires the systemd unit at `KillMode=process` so the detached rebuild
-  outlives the process it's replacing.
+  restart button; empty disables restart. The server runs bare metal (a single binary, not
+  containerized), so it forks `claude` for host turns and drives the rootless runtime for sandbox
+  turns itself — there is no separate host broker. The command is fired in its own process group and
+  the systemd unit uses `KillMode=process`, so it survives the server's own teardown. The deployment
+  points it at just `systemctl --user restart --no-block spawner-server` (the button only bounces the
+  service, relaunching the current binary); rebuilding + deploying new code is a separate manual step
+  (`deploy/rebuild.sh`, which rebuilds the binary then restarts the unit).
 
 ## Token discipline — keep the context small
 
