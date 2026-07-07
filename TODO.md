@@ -373,6 +373,13 @@ _Robustness / ops (smaller, safe when we get to them):_
       refetches recent history on **every** (re)attach and dedupes the top page against live messages
       already in the log (by role+text), so switching back to a busy session replays what it produced
       without duplicating what already streamed. (`VoiceController.kt`.)
+- [x] 2026-07-07 — **Fix: reconnect catch-up only pulled the newest page, leaving a middle gap.**
+      The every-reattach refetch above requests only the most recent history page (30 transcript
+      entries), so a long detach/disconnect — and agentic turns burn many entries each — left a hole
+      between what the app still held and that newest page; the missing middle only reappeared on
+      manual scroll-back. Now `onHistory` records the highest index we already held and, on a top
+      reload, auto-pages older (via the shared `fetchOlder`) until it reconnects with that watermark
+      (or hits the transcript start), so the whole away-gap backfills on reconnect. (`VoiceController.kt`.)
 - [x] 2026-07-04 — **Command tray: fire argument-free "hey buddy" commands by hand.** Swipe up on
       the message box to reveal a tray of tap buttons above it, one per no-arg command (`abort`,
       `cancel`, `clear`, `compress`, `detach`, `help`, `list`, `read last`, `status`, `stop`,

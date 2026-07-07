@@ -81,6 +81,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     private val oldestIndex = mutableMapOf<String, Int>() // lowest history index held, per session
     private val hasMore = mutableMapOf<String, Boolean>() // older history remains to page, per session
     private val loadingOlder = mutableSetOf<String>()      // a page request is in flight, per session
+    private val bridgeTo = mutableMapOf<String, Int>()      // reconnect gap-fill: page older until this index is reached
     private var currentKey = ""
 
     // migrateSessionKey re-keys every session-name-keyed piece of client state from
@@ -93,6 +94,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
         oldestIndex.remove(old)?.let { oldestIndex[new] = it }
         hasMore.remove(old)?.let { hasMore[new] = it }
         if (loadingOlder.remove(old)) loadingOlder.add(new)
+        bridgeTo.remove(old)?.let { bridgeTo[new] = it }
     }
 
     private val _chat = MutableStateFlow<List<ChatMessage>>(emptyList())
@@ -349,11 +351,16 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
 
     /** Load the previous page of older history for the current session. */
     fun loadOlder() {
-        val key = currentKey
-        if (key.isEmpty() || hasMore[key] != true || key in loadingOlder) return
-        val before = oldestIndex[key] ?: return
-        loadingOlder.add(key)
-        client?.send(Outbound.history(key, before))
+        if (currentKey.isNotEmpty()) fetchOlder(currentKey)
+    }
+
+    /** Request the page of history just older than what we hold for `name`. Shared by
+     *  the user's scroll-back (loadOlder) and the reconnect gap-fill in onHistory. */
+    private fun fetchOlder(name: String) {
+        if (name.isEmpty() || hasMore[name] != true || name in loadingOlder) return
+        val before = oldestIndex[name] ?: return
+        loadingOlder.add(name)
+        client?.send(Outbound.history(name, before))
     }
 
     fun detach() = client?.send(Outbound.detach())
@@ -919,6 +926,9 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     // log, ordered chronologically with any live messages, and updates the paging cursor.
     private fun onHistory(msg: ServerMsg.History) {
         val wasLoadOlder = msg.name in loadingOlder // else it's the top page (on (re)attach)
+        // Highest transcript index we already held before applying this page — the
+        // watermark a reconnect must page back down to so no middle stays missing.
+        val heldMax = (logs[msg.name] ?: emptyList()).mapNotNull { it.index.takeIf { i -> i >= 0 } }.maxOrNull()
         val hist = msg.messages.map { ChatMessage(roleOf(it.role), it.text, it.index, usage = it.usage, ts = it.ts) }
         val histIdx = hist.mapNotNull { if (it.index >= 0) it.index else null }.toSet()
         // On a top reload (an attach/reattach), the history page is the authoritative
@@ -938,6 +948,23 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
         if (msg.messages.isNotEmpty()) oldestIndex[msg.name] = msg.messages.first().index
         hasMore[msg.name] = msg.more
         loadingOlder.remove(msg.name)
+        // Reconnect gap-fill: the reattach top page is only the newest slice, so if the
+        // session advanced by more than a page while we were away, a hole is left between
+        // what we still held (heldMax) and this page's oldest index. Mark the watermark,
+        // then keep paging older until we reconnect with it (or hit the start) so the
+        // whole gap backfills instead of only the newest page.
+        if (!wasLoadOlder && heldMax != null) {
+            val pageOldest = msg.messages.firstOrNull()?.index
+            if (pageOldest != null && pageOldest > heldMax + 1) bridgeTo[msg.name] = heldMax
+        }
+        bridgeTo[msg.name]?.let { target ->
+            val oldest = oldestIndex[msg.name]
+            if (oldest != null && oldest > target + 1 && hasMore[msg.name] == true) {
+                fetchOlder(msg.name) // still a hole above the watermark — keep paging
+            } else {
+                bridgeTo.remove(msg.name) // reconnected with what we had (or reached the start)
+            }
+        }
         if (msg.name == currentKey) {
             _chat.value = logs[msg.name] ?: emptyList()
             _hasMoreHistory.value = msg.more
