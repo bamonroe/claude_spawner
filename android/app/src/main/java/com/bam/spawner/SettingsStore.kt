@@ -12,19 +12,6 @@ class SettingsStore(context: Context) {
         get() = prefs.getString("url", DEFAULT_URL) ?: DEFAULT_URL
         set(v) = prefs.edit().putString("url", v).apply()
 
-    // Temporary dev/prod switch: a second (dev) server URL and a toggle for which
-    // one to connect to, so testing against the scratch dev server is one tap.
-    var devUrl: String
-        get() = prefs.getString("dev_url", DEFAULT_DEV_URL) ?: DEFAULT_DEV_URL
-        set(v) = prefs.edit().putString("dev_url", v).apply()
-
-    var useDev: Boolean
-        get() = prefs.getBoolean("use_dev", false)
-        set(v) = prefs.edit().putBoolean("use_dev", v).apply()
-
-    /** The URL to actually connect to: the dev server when the toggle is on. */
-    val activeUrl: String get() = if (useDev) devUrl else url
-
     var token: String
         get() = prefs.getString("token", DEFAULT_TOKEN) ?: DEFAULT_TOKEN
         set(v) = prefs.edit().putString("token", v).apply()
@@ -191,9 +178,7 @@ class SettingsStore(context: Context) {
     companion object {
         // Server on the host, reached over Tailscale (works on wifi or cellular).
         // For the Android emulator instead, use ws://10.0.2.2:<port>/ws.
-        const val DEFAULT_URL = "ws://100.64.0.2:8555/ws"
-        // Temporary scratch dev server (same host, dev port 8557).
-        const val DEFAULT_DEV_URL = "ws://100.64.0.2:8557/ws"
+        const val DEFAULT_URL = "ws://100.64.0.2:8558/ws"
         const val DEFAULT_TOKEN = "devsecret"
         const val DEFAULT_ALIASES = "attached = attach\ndetached = detach\nthe tach = detach\nkilo = kill\nlisted = list"
 
