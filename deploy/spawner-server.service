@@ -22,11 +22,12 @@ ExecStart=%h/.local/bin/spawner-server
 Restart=on-failure
 RestartSec=2
 # Only kill the server's own process on stop/restart, not its whole cgroup. The
-# "restart" button (SPAWNER_RESTART_CMD → deploy/rebuild.sh) rebuilds the binary
-# and runs `systemctl --user restart --no-block spawner-server` from a child this
-# server spawned; with the default control-group kill that rebuild would be killed
-# mid-restart. KillMode=process lets the detached rebuild survive (it reparents to
-# the user manager) and finish, swapping in the new binary.
+# "restart" button (SPAWNER_RESTART_CMD → `systemctl --user restart --no-block
+# spawner-server`) runs that restart from a child this server spawned; with the
+# default control-group kill that child would be killed mid-restart before the job
+# is enqueued. KillMode=process lets it survive (it reparents to the user manager)
+# and complete the restart. deploy/rebuild.sh (the manual build+ship) relies on the
+# same behavior so its detached rebuild outlives the restart it triggers.
 KillMode=process
 
 [Install]

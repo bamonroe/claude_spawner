@@ -42,17 +42,18 @@ the server binary + user service. It needs **no root**: user `bam` is in the
 deploy/rebuild.sh
 ```
 
-The app's **restart** button does the same thing: the server fires
-`SPAWNER_RESTART_CMD` (set it to `deploy/rebuild.sh` in the env file), which
-rebuilds the binary and restarts the unit. The rebuild is launched detached in its
-own process group and the unit uses `KillMode=process`, so it survives the very
-restart it triggers and swaps in the new binary.
+The app's **restart** button is a *pure service restart*, not a rebuild: the
+server fires `SPAWNER_RESTART_CMD` (set it to `systemctl --user restart --no-block
+spawner-server` in the env file), relaunching whatever binary is already built.
+`--no-block` plus the unit's `KillMode=process` let the restart proceed without the
+command being killed as the unit tears down. Shipping new code is the separate
+manual `rebuild.sh` step above.
 
 ### Testing a build without touching the live server
 
 Restarting the live unit kills any in-flight turn (including one you're driving
 over voice). To test a server change safely, run the freshly-built binary by hand
-on a scratch port with a separate session store, leaving the live `:8556` service
+on a scratch port with a separate session store, leaving the live `:8558` service
 running:
 
 ```bash
