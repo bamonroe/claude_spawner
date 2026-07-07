@@ -64,6 +64,16 @@ label. (Full code map established 2026-07-05 via two Explore passes — server +
       that name it differently.
 
 ### Server / infra
+- [x] 2026-07-07 — **Fix: the live sandbox test could reap real sessions' containers.**
+      `TestLiveSandboxContainer` (`SPAWNER_LIVE=1`) called `ReconcileContainers` with an empty
+      known-set, and `SandboxExecutor.List` filters `podman ps` by the shared `spawner-sbx-` prefix
+      machine-wide — so the test removed **every** managed sandbox container on the host, including a
+      live session's (it destroyed the running `email` session's container mid-work). `SandboxExecutor`
+      gained a `Prefix` field (`prefix()` defaults to `containerPrefix`); `List` filters by it, and the
+      live tests now run under a unique `spawner-sbxtest-<hex>-` namespace (`NewContainerNameWithPrefix`
+      + `liveTestPrefix`) that shares no substring with the production prefix, so a test reconcile can
+      only ever see its own containers. `TestSandboxPrefixIsolation` anchors the namespaces don't
+      overlap; verified live that a decoy under the real prefix survives the test's reconcile.
 - [x] 2026-07-07 — **Sandbox containers bind-mount the server's whole `$HOME` read-write** at the
       same path by default (`SandboxExecutor.HomeMount`, set from `$HOME` in `main.go`), so dotfiles,
       `~/.claude`, and project checkouts are writable in the sandbox exactly as on the host. Built the

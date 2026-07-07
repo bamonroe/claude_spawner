@@ -121,6 +121,20 @@ type SandboxExecutor struct {
 	// RunArgs are extra `run` flags inserted before the image, e.g.
 	// "--userns=keep-id" (rootless uid mapping) or "--network=none" (offline).
 	RunArgs []string
+	// Prefix namespaces this executor's containers for List/reconcile. Empty means
+	// the production default (containerPrefix). Reconcile only ever sees — and so
+	// can only ever remove — containers under this prefix, so a test executor set
+	// to a unique prefix can never sweep another server's (or a real session's)
+	// live containers. Production leaves this empty.
+	Prefix string
+}
+
+// prefix returns the container-name namespace this executor lists and reaps.
+func (s SandboxExecutor) prefix() string {
+	if s.Prefix != "" {
+		return s.Prefix
+	}
+	return containerPrefix
 }
 
 func (s SandboxExecutor) bin() string {
@@ -171,7 +185,7 @@ func (s SandboxExecutor) Remove(ctx context.Context, name string) error {
 // List returns the names of all sandbox containers this server manages (running
 // or stopped), matched by the shared name prefix.
 func (s SandboxExecutor) List(ctx context.Context) ([]string, error) {
-	out, err := runCLI(ctx, s.Runtime, []string{"ps", "-a", "--filter", "name=" + containerPrefix, "--format", "{{.Names}}"})
+	out, err := runCLI(ctx, s.Runtime, []string{"ps", "-a", "--filter", "name=" + s.prefix(), "--format", "{{.Names}}"})
 	if err != nil {
 		return nil, fmt.Errorf("list sandboxes: %w: %s", err, strings.TrimSpace(out))
 	}

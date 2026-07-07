@@ -43,6 +43,19 @@ func liveRuntime(t *testing.T) string {
 	return rt
 }
 
+// liveTestPrefix returns a per-run container-name namespace ("spawner-sbxtest-<hex>-")
+// for a live test's SandboxExecutor. It shares no substring with the production
+// prefix ("spawner-sbx-"), so the test's List/reconcile matches only its own
+// containers and can never sweep a real session's live sandbox on the same host.
+func liveTestPrefix(t *testing.T) string {
+	t.Helper()
+	id, err := NewSessionID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return "spawner-sbxtest-" + strings.ReplaceAll(id, "-", "")[:8] + "-"
+}
+
 func liveImage(t *testing.T, rt string) string {
 	img := os.Getenv("SPAWNER_LIVE_IMAGE")
 	if img == "" {
@@ -89,13 +102,19 @@ func TestLiveSandboxContainer(t *testing.T) {
 	img := liveImage(t, rt)
 	dir := t.TempDir()
 	fake := writeFakeClaude(t, "SANDBOXOK")
+	// Unique prefix so this test's List/reconcile can ONLY see its own container —
+	// never a real session's live container on the same machine. (A prior version
+	// reconciled with an empty known-set under the shared prefix and reaped a live
+	// session's container.)
+	pfx := liveTestPrefix(t)
 	se := SandboxExecutor{
 		Runtime: rt,
 		Image:   img,
 		Bin:     "claude",
 		Mounts:  []string{fake + ":/usr/local/bin/claude:ro"},
+		Prefix:  pfx,
 	}
-	cn, err := NewContainerName()
+	cn, err := NewContainerNameWithPrefix(pfx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,8 +189,9 @@ func TestLiveSandboxRealClaude(t *testing.T) {
 	}
 	home := isolatedClaudeHome(t) // safe copy of the host credentials
 	dir := t.TempDir()
-	se := liveSandboxExecutor(rt, img, home)
-	cn, err := NewContainerName()
+	pfx := liveTestPrefix(t)
+	se := liveSandboxExecutor(rt, img, home, pfx)
+	cn, err := NewContainerNameWithPrefix(pfx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,11 +219,12 @@ func TestLiveSandboxRealClaude(t *testing.T) {
 // liveSandboxExecutor builds the production-shaped sandbox executor: the host
 // claude binary + credentials bind-mounted, rootless keep-id so the turn runs
 // non-root but can write the mounted auth (exec inherits the user + HOME).
-func liveSandboxExecutor(runtime, image, home string) SandboxExecutor {
+func liveSandboxExecutor(runtime, image, home, prefix string) SandboxExecutor {
 	return SandboxExecutor{
 		Runtime: runtime,
 		Image:   image,
 		Bin:     "claude",
+		Prefix:  prefix,
 		Mounts: []string{
 			"/opt/claude-code:/opt/claude-code:ro",
 			"/usr/bin/claude:/usr/bin/claude:ro",

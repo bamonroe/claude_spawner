@@ -467,11 +467,18 @@ func (d *Driver) Usage(ctx context.Context) (string, error) {
 // session_id (which rotates on clear/compress), so it stays valid for the
 // session's whole life.
 func NewContainerName() (string, error) {
+	return NewContainerNameWithPrefix(containerPrefix)
+}
+
+// NewContainerNameWithPrefix is NewContainerName under a caller-supplied name
+// namespace. Tests use a unique prefix so their SandboxExecutor.List/reconcile
+// can only ever see (and remove) their own containers, never a real session's.
+func NewContainerNameWithPrefix(prefix string) (string, error) {
 	id, err := NewSessionID()
 	if err != nil {
 		return "", err
 	}
-	return containerPrefix + strings.ReplaceAll(id, "-", "")[:12], nil
+	return prefix + strings.ReplaceAll(id, "-", "")[:12], nil
 }
 
 // NewSessionID returns a random RFC-4122 v4 UUID for use with --session-id.

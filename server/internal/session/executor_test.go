@@ -99,6 +99,32 @@ func TestReconcileContainersRemovesOrphans(t *testing.T) {
 	}
 }
 
+func TestSandboxPrefixIsolation(t *testing.T) {
+	// Default (production) executor lists/reaps under the shared prefix.
+	if got := (SandboxExecutor{}).prefix(); got != containerPrefix {
+		t.Errorf("default prefix = %q, want %q", got, containerPrefix)
+	}
+	// A test executor's prefix overrides it, so its List can only ever match its
+	// own containers — never a real session's under the production prefix.
+	const testPrefix = "spawner-sbxtest-abc-"
+	if got := (SandboxExecutor{Prefix: testPrefix}).prefix(); got != testPrefix {
+		t.Errorf("override prefix = %q, want %q", got, testPrefix)
+	}
+	// The two namespaces must not overlap: the production filter must not match a
+	// test container name, nor vice versa (podman --filter name= is a substring
+	// match), or a test reconcile could still sweep a live session's container.
+	cn, err := NewContainerNameWithPrefix(testPrefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(cn, testPrefix) {
+		t.Errorf("name %q lacks prefix %q", cn, testPrefix)
+	}
+	if strings.Contains(cn, containerPrefix) {
+		t.Errorf("test container %q contains the production prefix %q — reconcile would cross namespaces", cn, containerPrefix)
+	}
+}
+
 func TestReconcileContainersNoReaper(t *testing.T) {
 	// Host-only driver: nothing to reconcile, no error.
 	d := &Driver{Execs: map[Target]Executor{TargetHost: HostExecutor{}}}
