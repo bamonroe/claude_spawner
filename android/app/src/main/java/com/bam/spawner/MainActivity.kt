@@ -1449,6 +1449,7 @@ private fun IdentitiesSettings(controller: VoiceController, onBack: () -> Unit) 
     var newName by rememberSaveable { mutableStateOf("") }
     var importName by rememberSaveable { mutableStateOf("") }
     var importPath by rememberSaveable { mutableStateOf("") }
+    var showForm by rememberSaveable { mutableStateOf(false) } // is the add form expanded?
 
     SettingsScaffold("Identities", onBack) {
         Text(
@@ -1459,28 +1460,6 @@ private fun IdentitiesSettings(controller: VoiceController, onBack: () -> Unit) 
         if (!connected) {
             Text("Connect to the server to manage identities.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
         }
-
-        HorizontalDivider()
-        Text("New identity", style = MaterialTheme.typography.titleMedium)
-        OutlinedTextField(newName, { newName = it }, label = { Text("Name (e.g. work-key)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        Button(
-            enabled = connected && newName.isNotBlank(),
-            onClick = { controller.createIdentity(newName.trim()); newName = "" },
-        ) { Text("Generate keypair") }
-
-        HorizontalDivider()
-        Text("Import an existing key", style = MaterialTheme.typography.titleMedium)
-        Text(
-            "Register a private key already on the server (e.g. the key it already uses to connect) so "
-                + "it shows up here and can be linked to hosts.",
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
-        )
-        OutlinedTextField(importName, { importName = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(importPath, { importPath = it }, label = { Text("Private-key path on server") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        Button(
-            enabled = connected && importName.isNotBlank() && importPath.isNotBlank(),
-            onClick = { controller.importIdentity(importName.trim(), importPath.trim()); importName = ""; importPath = "" },
-        ) { Text("Import key") }
 
         HorizontalDivider()
         Text("Identities", style = MaterialTheme.typography.titleMedium)
@@ -1514,6 +1493,36 @@ private fun IdentitiesSettings(controller: VoiceController, onBack: () -> Unit) 
                 }
             }
         }
+
+        HorizontalDivider()
+        // Generate / import forms are collapsed until "Add identity" expands them.
+        if (!showForm) {
+            Button(enabled = connected, onClick = { showForm = true }) { Text("Add identity") }
+        } else {
+            Text("Generate a new identity", style = MaterialTheme.typography.titleMedium)
+            OutlinedTextField(newName, { newName = it }, label = { Text("Name (e.g. work-key)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            Button(
+                enabled = connected && newName.isNotBlank(),
+                onClick = { controller.createIdentity(newName.trim()); newName = ""; showForm = false },
+            ) { Text("Generate keypair") }
+
+            HorizontalDivider()
+            Text("Import an existing key", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Register a private key already on the server (e.g. the key it already uses to connect) so "
+                    + "it shows up here and can be linked to hosts.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
+            )
+            OutlinedTextField(importName, { importName = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(importPath, { importPath = it }, label = { Text("Private-key path on server") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    enabled = connected && importName.isNotBlank() && importPath.isNotBlank(),
+                    onClick = { controller.importIdentity(importName.trim(), importPath.trim()); importName = ""; importPath = ""; showForm = false },
+                ) { Text("Import key") }
+                OutlinedButton(onClick = { newName = ""; importName = ""; importPath = ""; showForm = false }) { Text("Cancel") }
+            }
+        }
     }
 }
 
@@ -1541,6 +1550,7 @@ private fun HostsSettings(controller: VoiceController, onBack: () -> Unit) {
     var identity by rememberSaveable { mutableStateOf("") } // selected identity name, "" = none
     var claudeBin by rememberSaveable { mutableStateOf("") }
     var editing by rememberSaveable { mutableStateOf("") } // name of the host being edited, "" = new
+    var showForm by rememberSaveable { mutableStateOf(false) } // is the add/edit form expanded?
     val clear = {
         name = ""; address = ""; user = ""; port = ""; keyFile = ""; identity = ""; claudeBin = ""; editing = ""
     }
@@ -1554,46 +1564,6 @@ private fun HostsSettings(controller: VoiceController, onBack: () -> Unit) {
         )
         if (!connected) {
             Text("Connect to the server to manage hosts.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-        }
-
-        HorizontalDivider()
-        Text(if (editing.isBlank()) "Add host" else "Editing “$editing”", style = MaterialTheme.typography.titleMedium)
-        OutlinedTextField(name, { name = it }, label = { Text("Name (e.g. work)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(address, { address = it }, label = { Text("Address (hostname / IP)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(user, { user = it }, label = { Text("User (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(
-            port, { port = it.filter { c -> c.isDigit() } }, label = { Text("Port (optional, 22)") },
-            singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(keyFile, { keyFile = it }, label = { Text("Key file path on server (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        // Identity picker: a managed keypair supersedes the key-file path. "None" leaves
-        // auth to the key file / ssh-agent.
-        Text("Identity (optional — supersedes key file)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            FilterChip(selected = identity == "", onClick = { identity = "" }, label = { Text("None") })
-            identities.forEach { id ->
-                FilterChip(selected = identity == id.name, onClick = { identity = id.name }, label = { Text(id.name) })
-            }
-        }
-        OutlinedTextField(claudeBin, { claudeBin = it }, label = { Text("Remote claude binary (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(
-                enabled = connected && name.isNotBlank() && address.isNotBlank(),
-                onClick = {
-                    controller.putHost(
-                        com.bam.spawner.net.Host(
-                            name = name.trim(), address = address.trim(), user = user.trim(),
-                            port = port.toIntOrNull() ?: 0, keyFile = keyFile.trim(),
-                            identity = identity, claudeBin = claudeBin.trim(),
-                        ),
-                    )
-                    clear()
-                },
-            ) { Text(if (editing.isBlank()) "Add" else "Save") }
-            if (name.isNotBlank() || editing.isNotBlank()) {
-                OutlinedButton(onClick = clear) { Text("Clear") }
-            }
         }
 
         HorizontalDivider()
@@ -1626,13 +1596,57 @@ private fun HostsSettings(controller: VoiceController, onBack: () -> Unit) {
                     TextButton(onClick = {
                         name = h.name; address = h.address; user = h.user
                         port = if (h.port != 0) h.port.toString() else ""
-                        keyFile = h.keyFile; identity = h.identity; claudeBin = h.claudeBin; editing = h.name
+                        keyFile = h.keyFile; identity = h.identity; claudeBin = h.claudeBin
+                        editing = h.name; showForm = true
                     }) { Text("Edit") }
                     TextButton(onClick = {
                         controller.deleteHost(h.name)
-                        if (editing == h.name) clear()
+                        if (editing == h.name) { clear(); showForm = false }
                     }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
                 }
+            }
+        }
+
+        HorizontalDivider()
+        // The add/edit form is collapsed until "Add host" (or an Edit) expands it.
+        if (!showForm && editing.isBlank()) {
+            Button(enabled = connected, onClick = { clear(); showForm = true }) { Text("Add host") }
+        } else {
+            Text(if (editing.isBlank()) "Add host" else "Editing “$editing”", style = MaterialTheme.typography.titleMedium)
+            OutlinedTextField(name, { name = it }, label = { Text("Name (e.g. work)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(address, { address = it }, label = { Text("Address (hostname / IP)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(user, { user = it }, label = { Text("User (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(
+                port, { port = it.filter { c -> c.isDigit() } }, label = { Text("Port (optional, 22)") },
+                singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(keyFile, { keyFile = it }, label = { Text("Key file path on server (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            // Identity picker: a managed keypair supersedes the key-file path. "None" leaves
+            // auth to the key file / ssh-agent.
+            Text("Identity (optional — supersedes key file)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FilterChip(selected = identity == "", onClick = { identity = "" }, label = { Text("None") })
+                identities.forEach { id ->
+                    FilterChip(selected = identity == id.name, onClick = { identity = id.name }, label = { Text(id.name) })
+                }
+            }
+            OutlinedTextField(claudeBin, { claudeBin = it }, label = { Text("Remote claude binary (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    enabled = connected && name.isNotBlank() && address.isNotBlank(),
+                    onClick = {
+                        controller.putHost(
+                            com.bam.spawner.net.Host(
+                                name = name.trim(), address = address.trim(), user = user.trim(),
+                                port = port.toIntOrNull() ?: 0, keyFile = keyFile.trim(),
+                                identity = identity, claudeBin = claudeBin.trim(),
+                            ),
+                        )
+                        clear(); showForm = false
+                    },
+                ) { Text(if (editing.isBlank()) "Add" else "Save") }
+                OutlinedButton(onClick = { clear(); showForm = false }) { Text("Cancel") }
             }
         }
     }
