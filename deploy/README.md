@@ -15,6 +15,7 @@ script, and a transcript helper.
 | `claude-log.sh`             | helper to read a session's Claude transcript by name.                     |
 | `spawner-container.yml`     | Compose file for the **containerized SSH-native** server (drives the host over SSH). |
 | `spawner-container.env.example`| template for the containerized server's env file.                       |
+| `rebuild-container.sh`      | host-side rebuild + recreate of the container; the container's restart button runs this over SSH. |
 
 ## Transcription depends on the resident whisper servers
 
@@ -84,6 +85,20 @@ spawner-server` in the env file), relaunching whatever binary is already built.
 `--no-block` plus the unit's `KillMode=process` let the restart proceed without the
 command being killed as the unit tears down. Shipping new code is the separate
 manual `rebuild.sh` step above.
+
+**Containerized deployment — the button rebuilds.** For the container
+(`spawner-container.yml`) the restart button is a *one-tap deploy*, not just a
+bounce: `SPAWNER_RESTART_CMD` SSHes to the host over loopback and launches
+[`rebuild-container.sh`](rebuild-container.sh) detached (`setsid`), which runs
+`compose up -d --build` to rebuild the image from current source and recreate the
+container. It **must** run on the host — `up --build` replaces the very container
+the server lives in, so an in-container command would be killed mid-recreate;
+`setsid` over SSH decouples it so it survives. The image ships `openssh-client` for
+exactly this. **Bootstrap:** the running container must already have been built from
+this Dockerfile (with `openssh-client`) and have `SPAWNER_RESTART_CMD` in its env, so
+do one manual `SPAWNER_UID=$(id -u) SPAWNER_GID=$(id -g) docker compose -f
+deploy/spawner-container.yml up -d --build` first; after that the button self-serves.
+A rebuild started this way will drop any in-flight turn as the container is recreated.
 
 ### Testing a build without touching the live server
 

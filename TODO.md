@@ -107,6 +107,14 @@ box is nearly free → then containerizing the server is a deploy change, not ne
 the feature works as expected, as the ship step (see [[use-android-dev-skill-and-emulator]]).
 **Re-containerizing the server is LOW priority** — it blocks nothing, do it whenever.
 
+- [x] 2026-07-08 — **Restart button rebuilds + recreates the container (one-tap deploy).** For the
+      container deployment `SPAWNER_RESTART_CMD` now SSHes to the host over loopback and launches
+      `deploy/rebuild-container.sh` detached (`setsid`), which runs `compose up -d --build` to rebuild
+      the image from source and recreate the container. It must run on the host — `up --build` replaces
+      the very container the server lives in — so `setsid` over SSH decouples it to survive the
+      teardown. The image now ships `openssh-client` for this. Bare-metal button is unchanged (pure
+      `systemctl` bounce). Bootstrap needs one manual `up -d --build` (the running container predates
+      the openssh-client image + the env var). Documented in `deploy/README.md` and `CLAUDE.md`.
 - [x] 2026-07-08 — **Explicit host model — no implicit localhost default; "Local" is a listed host.**
       `Session.Host` is now always an explicit name (`session.LocalHost = "localhost"` for loopback):
       the `SSHExecutor` errors on a hostless host-target session instead of coercing to localhost, the

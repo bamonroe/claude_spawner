@@ -143,7 +143,10 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
   the systemd unit uses `KillMode=process`, so it survives the server's own teardown. The deployment
   points it at just `systemctl --user restart --no-block spawner-server` (the button only bounces the
   service, relaunching the current binary); rebuilding + deploying new code is a separate manual step
-  (`deploy/rebuild.sh`, which rebuilds the binary then restarts the unit).
+  (`deploy/rebuild.sh`, which rebuilds the binary then restarts the unit). **Containerized, the button
+  instead does a full rebuild+recreate:** it SSHes to the host and launches `deploy/rebuild-container.sh`
+  detached (`compose up -d --build`), which must run on the host because the rebuild replaces the very
+  container the server runs in — see `deploy/README.md`.
 
 ## Token discipline — keep the context small
 

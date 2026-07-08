@@ -14,7 +14,10 @@ COPY . ./
 RUN CGO_ENABLED=0 go build -trimpath -o /spawner ./
 
 FROM alpine:3.20
-# ca-certificates for any outbound TLS; no openssh needed (SSH is Go-native).
-RUN apk add --no-cache ca-certificates
+# ca-certificates for any outbound TLS. openssh-client is NOT needed for turns (claude
+# SSH is Go-native) — it's here only so the app's restart button can SSH to the host
+# and launch the detached container rebuild (deploy/rebuild-container.sh), which must
+# run on the host because `compose up --build` recreates this very container.
+RUN apk add --no-cache ca-certificates openssh-client
 COPY --from=build /spawner /usr/local/bin/spawner
 ENTRYPOINT ["/usr/local/bin/spawner"]
