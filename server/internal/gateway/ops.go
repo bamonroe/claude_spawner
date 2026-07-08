@@ -215,7 +215,7 @@ func (c *conn) doDiscover() {
 		views = append(views, discoveredView{
 			Name: s.Name, Dir: s.Dir, SessionID: s.SessionID,
 			LastActive: discByDir[s.Dir].LastActive, Active: active[s.Dir], Registered: true,
-			Busy: c.srv.isBusy(s.SessionID), Target: sandboxTarget(s),
+			Busy: c.srv.isBusy(s.SessionID), Target: sandboxTarget(s), Host: s.Host,
 		})
 	}
 	// Unregistered sessions found on disk — one adoptable row per directory (these
@@ -227,6 +227,8 @@ func (c *conn) doDiscover() {
 		views = append(views, discoveredView{
 			Name: sanitizeName(filepath.Base(d.Dir)), Dir: d.Dir, SessionID: d.SessionID,
 			LastActive: d.LastActive, Active: active[d.Dir], Registered: false,
+			// Discovery scans this machine's disk, so an unregistered find is local.
+			Host: session.LocalHost,
 		})
 	}
 	c.send(msgDiscovered(views))

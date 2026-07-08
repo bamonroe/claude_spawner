@@ -295,6 +295,7 @@ type discoveredView struct {
 	Registered bool   `json:"registered"`       // already in the spawner registry
 	Busy       bool   `json:"busy"`             // a dictation turn is running for this session now
 	Target     string `json:"target,omitempty"` // execution target ("sandbox") when not the default host
+	Host       string `json:"host,omitempty"`   // the SSH host the session runs on (for grouping in the app)
 }
 
 func msgDiscovered(items []discoveredView) map[string]any {
