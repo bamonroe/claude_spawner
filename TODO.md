@@ -129,9 +129,12 @@ the feature works as expected, as the ship step (see [[use-android-dev-skill-and
       analogue of the host executor's group SIGKILL. **Live-proven** (`TestLiveSSHCancelKillsRemote`: a
       long remote process tree is gone after cancel); real claude turns still pass under the wrapper on
       both loopback and the work box. Unit test pins the wrapper string.
-- [~] `Session.Host` + spawn-dialog host choice; loopback default. **`Session.Host` field added
-      2026-07-08** (empty = loopback; SSHExecutor reads it). Remaining: the spawn-dialog/protocol/app
-      choice that actually sets it (pick the work box by voice).
+- [x] 2026-07-08 — **`Session.Host` + spawn-dialog host choice; loopback default.** `Session.Host`
+      (empty = loopback) is read by the SSHExecutor and routes discovery/resume. `spawn_at` gained an
+      optional `host_name`; `doSpawnAt` sets `Session.Host` on the new session (ignored for sandbox).
+      The app's New-session browser offers a host picker (Local + configured hosts) that threads the
+      choice through. Verified end to end on the emulator: picking a host persists the session with
+      that host. (Voice "spawn on <host>" phrasing is a later nicety — the visual picker ships first.)
 - [x] 2026-07-08 — **Discovery/resume over the SSH channel.** Built the `claudeFS` seam
       (`internal/session/claudefs.go`) — local (`os.*`) and SSH backends behind the same JSONL parse —
       selected per session by `Driver.claudeFSFor(Session.Host)`, with a host-namespaced transcript
@@ -188,8 +191,13 @@ the feature works as expected, as the ship step (see [[use-android-dev-skill-and
         `bad_host` on a missing name. `HostStore` threaded through `gateway.New` + `main`. Documented in
         `docs/protocol.md` (3 inbound + 1 outbound + `bad_host` code; docsync green). Wire-level
         `TestHostCRUD` covers list→put→reject-nameless→delete.
-  - [ ] [Android, last] Settings → Hosts page (CRUD) driving those messages; spawn dialog offers the
-        configured hosts.
+  - [x] 2026-07-08 — **[Android] Settings → Hosts page + spawn-dialog host picker.** Settings → Hosts
+        lists/adds/edits/deletes hosts over `hosts`/`host_put`/`host_delete`, refreshed from the
+        `host_list` broadcast (Protocol `Host`/`HostList`, VoiceController `hosts` StateFlow). The New
+        session browser offers a Local + per-host chip picker that sets `Session.Host` via
+        `spawn_at host_name`. Built (containerized, per [[spawner-apk-build-signing]]), verified end to
+        end on the **emulator** against a scratch server (CRUD persists + broadcasts; spawn sets host),
+        then installed on the **Pixel 8a** as the ship step.
 - [~] Drive the work box (`potato`) end to end; then re-containerize the server (no root broker).
       **Transport proven 2026-07-08**: `TestLiveSSHRemoteClaude` drove a real, authed claude turn on
       the work box (`100.64.0.7` over Tailscale, key `bazzite_ed25519`) from this machine and the token
