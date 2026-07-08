@@ -63,6 +63,53 @@ label. (Full code map established 2026-07-05 via two Explore passes — server +
       `session_id` identity still lets the app re-attach to the same session across any two servers
       that name it differently.
 
+### SSH-native unified execution (epic — proposed 2026-07-08; design only, not started)
+
+**Why:** collapse the three execution paths (host fork, sandbox `podman exec`, would-be remote) into
+**one SSH transport**. Every turn — including on the local machine — runs over SSH, so localhost is
+just another host in the pool and there's a single code path to maintain. This also lets us
+**containerize the server again without a root broker**: instead of a bespoke privileged host agent
+(the thing we tore out in the 2026-07-06 revert), the container SSHes into the "real" host exactly as
+it would any remote box, leaning on SSH's battle-tested auth/encryption/signal-delivery instead of
+inventing our own. Motivated by wanting to drive Claude on the work box (`ssh work` → `potato`, has
+`claude` + `podman`).
+
+**Design (worked out 2026-07-08):**
+- **Native Go SSH (`golang.org/x/crypto/ssh`), not shelling out**, and **not sshfs** — sshfs is
+  explicitly rejected (FUSE fragility/hangs on drop, needs container privilege that undercuts the
+  no-root goal, and only relocates the path-translation problem). If we don't adopt it now, never
+  introduce it.
+- **Persistent client pool keyed by host** so no per-turn handshake: dial+authenticate **once** per
+  host, cache the `*ssh.Client`, open a fresh **session (channel)** per turn (≈free). Keepalive
+  goroutine + reconnect-on-failure so a dead link transparently re-dials on the next turn.
+- **Slots into the existing seam unchanged:** a new `SSHExecutor` implements `Executor.Start`; the
+  returned proc implements `Proc` (`Stdout()` → the channel's stdout, straight into the current
+  `parseStream`; `Wait()` → `session.Wait()`). Reuses the exact `claude` argv the code already builds.
+- **Cancel** (the fiddly part — SSH signal delivery is unreliable): tag each remote command with a
+  unique token and, on ctx-cancel, open a **second cheap channel on the same live client** to kill the
+  tagged process group. Handshake-free, and avoids a PTY (which would corrupt the stream-json stdout).
+- **`Session.Host`** field (empty = loopback), chosen in the spawn dialog like host/sandbox is today;
+  sandbox-over-SSH becomes "SSH to host, then `podman`", still uniform.
+- **Discovery over the same SSH channel**, not a mounted FS: a small remote command lists sessions and
+  cats only the specific `~/.claude/projects/.../<session_id>.jsonl` we need (we only ever read a
+  handful), so no FUSE, no privilege, one transport. Replaces today's local-filesystem discovery.
+- **Security:** verify host keys against a known-hosts file (no blind-trust), auth via ssh-agent or a
+  configured key; new `SPAWNER_SSH_*` env vars for the key/known-hosts paths.
+- **Credential propagation** (copy known-working creds host→host once SSH is up) is a **separate later
+  feature** — powerful but widens blast radius, so keep it deliberate and out of the first cut.
+
+**Sequencing:** build the single `SSHExecutor` + pool and prove it against **localhost first** (so the
+"real host" is our first remote and we flush out discovery/cancel rework immediately) → then the work
+box is nearly free → then containerizing the server is a deploy change, not new code.
+
+- [ ] `SSHExecutor` + persistent per-host client pool (keepalive + reconnect), proven against localhost.
+- [ ] Cancel via tagged process-group kill over a second channel (no PTY).
+- [ ] `Session.Host` + spawn-dialog host choice; loopback default.
+- [ ] Discovery/resume over the SSH channel (retire local-FS `~/.claude` scan for remote hosts).
+- [ ] Host-key verification + ssh-agent/key auth + `SPAWNER_SSH_*` config.
+- [ ] Drive the work box (`potato`) end to end; then re-containerize the server (no root broker).
+- [ ] (Later, separate) credential propagation between hosts.
+
 ### Server / infra
 - [x] 2026-07-07 — **Fix: the live sandbox test could reap real sessions' containers.**
       `TestLiveSandboxContainer` (`SPAWNER_LIVE=1`) called `ReconcileContainers` with an empty
