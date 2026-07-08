@@ -137,6 +137,29 @@ server is a plain user process and sandboxes use a rootless runtime.
 > roots mounted at the same paths so discovery/browse read where the host writes). See the Dockerfile
 > at `server/Dockerfile`.
 
+### SSH-native execution: the host is a dimension, localhost is just another host
+
+With `SPAWNER_SSH=1`, the `host` target is served by the **`SSHExecutor`** instead of the
+direct-`exec` `HostExecutor`: every host turn — the local machine included — runs over SSH. A
+per-host `SSHPool` (`internal/session/ssh.go`) dials + authenticates once and keeps the connection
+alive, opening a cheap channel per turn. Which machine a session runs on is a durable per-session
+field, **`Session.Host`** — orthogonal to the host/sandbox target. The **app owns the host
+registry** (Settings → Hosts, persisted server-side as `hosts.json`); `Session.Host` names an entry
+there, or a bare hostname the pool dials literally with the `SPAWNER_SSH_*` defaults.
+
+`Session.Host` is **always an explicit name** — there is no implicit "empty means localhost"
+default. The loopback machine is the reserved host name **`localhost`** (`session.LocalHost`),
+handled exactly like any other SSH host (dialed over loopback SSH with the config defaults); the app
+lists it as **"Local"** and every spawn carries an explicit host. The one place a default is
+applied is at spawn time (`newSession`): a host-target session with no named host is set to
+`localhost` so voice/legacy spawns keep working. Everywhere downstream — the executor, transcript
+access (`claudeFS`), discovery — treats a hostless host-target session as a bug: the `SSHExecutor`
+returns an error rather than silently running it on the local box. This is what makes a
+**remote-only deployment** possible — a server whose own machine has no `claude`/sshd simply never
+picks Local and drives only remote hosts. (Legacy `sessions.json` records with an empty host are
+migrated to `localhost` on load; discovered sessions, found by scanning this machine, are named
+`localhost`.)
+
 ### Sandbox sessions (also without host root)
 
 For `sandbox`-target sessions the container's lifetime is **bound to the session**, not the turn:

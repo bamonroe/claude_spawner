@@ -25,6 +25,13 @@ const (
 	TargetSandbox Target = "sandbox"
 )
 
+// LocalHost is the explicit host name for the loopback machine — the SSH-native
+// path treats it as just another registered host (dialed over loopback SSH), not
+// as a special implicit default. Every host-target session carries an explicit
+// Session.Host; a session with no host is an error, never silently "localhost".
+// So a deployment can drive purely remote hosts and never reach the local box.
+const LocalHost = "localhost"
+
 // Executor launches one `claude` invocation and exposes its stdout stream and
 // lifecycle. It is the seam that lets a turn run on the host (direct exec) or
 // inside a container sandbox without Driver.Turn knowing which — Turn builds the

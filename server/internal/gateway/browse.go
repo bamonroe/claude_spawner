@@ -79,9 +79,10 @@ func (c *conn) doSpawnAt(path string, target session.Target, create bool, host s
 		c.fail("internal", err.Error())
 		return
 	}
-	// Run the session on the chosen SSH host (empty = local). Only meaningful for the
-	// host target — a sandbox session runs in a local container, so ignore any host.
-	if target != session.TargetSandbox {
+	// Run the session on the chosen SSH host. Only meaningful for the host target — a
+	// sandbox session runs in a local container, so ignore any host. An unspecified
+	// host keeps newSession's loopback default (LocalHost); a named host overrides it.
+	if target != session.TargetSandbox && host != "" {
 		sess.Host = host
 	}
 	if perr := c.srv.store.Put(sess); perr != nil {

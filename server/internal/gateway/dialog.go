@@ -529,6 +529,10 @@ func (s *Server) registerDiscovered(sessionID, dir string) (*session.Session, er
 		Dir:       dir,
 		SessionID: sessionID,
 		Started:   true,
+		// Discovery scans this machine's ~/.claude, so the session lives on the local
+		// box: name it explicitly (LocalHost) rather than leaving Host empty, which
+		// the SSH executor now rejects.
+		Host: session.LocalHost,
 	}
 	if err := s.store.Put(rec); err != nil {
 		return nil, err

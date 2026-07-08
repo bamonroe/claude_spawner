@@ -38,6 +38,14 @@ func OpenStore(path string) (*Store, error) {
 		return nil, fmt.Errorf("parse store %s: %w", path, err)
 	}
 	for _, rec := range list {
+		// Migrate records written before the host became explicit: a host-target
+		// session with no Host used to mean "loopback". Name it LocalHost so nothing
+		// relies on the old implicit default (the SSH executor now rejects a hostless
+		// host-target session). Sandbox sessions keep their empty Host — the sandbox
+		// path ignores it.
+		if rec.Host == "" && rec.Target != TargetSandbox {
+			rec.Host = LocalHost
+		}
 		s.byName[rec.Name] = rec
 		if rec.SessionID != "" {
 			s.byID[rec.SessionID] = rec

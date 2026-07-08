@@ -467,7 +467,10 @@ func (d *Driver) Usage(ctx context.Context) (string, error) {
 	if dir == "" {
 		dir = os.TempDir()
 	}
-	proc, err := d.executor(TargetHost).Start(ctx, &Session{Name: "usage", Dir: dir}, args)
+	// Account-global probe: run it on the loopback host explicitly (the SSH executor
+	// no longer defaults a hostless session). A purely remote deployment with no
+	// reachable local box can't run /usage; that's an accepted limitation.
+	proc, err := d.executor(TargetHost).Start(ctx, &Session{Name: "usage", Dir: dir, Host: LocalHost}, args)
 	if err != nil {
 		return "", err
 	}

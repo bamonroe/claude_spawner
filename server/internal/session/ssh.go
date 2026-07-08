@@ -323,8 +323,9 @@ func (p *SSHPool) Close() error {
 
 // SSHExecutor runs a session's turns on a remote host over SSH, streaming the same
 // stream-json stdout the local executors produce, so Driver.Turn parses it without
-// knowing the turn ran remotely. The target host is Session.Host (empty =
-// loopback); the exact claude argv is the one Driver.Turn already builds.
+// knowing the turn ran remotely. The target host is Session.Host — an explicit
+// name (LocalHost for loopback), never an implicit default; the exact claude argv
+// is the one Driver.Turn already builds.
 type SSHExecutor struct {
 	// Pool supplies the pooled, keepalive'd connection per host.
 	Pool *SSHPool
@@ -339,7 +340,11 @@ type SSHExecutor struct {
 func (e SSHExecutor) Start(ctx context.Context, s *Session, args []string) (Proc, error) {
 	host := s.Host
 	if host == "" {
-		host = "localhost"
+		// SSH-native execution never defaults to the local box: a host-target
+		// session must name an explicit host (LocalHost for loopback). This is what
+		// lets a deployment drive only remote hosts — a hostless session is a bug,
+		// not an implicit "run it here".
+		return nil, fmt.Errorf("session %q has no host set", s.Name)
 	}
 	bin := e.Bin
 	if bin == "" {

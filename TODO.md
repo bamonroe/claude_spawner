@@ -107,6 +107,15 @@ box is nearly free → then containerizing the server is a deploy change, not ne
 the feature works as expected, as the ship step (see [[use-android-dev-skill-and-emulator]]).
 **Re-containerizing the server is LOW priority** — it blocks nothing, do it whenever.
 
+- [x] 2026-07-08 — **Explicit host model — no implicit localhost default; "Local" is a listed host.**
+      `Session.Host` is now always an explicit name (`session.LocalHost = "localhost"` for loopback):
+      the `SSHExecutor` errors on a hostless host-target session instead of coercing to localhost, the
+      Usage probe and discovered sessions name `localhost` explicitly, and legacy empty-host records
+      migrate to `localhost` on store load. The spawn-time default lives in one place (`newSession`),
+      so voice/legacy spawns still work while a purely **remote-only deployment** is now possible (the
+      server never touches its own box unless Local is chosen). App: "Local" is a permanent, listed,
+      non-deletable entry in Settings → Hosts and the spawn picker always shows it; every spawn sends
+      an explicit host. Server suite green; documented in `docs/architecture.md`.
 - [x] 2026-07-08 — **`SSHExecutor` + persistent per-host client pool (keepalive + reconnect),
       proven against localhost.** (`internal/session/ssh.go`): pool dials+auths once per host, opens a
       cheap channel per turn, keepalive drops a dead link, executor drops+re-dials once on a stale

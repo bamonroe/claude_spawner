@@ -837,6 +837,12 @@ func (c *conn) newSession(base, dir string, target session.Target) (*session.Ses
 			return nil, err
 		}
 		s.Container = cn
+	} else {
+		// A host-target session always carries an explicit host; default an
+		// unspecified spawn (voice dialog, legacy clients) to the loopback host
+		// rather than leaving it empty, which the SSH executor rejects. A caller that
+		// named a host (the spawn picker) overrides this afterwards.
+		s.Host = session.LocalHost
 	}
 	return s, nil
 }
