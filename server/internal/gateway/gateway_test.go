@@ -884,6 +884,37 @@ func TestSpawnAtReusesExistingSession(t *testing.T) {
 	}
 }
 
+// TestSpawnAtDifferentHostMakesNewSession: the same folder on a different host is
+// a distinct session — the dedup matches directory AND host, so picking a remote
+// host must not reuse the localhost session sitting at the same path.
+func TestSpawnAtDifferentHostMakesNewSession(t *testing.T) {
+	ts, root := newTestServer(t, nil)
+	dir := filepath.Join(root, "proj")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ws := dial(t, ts)
+	send(t, ws, map[string]any{"type": "hello", "token": "secret"})
+	readUntil(t, ws, "hello_ok")
+
+	// Default (loopback) spawn.
+	send(t, ws, map[string]any{"type": "spawn_at", "path": dir})
+	local := readUntil(t, ws, "attached")["name"].(string)
+
+	// Same folder, explicit remote host → a brand-new session, not a reuse.
+	send(t, ws, map[string]any{"type": "spawn_at", "path": dir, "host_name": "remote"})
+	remote := readUntil(t, ws, "attached")["name"].(string)
+	if remote == local {
+		t.Fatalf("remote-host spawn reused the localhost session %q (host pick dropped)", local)
+	}
+
+	// Re-picking the same host reuses that session rather than minting a third.
+	send(t, ws, map[string]any{"type": "spawn_at", "path": dir, "host_name": "remote"})
+	if again := readUntil(t, ws, "attached")["name"].(string); again != remote {
+		t.Fatalf("second remote spawn made a new session %q (want reuse of %q)", again, remote)
+	}
+}
+
 // TestSpawnAtCreatesNewFolder: spawn_at with create=true makes a brand-new
 // (jailed) directory before attaching, so the picker can start a project in a
 // folder that doesn't exist yet.

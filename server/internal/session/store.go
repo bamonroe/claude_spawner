@@ -76,6 +76,31 @@ func (s *Store) GetByDir(dir string) *Session {
 	return best
 }
 
+// GetByDirHost returns the registered session at dir that runs in a specific
+// execution location — an SSH host (host non-empty, host-target sessions only) or
+// the local sandbox (host empty, sandbox sessions only). This is what the spawn
+// picker dedups against: a folder may legitimately host one session per host, so
+// matching by directory alone would wrongly reuse (say) the localhost session when
+// the user asked for a remote one. nil if none; ties broken by name.
+func (s *Store) GetByDirHost(dir, host string) *Session {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var best *Session
+	for _, rec := range s.byName {
+		if rec.Dir != dir {
+			continue
+		}
+		match := rec.Host == host && rec.Target != TargetSandbox
+		if host == "" {
+			match = rec.Target == TargetSandbox
+		}
+		if match && (best == nil || rec.Name < best.Name) {
+			best = rec
+		}
+	}
+	return best
+}
+
 // GetBySessionID returns the registered session with the given session_id, or
 // nil. session_ids are globally unique, so at most one record matches.
 func (s *Store) GetBySessionID(id string) *Session {

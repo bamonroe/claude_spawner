@@ -66,11 +66,22 @@ func (c *conn) doSpawnAt(path string, target session.Target, create bool, host s
 		c.fail("bad_path", "sandbox target requested but the sandbox target is not enabled")
 		return
 	}
-	// Don't pile up a duplicate session for a directory that already has one — open
-	// the existing session instead of minting a "-2". (This is the main source of
-	// the confusing same-folder duplicates; a genuinely parallel session isn't
-	// offered here — delete or rename the existing one first if you want a fresh id.)
-	if existing := c.srv.store.GetByDir(abs); existing != nil {
+	// The execution location this spawn targets: a local sandbox (host stays empty),
+	// or a specific SSH host — an unspecified host means the loopback host. Resolving
+	// it up front lets the dedup below be host-aware.
+	wantHost := ""
+	if target != session.TargetSandbox {
+		wantHost = host
+		if wantHost == "" {
+			wantHost = session.LocalHost
+		}
+	}
+	// Don't pile up a duplicate session for a directory that already runs in the same
+	// place — open the existing session instead of minting a "-2". Match on directory
+	// AND host: a folder may legitimately have one session per host, so a remote spawn
+	// must not reuse the localhost session sitting at the same path (that dropped the
+	// host pick entirely). Delete or rename the existing one for a fresh id.
+	if existing := c.srv.store.GetByDirHost(abs, wantHost); existing != nil {
 		c.doAttach(existing.Name, false)
 		return
 	}
@@ -79,11 +90,10 @@ func (c *conn) doSpawnAt(path string, target session.Target, create bool, host s
 		c.fail("internal", err.Error())
 		return
 	}
-	// Run the session on the chosen SSH host. Only meaningful for the host target — a
-	// sandbox session runs in a local container, so ignore any host. An unspecified
-	// host keeps newSession's loopback default (LocalHost); a named host overrides it.
-	if target != session.TargetSandbox && host != "" {
-		sess.Host = host
+	// Pin the session to the resolved host. Sandbox sessions run in a local container,
+	// so they keep no host; a host-target session records its (possibly loopback) host.
+	if target != session.TargetSandbox {
+		sess.Host = wantHost
 	}
 	if perr := c.srv.store.Put(sess); perr != nil {
 		c.fail("internal", perr.Error())
