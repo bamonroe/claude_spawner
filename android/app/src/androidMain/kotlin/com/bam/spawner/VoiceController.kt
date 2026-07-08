@@ -61,7 +61,7 @@ data class TurnUsageInfo(val usage: TokenUsage, val atElapsedMs: Long)
  * and per-session chat transcript, and reflects server messages into UI state +
  * text-to-speech.
  */
-class VoiceController(context: Context, private val settings: SettingsStore) {
+class VoiceController(context: Context, private val settings: SettingsStore) : HostsIdentitiesController {
     private val app = context.applicationContext
     private val speaker = Speaker(app)
     private val recorder = OpusRecorder(app)
@@ -73,7 +73,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     @Volatile var appForeground = false
 
     private val _connected = MutableStateFlow(false)
-    val connected: StateFlow<Boolean> = _connected.asStateFlow()
+    override val connected: StateFlow<Boolean> = _connected.asStateFlow()
 
     private val _status = MutableStateFlow("disconnected")
     val status: StateFlow<String> = _status.asStateFlow()
@@ -145,12 +145,12 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     // The app-managed SSH host registry (Settings → Hosts). The server is the store
     // of record on disk, but the app owns the list; refreshed from every host_list.
     private val _hosts = MutableStateFlow<List<com.bam.spawner.net.Host>>(emptyList())
-    val hosts: StateFlow<List<com.bam.spawner.net.Host>> = _hosts.asStateFlow()
+    override val hosts: StateFlow<List<com.bam.spawner.net.Host>> = _hosts.asStateFlow()
 
     // The app-managed SSH identity registry (Settings → Identities); names + public
     // keys only (the server holds the private keys). Refreshed from every identity_list.
     private val _identities = MutableStateFlow<List<com.bam.spawner.net.Identity>>(emptyList())
-    val identities: StateFlow<List<com.bam.spawner.net.Identity>> = _identities.asStateFlow()
+    override val identities: StateFlow<List<com.bam.spawner.net.Identity>> = _identities.asStateFlow()
 
     private val _mic = MutableStateFlow("")
     val mic: StateFlow<String> = _mic.asStateFlow()
@@ -356,31 +356,34 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     fun discover() = client?.send(Outbound.discover())
 
     /** Request the SSH host registry (Settings → Hosts). Server replies host_list. */
-    fun requestHosts() = client?.send(Outbound.hostsList())
+    override fun requestHosts() = client?.send(Outbound.hostsList()).let {}
 
     /** Add or update a host; the server broadcasts the refreshed host_list. */
-    fun putHost(host: com.bam.spawner.net.Host) = client?.send(Outbound.hostPut(host))
+    override fun putHost(host: com.bam.spawner.net.Host) = client?.send(Outbound.hostPut(host)).let {}
 
     /** Delete a host by name; the server broadcasts the refreshed host_list. */
-    fun deleteHost(name: String) = client?.send(Outbound.hostDelete(name))
+    override fun deleteHost(name: String) = client?.send(Outbound.hostDelete(name)).let {}
 
     /** Request the SSH identity registry (Settings → Identities). Replies identity_list. */
-    fun requestIdentities() = client?.send(Outbound.identitiesList())
+    override fun requestIdentities() = client?.send(Outbound.identitiesList()).let {}
 
     /** Create a new identity (user required; optional keypair + password); broadcasts identity_list. */
-    fun createIdentity(name: String, user: String, password: String, genKey: Boolean) =
+    override fun createIdentity(name: String, user: String, password: String, genKey: Boolean) {
         client?.send(Outbound.identityCreate(name, user, password, genKey))
+    }
 
     /** Import an existing server-side private key as an identity; broadcasts identity_list. */
-    fun importIdentity(name: String, user: String, password: String, keyPath: String) =
+    override fun importIdentity(name: String, user: String, password: String, keyPath: String) {
         client?.send(Outbound.identityImport(name, user, password, keyPath))
+    }
 
     /** Update an identity's user (and optionally its password), keeping the keypair. */
-    fun updateIdentity(name: String, user: String, setPassword: Boolean, password: String) =
+    override fun updateIdentity(name: String, user: String, setPassword: Boolean, password: String) {
         client?.send(Outbound.identityUpdate(name, user, setPassword, password))
+    }
 
     /** Delete an identity by name; broadcasts identity_list. */
-    fun deleteIdentity(name: String) = client?.send(Outbound.identityDelete(name))
+    override fun deleteIdentity(name: String) = client?.send(Outbound.identityDelete(name)).let {}
 
     /** Adopt a discovered session into the registry and attach to it. */
     fun adopt(sessionId: String, dir: String) = client?.send(Outbound.adopt(sessionId, dir))

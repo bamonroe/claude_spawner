@@ -41,6 +41,14 @@ Milestones:
       appearance/commands settings, browse) into `commonMain`; abstract platform pieces (mic, wake word,
       TTS, permissions, SAF file pickers, prefs) behind `expect`/`actual`. Web stubs where no browser
       equivalent yet.
+  - [x] 2026-07-08 — **Hosts + Identities screens** (first shared slice). `SettingsScaffold`,
+        `HostsSettings`, `IdentitiesSettings` lifted verbatim into `commonMain/SettingsScreens.kt`,
+        retyped against a new shared `HostsIdentitiesController` interface (VoiceController implements it);
+        `collectAsStateWithLifecycle` → common `collectAsState`. Both targets build. These were the natural
+        first pick — their `Host`/`Identity` types + `Outbound` builders were already shared in M2, and the
+        server owns the registries so both clients edit the same data.
+  - [ ] Chat screen, sidebar, remaining settings (server/appearance/commands/audio), browse screen.
+  - [ ] `expect/actual` for prefs (SettingsStore), clipboard is already common, date formatting, status bar.
 - [ ] **M4 — Responsive layout.** `WindowSizeClass`: phone/narrow == app drawer; desktop/wide == persistent
       sidebar. Same composables, different container.
 - [ ] **M5 — Web-native platform bits.** Browser audio (Web Audio → server STT), `SpeechSynthesis` TTS,
