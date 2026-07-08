@@ -403,15 +403,15 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     // --- Visual directory browser (New session) ---
     fun browse(path: String) = client?.send(Outbound.browse(path))
 
-    fun spawnAt(path: String, target: String = "") {
-        client?.send(Outbound.spawnAt(path, target = target)) // the resulting `attached` switches the view
+    fun spawnAt(path: String, target: String = "", host: String = "") {
+        client?.send(Outbound.spawnAt(path, target = target, host = host)) // the resulting `attached` switches the view
     }
 
     /** Create a new project folder `name` under `parent` and spawn a session in it. */
-    fun spawnNewFolder(parent: String, name: String, target: String = "") {
+    fun spawnNewFolder(parent: String, name: String, target: String = "", host: String = "") {
         val clean = name.trim().trim('/')
         if (clean.isEmpty()) return
-        client?.send(Outbound.spawnAt("$parent/$clean", create = true, target = target))
+        client?.send(Outbound.spawnAt("$parent/$clean", create = true, target = target, host = host))
     }
 
     // --- Hands-free (always-listening VAD; only speech is sent) ---

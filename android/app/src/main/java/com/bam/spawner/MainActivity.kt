@@ -1972,13 +1972,19 @@ private fun VadSlider(label: String, initial: Int, min: Int, max: Int, step: Int
 }
 
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 private fun BrowseScreen(controller: VoiceController, onStarted: () -> Unit, onBack: () -> Unit) {
     val listing by controller.listing.collectAsStateWithLifecycle()
-    LaunchedEffect(Unit) { controller.browse("") } // load the roots on open
+    val hosts by controller.hosts.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { controller.browse(""); controller.requestHosts() } // roots + host list on open
     val atRoots = listing?.path.isNullOrEmpty()
     var newFolder by remember { mutableStateOf<String?>(null) } // non-null = the New-folder dialog is open
     var sandbox by remember { mutableStateOf(false) } // execution target: host (default) vs sandbox
+    var selectedHost by rememberSaveable { mutableStateOf("") } // "" = local; else a registered SSH host name
     val target = if (sandbox) "sandbox" else "host"
+    // A host only applies to the host target (a sandbox runs locally); drop any
+    // selection when switching to sandbox so we never send a stale host.
+    val spawnHost = if (sandbox) "" else selectedHost
 
     if (newFolder != null) {
         val parent = listing?.path ?: ""
@@ -2000,7 +2006,7 @@ private fun BrowseScreen(controller: VoiceController, onStarted: () -> Unit, onB
             confirmButton = {
                 TextButton(
                     enabled = !newFolder.isNullOrBlank(),
-                    onClick = { controller.spawnNewFolder(parent, newFolder!!, target); newFolder = null; onStarted() },
+                    onClick = { controller.spawnNewFolder(parent, newFolder!!, target, spawnHost); newFolder = null; onStarted() },
                 ) { Text("Create & start") }
             },
             dismissButton = { TextButton(onClick = { newFolder = null }) { Text("Cancel") } },
@@ -2058,8 +2064,18 @@ private fun BrowseScreen(controller: VoiceController, onStarted: () -> Unit, onB
             )
             Switch(checked = sandbox, onCheckedChange = { sandbox = it })
         }
+        // Host picker (host target only): "Local" plus each configured SSH host.
+        // Hidden for sandbox and when no hosts are configured (Local is the only option).
+        if (!sandbox && hosts.isNotEmpty()) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 4.dp)) {
+                FilterChip(selected = selectedHost == "", onClick = { selectedHost = "" }, label = { Text("Local") })
+                hosts.forEach { h ->
+                    FilterChip(selected = selectedHost == h.name, onClick = { selectedHost = h.name }, label = { Text(h.name) })
+                }
+            }
+        }
         Button(
-            onClick = { listing?.path?.let { controller.spawnAt(it, target) }; onStarted() },
+            onClick = { listing?.path?.let { controller.spawnAt(it, target, spawnHost) }; onStarted() },
             enabled = !atRoots,
             modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
         ) { Text(if (atRoots) "Choose a folder…" else "Start session here") }
