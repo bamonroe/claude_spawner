@@ -115,8 +115,10 @@ the feature works as expected, as the ship step (see [[use-android-dev-skill-and
       file. `Host.Identity` names an identity and, when set, supersedes `KeyFile` — the SSH pool
       resolves it to the managed private key. App: a **Settings → Identities** screen (create, list with
       copyable public keys, delete) and a host-form identity picker; the host card shows the linked
-      identity. Server + app + docs + tests, built and verified on the emulator. Needs the container
-      redeployed (restart button) + the new APK for the feature to be live end to end.
+      identity. **Import** an existing server-side key (`identity_import` → copies it into the keys dir,
+      records its public key) so the config default key that already authenticates turns shows up and
+      can be linked. Server + app + docs + tests, built and verified on the emulator. Needs the
+      container redeployed (restart button) + the new APK for the feature to be live end to end.
 - [x] 2026-07-08 — **Restart button rebuilds + recreates the container (one-tap deploy).** For the
       container deployment `SPAWNER_RESTART_CMD` now SSHes to the host over loopback and launches
       `deploy/rebuild-container.sh` detached (`setsid`), which runs `compose up -d --build` to rebuild

@@ -1447,6 +1447,8 @@ private fun IdentitiesSettings(controller: VoiceController, onBack: () -> Unit) 
     LaunchedEffect(connected) { if (connected) controller.requestIdentities() }
 
     var newName by rememberSaveable { mutableStateOf("") }
+    var importName by rememberSaveable { mutableStateOf("") }
+    var importPath by rememberSaveable { mutableStateOf("") }
 
     SettingsScaffold("Identities", onBack) {
         Text(
@@ -1465,6 +1467,20 @@ private fun IdentitiesSettings(controller: VoiceController, onBack: () -> Unit) 
             enabled = connected && newName.isNotBlank(),
             onClick = { controller.createIdentity(newName.trim()); newName = "" },
         ) { Text("Generate keypair") }
+
+        HorizontalDivider()
+        Text("Import an existing key", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Register a private key already on the server (e.g. the key it already uses to connect) so "
+                + "it shows up here and can be linked to hosts.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
+        )
+        OutlinedTextField(importName, { importName = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(importPath, { importPath = it }, label = { Text("Private-key path on server") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        Button(
+            enabled = connected && importName.isNotBlank() && importPath.isNotBlank(),
+            onClick = { controller.importIdentity(importName.trim(), importPath.trim()); importName = ""; importPath = "" },
+        ) { Text("Import key") }
 
         HorizontalDivider()
         Text("Identities", style = MaterialTheme.typography.titleMedium)

@@ -359,6 +359,9 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     /** Create a new identity (server generates the keypair); broadcasts identity_list. */
     fun createIdentity(name: String) = client?.send(Outbound.identityCreate(name))
 
+    /** Import an existing server-side private key as an identity; broadcasts identity_list. */
+    fun importIdentity(name: String, keyPath: String) = client?.send(Outbound.identityImport(name, keyPath))
+
     /** Delete an identity by name; broadcasts identity_list. */
     fun deleteIdentity(name: String) = client?.send(Outbound.identityDelete(name))
 

@@ -332,5 +332,7 @@ object Outbound {
     // broadcasts an updated identity_list after every create/delete.
     fun identitiesList() = JSONObject().put("type", "identities").toString()
     fun identityCreate(name: String) = JSONObject().put("type", "identity_create").put("name", name).toString()
+    fun identityImport(name: String, keyPath: String) =
+        JSONObject().put("type", "identity_import").put("name", name).put("key_path", keyPath).toString()
     fun identityDelete(name: String) = JSONObject().put("type", "identity_delete").put("name", name).toString()
 }
