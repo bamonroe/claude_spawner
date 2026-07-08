@@ -550,6 +550,7 @@ var wireHandlers = map[string]func(c *conn, in inbound){
 	"host_delete":       func(c *conn, in inbound) { c.doHostDelete(in.Name) },
 	"identities":        func(c *conn, in inbound) { c.sendIdentityList() },
 	"identity_create":   func(c *conn, in inbound) { c.doIdentityCreate(in.Name) },
+	"identity_import":   func(c *conn, in inbound) { c.doIdentityImport(in.Name, in.KeyPath) },
 	"identity_delete":   func(c *conn, in inbound) { c.doIdentityDelete(in.Name) },
 }
 

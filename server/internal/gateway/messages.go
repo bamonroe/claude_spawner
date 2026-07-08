@@ -39,6 +39,7 @@ type inbound struct {
 	Interactive  bool              `json:"interactive"`   // on `hello`: let Claude ask clarifying questions mid-task
 	Host         *session.Host     `json:"host"`          // on `host_put`: the SSH host entry to add/update
 	HostName     string            `json:"host_name"`     // on `spawn_at`: which registered SSH host to run the new session on ("" = local)
+	KeyPath      string            `json:"key_path"`      // on `identity_import`: server-side path of the existing private key to register
 }
 
 func msgHelloOK(sessionID, whisperModel string) map[string]any {

@@ -68,6 +68,7 @@ Every JSON message has a `type`. Optional `id` correlates request/response. `ts`
 | `host_delete`   | `{ "name": "<name>" }`                    | remove an SSH host from the registry by name -> `host_list` broadcast to every client |
 | `identities`    | `{}`                                      | request the app-managed SSH identity registry (Settings → Identities) -> `identity_list` |
 | `identity_create` | `{ "name": "<name>" }`                  | generate a fresh SSH keypair named `name`. The server keeps the private key and returns only the public key. Errors `bad_identity` if the name is empty or already exists. -> `identity_list` broadcast to every client |
+| `identity_import` | `{ "name": "<name>", "key_path": "<server path>" }` | register an existing server-side private key (e.g. the config default key) as a managed identity named `name`: copies it into the keys dir and records its public key. Errors `bad_identity` on empty name/path or an unreadable/encrypted key. -> `identity_list` broadcast to every client |
 | `identity_delete` | `{ "name": "<name>" }`                  | remove an identity and its private key by name -> `identity_list` broadcast to every client |
 | `ping`          | `{}`                                      | keepalive                                     |
 

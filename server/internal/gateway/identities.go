@@ -27,6 +27,22 @@ func (c *conn) doIdentityCreate(name string) {
 	c.srv.broadcast(msgIdentityList(c.srv.ids.List()))
 }
 
+// doIdentityImport registers an existing server-side private key as a managed
+// identity (e.g. the config default key that's already authenticating turns) and
+// broadcasts the new list. Bad name/path or an unreadable/encrypted key is a
+// bad_identity error.
+func (c *conn) doIdentityImport(name, keyPath string) {
+	if name == "" || keyPath == "" {
+		c.fail("bad_identity", "import needs a name and a private-key path")
+		return
+	}
+	if _, err := c.srv.ids.Import(name, keyPath); err != nil {
+		c.fail("bad_identity", err.Error())
+		return
+	}
+	c.srv.broadcast(msgIdentityList(c.srv.ids.List()))
+}
+
 // doIdentityDelete removes an identity and its private key, then broadcasts the new
 // list. Hosts still referencing it fall back to their KeyFile / the ssh-agent.
 func (c *conn) doIdentityDelete(name string) {

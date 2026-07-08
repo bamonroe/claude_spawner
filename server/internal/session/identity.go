@@ -114,14 +114,47 @@ func (s *IdentityStore) Create(name string) (*Identity, error) {
 	}
 	// authorized_keys line with the identity name as the comment.
 	authLine := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshPub))) + " " + name
+	return s.record(name, pem.EncodeToMemory(pemBlock), authLine)
+}
 
+// Import registers an existing private key (already on the server, e.g. the config
+// default SSH key) as a managed identity: it copies the key into keysDir under name
+// and records its public key. The original file is left untouched; encrypted keys
+// are rejected (the server authenticates non-interactively). Name must be free.
+func (s *IdentityStore) Import(name, srcPath string) (*Identity, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, fmt.Errorf("identity needs a name")
+	}
+	if strings.TrimSpace(srcPath) == "" {
+		return nil, fmt.Errorf("need a private-key path to import")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.byName[name]; ok {
+		return nil, fmt.Errorf("identity %q already exists", name)
+	}
+	raw, err := os.ReadFile(srcPath)
+	if err != nil {
+		return nil, fmt.Errorf("read key: %w", err)
+	}
+	signer, err := ssh.ParsePrivateKey(raw)
+	if err != nil {
+		return nil, fmt.Errorf("parse key (encrypted keys are not supported): %w", err)
+	}
+	authLine := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(signer.PublicKey()))) + " " + name
+	return s.record(name, raw, authLine)
+}
+
+// record writes the private key (0600) and registers + persists the identity. The
+// caller holds s.mu.
+func (s *IdentityStore) record(name string, priv []byte, authLine string) (*Identity, error) {
 	if err := os.MkdirAll(s.keysDir, 0o700); err != nil {
 		return nil, fmt.Errorf("keys dir: %w", err)
 	}
-	if err := os.WriteFile(s.KeyPath(name), pem.EncodeToMemory(pemBlock), 0o600); err != nil {
+	if err := os.WriteFile(s.KeyPath(name), priv, 0o600); err != nil {
 		return nil, fmt.Errorf("write private key: %w", err)
 	}
-
 	id := &Identity{Name: name, PublicKey: authLine}
 	s.byName[name] = id
 	if err := s.flush(); err != nil {

@@ -74,4 +74,30 @@ func TestIdentityStoreCreateListDelete(t *testing.T) {
 	if len(s3.List()) != 0 {
 		t.Fatal("delete should persist")
 	}
+
+	// Import: register an existing on-disk private key as a managed identity.
+	src, err := s3.Create("src") // reuse Create to mint a real key file on disk
+	if err != nil {
+		t.Fatal(err)
+	}
+	imported, err := s3.Import("copied", s3.KeyPath("src"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Same underlying key → same public material (bar the trailing name comment).
+	srcBody := src.PublicKey[:strings.LastIndex(src.PublicKey, " ")]
+	impBody := imported.PublicKey[:strings.LastIndex(imported.PublicKey, " ")]
+	if srcBody != impBody {
+		t.Fatalf("imported key differs from source: %q vs %q", impBody, srcBody)
+	}
+	if _, serr := os.Stat(s3.KeyPath("copied")); serr != nil {
+		t.Fatalf("imported private key not written: %v", serr)
+	}
+	// Importing onto a taken name, or from a bad path, errors.
+	if _, ierr := s3.Import("copied", s3.KeyPath("src")); ierr == nil {
+		t.Fatal("duplicate import should error")
+	}
+	if _, ierr := s3.Import("nope", filepath.Join(dir, "does-not-exist")); ierr == nil {
+		t.Fatal("import from missing path should error")
+	}
 }
