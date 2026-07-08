@@ -96,8 +96,11 @@ you're changing the data path, the session driver, or STT. Two load-bearing rule
   who can reach the WebSocket can spawn unrestricted Claude sessions.
 - Never expose the server to the public internet without auth + TLS. Prefer a private network
   / Tailscale / reverse proxy with auth.
-- Validate and constrain directory paths from "spawn" commands (no surprise traversal outside an
-  allowed root unless the user opts in).
+- The **voice** spawn dialog is constrained to the `SPAWNER_ROOT` roots (it matches spoken paths
+  against them). The **visual** "new session" picker is deliberately **not** jailed: it browses the
+  chosen host's whole filesystem over SSH (starting at `/`) and can spawn anywhere on it — the user
+  opted into this. Given the server is already trusted and Claude runs with permissions skipped,
+  that's consistent; keep the picker behind the authenticated WebSocket.
 
 ## Build, run & repository layout — see `docs/architecture.md` and `README.md`
 

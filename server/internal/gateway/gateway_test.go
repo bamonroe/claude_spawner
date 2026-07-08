@@ -102,7 +102,7 @@ func newTestServerGW(t *testing.T, stt transcribe.Transcriber) (*httptest.Server
 	if err != nil {
 		t.Fatal(err)
 	}
-	gw := New(cfg, store, hosts, ids, driver, tmux.NewManager(), stt, projects.New(cfg.SpawnRoots))
+	gw := New(cfg, store, hosts, ids, nil, driver, tmux.NewManager(), stt, projects.New(cfg.SpawnRoots))
 	ts := httptest.NewServer(http.HandlerFunc(gw.HandleWS))
 	t.Cleanup(ts.Close)
 	return ts, root, gw
@@ -499,7 +499,7 @@ func newSandboxTestServer(t *testing.T) (*httptest.Server, string, *Server) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	gw := New(cfg, store, hosts, ids, driver, tmux.NewManager(), nil, projects.New(cfg.SpawnRoots))
+	gw := New(cfg, store, hosts, ids, nil, driver, tmux.NewManager(), nil, projects.New(cfg.SpawnRoots))
 	ts := httptest.NewServer(http.HandlerFunc(gw.HandleWS))
 	t.Cleanup(ts.Close)
 	return ts, root, gw
@@ -916,8 +916,8 @@ func TestSpawnAtDifferentHostMakesNewSession(t *testing.T) {
 }
 
 // TestSpawnAtCreatesNewFolder: spawn_at with create=true makes a brand-new
-// (jailed) directory before attaching, so the picker can start a project in a
-// folder that doesn't exist yet.
+// directory before attaching, so the picker can start a project in a folder that
+// doesn't exist yet.
 func TestSpawnAtCreatesNewFolder(t *testing.T) {
 	ts, root := newTestServer(t, nil)
 	dir := filepath.Join(root, "brand-new-proj")
@@ -940,20 +940,18 @@ func TestSpawnAtCreatesNewFolder(t *testing.T) {
 	}
 }
 
-// TestSpawnAtCreateJailed: create=true still can't escape the spawn roots.
-func TestSpawnAtCreateJailed(t *testing.T) {
-	ts, root := newTestServer(t, nil)
+// TestSpawnAtRejectsRelativePath: the visual picker walks the target host's whole
+// filesystem (no spawn-root jail), but a path must still be absolute — a relative
+// one is meaningless without a host-side cwd and is rejected.
+func TestSpawnAtRejectsRelativePath(t *testing.T) {
+	ts, _ := newTestServer(t, nil)
 	ws := dial(t, ts)
 	send(t, ws, map[string]any{"type": "hello", "token": "secret"})
 	readUntil(t, ws, "hello_ok")
 
-	escape := filepath.Join(root, "..", "escaped")
-	send(t, ws, map[string]any{"type": "spawn_at", "path": escape, "create": true})
+	send(t, ws, map[string]any{"type": "spawn_at", "path": "relative/path", "create": true})
 	if m := readUntil(t, ws, "error"); m["code"] != "bad_path" {
-		t.Fatalf("expected bad_path for an out-of-jail create, got %v", m)
-	}
-	if _, err := os.Stat(filepath.Clean(escape)); err == nil {
-		t.Fatal("out-of-jail folder was created")
+		t.Fatalf("expected bad_path for a relative spawn path, got %v", m)
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -517,4 +518,98 @@ func shellQuote(s string) string {
 		return "''"
 	}
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// DirEntry is one subdirectory of a host's filesystem, as surfaced by the visual
+// "new session" browser. Path is absolute on that host; Repo marks a git checkout.
+type DirEntry struct {
+	Name string
+	Path string
+	Repo bool
+}
+
+// ListDir returns the immediate, non-hidden subdirectories of dir on host — each
+// flagged if it holds a .git — sorted case-insensitively. It is the remote
+// equivalent of projects.Children: the browser must reflect the *target* machine's
+// filesystem (loopback for LocalHost), never the server's own, which in a container
+// is just a handful of mounts. One POSIX-sh probe over the pooled connection.
+func (p *SSHPool) ListDir(ctx context.Context, host, dir string) ([]DirEntry, error) {
+	// The */ glob lists only subdirectories and skips dotfiles; for each, print
+	// "<repo> <name>" where <repo> is 1 when it has a .git entry. A cd failure (dir
+	// gone) yields an empty listing rather than an error.
+	script := "cd " + shellQuote(dir) + ` 2>/dev/null || exit 0; for d in */; do [ -d "$d" ] || continue; n=${d%/}; if [ -e "$n/.git" ]; then printf '1 %s\n' "$n"; else printf '0 %s\n' "$n"; fi; done`
+	out, err := p.Run(ctx, host, script)
+	if err != nil {
+		return nil, err
+	}
+	var entries []DirEntry
+	for _, line := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
+		if len(line) < 3 { // "<flag> <name>" — at least a flag, a space, one char
+			continue
+		}
+		name := line[2:]
+		entries = append(entries, DirEntry{Name: name, Path: joinRemote(dir, name), Repo: line[0] == '1'})
+	}
+	sort.SliceStable(entries, func(a, b int) bool {
+		return strings.ToLower(entries[a].Name) < strings.ToLower(entries[b].Name)
+	})
+	return entries, nil
+}
+
+// DirExists reports whether dir is a directory on host.
+func (p *SSHPool) DirExists(ctx context.Context, host, dir string) (bool, error) {
+	out, err := p.Run(ctx, host, "if [ -d "+shellQuote(dir)+" ]; then printf 1; fi")
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(string(out)) == "1", nil
+}
+
+// MakeDir creates dir and any missing parents on host.
+func (p *SSHPool) MakeDir(ctx context.Context, host, dir string) error {
+	_, err := p.Run(ctx, host, "mkdir -p "+shellQuote(dir))
+	return err
+}
+
+// Run executes a short command on host over the pooled connection and returns its
+// stdout. For the browser's filesystem probes (list/stat/mkdir) — turns stream via
+// SSHExecutor. Re-dials once if the cached connection has gone stale, mirroring
+// SSHExecutor.Start.
+func (p *SSHPool) Run(ctx context.Context, host, cmd string) ([]byte, error) {
+	client, err := p.client(host)
+	if err != nil {
+		return nil, err
+	}
+	out, err := runRemote(ctx, client, cmd)
+	if err != nil {
+		p.drop(host, client)
+		client, derr := p.client(host)
+		if derr != nil {
+			return nil, err
+		}
+		out, err = runRemote(ctx, client, cmd)
+	}
+	return out, err
+}
+
+// runRemote opens one session channel, runs cmd, and returns its stdout. ctx-cancel
+// kills the remote command so a hung probe can't leak a channel.
+func runRemote(ctx context.Context, client *ssh.Client, cmd string) ([]byte, error) {
+	sess, err := client.NewSession()
+	if err != nil {
+		return nil, err
+	}
+	defer sess.Close()
+	stop := context.AfterFunc(ctx, func() { _ = sess.Signal(ssh.SIGKILL); _ = sess.Close() })
+	defer stop()
+	return sess.Output(cmd)
+}
+
+// joinRemote joins a POSIX absolute dir and a child name without doubling the slash
+// at the filesystem root.
+func joinRemote(dir, name string) string {
+	if dir == "/" {
+		return "/" + name
+	}
+	return strings.TrimRight(dir, "/") + "/" + name
 }

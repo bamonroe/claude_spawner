@@ -35,6 +35,7 @@ type Server struct {
 	store    *session.Store
 	hosts    *session.HostStore     // app-managed SSH host registry (Settings → Hosts)
 	ids      *session.IdentityStore // app-managed SSH identity registry (Settings → Identities)
+	ssh      *session.SSHPool       // pooled SSH connections; nil when SSH-native is disabled
 	driver   *session.Driver
 	tmuxMgr  *tmux.Manager
 	stt      transcribe.Transcriber // nil disables the audio path
@@ -172,7 +173,7 @@ type clientState struct {
 
 // New builds a gateway Server. stt may be nil, in which case audio frames are
 // rejected but text `utterance` messages still work.
-func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, ids *session.IdentityStore, driver *session.Driver, tmuxMgr *tmux.Manager, stt transcribe.Transcriber, proj *projects.Index) *Server {
+func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, ids *session.IdentityStore, sshPool *session.SSHPool, driver *session.Driver, tmuxMgr *tmux.Manager, stt transcribe.Transcriber, proj *projects.Index) *Server {
 	var fast transcribe.Transcriber
 	if cfg.WhisperFastURL != "" {
 		fast = &transcribe.RemoteWhisper{URL: cfg.WhisperFastURL}
@@ -188,6 +189,7 @@ func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, ids
 		store:        store,
 		hosts:        hosts,
 		ids:          ids,
+		ssh:          sshPool,
 		driver:       driver,
 		tmuxMgr:      tmuxMgr,
 		stt:          stt,
@@ -529,7 +531,7 @@ var wireHandlers = map[string]func(c *conn, in inbound){
 	"rename_discovered": func(c *conn, in inbound) { c.doRenameDiscovered(in.SessionID, in.Path, in.NewName) },
 	"rename":            func(c *conn, in inbound) { c.doRename(in.Name, in.NewName) },
 	"delete":            func(c *conn, in inbound) { c.doDelete(in.Name) },
-	"browse":            func(c *conn, in inbound) { c.doBrowse(in.Path) },
+	"browse":            func(c *conn, in inbound) { c.doBrowse(in.Path, in.HostName) },
 	"spawn_at":          func(c *conn, in inbound) { c.doSpawnAt(in.Path, session.Target(in.Target), in.Create, in.HostName) },
 	"cancel":            func(c *conn, in inbound) { c.cancelDialog() },
 	"abort":             func(c *conn, in inbound) { c.abortTurn() },
@@ -549,10 +551,12 @@ var wireHandlers = map[string]func(c *conn, in inbound){
 	"host_put":          func(c *conn, in inbound) { c.doHostPut(in.Host) },
 	"host_delete":       func(c *conn, in inbound) { c.doHostDelete(in.Name) },
 	"identities":        func(c *conn, in inbound) { c.sendIdentityList() },
-	"identity_create":   func(c *conn, in inbound) { c.doIdentityCreate(in.Name, in.User, in.Password, in.GenKey == nil || *in.GenKey) },
-	"identity_import":   func(c *conn, in inbound) { c.doIdentityImport(in.Name, in.User, in.Password, in.KeyPath) },
-	"identity_update":   func(c *conn, in inbound) { c.doIdentityUpdate(in.Name, in.User, in.SetPassword, in.Password) },
-	"identity_delete":   func(c *conn, in inbound) { c.doIdentityDelete(in.Name) },
+	"identity_create": func(c *conn, in inbound) {
+		c.doIdentityCreate(in.Name, in.User, in.Password, in.GenKey == nil || *in.GenKey)
+	},
+	"identity_import": func(c *conn, in inbound) { c.doIdentityImport(in.Name, in.User, in.Password, in.KeyPath) },
+	"identity_update": func(c *conn, in inbound) { c.doIdentityUpdate(in.Name, in.User, in.SetPassword, in.Password) },
+	"identity_delete": func(c *conn, in inbound) { c.doIdentityDelete(in.Name) },
 }
 
 // loop reads and dispatches messages until the socket closes. Text frames are

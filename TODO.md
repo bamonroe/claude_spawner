@@ -107,6 +107,18 @@ box is nearly free → then containerizing the server is a deploy change, not ne
 the feature works as expected, as the ship step (see [[use-android-dev-skill-and-emulator]]).
 **Re-containerizing the server is LOW priority** — it blocks nothing, do it whenever.
 
+- [x] 2026-07-08 — **Host-scoped directory browser (sidebar "new session").** The visual picker now
+      lists the **chosen host's** filesystem over SSH (loopback for localhost), starting at that host's
+      root `/`, instead of the server's local filesystem jailed to `SPAWNER_ROOT` — fixes the bug where
+      picking a remote host still showed localhost's files (in a container the server's local FS is just
+      a few mounts, so even "localhost" must list over the loopback sshd). `browse` carries `host_name`;
+      new `SSHPool.ListDir/DirExists/MakeDir/Run` run the probes remotely; `doSpawnAt` checks/creates the
+      dir on the target host and requires an absolute path (spawn-root jail dropped for the visual picker
+      — voice dialog still uses the roots). App: host/target moved to the top of the New-session screen;
+      changing the host re-lists from its root. Server-only steps verified via `go test`; **needs the
+      container redeployed (restart button) to go live, then Android emulator/phone check.**
+- [x] 2026-07-08 — **Server-owned SSH auth material.** Private key and known_hosts moved into the
+      server's own `deploy/state/` (`/state/ssh/…`, `/state/known_hosts`), independent of the host home.
 - [x] 2026-07-08 — **SSH identities: app-managed keypairs, hosts reference them.** New
       `session.IdentityStore` — the app names/creates keypairs, the server generates ed25519 and
       **keeps the private key** (`SPAWNER_SSH_KEYS` dir, `0600`), exposing only the public key

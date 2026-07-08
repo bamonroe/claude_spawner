@@ -18,9 +18,9 @@ type inbound struct {
 	Text         string            `json:"text"`          // utterance / dialog reply text
 	Name         string            `json:"name"`          // session name for attach/kill/rename
 	NewName      string            `json:"new_name"`      // target name for rename
-	Path         string            `json:"path"`          // directory for browse / spawn_at
+	Path         string            `json:"path"`          // directory for browse / spawn_at ("" on browse = the host's root "/")
 	Target       string            `json:"target"`        // on spawn_at: "host" (default) | "sandbox" execution target
-	Create       bool              `json:"create"`        // on spawn_at: mkdir the (jailed) path first if it doesn't exist
+	Create       bool              `json:"create"`        // on spawn_at: mkdir the path (on the target host) first if it doesn't exist
 	Codec        string            `json:"codec"`         // audio codec on wake: "ogg_opus" | "pcm16"
 	ClientID     string            `json:"client_id"`     // stable per-app id, for reconnect/resume
 	HandsFree    bool              `json:"hands_free"`    // set on `wake` when the clip is VAD-gated (hands-free)
@@ -38,7 +38,7 @@ type inbound struct {
 	Brief        bool              `json:"brief"`         // on `hello`: append a "reply briefly for TTS" hint to dictation
 	Interactive  bool              `json:"interactive"`   // on `hello`: let Claude ask clarifying questions mid-task
 	Host         *session.Host     `json:"host"`          // on `host_put`: the SSH host entry to add/update
-	HostName     string            `json:"host_name"`     // on `spawn_at`: which registered SSH host to run the new session on ("" = local)
+	HostName     string            `json:"host_name"`     // on `browse`/`spawn_at`: which registered SSH host to browse / run the new session on ("" = local)
 	KeyPath      string            `json:"key_path"`      // on `identity_import`: server-side path of the existing private key to register
 	User         string            `json:"user"`          // on `identity_create`/`identity_import`: the identity's default SSH login user (required)
 	Password     string            `json:"password"`      // on `identity_create`/`identity_import`: optional SSH password (server-only)

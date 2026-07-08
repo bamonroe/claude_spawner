@@ -238,7 +238,8 @@ uppercase letters by voice. Acceptable; documented in `docs/commands.md`.
     jobs.go                     running-turn tracking: activity/files breadcrumbs, diff summary
     inflight.go                 per-session in-flight turn registry (abort, restart interrupts)
     ask.go                      interactive-mode clarifying-question (ask) extraction
-    browse.go                   directory listing for the New-session picker (listing)
+    browse.go                   host-scoped directory listing for the New-session picker (listing);
+                                  lists the chosen host's FS over SSH from "/" (not the local roots)
     messages.go                 wire message constructors
     *_test.go                   httptest+ws integration (auth, spawn, dictation, ask, stream)
   internal/session/session.go   headless claude driver: Driver.Turn (stream-json), NewSessionID

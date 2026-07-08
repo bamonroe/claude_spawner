@@ -8,67 +8,69 @@ import (
 	"github.com/bam/claude_spawner/server/internal/session"
 )
 
-// doBrowse lists a directory for the app's visual "new session" picker. An empty
-// path returns the roots; otherwise it returns the subfolders of path (jailed to
-// a root), with a parent path for navigating up ("" = parent is the roots view).
-func (c *conn) doBrowse(path string) {
-	if path == "" {
-		entries := make([]listingEntry, 0, len(c.srv.cfg.SpawnRoots))
-		for _, r := range c.srv.cfg.SpawnRoots {
-			entries = append(entries, listingEntry{Name: filepath.Base(r), Path: r, Repo: projects.IsRepo(r)})
-		}
-		c.send(msgListing("", "", entries))
-		return
+// doBrowse lists a directory for the app's visual "new session" picker, on the
+// chosen host. Browsing is host-scoped: the listing runs on that host over SSH
+// (loopback for LocalHost) so it reflects the machine the session will run on — not
+// the server's own filesystem, which in a container is just a few mounts. An empty
+// path starts at the host's filesystem root ("/"); there is no configured-roots
+// jail here (the visual picker can walk the whole host). The response carries the
+// parent for "up" navigation ("" at "/" — the top, nothing above it).
+func (c *conn) doBrowse(path, host string) {
+	if host == "" {
+		host = session.LocalHost
 	}
-
-	abs, err := c.srv.cfg.ValidateSpawnDir(path)
+	dir := "/"
+	if path != "" {
+		dir = filepath.Clean(path)
+	}
+	entries, err := c.listDir(host, dir)
 	if err != nil {
 		c.fail("bad_path", err.Error())
 		return
 	}
-	kids := projects.Children(abs)
+	parent := ""
+	if dir != "/" {
+		parent = filepath.Dir(dir)
+	}
+	c.send(msgListing(dir, parent, entries))
+}
+
+// listDir returns dir's immediate subdirectories on host. With SSH-native execution
+// it probes the host over SSH; otherwise (SSH disabled, tests) it reads the local
+// filesystem, which is then the same machine.
+func (c *conn) listDir(host, dir string) ([]listingEntry, error) {
+	if c.srv.ssh != nil {
+		des, err := c.srv.ssh.ListDir(c.ctx, host, dir)
+		if err != nil {
+			return nil, err
+		}
+		entries := make([]listingEntry, 0, len(des))
+		for _, d := range des {
+			entries = append(entries, listingEntry{Name: d.Name, Path: d.Path, Repo: d.Repo})
+		}
+		return entries, nil
+	}
+	kids := projects.Children(dir)
 	entries := make([]listingEntry, 0, len(kids))
 	for _, d := range kids {
 		entries = append(entries, listingEntry{Name: d.Name, Path: d.Path, Repo: projects.IsRepo(d.Path)})
 	}
-	parent := "" // at a root, "up" goes back to the roots view
-	if !c.isRoot(abs) {
-		parent = filepath.Dir(abs)
-	}
-	c.send(msgListing(abs, parent, entries))
+	return entries, nil
 }
 
-// doSpawnAt creates a session in the chosen directory and attaches to it — the
-// visual equivalent of finishing the spawn dialog.
+// doSpawnAt creates a session in the chosen directory on the chosen host and
+// attaches to it — the visual equivalent of finishing the spawn dialog. The
+// directory (and its existence / creation) is resolved on the target host, so a
+// remote spawn checks and makes the folder on that remote box, not locally.
 func (c *conn) doSpawnAt(path string, target session.Target, create bool, host string) {
-	abs, err := c.srv.cfg.ValidateSpawnDir(path)
-	if err != nil {
-		c.fail("bad_path", err.Error())
+	dir := filepath.Clean(path)
+	if !filepath.IsAbs(dir) {
+		c.fail("bad_path", "spawn path must be absolute")
 		return
 	}
-	// create: make a brand-new project folder (jailed to a root) before spawning,
-	// so the picker can start a session in a directory that doesn't exist yet.
-	if create {
-		if _, e := os.Stat(abs); e == nil {
-			c.fail("bad_path", "that folder already exists")
-			return
-		}
-		if e := c.srv.driver.MakeSpawnDir(c.ctx, abs); e != nil {
-			c.fail("spawn_failed", e.Error())
-			return
-		}
-	}
-	if info, e := os.Stat(abs); e != nil || !info.IsDir() {
-		c.fail("bad_path", "not a directory")
-		return
-	}
-	if target == session.TargetSandbox && !c.srv.driver.SandboxEnabled() {
-		c.fail("bad_path", "sandbox target requested but the sandbox target is not enabled")
-		return
-	}
-	// The execution location this spawn targets: a local sandbox (host stays empty),
-	// or a specific SSH host — an unspecified host means the loopback host. Resolving
-	// it up front lets the dedup below be host-aware.
+	// The execution location: a local sandbox (host stays empty) or a specific SSH
+	// host — an unspecified host means loopback. This drives where the folder is
+	// checked/created and which host the session pins to.
 	wantHost := ""
 	if target != session.TargetSandbox {
 		wantHost = host
@@ -76,16 +78,41 @@ func (c *conn) doSpawnAt(path string, target session.Target, create bool, host s
 			wantHost = session.LocalHost
 		}
 	}
+	if target == session.TargetSandbox && !c.srv.driver.SandboxEnabled() {
+		c.fail("bad_path", "sandbox target requested but the sandbox target is not enabled")
+		return
+	}
+
+	exists, err := c.dirExists(wantHost, dir)
+	if err != nil {
+		c.fail("bad_path", err.Error())
+		return
+	}
+	// create: make a brand-new project folder before spawning, so the picker can
+	// start a session in a directory that doesn't exist yet.
+	if create {
+		if exists {
+			c.fail("bad_path", "that folder already exists")
+			return
+		}
+		if e := c.makeDir(wantHost, dir); e != nil {
+			c.fail("spawn_failed", e.Error())
+			return
+		}
+	} else if !exists {
+		c.fail("bad_path", "not a directory")
+		return
+	}
 	// Don't pile up a duplicate session for a directory that already runs in the same
 	// place — open the existing session instead of minting a "-2". Match on directory
 	// AND host: a folder may legitimately have one session per host, so a remote spawn
-	// must not reuse the localhost session sitting at the same path (that dropped the
-	// host pick entirely). Delete or rename the existing one for a fresh id.
-	if existing := c.srv.store.GetByDirHost(abs, wantHost); existing != nil {
+	// must not reuse the localhost session at the same path. Delete or rename the
+	// existing one for a fresh id.
+	if existing := c.srv.store.GetByDirHost(dir, wantHost); existing != nil {
 		c.doAttach(existing.Name, false)
 		return
 	}
-	sess, err := c.newSession(sanitizeName(filepath.Base(abs)), abs, target)
+	sess, err := c.newSession(sanitizeName(filepath.Base(dir)), dir, target)
 	if err != nil {
 		c.fail("internal", err.Error())
 		return
@@ -107,4 +134,33 @@ func (c *conn) doSpawnAt(path string, target session.Target, create bool, host s
 	c.srv.bindJob(c, sess, true)                        // register for live turn fan-out (fresh session: no catch-up)
 	c.send(msgAttached(sess.Name, sess.SessionID, nil)) // freshly spawned: no transcript, no context size yet
 	c.sendSessionList()
+}
+
+// dirExists reports whether dir is a directory in the given execution location: a
+// sandbox / local target (host == "") is checked locally; a host target is checked
+// on that host over SSH when SSH-native is enabled, else locally.
+func (c *conn) dirExists(host, dir string) (bool, error) {
+	if host != "" && c.srv.ssh != nil {
+		return c.srv.ssh.DirExists(c.ctx, host, dir)
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	if !info.IsDir() {
+		return false, nil
+	}
+	return true, nil
+}
+
+// makeDir creates dir (and parents) in the given execution location — on the host
+// over SSH for a host target, locally otherwise.
+func (c *conn) makeDir(host, dir string) error {
+	if host != "" && c.srv.ssh != nil {
+		return c.srv.ssh.MakeDir(c.ctx, host, dir)
+	}
+	return c.srv.driver.MakeSpawnDir(c.ctx, dir)
 }

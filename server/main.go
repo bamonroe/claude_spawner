@@ -137,7 +137,7 @@ func main() {
 	proj := projects.New(cfg.SpawnRoots)
 	log.Printf("project index: %d dirs under roots %v", len(proj.List(1<<30)), cfg.SpawnRoots)
 
-	gw := gateway.New(cfg, store, hostStore, idStore, driver, tmuxMgr, stt, proj)
+	gw := gateway.New(cfg, store, hostStore, idStore, sshConns, driver, tmuxMgr, stt, proj)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
