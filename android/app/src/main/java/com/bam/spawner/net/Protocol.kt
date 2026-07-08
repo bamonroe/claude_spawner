@@ -37,6 +37,8 @@ sealed interface ServerMsg {
     data class Ask(val name: String, val questions: List<AskQuestion>) : ServerMsg // interactive clarification
     data object StopSpeaking : ServerMsg
     data class Listing(val path: String, val parent: String, val entries: List<BrowseEntry>) : ServerMsg
+    data class FileSaved(val path: String) : ServerMsg // an upload landed on the target host
+    data class FileData(val name: String, val path: String, val content: String) : ServerMsg // a download's base64 bytes
     data class HostList(val hosts: List<Host>) : ServerMsg // app-managed SSH host registry
     data class IdentityList(val identities: List<Identity>) : ServerMsg // app-managed SSH identities
     data class Unknown(val type: String) : ServerMsg
@@ -87,6 +89,8 @@ sealed interface ServerMsg {
                 "ask" -> Ask(o.optString("name"), readAsk(o.optJSONArray("questions")))
                 "stop_speaking" -> StopSpeaking
                 "listing" -> Listing(o.optString("path"), o.optString("parent"), readEntries(o.optJSONArray("entries")))
+                "file_saved" -> FileSaved(o.optString("path"))
+                "file_data" -> FileData(o.optString("name"), o.optString("path"), o.optString("content"))
                 "host_list" -> HostList(readHosts(o.optJSONArray("hosts")))
                 "identity_list" -> IdentityList(readIdentities(o.optJSONArray("identities")))
                 else -> Unknown(o.optString("type"))
@@ -139,7 +143,7 @@ sealed interface ServerMsg {
             if (arr == null) return emptyList()
             return (0 until arr.length()).map {
                 val e = arr.getJSONObject(it)
-                BrowseEntry(e.optString("name"), e.optString("path"), e.optBoolean("repo"))
+                BrowseEntry(e.optString("name"), e.optString("path"), e.optBoolean("repo"), e.optBoolean("dir", true))
             }
         }
 
@@ -231,7 +235,7 @@ data class DiscoveredInfo(
 )
 
 /** A directory in the "new session" browser. */
-data class BrowseEntry(val name: String, val path: String, val repo: Boolean)
+data class BrowseEntry(val name: String, val path: String, val repo: Boolean, val dir: Boolean = true)
 
 /**
  * A configured SSH host for SSH-native execution (Settings → Hosts). The app is the
@@ -313,8 +317,20 @@ object Outbound {
     fun renameDiscovered(sessionId: String, dir: String, newName: String) =
         JSONObject().put("type", "rename_discovered").put("session_id", sessionId)
             .put("path", dir).put("new_name", newName).toString()
-    fun browse(path: String, host: String = "") =
+    fun browse(path: String, host: String = "", files: Boolean = false) =
         JSONObject().put("type", "browse").put("path", path)
+            .apply { if (host.isNotEmpty()) put("host_name", host) }
+            .apply { if (files) put("files", true) }
+            .toString()
+    // File transfer over the socket: upload writes base64 bytes to <path>/<name> on
+    // host; download reads the file at path on host (-> file_data). "" host = local.
+    fun upload(path: String, name: String, contentB64: String, host: String = "") =
+        JSONObject().put("type", "upload").put("path", path).put("name", name)
+            .put("content", contentB64)
+            .apply { if (host.isNotEmpty()) put("host_name", host) }
+            .toString()
+    fun download(path: String, host: String = "") =
+        JSONObject().put("type", "download").put("path", path)
             .apply { if (host.isNotEmpty()) put("host_name", host) }
             .toString()
     fun spawnAt(path: String, create: Boolean = false, target: String = "", host: String = "") =

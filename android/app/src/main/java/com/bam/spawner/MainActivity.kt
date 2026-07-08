@@ -36,6 +36,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.offset
@@ -115,6 +116,7 @@ import com.bam.spawner.audio.AudioOutput
 import com.bam.spawner.net.AskQuestion
 import com.bam.spawner.net.DiscoveredInfo
 import com.bam.spawner.net.RateLimitInfo
+import com.bam.spawner.net.ServerMsg
 import com.bam.spawner.net.TokenUsage
 import com.bam.spawner.net.UsageReport
 import com.bam.spawner.net.UsageEstimateInfo
@@ -409,6 +411,7 @@ private fun MainScreen(
                 )
             }
             InputBar(
+                controller = controller,
                 connected = connected,
                 trayOpen = trayOpen,
                 onTrayOpenChange = { trayOpen = it },
@@ -1014,6 +1017,7 @@ private fun CacheWarmBar(info: TurnUsageInfo) {
 
 @Composable
 private fun InputBar(
+    controller: VoiceController,
     connected: Boolean,
     trayOpen: Boolean,
     onTrayOpenChange: (Boolean) -> Unit,
@@ -1049,6 +1053,13 @@ private fun InputBar(
         verticalAlignment = Alignment.Bottom,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        // File transfer (📎): upload a phone file to — or download one from — the
+        // session's host, prefilling the box with "look at the file at <path>".
+        TransferButton(
+            controller = controller,
+            enabled = connected,
+            onUploaded = { path -> draft = "look at the file at $path" },
+        )
         OutlinedTextField(
             value = draft, onValueChange = { draft = it },
             placeholder = { Text("Message…") }, singleLine = false, maxLines = 6,
@@ -1191,6 +1202,177 @@ private fun InputBar(
         }
       }
     }
+}
+
+/** The starting point for a transfer picker: the attached session's directory and
+ *  host, or the host root when nothing is attached / discovery hasn't surfaced it. */
+private data class DirHost(val dir: String, val host: String)
+
+/** A file the user picked to upload, held while they choose a destination directory. */
+private data class PendingUpload(val name: String, val content: String, val start: DirHost)
+
+/** The 📎 button left of the message box: a menu to upload a phone file onto the
+ *  session's host, or download a host file back to the phone — both over the same
+ *  authenticated socket. An upload prefills the message box via [onUploaded]. */
+@Composable
+private fun TransferButton(
+    controller: VoiceController,
+    enabled: Boolean,
+    onUploaded: (String) -> Unit,
+) {
+    val context = LocalContext.current
+    var menu by remember { mutableStateOf(false) }
+    // Non-null while the destination-directory picker is open for an upload.
+    var pendingUpload by remember { mutableStateOf<PendingUpload?>(null) }
+    // Non-null while the download file-picker is open (its browse start point).
+    var downloadStart by remember { mutableStateOf<DirHost?>(null) }
+    // A finished download's bytes, awaiting a "save as" destination.
+    var pendingSave by remember { mutableStateOf<ServerMsg.FileData?>(null) }
+
+    fun start(): DirHost =
+        controller.attachedDirHost()?.let { DirHost(it.first, it.second) } ?: DirHost("/", "")
+
+    // Pick a phone file → hold its name + base64 bytes, then open the dest-dir picker.
+    val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            val name = context.contentResolver
+                .query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+                ?.use { c -> if (c.moveToFirst()) c.getString(0) else null } ?: "upload.bin"
+            if (bytes != null) {
+                val b64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                pendingUpload = PendingUpload(name, b64, start())
+            }
+        }
+    }
+    // "Save as" destination for a completed download → write the decoded bytes there.
+    val saveFile = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/octet-stream"),
+    ) { uri ->
+        val data = pendingSave
+        pendingSave = null
+        if (uri != null && data != null) {
+            val bytes = android.util.Base64.decode(data.content, android.util.Base64.NO_WRAP)
+            context.contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
+        }
+    }
+
+    // An upload landed: prefill the message box (do NOT send).
+    LaunchedEffect(Unit) { controller.fileSaved.collect { onUploaded(it) } }
+    // A download's bytes arrived: open "save as" defaulting to the file's name.
+    LaunchedEffect(Unit) {
+        controller.fileData.collect { fd -> pendingSave = fd; saveFile.launch(fd.name) }
+    }
+
+    Box {
+        Box(
+            Modifier.size(48.dp).clip(CircleShape)
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .clickable(enabled = enabled) { menu = true },
+            contentAlignment = Alignment.Center,
+        ) { Text("📎", fontSize = 20.sp) }
+        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            DropdownMenuItem(text = { Text("Upload file") }, onClick = {
+                menu = false; pickFile.launch(arrayOf("*/*"))
+            })
+            DropdownMenuItem(text = { Text("Download file") }, onClick = {
+                menu = false; downloadStart = start()
+            })
+        }
+    }
+
+    // Upload: choose the destination directory on the session's host, then send.
+    pendingUpload?.let { up ->
+        TransferPickerDialog(
+            controller = controller,
+            host = up.start.host,
+            startDir = up.start.dir,
+            pickFiles = false,
+            title = "Upload “${up.name}” to…",
+            onPick = { dir ->
+                controller.uploadFile(dir, up.name, up.content, up.start.host)
+                pendingUpload = null
+            },
+            onDismiss = { pendingUpload = null },
+        )
+    }
+
+    // Download: choose a file on the session's host; its bytes come back as file_data.
+    downloadStart?.let { s ->
+        TransferPickerDialog(
+            controller = controller,
+            host = s.host,
+            startDir = s.dir,
+            pickFiles = true,
+            title = "Download a file",
+            onPick = { path ->
+                controller.downloadFile(path, s.host)
+                downloadStart = null
+            },
+            onDismiss = { downloadStart = null },
+        )
+    }
+}
+
+/** A host-scoped filesystem picker for file transfer, reusing the `browse`/`listing`
+ *  protocol. In directory mode (pickFiles = false) folders are navigable and a
+ *  confirm button selects the current directory; in file mode (pickFiles = true) the
+ *  listing also shows regular files and tapping one selects it. [onPick] receives the
+ *  chosen absolute path. The displayed entries and the confirmed directory are kept in
+ *  lockstep by only rendering the listing once it matches the directory we asked for. */
+@Composable
+private fun TransferPickerDialog(
+    controller: VoiceController,
+    host: String,
+    startDir: String,
+    pickFiles: Boolean,
+    title: String,
+    onPick: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var dir by remember { mutableStateOf(startDir) }
+    val listing by controller.listing.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { controller.browse(startDir, host, pickFiles) }
+    // Only trust the listing when it's the answer to our current directory — otherwise
+    // a stale listing (from the New-session browser, or a slower nav) would mislabel
+    // the confirm target.
+    val current = listing?.takeIf { it.path == dir }
+    fun go(target: String) { dir = target; controller.browse(target, host, pickFiles) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column {
+                Text(dir, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                LazyColumn(Modifier.heightIn(max = 360.dp)) {
+                    if (dir != "/") item {
+                        Text(
+                            "📁 ..",
+                            Modifier.fillMaxWidth()
+                                .clickable { go(current?.parent?.ifEmpty { "/" } ?: "/") }
+                                .padding(vertical = 12.dp),
+                        )
+                    }
+                    items(current?.entries ?: emptyList()) { e ->
+                        Text(
+                            (if (e.dir) "📁 " else "📄 ") + e.name,
+                            Modifier.fillMaxWidth()
+                                .clickable { if (e.dir) go(e.path) else if (pickFiles) onPick(e.path) }
+                                .padding(vertical = 12.dp),
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            if (!pickFiles) TextButton(onClick = { onPick(dir) }) { Text("Upload here") }
+            else TextButton(onClick = onDismiss) { Text("Close") }
+        },
+        dismissButton = {
+            if (!pickFiles) TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
 }
 
 /** The command tray: the argument-free "hey buddy" commands as tap buttons,

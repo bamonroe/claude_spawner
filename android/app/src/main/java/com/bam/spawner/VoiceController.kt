@@ -24,8 +24,11 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
@@ -130,6 +133,14 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
 
     private val _listing = MutableStateFlow<ServerMsg.Listing?>(null)
     val listing: StateFlow<ServerMsg.Listing?> = _listing.asStateFlow()
+
+    // One-shot file-transfer results (message-box 📎 button): an upload's landed path
+    // and a download's bytes. SharedFlow, not StateFlow — each is a fire-once event the
+    // UI reacts to (prefill the box / write the download), not retained state.
+    private val _fileSaved = MutableSharedFlow<String>(extraBufferCapacity = 4)
+    val fileSaved: SharedFlow<String> = _fileSaved.asSharedFlow()
+    private val _fileData = MutableSharedFlow<ServerMsg.FileData>(extraBufferCapacity = 4)
+    val fileData: SharedFlow<ServerMsg.FileData> = _fileData.asSharedFlow()
 
     // The app-managed SSH host registry (Settings → Hosts). The server is the store
     // of record on disk, but the app owns the list; refreshed from every host_list.
@@ -426,7 +437,26 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     // --- Visual directory browser (New session) ---
     // Browsing is host-scoped: the listing is produced on `host` (its filesystem
     // starting at "/"), so the picker reflects the machine the session will run on.
-    fun browse(path: String, host: String = "") = client?.send(Outbound.browse(path, host))
+    fun browse(path: String, host: String = "", files: Boolean = false) =
+        client?.send(Outbound.browse(path, host, files))
+
+    // --- File transfer (message-box 📎 button) ---
+    // upload writes a base64 file to <dir>/<name> on host; download reads a file and
+    // returns its bytes as `file_data`. host "" = the local/loopback machine.
+    fun uploadFile(dir: String, name: String, contentB64: String, host: String = "") =
+        client?.send(Outbound.upload(dir, name, contentB64, host))
+
+    fun downloadFile(path: String, host: String = "") = client?.send(Outbound.download(path, host))
+
+    /** The attached session's working dir + host, for the transfer picker's starting
+     *  point — looked up from discovery by session_id. Null when nothing is attached
+     *  or discovery hasn't surfaced it yet (caller falls back to the host root). */
+    fun attachedDirHost(): Pair<String, String>? {
+        val id = _attachedId.value
+        if (id.isEmpty()) return null
+        val d = _discovered.value.find { it.sessionId == id } ?: return null
+        return d.dir to d.host
+    }
 
     fun spawnAt(path: String, target: String = "", host: String = "") {
         client?.send(Outbound.spawnAt(path, target = target, host = host)) // the resulting `attached` switches the view
@@ -882,6 +912,8 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
                 }
             }
             is ServerMsg.Listing -> _listing.value = msg
+            is ServerMsg.FileSaved -> _fileSaved.tryEmit(msg.path)
+            is ServerMsg.FileData -> _fileData.tryEmit(msg)
             is ServerMsg.HostList -> _hosts.value = msg.hosts
             is ServerMsg.IdentityList -> _identities.value = msg.identities
             is ServerMsg.Err -> {
