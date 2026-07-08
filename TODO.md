@@ -102,6 +102,11 @@ inventing our own. Motivated by wanting to drive Claude on the work box (`ssh wo
 "real host" is our first remote and we flush out discovery/cancel rework immediately) → then the work
 box is nearly free → then containerizing the server is a deploy change, not new code.
 
+**Order of remaining work (user, 2026-07-08):** do **all non-Android (server-only) steps first**,
+**Android steps last**. Test Android on the **emulator** throughout; install on the Pixel 8a only once
+the feature works as expected, as the ship step (see [[use-android-dev-skill-and-emulator]]).
+**Re-containerizing the server is LOW priority** — it blocks nothing, do it whenever.
+
 - [x] 2026-07-08 — **`SSHExecutor` + persistent per-host client pool (keepalive + reconnect),
       proven against localhost.** (`internal/session/ssh.go`): pool dials+auths once per host, opens a
       cheap channel per turn, keepalive drops a dead link, executor drops+re-dials once on a stale
