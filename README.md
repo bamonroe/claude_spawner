@@ -67,6 +67,23 @@ command that needs no argument (`detach`, `clear`, `compress`, `status`, `usage`
 very edge is Android's back gesture). The session list **auto-refreshes each time the drawer opens**,
 and you can **pull down on the list to refresh** it at any time. See [`docs/commands.md`](docs/commands.md).
 
+### Transferring files to and from a session
+
+To the **left of the message box** is a transfer button (📎). Tap it to **upload** or **download** a
+file over the same authenticated WebSocket — no separate share sheet or `scp`.
+
+- **Upload:** pick a file on the phone (the system file picker), then choose a destination directory
+  on the session's host — the picker opens at the **session's own directory** and browses that host's
+  filesystem (the same host-scoped browser the New-session picker uses, over SSH). The file is written
+  there, and the message box is **prefilled** with `look at the file at <path>` — *not sent*, so you can
+  edit or add to it before dictating/hitting send.
+- **Download:** the reverse — browse the host's filesystem starting at the session's directory (files
+  are shown alongside folders now), pick a file, then choose where to save it on the phone.
+
+Bytes travel base64-encoded in one message each way, capped at 64 MiB. Because the transfer runs on the
+session's host over SSH, an upload lands on the very machine the session runs on (loopback for a local
+session), exactly where Claude will look for it.
+
 ### Clearing vs. compressing context
 
 Every dictated turn resumes the session with `--resume`, so Claude re-reads the whole conversation

@@ -12,6 +12,23 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+### File upload/download over the WebSocket (proposed 2026-07-08)
+
+A 📎 button left of the message box transfers files between the phone and the session's host, over the
+same authenticated socket (base64 in one message each way, 64 MiB cap).
+
+- [x] 2026-07-08 — **Server half.** New `upload` (write a base64 file to `<dir>/<name>` on `host_name`)
+      and `download` (read a file, return `file_data` base64) messages; `browse` gained a `files` flag so
+      the picker can also list regular files (`listing` entries now carry a `dir` flag, directories first).
+      `SSHPool.ReadFile/WriteFile/ListAll` do the host-side I/O over the pooled SSH connection (loopback
+      for local); local-FS fallback when SSH is disabled. Docs: `docs/protocol.md` (`upload`, `download`,
+      `file_saved`, `file_data`, `file_too_large`), README. Errors: `file_too_large`, `bad_path`.
+- [ ] **Android half.** 📎 button left of the input bar → upload/download menu. Upload: SAF `OpenDocument`
+      to pick a local file, then the host-scoped browser (starting at the attached session's dir) to pick a
+      destination folder → send `upload`; on `file_saved`, prefill the draft with `look at the file at <path>`
+      (do **not** send). Download: files-mode browser to pick a file → `download`; on `file_data`, SAF
+      `CreateDocument` to save it. Then install on the Pixel 8a.
+
 ### De-fragilize session identity (epic — make `session_id` the identity, not the name)
 
 **Why:** today a *directory* is treated as the session and the mutable *name* is the primary key

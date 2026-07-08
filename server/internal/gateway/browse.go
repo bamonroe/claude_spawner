@@ -3,6 +3,7 @@ package gateway
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/bam/claude_spawner/server/internal/projects"
 	"github.com/bam/claude_spawner/server/internal/session"
@@ -15,7 +16,7 @@ import (
 // path starts at the host's filesystem root ("/"); there is no configured-roots
 // jail here (the visual picker can walk the whole host). The response carries the
 // parent for "up" navigation ("" at "/" — the top, nothing above it).
-func (c *conn) doBrowse(path, host string) {
+func (c *conn) doBrowse(path, host string, files bool) {
 	if host == "" {
 		host = session.LocalHost
 	}
@@ -23,7 +24,7 @@ func (c *conn) doBrowse(path, host string) {
 	if path != "" {
 		dir = filepath.Clean(path)
 	}
-	entries, err := c.listDir(host, dir)
+	entries, err := c.listDir(host, dir, files)
 	if err != nil {
 		c.fail("bad_path", err.Error())
 		return
@@ -35,25 +36,45 @@ func (c *conn) doBrowse(path, host string) {
 	c.send(msgListing(dir, parent, entries))
 }
 
-// listDir returns dir's immediate subdirectories on host. With SSH-native execution
-// it probes the host over SSH; otherwise (SSH disabled, tests) it reads the local
-// filesystem, which is then the same machine.
-func (c *conn) listDir(host, dir string) ([]listingEntry, error) {
+// listDir returns dir's immediate entries on host. With files=false it lists only
+// subdirectories (the new-session picker); with files=true it also includes regular
+// files (the file-transfer picker). With SSH-native execution it probes the host
+// over SSH; otherwise (SSH disabled, tests) it reads the local filesystem, which is
+// then the same machine.
+func (c *conn) listDir(host, dir string, files bool) ([]listingEntry, error) {
 	if c.srv.ssh != nil {
-		des, err := c.srv.ssh.ListDir(c.ctx, host, dir)
+		var des []session.DirEntry
+		var err error
+		if files {
+			des, err = c.srv.ssh.ListAll(c.ctx, host, dir)
+		} else {
+			des, err = c.srv.ssh.ListDir(c.ctx, host, dir)
+		}
 		if err != nil {
 			return nil, err
 		}
 		entries := make([]listingEntry, 0, len(des))
 		for _, d := range des {
-			entries = append(entries, listingEntry{Name: d.Name, Path: d.Path, Repo: d.Repo})
+			entries = append(entries, listingEntry{Name: d.Name, Path: d.Path, Repo: d.Repo, Dir: d.Dir})
 		}
 		return entries, nil
 	}
 	kids := projects.Children(dir)
 	entries := make([]listingEntry, 0, len(kids))
 	for _, d := range kids {
-		entries = append(entries, listingEntry{Name: d.Name, Path: d.Path, Repo: projects.IsRepo(d.Path)})
+		entries = append(entries, listingEntry{Name: d.Name, Path: d.Path, Repo: projects.IsRepo(d.Path), Dir: true})
+	}
+	if files {
+		if des, err := os.ReadDir(dir); err == nil {
+			for _, de := range des {
+				if de.IsDir() || strings.HasPrefix(de.Name(), ".") {
+					continue
+				}
+				if de.Type().IsRegular() {
+					entries = append(entries, listingEntry{Name: de.Name(), Path: filepath.Join(dir, de.Name()), Dir: false})
+				}
+			}
+		}
 	}
 	return entries, nil
 }

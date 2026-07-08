@@ -18,7 +18,9 @@ type inbound struct {
 	Text         string            `json:"text"`          // utterance / dialog reply text
 	Name         string            `json:"name"`          // session name for attach/kill/rename
 	NewName      string            `json:"new_name"`      // target name for rename
-	Path         string            `json:"path"`          // directory for browse / spawn_at ("" on browse = the host's root "/")
+	Path         string            `json:"path"`          // directory for browse / spawn_at ("" on browse = the host's root "/"); file path for download
+	Files        bool              `json:"files"`         // on browse: include regular files in the listing (file-transfer picker), not just directories
+	Content      string            `json:"content"`       // on upload: the file's bytes, base64-encoded
 	Target       string            `json:"target"`        // on spawn_at: "host" (default) | "sandbox" execution target
 	Create       bool              `json:"create"`        // on spawn_at: mkdir the path (on the target host) first if it doesn't exist
 	Codec        string            `json:"codec"`         // audio codec on wake: "ogg_opus" | "pcm16"
@@ -326,15 +328,28 @@ type sessionView struct {
 	Target string `json:"target,omitempty"`
 }
 
-// listingEntry is one directory in a browse listing.
+// listingEntry is one entry in a browse listing.
 type listingEntry struct {
 	Name string `json:"name"`
 	Path string `json:"path"`
 	Repo bool   `json:"repo"` // true if it's a git repo
+	Dir  bool   `json:"dir"`  // true for a directory; false for a regular file (only files-mode browse returns files)
 }
 
-// msgListing is the response to a `browse`: the directory's subfolders, plus the
+// msgListing is the response to a `browse`: the directory's entries, plus the
 // parent path for "up" ("" means the parent is the roots view).
 func msgListing(path, parent string, entries []listingEntry) map[string]any {
 	return map[string]any{"type": "listing", "path": path, "parent": parent, "entries": entries}
+}
+
+// msgFileSaved confirms an `upload` landed: path is the file's absolute location on
+// the target host, which the app uses to prefill the message box.
+func msgFileSaved(path string) map[string]any {
+	return map[string]any{"type": "file_saved", "path": path}
+}
+
+// msgFileData is the response to a `download`: the file's bytes (base64) plus its
+// name and source path so the app can offer a "save as" with a sensible default.
+func msgFileData(name, path, content string) map[string]any {
+	return map[string]any{"type": "file_data", "name": name, "path": path, "content": content}
 }

@@ -2,6 +2,7 @@ package session
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -527,6 +528,7 @@ type DirEntry struct {
 	Name string
 	Path string
 	Repo bool
+	Dir  bool // true for a subdirectory, false for a regular file (ListAll only)
 }
 
 // ListDir returns the immediate, non-hidden subdirectories of dir on host — each
@@ -549,9 +551,40 @@ func (p *SSHPool) ListDir(ctx context.Context, host, dir string) ([]DirEntry, er
 			continue
 		}
 		name := line[2:]
-		entries = append(entries, DirEntry{Name: name, Path: joinRemote(dir, name), Repo: line[0] == '1'})
+		entries = append(entries, DirEntry{Name: name, Path: joinRemote(dir, name), Repo: line[0] == '1', Dir: true})
 	}
 	sort.SliceStable(entries, func(a, b int) bool {
+		return strings.ToLower(entries[a].Name) < strings.ToLower(entries[b].Name)
+	})
+	return entries, nil
+}
+
+// ListAll returns the immediate, non-hidden entries of dir on host — both
+// subdirectories (Dir=true, .git-flagged) and regular files (Dir=false) — sorted
+// case-insensitively with directories first. It backs the file-transfer picker,
+// which must show files to download, whereas the new-session picker (ListDir) only
+// walks directories. One POSIX-sh probe over the pooled connection.
+func (p *SSHPool) ListAll(ctx context.Context, host, dir string) ([]DirEntry, error) {
+	// For each non-hidden entry print a 2-char tag then the name: "d1"/"d0" for a
+	// directory (1 = holds a .git), "f0" for a regular file. A cd failure yields an
+	// empty listing rather than an error.
+	script := "cd " + shellQuote(dir) + ` 2>/dev/null || exit 0; for e in *; do if [ -d "$e" ]; then if [ -e "$e/.git" ]; then printf 'd1 %s\n' "$e"; else printf 'd0 %s\n' "$e"; fi; elif [ -f "$e" ]; then printf 'f0 %s\n' "$e"; fi; done`
+	out, err := p.Run(ctx, host, script)
+	if err != nil {
+		return nil, err
+	}
+	var entries []DirEntry
+	for _, line := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
+		if len(line) < 4 { // "dx <name>" — at least a 2-char tag, a space, one char
+			continue
+		}
+		name := line[3:]
+		entries = append(entries, DirEntry{Name: name, Path: joinRemote(dir, name), Repo: line[1] == '1', Dir: line[0] == 'd'})
+	}
+	sort.SliceStable(entries, func(a, b int) bool {
+		if entries[a].Dir != entries[b].Dir {
+			return entries[a].Dir // directories first
+		}
 		return strings.ToLower(entries[a].Name) < strings.ToLower(entries[b].Name)
 	})
 	return entries, nil
@@ -570,6 +603,48 @@ func (p *SSHPool) DirExists(ctx context.Context, host, dir string) (bool, error)
 func (p *SSHPool) MakeDir(ctx context.Context, host, dir string) error {
 	_, err := p.Run(ctx, host, "mkdir -p "+shellQuote(dir))
 	return err
+}
+
+// ReadFile returns the bytes of path on host, streamed over the pooled connection
+// (the SSH channel is binary-clean, so `cat` reproduces the file verbatim).
+func (p *SSHPool) ReadFile(ctx context.Context, host, path string) ([]byte, error) {
+	return p.Run(ctx, host, "cat "+shellQuote(path))
+}
+
+// WriteFile writes data to path on host, truncating any existing file and creating
+// the parent directory. The bytes travel as the remote `cat`'s stdin, so they land
+// verbatim regardless of content. Re-dials once on a stale cached connection.
+func (p *SSHPool) WriteFile(ctx context.Context, host, path string, data []byte) error {
+	client, err := p.client(host)
+	if err != nil {
+		return err
+	}
+	err = writeRemote(ctx, client, path, data)
+	if err != nil {
+		p.drop(host, client)
+		client, derr := p.client(host)
+		if derr != nil {
+			return err
+		}
+		err = writeRemote(ctx, client, path, data)
+	}
+	return err
+}
+
+// writeRemote opens one session channel and pipes data into `cat > path` (making the
+// parent dir first). ctx-cancel kills the remote command so a hung write can't leak
+// a channel.
+func writeRemote(ctx context.Context, client *ssh.Client, path string, data []byte) error {
+	sess, err := client.NewSession()
+	if err != nil {
+		return err
+	}
+	defer sess.Close()
+	stop := context.AfterFunc(ctx, func() { _ = sess.Signal(ssh.SIGKILL); _ = sess.Close() })
+	defer stop()
+	sess.Stdin = bytes.NewReader(data)
+	dir := filepath.Dir(path)
+	return sess.Run("mkdir -p " + shellQuote(dir) + " && cat > " + shellQuote(path))
 }
 
 // Run executes a short command on host over the pooled connection and returns its
