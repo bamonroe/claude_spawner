@@ -198,19 +198,22 @@ the feature works as expected, as the ship step (see [[use-android-dev-skill-and
         `spawn_at host_name`. Built (containerized, per [[spawner-apk-build-signing]]), verified end to
         end on the **emulator** against a scratch server (CRUD persists + broadcasts; spawn sets host),
         then installed on the **Pixel 8a** as the ship step.
-- [~] Drive the work box (`potato`) end to end; then re-containerize the server (no root broker).
-      **Transport proven 2026-07-08**: `TestLiveSSHRemoteClaude` drove a real, authed claude turn on
-      the work box (`100.64.0.7` over Tailscale, key `bazzite_ed25519`) from this machine and the token
-      round-tripped — a genuinely remote host, not loopback (different key, real network, remote
-      `/tmp`). Remaining: the voice/app path to actually target it (the `Session.Host` dialog), remote
-      discovery/resume (above), then re-containerizing the server.
+- [x] 2026-07-08 — **Drive the work box end to end + re-containerize the server (no root broker).**
+      Transport proven (`TestLiveSSHRemoteClaude`: a real authed claude turn on the work box
+      `100.64.0.7` over Tailscale, key `bazzite_ed25519`), and the app host picker targets it.
+      **Re-containerized:** `server/Dockerfile` (lean static binary — claude runs on the host, not in
+      the image) + `deploy/spawner-container.yml` (host networking so `localhost:22` is the host sshd;
+      home + roots mounted at the same paths so browse/discovery read where the host writes). Verified
+      end to end **in parallel with the live bare-metal binary** (scratch port `:8098`, scratch state):
+      a turn dictated through the container ran claude on the host over SSH and streamed the reply
+      back — no broker, no host root. This is the clean version of the reverted 2026-07-06
+      containerization (SSH replaces the broker). Docs: deploy/README + architecture design note.
 - [x] 2026-07-08 — **Host-key verification + ssh-agent/key auth + `SPAWNER_SSH_*` config.** Six env
       vars (`SPAWNER_SSH`, `SPAWNER_SSH_USER`, `SPAWNER_SSH_PORT`, `SPAWNER_SSH_KEY`,
       `SPAWNER_SSH_KNOWN_HOSTS`, `SPAWNER_SSH_CLAUDE_BIN`) in `internal/config`; host keys always
       verified against known_hosts (no insecure mode), auth via ssh-agent and/or a key file; pool built
       + executor registered + closed on shutdown in `main.go`. CLAUDE.md documents the vars (docsync
       green).
-- [ ] Drive the work box (`potato`) end to end; then re-containerize the server (no root broker).
 - [ ] (Later, separate) credential propagation between hosts.
 
 ### Server / infra

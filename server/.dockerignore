@@ -1,4 +1,4 @@
-# The dev image only needs go.mod/go.sum at build time (source is bind-mounted).
-*
-!go.mod
-!go.sum
+# The image is built from source (COPY . ./), so include the Go packages. Exclude
+# only what the build doesn't need.
+Dockerfile
+.dockerignore

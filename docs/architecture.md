@@ -123,9 +123,19 @@ server is a plain user process and sandboxes use a rootless runtime.
 > container could reach the host without host root. It worked, but bought little: the broker itself
 > ran bare metal, and the server never needed root, so the container protected the host from almost
 > nothing while adding an IPC hop and a whole wire protocol to maintain. It was folded back into the
-> binary. Don't re-introduce it without a concrete need for the server to be containerized *and*
-> untrusted. (The privileged shortcuts — a `--privileged` server with `--pid=host` + `nsenter` — were
-> rejected for the same "no component holds host root" reason and remain rejected.)
+> binary. Don't re-introduce *that* (a bespoke Unix-socket broker); the privileged shortcuts — a
+> `--privileged` server with `--pid=host` + `nsenter` — were rejected for the same "no component holds
+> host root" reason and remain rejected.
+
+> **Containerized, the clean way (SSH-native, 2026-07-08).** With host turns running over **SSH**
+> (`SPAWNER_SSH=1`), the server *can* run in a container again — but it reaches the host over standard
+> SSH instead of a custom broker: `claude` runs on the host, the container needs no host root and no
+> privileged shortcuts, and there is no IPC protocol to maintain. This is the thing the broker detour
+> was trying to buy, now bought by SSH. It's optional (the bare-metal binary is still the default) and,
+> because execution is over SSH, it can run in parallel with a bare-metal instance for a safe cutover.
+> Recipe: `deploy/spawner-container.yml` (host networking so `localhost:22` is the host sshd; home +
+> roots mounted at the same paths so discovery/browse read where the host writes). See the Dockerfile
+> at `server/Dockerfile`.
 
 ### Sandbox sessions (also without host root)
 

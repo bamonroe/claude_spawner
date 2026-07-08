@@ -13,6 +13,8 @@ script, and a transcript helper.
 | `spawner-server.env.example`| template for the server's `EnvironmentFile` (token, addr, root, whisper, restart cmd, sandbox). |
 | `rebuild.sh`                | rebuild + relaunch the stack (whisper servers, then the server binary + service). |
 | `claude-log.sh`             | helper to read a session's Claude transcript by name.                     |
+| `spawner-container.yml`     | Compose file for the **containerized SSH-native** server (drives the host over SSH). |
+| `spawner-container.env.example`| template for the containerized server's env file.                       |
 
 ## Transcription depends on the resident whisper servers
 
@@ -31,6 +33,36 @@ install steps (build the binary, drop the env file, enable the lingering user
 service) live in the unit file's header comment — follow those. Its config vars
 are documented in [`../CLAUDE.md`](../CLAUDE.md) (the config section — the
 authoritative list), templated in `spawner-server.env.example`.
+
+## Containerized (SSH-native) alternative
+
+Because host turns now run over **SSH** (`SPAWNER_SSH=1`), the server can run in a
+container that drives the host over SSH — `claude` runs on the host, not in the
+image — with **no host broker and no host root**. This is the clean version of the
+containerization the 2026-07-06 revert removed: the thing that made it not worth it
+(a bespoke privileged host broker) is gone, replaced by standard SSH.
+
+[`spawner-container.yml`](spawner-container.yml) runs it. It uses **host networking**
+(so `localhost:22` is the host's own sshd and an empty `Session.Host` drives the
+host) and mounts the user's home + project roots at the **same paths** the host uses
+(so the server browses and reads transcripts where the host writes them). Because
+execution is over SSH, it can run **in parallel** with the bare-metal service on a
+different port — a safe way to try it or cut over.
+
+Prereqs: the server user must have a **key-based SSH login to itself** (its public
+key in `~/.ssh/authorized_keys`, the localhost host key in `~/.ssh/known_hosts`).
+Then:
+
+```bash
+cp deploy/spawner-container.env.example deploy/spawner-container.env   # edit token, key, port
+mkdir -p deploy/state
+UID=$(id -u) GID=$(id -g) docker compose -f deploy/spawner-container.yml up -d --build
+```
+
+Point a client at its port (`SPAWNER_ADDR`, e.g. `:8098`) to exercise it. Verified
+end to end: a turn dictated through the container runs `claude` on the host over SSH
+and streams the reply back. (Transcription still needs the resident whisper servers
+if you want the voice path; text turns work without them.)
 
 ## Rebuilding the stack
 
