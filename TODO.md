@@ -164,6 +164,22 @@ the feature works as expected, as the ship step (see [[use-android-dev-skill-and
       one head-read per transcript for cwd); fine over the multiplexed pool, optimize later if needed.
       Staged commits: (a) local `claudeFS` seam, behavior-preserving; (b) SSH branch + host-aware cache
       key; (c) wire gateway callers by `Session.Host`. Do NOT introduce sshfs (epic rule).
+- **Host registry (app-authoritative, server-persisted)** — decided 2026-07-08: the app is the
+  source of truth for the host list; the server persists it to a JSON file so it survives restarts and
+  is shared across clients; **all editing happens in-app**. `Session.Host` names a registry entry; the
+  SSH pool resolves the name → address/user/port/key (the Go client dials the literal address — it does
+  NOT read `~/.ssh/config`, so entries hold real hostnames/IPs). Server-side first (registry +
+  persistence + pool resolution + wire CRUD), the Settings→Hosts page in the Android phase last.
+  - [x] 2026-07-08 — **`Host` + `HostStore`** (`internal/session/hosts.go`): name/address/user/port/
+        key_file/claude_bin, concurrency-safe, atomic temp+rename persistence (mirrors `Store`).
+        `TestHostStoreRoundTrip` covers upsert-in-place, sort, delete, and reload-from-disk.
+  - [ ] Wire the pool to resolve `Session.Host` via the registry (per-host `ClientConfig`), + config
+        for the hosts-file path (`SPAWNER_HOSTS`). Retires the single global `SPAWNER_SSH_*` template
+        as per-host fields (keep as fallback defaults).
+  - [ ] Wire protocol: `hosts` (list), `host_put`, `host_delete` messages + gateway handlers, persisted
+        via `HostStore`; document in `docs/protocol.md`.
+  - [ ] [Android, last] Settings → Hosts page (CRUD) driving those messages; spawn dialog offers the
+        configured hosts.
 - [~] Drive the work box (`potato`) end to end; then re-containerize the server (no root broker).
       **Transport proven 2026-07-08**: `TestLiveSSHRemoteClaude` drove a real, authed claude turn on
       the work box (`100.64.0.7` over Tailscale, key `bazzite_ed25519`) from this machine and the token
