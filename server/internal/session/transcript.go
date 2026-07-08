@@ -2,8 +2,6 @@ package session
 
 import (
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -30,17 +28,6 @@ var (
 	transcriptCacheMu sync.Mutex
 	transcriptCache   = map[string]transcriptCacheEntry{}
 )
-
-// statTranscript returns the file's identity (size, modtime). ok is false when
-// the file can't be stat'd (missing/unreadable), in which case the caller parses
-// uncached rather than trusting a stale entry.
-func statTranscript(path string) (size int64, mod time.Time, ok bool) {
-	fi, err := os.Stat(path)
-	if err != nil {
-		return 0, time.Time{}, false
-	}
-	return fi.Size(), fi.ModTime(), true
-}
 
 // cacheEntryFresh returns the current entry for path if its stat still matches
 // (else a zero entry to overwrite), so putters preserve the sibling field
@@ -147,88 +134,45 @@ type ContextSnapshot struct {
 // TranscriptPath locates a session's Claude transcript.
 func (s *Session) TranscriptPath() string { return TranscriptPathByID(s.SessionID) }
 
-// TranscriptPathByID finds a Claude transcript by session_id. The file is named
-// <session_id>.jsonl under ~/.claude/projects/<encoded-dir>/, but the dir
-// encoding is fiddly — the session_id is globally unique, so we glob for it.
-// Returns "" if not found.
-func TranscriptPathByID(sessionID string) string {
-	if sessionID == "" {
-		return ""
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	matches, _ := filepath.Glob(filepath.Join(home, ".claude", "projects", "*", sessionID+".jsonl"))
-	if len(matches) > 0 {
-		return matches[0]
-	}
-	return ""
-}
+// TranscriptPathByID finds a LOCAL Claude transcript by session_id (globbed across
+// the opaque project-dir encoding). Returns "" if not found. For a specific host,
+// go through Driver.claudeFSFor.
+func TranscriptPathByID(sessionID string) string { return localClaudeFS.findByID(sessionID) }
 
-// DeleteSessionsByIDs permanently removes the transcript for each given
+// DeleteSessionsByIDs permanently removes the LOCAL transcript for each given
 // session_id (the file <session_id>.jsonl), leaving every OTHER session in the
 // same directory untouched. This is how one logical session is deleted — its
-// current id plus any rotated prior ids — now that Discover shows each session
-// individually instead of collapsing a directory to a single row. Returns how
-// many transcript files were removed.
-func DeleteSessionsByIDs(ids []string) (int, error) {
-	n := 0
-	for _, id := range ids {
-		p := TranscriptPathByID(id)
-		if p == "" {
-			continue
-		}
-		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
-			return n, err
-		}
-		n++
-	}
-	return n, nil
-}
+// current id plus any rotated prior ids. Returns how many files were removed.
+func DeleteSessionsByIDs(ids []string) (int, error) { return localClaudeFS.deleteByIDs(ids) }
 
-// DeleteSessionsForDir permanently removes EVERY Claude transcript whose working
-// directory is `dir`. Retained for the legacy whole-directory delete path;
-// per-session deletes go through DeleteSessionsByIDs. anySessionID is any session
-// known to live in that dir, used to locate the project folder. Returns how many
-// transcripts were deleted.
+// DeleteSessionsForDir permanently removes EVERY LOCAL Claude transcript whose
+// working directory is `dir` (legacy whole-directory delete path; per-session
+// deletes go through DeleteSessionsByIDs). anySessionID locates the project folder.
 func DeleteSessionsForDir(anySessionID, dir string) (int, error) {
-	path := TranscriptPathByID(anySessionID)
-	if path == "" {
-		return 0, nil
-	}
-	// All sessions for a given cwd live in the same ~/.claude/projects/<enc>/
-	// folder; match on cwd too, in case two paths encode to the same folder.
-	matches, _ := filepath.Glob(filepath.Join(filepath.Dir(path), "*.jsonl"))
-	n := 0
-	for _, f := range matches {
-		if TranscriptCwd(f) != dir {
-			continue
-		}
-		if err := os.Remove(f); err != nil && !os.IsNotExist(err) {
-			return n, err
-		}
-		n++
-	}
-	return n, nil
+	return localClaudeFS.deleteForDir(anySessionID, dir)
 }
 
-// ReadTranscript parses a transcript JSONL into ordered user/claude prose
-// messages (tool calls, tool results, and metadata lines are skipped). Returns
-// an empty slice (no error) if the path is empty or the file doesn't exist yet.
-func ReadTranscript(path string) ([]Message, error) {
+// ReadTranscript parses a LOCAL transcript JSONL into ordered messages.
+func ReadTranscript(path string) ([]Message, error) { return localClaudeFS.readTranscript(path) }
+
+// readTranscript parses a transcript JSONL into ordered user/claude prose messages
+// (tool calls, tool results, and metadata lines are skipped) from whichever host
+// this claudeFS reads. Returns an empty slice (no error) if the path is empty or
+// the file doesn't exist yet.
+func (fs claudeFS) readTranscript(path string) ([]Message, error) {
 	if path == "" {
 		return nil, nil
 	}
-	size, mod, statOK := statTranscript(path)
+	key := fs.cacheKey(path)
+	size, mod, statOK := fs.stat(path)
 	if statOK {
-		if m, hit := getCachedMsgs(path, size, mod); hit {
+		if m, hit := getCachedMsgs(key, size, mod); hit {
 			return append([]Message(nil), m...), nil // copy: callers re-index / mutate Text
 		}
 	}
-	f, err := os.Open(path)
+	f, err := fs.open(path)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if fs.isMissing(err) {
 			return nil, nil
 		}
 		return nil, err
@@ -277,7 +221,7 @@ func ReadTranscript(path string) ([]Message, error) {
 		return out, err // don't cache a partial read
 	}
 	if statOK {
-		putCachedMsgs(path, size, mod, out)
+		putCachedMsgs(key, size, mod, out)
 	}
 	return out, nil
 }
@@ -289,9 +233,15 @@ func ReadTranscript(path string) ([]Message, error) {
 // contribute nothing. This is how a session "cleared" via context rotation still
 // shows its full history even though Claude only ever resumes the newest id.
 func ReadTranscriptChain(ids []string) ([]Message, error) {
+	return localClaudeFS.readTranscriptChain(ids)
+}
+
+// readTranscriptChain is ReadTranscriptChain against whichever host this claudeFS
+// reads (local or a remote host over SSH).
+func (fs claudeFS) readTranscriptChain(ids []string) ([]Message, error) {
 	var all []Message
 	for _, id := range ids {
-		msgs, err := ReadTranscript(TranscriptPathByID(id))
+		msgs, err := fs.readTranscript(fs.findByID(id))
 		if err != nil {
 			return nil, err
 		}
@@ -309,8 +259,13 @@ func ReadTranscriptChain(ids []string) ([]Message, error) {
 // from TranscriptIDs); the newest transcript carrying a usage-bearing assistant
 // line wins. Returns nil when none exists yet (a session that hasn't run a turn).
 func LastContextUsage(ids []string) *ContextSnapshot {
+	return localClaudeFS.lastContextUsage(ids)
+}
+
+// lastContextUsage is LastContextUsage against whichever host this claudeFS reads.
+func (fs claudeFS) lastContextUsage(ids []string) *ContextSnapshot {
 	for i := len(ids) - 1; i >= 0; i-- {
-		if cx := lastUsageInFile(TranscriptPathByID(ids[i])); cx != nil {
+		if cx := fs.lastUsageInFile(fs.findByID(ids[i])); cx != nil {
 			return cx
 		}
 	}
@@ -319,17 +274,18 @@ func LastContextUsage(ids []string) *ContextSnapshot {
 
 // lastUsageInFile scans one transcript for the last assistant line reporting a
 // non-zero prompt size, returning its usage + timestamp (nil if none/unreadable).
-func lastUsageInFile(path string) *ContextSnapshot {
+func (fs claudeFS) lastUsageInFile(path string) *ContextSnapshot {
 	if path == "" {
 		return nil
 	}
-	size, mod, statOK := statTranscript(path)
+	key := fs.cacheKey(path)
+	size, mod, statOK := fs.stat(path)
 	if statOK {
-		if snap, hit := getCachedSnap(path, size, mod); hit {
+		if snap, hit := getCachedSnap(key, size, mod); hit {
 			return snap
 		}
 	}
-	f, err := os.Open(path)
+	f, err := fs.open(path)
 	if err != nil {
 		return nil
 	}
@@ -355,7 +311,7 @@ func lastUsageInFile(path string) *ContextSnapshot {
 		return last // don't cache a partial read
 	}
 	if statOK {
-		putCachedSnap(path, size, mod, last)
+		putCachedSnap(key, size, mod, last)
 	}
 	return last
 }

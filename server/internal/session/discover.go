@@ -2,10 +2,6 @@ package session
 
 import (
 	"encoding/json"
-	"os"
-	"path/filepath"
-	"sort"
-	"strings"
 )
 
 // Discovered is a Claude session found on disk (via its transcript) that isn't
@@ -17,52 +13,18 @@ type Discovered struct {
 	LastActive int64 // transcript mtime, unix seconds
 }
 
-// DiscoverSessions scans ~/.claude/projects for every Claude session transcript
-// and returns each session's id + working directory + last-active time, newest
-// first. Transcripts whose working directory can't be recovered are skipped.
+// DiscoverSessions scans the LOCAL ~/.claude/projects for every Claude session
+// transcript and returns each session's id + working directory + last-active time,
+// newest first. Transcripts whose working directory can't be recovered are skipped.
+// For a specific host (local or remote), go through Driver.claudeFSFor.
 func DiscoverSessions() ([]Discovered, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil, err
-	}
-	matches, _ := filepath.Glob(filepath.Join(home, ".claude", "projects", "*", "*.jsonl"))
-	seen := map[string]bool{}
-	out := make([]Discovered, 0, len(matches))
-	for _, p := range matches {
-		id := strings.TrimSuffix(filepath.Base(p), ".jsonl")
-		if !looksLikeUUID(id) || seen[id] {
-			continue
-		}
-		dir := TranscriptCwd(p)
-		if dir == "" {
-			continue
-		}
-		info, err := os.Stat(p)
-		if err != nil {
-			continue
-		}
-		seen[id] = true
-		out = append(out, Discovered{SessionID: id, Dir: dir, LastActive: info.ModTime().Unix()})
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].LastActive > out[j].LastActive })
-	// One entry per directory: keep the most-recently-active session (the one
-	// `claude --resume` would continue), not every historical session in that dir.
-	byDir := map[string]bool{}
-	deduped := out[:0]
-	for _, d := range out {
-		if byDir[d.Dir] {
-			continue
-		}
-		byDir[d.Dir] = true
-		deduped = append(deduped, d)
-	}
-	return deduped, nil
+	return localClaudeFS.discoverSessions()
 }
 
-// TranscriptCwd returns the first `cwd` recorded in a transcript (present on
-// most events). Reads only the head of the file, not the whole thing.
-func TranscriptCwd(path string) string {
-	f, err := os.Open(path)
+// transcriptCwd returns the first `cwd` recorded in a transcript (present on most
+// events), reading only the head of the file. Backend-neutral: local or over SSH.
+func (fs claudeFS) transcriptCwd(path string) string {
+	f, err := fs.open(path)
 	if err != nil {
 		return ""
 	}
@@ -78,6 +40,9 @@ func TranscriptCwd(path string) string {
 	}
 	return ""
 }
+
+// TranscriptCwd reads the working directory from a LOCAL transcript.
+func TranscriptCwd(path string) string { return localClaudeFS.transcriptCwd(path) }
 
 // looksLikeUUID reports whether s is an 8-4-4-4-12 hex UUID (a Claude session id).
 func looksLikeUUID(s string) bool {

@@ -4,10 +4,89 @@ import (
 	"context"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+// TestLiveSSHClaudeFSMatchesLocal proves the SSH backend of claudeFS (remote
+// discovery/resume) reads the same on-disk Claude state as the local backend, over
+// loopback (same ~/.claude), using a controlled transcript so active writes can't
+// make it flaky. Gated on SPAWNER_SSH_LIVE=1.
+func TestLiveSSHClaudeFSMatchesLocal(t *testing.T) {
+	if os.Getenv("SPAWNER_SSH_LIVE") != "1" {
+		t.Skip("set SPAWNER_SSH_LIVE=1 to run the live claudeFS test")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	projects := filepath.Join(home, ".claude", "projects")
+	dir, err := os.MkdirTemp(projects, "spawner-ssh-test-*")
+	if err != nil {
+		t.Skipf("cannot write a test transcript under %s: %v", projects, err)
+	}
+	defer os.RemoveAll(dir)
+
+	id, err := NewSessionID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cwd := "/tmp/spawner-ssh-test-cwd"
+	lines := []string{
+		`{"type":"user","cwd":"` + cwd + `","timestamp":"2026-07-08T00:00:00Z","message":{"content":"hello"}}`,
+		`{"type":"assistant","cwd":"` + cwd + `","timestamp":"2026-07-08T00:00:01Z","message":{"content":[{"type":"text","text":"hi there"}]}}`,
+	}
+	path := filepath.Join(dir, id+".jsonl")
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	pool, err := NewSSHPool(SSHConfig{})
+	if err != nil {
+		t.Fatalf("NewSSHPool: %v", err)
+	}
+	defer pool.Close()
+	remote := claudeFS{remote: &sshFS{pool: pool, host: "localhost"}}
+
+	if got := remote.transcriptCwd(path); got != cwd {
+		t.Errorf("remote transcriptCwd = %q, want %q", got, cwd)
+	}
+	if got := localClaudeFS.transcriptCwd(path); got != cwd {
+		t.Errorf("local transcriptCwd = %q, want %q", got, cwd)
+	}
+	if got := remote.findByID(id); got != path {
+		t.Errorf("remote findByID = %q, want %q", got, path)
+	}
+	lm, err := localClaudeFS.readTranscript(path)
+	if err != nil {
+		t.Fatalf("local readTranscript: %v", err)
+	}
+	rm, err := remote.readTranscript(path)
+	if err != nil {
+		t.Fatalf("remote readTranscript: %v", err)
+	}
+	if len(lm) != 2 || len(rm) != 2 {
+		t.Fatalf("message counts local=%d remote=%d, want 2 each", len(lm), len(rm))
+	}
+	ds, err := remote.discoverSessions()
+	if err != nil {
+		t.Fatalf("remote discoverSessions: %v", err)
+	}
+	found := false
+	for _, d := range ds {
+		if d.SessionID == id {
+			found = true
+			if d.Dir != cwd {
+				t.Errorf("discovered dir = %q, want %q", d.Dir, cwd)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("remote SSH discovery missed the test session")
+	}
+}
 
 func TestShellQuote(t *testing.T) {
 	cases := map[string]string{
