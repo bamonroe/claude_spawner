@@ -1435,6 +1435,12 @@ private fun SettingsRow(title: String, subtitle: String, onClick: () -> Unit) {
     }
 }
 
+// The loopback host name. To the server, localhost is just another SSH host —
+// dialed over loopback SSH using the server's SSH defaults — not a special implicit
+// default, so the app always names it explicitly and lists it like any other host.
+// A deployment whose server can't reach its own box simply never picks Local.
+const val LOCAL_HOST = "localhost"
+
 @Composable
 private fun HostsSettings(controller: VoiceController, onBack: () -> Unit) {
     val hosts by controller.hosts.collectAsStateWithLifecycle()
@@ -1496,9 +1502,27 @@ private fun HostsSettings(controller: VoiceController, onBack: () -> Unit) {
         }
 
         HorizontalDivider()
-        Text("Configured hosts", style = MaterialTheme.typography.titleMedium)
+        Text("Hosts", style = MaterialTheme.typography.titleMedium)
+        // Local (loopback) is always present and can't be edited or removed — the
+        // server dials it over SSH using its own SSH defaults. Everything below it is
+        // an app-managed remote host.
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Local", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "$LOCAL_HOST  ·  loopback (built-in)",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
+                    )
+                }
+            }
+        }
         if (hosts.isEmpty()) {
-            Text("None yet.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            Text("No remote hosts yet.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
         }
         for (h in hosts) {
             Surface(
@@ -1980,7 +2004,7 @@ private fun BrowseScreen(controller: VoiceController, onStarted: () -> Unit, onB
     val atRoots = listing?.path.isNullOrEmpty()
     var newFolder by remember { mutableStateOf<String?>(null) } // non-null = the New-folder dialog is open
     var sandbox by remember { mutableStateOf(false) } // execution target: host (default) vs sandbox
-    var selectedHost by rememberSaveable { mutableStateOf("") } // "" = local; else a registered SSH host name
+    var selectedHost by rememberSaveable { mutableStateOf(LOCAL_HOST) } // an explicit host name (LOCAL_HOST = loopback)
     val target = if (sandbox) "sandbox" else "host"
     // A host only applies to the host target (a sandbox runs locally); drop any
     // selection when switching to sandbox so we never send a stale host.
@@ -2064,11 +2088,11 @@ private fun BrowseScreen(controller: VoiceController, onStarted: () -> Unit, onB
             )
             Switch(checked = sandbox, onCheckedChange = { sandbox = it })
         }
-        // Host picker (host target only): "Local" plus each configured SSH host.
-        // Hidden for sandbox and when no hosts are configured (Local is the only option).
-        if (!sandbox && hosts.isNotEmpty()) {
+        // Host picker (host target only): "Local" (loopback, always available) plus
+        // each configured SSH host. Hidden only for the sandbox target.
+        if (!sandbox) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 4.dp)) {
-                FilterChip(selected = selectedHost == "", onClick = { selectedHost = "" }, label = { Text("Local") })
+                FilterChip(selected = selectedHost == LOCAL_HOST, onClick = { selectedHost = LOCAL_HOST }, label = { Text("Local") })
                 hosts.forEach { h ->
                     FilterChip(selected = selectedHost == h.name, onClick = { selectedHost = h.name }, label = { Text(h.name) })
                 }
