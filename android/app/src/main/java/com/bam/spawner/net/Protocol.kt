@@ -340,5 +340,8 @@ object Outbound {
     fun identityImport(name: String, user: String, password: String, keyPath: String) =
         JSONObject().put("type", "identity_import").put("name", name).put("user", user)
             .put("password", password).put("key_path", keyPath).toString()
+    fun identityUpdate(name: String, user: String, setPassword: Boolean, password: String) =
+        JSONObject().put("type", "identity_update").put("name", name).put("user", user)
+            .put("set_password", setPassword).put("password", password).toString()
     fun identityDelete(name: String) = JSONObject().put("type", "identity_delete").put("name", name).toString()
 }

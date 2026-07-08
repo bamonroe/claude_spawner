@@ -1455,9 +1455,14 @@ private fun IdentitiesSettings(controller: VoiceController, onBack: () -> Unit) 
     var importPassword by rememberSaveable { mutableStateOf("") }
     var importPath by rememberSaveable { mutableStateOf("") }
     var showForm by rememberSaveable { mutableStateOf(false) } // is the add form expanded?
+    var editing by rememberSaveable { mutableStateOf("") }     // identity name being edited, "" = none
+    var editUser by rememberSaveable { mutableStateOf("") }
+    var editChangePw by rememberSaveable { mutableStateOf(false) }
+    var editPassword by rememberSaveable { mutableStateOf("") }
     val clearForm = {
         newName = ""; newUser = ""; newPassword = ""; genKey = true
         importName = ""; importUser = ""; importPassword = ""; importPath = ""; showForm = false
+        editing = ""; editUser = ""; editChangePw = false; editPassword = ""
     }
 
     SettingsScaffold("Identities", onBack) {
@@ -1484,6 +1489,9 @@ private fun IdentitiesSettings(controller: VoiceController, onBack: () -> Unit) 
                 Column(Modifier.padding(14.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(id.name, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                        TextButton(onClick = {
+                            clearForm(); editing = id.name; editUser = id.user
+                        }) { Text("Edit") }
                         TextButton(onClick = { controller.deleteIdentity(id.name) }) {
                             Text("Delete", color = MaterialTheme.colorScheme.error)
                         }
@@ -1516,8 +1524,29 @@ private fun IdentitiesSettings(controller: VoiceController, onBack: () -> Unit) 
         }
 
         HorizontalDivider()
-        // Generate / import forms are collapsed until "Add identity" expands them.
-        if (!showForm) {
+        // Editing an identity changes its user/password only — the keypair is kept.
+        if (editing.isNotBlank()) {
+            Text("Editing “$editing”", style = MaterialTheme.typography.titleMedium)
+            OutlinedTextField(editUser, { editUser = it }, label = { Text("Username (login user)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Change password", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                Switch(checked = editChangePw, onCheckedChange = { editChangePw = it })
+            }
+            if (editChangePw) {
+                OutlinedTextField(
+                    editPassword, { editPassword = it }, label = { Text("New password (blank clears it)") }, singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    enabled = connected && editUser.isNotBlank(),
+                    onClick = { controller.updateIdentity(editing, editUser.trim(), editChangePw, editPassword); clearForm() },
+                ) { Text("Save") }
+                OutlinedButton(onClick = clearForm) { Text("Cancel") }
+            }
+        } else if (!showForm) {
+            // Generate / import forms are collapsed until "Add identity" expands them.
             Button(enabled = connected, onClick = { showForm = true }) { Text("Add identity") }
         } else {
             Text("Generate a new identity", style = MaterialTheme.typography.titleMedium)

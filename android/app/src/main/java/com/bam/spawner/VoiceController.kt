@@ -364,6 +364,10 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     fun importIdentity(name: String, user: String, password: String, keyPath: String) =
         client?.send(Outbound.identityImport(name, user, password, keyPath))
 
+    /** Update an identity's user (and optionally its password), keeping the keypair. */
+    fun updateIdentity(name: String, user: String, setPassword: Boolean, password: String) =
+        client?.send(Outbound.identityUpdate(name, user, setPassword, password))
+
     /** Delete an identity by name; broadcasts identity_list. */
     fun deleteIdentity(name: String) = client?.send(Outbound.identityDelete(name))
 
