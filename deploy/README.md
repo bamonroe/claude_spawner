@@ -51,7 +51,10 @@ execution is over SSH, it can run **in parallel** with the bare-metal service on
 different port — a safe way to try it or cut over.
 
 Prereqs: the server user must have a **key-based SSH login to itself** (its public
-key in `~/.ssh/authorized_keys`). Host keys are verified against the server's **own**
+key in `~/.ssh/authorized_keys`). The server's SSH auth material is **self-contained
+in `deploy/state/`**, not read from the host home: put the private key at
+`deploy/state/ssh/` (`0600`) and point `SPAWNER_SSH_KEY` at it (`/state/ssh/...`).
+Host keys are verified against the server's **own**
 known_hosts — `SPAWNER_SSH_KNOWN_HOSTS=/state/known_hosts` (in `deploy/state/`),
 deliberately **independent of the host's `~/.ssh/known_hosts`** so the server owns its
 trust set. Seed it with every host the server dials (loopback for the restart button
