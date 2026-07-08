@@ -1,6 +1,7 @@
 package session
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -311,19 +312,76 @@ func (e SSHExecutor) run(ctx context.Context, client *ssh.Client, dir string, ar
 		_ = sess.Close()
 		return nil, err
 	}
-	if err := sess.Start(remoteCommand(dir, e.bin(), args)); err != nil {
+	// Read stderr out of band from the stream-json stdout: the remote command echoes
+	// its process-group id there (see cancelableCommand) so a cancel can kill the
+	// whole group. We also drain the rest so a chatty claude stderr can't block it.
+	stderr, err := sess.StderrPipe()
+	if err != nil {
+		_ = sess.Close()
+		return nil, err
+	}
+	if err := sess.Start(cancelableCommand(remoteCommand(dir, e.bin(), args))); err != nil {
 		_ = sess.Close()
 		return nil, fmt.Errorf("start remote claude: %w", err)
 	}
-	// On abort, signal the remote command and close the channel. NOTE: without a PTY
-	// many sshd builds won't propagate the signal to the process, so this is only
-	// best-effort cancellation for now — robust tagged-process-group kill over a
-	// second channel is the next commit of the epic (see TODO.md).
+	var pmu sync.Mutex
+	pgid := 0
+	go func() {
+		sc := bufio.NewScanner(stderr)
+		for sc.Scan() {
+			line := sc.Text()
+			if rest, ok := strings.CutPrefix(line, sshPGIDSentinel); ok {
+				if n, err := strconv.Atoi(strings.TrimSpace(rest)); err == nil {
+					pmu.Lock()
+					pgid = n
+					pmu.Unlock()
+				}
+			}
+		}
+	}()
+	// On abort, kill the remote process GROUP over a second channel on the same
+	// connection (handshake-free), so claude AND any tool child it spawned die — the
+	// remote analogue of the host executor's process-group SIGKILL. The signal+close
+	// is a belt-and-suspenders fallback for the rare cancel that races the pgid
+	// readout (a real turn runs for seconds, so the pgid is long since captured).
 	stop := context.AfterFunc(ctx, func() {
+		pmu.Lock()
+		g := pgid
+		pmu.Unlock()
+		if g > 0 {
+			killRemoteGroup(client, g)
+		}
 		_ = sess.Signal(ssh.SIGKILL)
 		_ = sess.Close()
 	})
 	return &sshProc{sess: sess, stdout: stdout, stop: stop}, nil
+}
+
+// sshPGIDSentinel prefixes the line cancelableCommand writes to stderr carrying the
+// remote process-group id, so run() can parse it back out of the stderr stream.
+const sshPGIDSentinel = "__spawner_pgid__ "
+
+// cancelableCommand wraps a turn's inner "cd … && exec claude …" so an abort can
+// kill the whole remote process tree. setsid puts the command in a fresh session /
+// process group (whose pgid is the wrapper shell's pid); the shell echoes that pgid
+// on stderr and then execs into inner, so claude replaces the shell keeping the same
+// pgid and every tool child it spawns inherits it. A cancel then kills -pgid to take
+// the group down together. No PTY is requested, so the stream-json stdout stays
+// clean (the pgid rides stderr).
+func cancelableCommand(inner string) string {
+	return "setsid sh -c " + shellQuote("echo "+sshPGIDSentinel+"$$ 1>&2; "+inner)
+}
+
+// killRemoteGroup opens a fresh channel on the live connection and SIGKILLs the
+// remote process group, matching the host executor's group-kill-on-abort semantics.
+// Best-effort: a failure (already exited, connection gone) is ignored.
+func killRemoteGroup(client *ssh.Client, pgid int) {
+	s, err := client.NewSession()
+	if err != nil {
+		return
+	}
+	defer s.Close()
+	_ = s.Run(fmt.Sprintf("kill -s KILL -%d", pgid))
 }
 
 // sshProc adapts an *ssh.Session to Proc.

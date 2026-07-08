@@ -121,8 +121,14 @@ the feature works as expected, as the ship step (see [[use-android-dev-skill-and
       remote claude → stream-json reply). Remaining before flipping the default + deleting
       `HostExecutor`: verify against a genuinely remote host (the work box), where the local-FS
       discovery/resume assumptions no longer hold (that's the discovery checkbox).
-- [ ] Cancel via tagged process-group kill over a second channel (no PTY). *(today: best-effort
-      signal+close; without a PTY many sshd builds won't kill the remote process.)*
+- [x] 2026-07-08 — **Cancel via process-group kill over a second channel (no PTY).** Each turn is
+      wrapped `setsid sh -c 'echo <pgid> 1>&2; cd … && exec claude …'`: setsid puts claude in a fresh
+      process group whose id rides stderr (out of band from the stream-json stdout, so no PTY is needed
+      and stdout stays clean); on ctx-cancel the executor opens a second (handshake-free) channel on the
+      same connection and `kill -s KILL -<pgid>`, so claude AND any tool child die together — the remote
+      analogue of the host executor's group SIGKILL. **Live-proven** (`TestLiveSSHCancelKillsRemote`: a
+      long remote process tree is gone after cancel); real claude turns still pass under the wrapper on
+      both loopback and the work box. Unit test pins the wrapper string.
 - [~] `Session.Host` + spawn-dialog host choice; loopback default. **`Session.Host` field added
       2026-07-08** (empty = loopback; SSHExecutor reads it). Remaining: the spawn-dialog/protocol/app
       choice that actually sets it (pick the work box by voice).

@@ -89,6 +89,71 @@ func TestLiveSSHLoopback(t *testing.T) {
 	}
 }
 
+func TestCancelableCommand(t *testing.T) {
+	got := cancelableCommand(remoteCommand("/tmp", "sleep", []string{"30"}))
+	// setsid → new process group; the wrapper shell echoes its pgid ($$) on stderr,
+	// then execs the inner cd+claude so the exec'd process keeps that pgid.
+	want := `setsid sh -c 'echo __spawner_pgid__ $$ 1>&2; cd '\''/tmp'\'' && exec '\''sleep'\'' '\''30'\'''`
+	if got != want {
+		t.Errorf("cancelableCommand mismatch\n got: %s\nwant: %s", got, want)
+	}
+}
+
+// TestLiveSSHCancelKillsRemote proves an aborted turn tears down the WHOLE remote
+// process tree (not just the top process), the remote analogue of the host
+// executor's process-group SIGKILL. It runs a long sleep as the "claude" binary over
+// loopback, cancels the context, and asserts the remote sleep is gone. Gated on
+// SPAWNER_SSH_LIVE=1.
+func TestLiveSSHCancelKillsRemote(t *testing.T) {
+	if os.Getenv("SPAWNER_SSH_LIVE") != "1" {
+		t.Skip("set SPAWNER_SSH_LIVE=1 to run the live cancel test")
+	}
+	pool, err := NewSSHPool(SSHConfig{})
+	if err != nil {
+		t.Fatalf("NewSSHPool: %v", err)
+	}
+	defer pool.Close()
+
+	// A distinctive arg so pgrep can find exactly this process on the remote.
+	marker := "998877" // seconds; unmistakable in `pgrep -f`
+	ex := SSHExecutor{Pool: pool, Bin: "sleep"}
+	ctx, cancel := context.WithCancel(context.Background())
+	proc, err := ex.Start(ctx, &Session{Dir: "/"}, []string{marker}) // Host "" = loopback
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	go io.Copy(io.Discard, proc.Stdout()) // drain stdout so the proc runs
+
+	running := func() bool {
+		c, _ := pool.client("localhost")
+		s, err := c.NewSession()
+		if err != nil {
+			return false
+		}
+		defer s.Close()
+		// pgrep exits 0 when a match exists; -f matches the full command line.
+		return s.Run("pgrep -f 'sleep "+marker+"'") == nil
+	}
+	waitFor := func(want bool) bool {
+		for i := 0; i < 40; i++ { // up to ~4s
+			if running() == want {
+				return true
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		return false
+	}
+
+	if !waitFor(true) {
+		t.Fatal("remote sleep never appeared (turn didn't start?)")
+	}
+	cancel()
+	if !waitFor(false) {
+		t.Fatal("remote process survived cancel — group kill failed")
+	}
+	_ = proc.Wait()
+}
+
 // TestLiveSSHRealClaude drives a real Claude turn over loopback SSH through
 // Driver.Turn — the full path a live host session takes with SPAWNER_SSH on:
 // SSHExecutor registered for TargetHost, Session.Host empty (loopback), the turn's
