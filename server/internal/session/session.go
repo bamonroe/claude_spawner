@@ -61,6 +61,12 @@ type Session struct {
 	// session's lifetime (sandbox target only): created at spawn, reused every turn,
 	// removed on delete. Empty for host sessions.
 	Container string `json:"container,omitempty"`
+	// Host is the SSH target where this session's turns run under SSH-native
+	// execution: empty means the local machine (loopback), a name like "work" means
+	// that remote box. SSHExecutor reads it to pick the pooled connection. Reserved:
+	// the spawn-dialog choice and Driver routing that select the SSH executor land in
+	// a later commit of the SSH-native epic (see TODO.md); today nothing sets it.
+	Host string `json:"host,omitempty"`
 }
 
 // TranscriptIDs returns every session_id whose transcript belongs to this
