@@ -5,7 +5,8 @@
 #
 # Prereqs (see deploy/README.md):
 #   - the host's sshd accepts a key-based login from the server user to itself
-#     (localhost), and that host key is already in the mounted known_hosts;
+#     (localhost), and that host key is in the server's own known_hosts
+#     (./state/known_hosts — self-contained, NOT the host's ~/.ssh/known_hosts);
 #   - fill in spawner-container.env (copy spawner-container.env.example).
 #
 # Run (SPAWNER_UID/GID rather than UID/GID — the latter are readonly in some shells):
