@@ -356,11 +356,13 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     /** Request the SSH identity registry (Settings → Identities). Replies identity_list. */
     fun requestIdentities() = client?.send(Outbound.identitiesList())
 
-    /** Create a new identity (server generates the keypair); broadcasts identity_list. */
-    fun createIdentity(name: String) = client?.send(Outbound.identityCreate(name))
+    /** Create a new identity (user required; optional keypair + password); broadcasts identity_list. */
+    fun createIdentity(name: String, user: String, password: String, genKey: Boolean) =
+        client?.send(Outbound.identityCreate(name, user, password, genKey))
 
     /** Import an existing server-side private key as an identity; broadcasts identity_list. */
-    fun importIdentity(name: String, keyPath: String) = client?.send(Outbound.identityImport(name, keyPath))
+    fun importIdentity(name: String, user: String, password: String, keyPath: String) =
+        client?.send(Outbound.identityImport(name, user, password, keyPath))
 
     /** Delete an identity by name; broadcasts identity_list. */
     fun deleteIdentity(name: String) = client?.send(Outbound.identityDelete(name))

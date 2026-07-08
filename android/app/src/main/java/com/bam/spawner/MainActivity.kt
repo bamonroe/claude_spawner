@@ -1447,9 +1447,18 @@ private fun IdentitiesSettings(controller: VoiceController, onBack: () -> Unit) 
     LaunchedEffect(connected) { if (connected) controller.requestIdentities() }
 
     var newName by rememberSaveable { mutableStateOf("") }
+    var newUser by rememberSaveable { mutableStateOf("") }
+    var newPassword by rememberSaveable { mutableStateOf("") }
+    var genKey by rememberSaveable { mutableStateOf(true) } // generate a keypair (off = password-only)
     var importName by rememberSaveable { mutableStateOf("") }
+    var importUser by rememberSaveable { mutableStateOf("") }
+    var importPassword by rememberSaveable { mutableStateOf("") }
     var importPath by rememberSaveable { mutableStateOf("") }
     var showForm by rememberSaveable { mutableStateOf(false) } // is the add form expanded?
+    val clearForm = {
+        newName = ""; newUser = ""; newPassword = ""; genKey = true
+        importName = ""; importUser = ""; importPassword = ""; importPath = ""; showForm = false
+    }
 
     SettingsScaffold("Identities", onBack) {
         Text(
@@ -1479,17 +1488,29 @@ private fun IdentitiesSettings(controller: VoiceController, onBack: () -> Unit) 
                             Text("Delete", color = MaterialTheme.colorScheme.error)
                         }
                     }
-                    // Public key is safe to show/copy; the private key stays on the server.
                     Text(
-                        id.publicKey,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.outline,
-                        maxLines = 2, overflow = TextOverflow.Ellipsis,
+                        buildString {
+                            append(id.user.ifBlank { "(no user)" })
+                            if (id.hasPassword) append("  ·  🔒 password")
+                            if (id.publicKey.isBlank()) append("  ·  no key")
+                        },
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
                     )
-                    OutlinedButton(
-                        onClick = { clipboard.setText(AnnotatedString(id.publicKey)) },
-                        modifier = Modifier.padding(top = 6.dp),
-                    ) { Text("Copy public key") }
+                    // Public key is safe to show/copy; the private key stays on the server.
+                    // A password-only identity has none.
+                    if (id.publicKey.isNotBlank()) {
+                        Text(
+                            id.publicKey,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline,
+                            maxLines = 2, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                        OutlinedButton(
+                            onClick = { clipboard.setText(AnnotatedString(id.publicKey)) },
+                            modifier = Modifier.padding(top = 6.dp),
+                        ) { Text("Copy public key") }
+                    }
                 }
             }
         }
@@ -1501,10 +1522,20 @@ private fun IdentitiesSettings(controller: VoiceController, onBack: () -> Unit) 
         } else {
             Text("Generate a new identity", style = MaterialTheme.typography.titleMedium)
             OutlinedTextField(newName, { newName = it }, label = { Text("Name (e.g. work-key)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(newUser, { newUser = it }, label = { Text("Username (login user)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(
+                newPassword, { newPassword = it }, label = { Text("Password (optional)") }, singleLine = true,
+                visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(),
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Generate a keypair", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                Switch(checked = genKey, onCheckedChange = { genKey = it })
+            }
+            // A key-less identity (keypair off) must have a password to authenticate.
             Button(
-                enabled = connected && newName.isNotBlank(),
-                onClick = { controller.createIdentity(newName.trim()); newName = ""; showForm = false },
-            ) { Text("Generate keypair") }
+                enabled = connected && newName.isNotBlank() && newUser.isNotBlank() && (genKey || newPassword.isNotBlank()),
+                onClick = { controller.createIdentity(newName.trim(), newUser.trim(), newPassword, genKey); clearForm() },
+            ) { Text(if (genKey) "Generate keypair" else "Add identity") }
 
             HorizontalDivider()
             Text("Import an existing key", style = MaterialTheme.typography.titleMedium)
@@ -1514,13 +1545,18 @@ private fun IdentitiesSettings(controller: VoiceController, onBack: () -> Unit) 
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
             )
             OutlinedTextField(importName, { importName = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(importUser, { importUser = it }, label = { Text("Username (login user)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(importPath, { importPath = it }, label = { Text("Private-key path on server") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(
+                importPassword, { importPassword = it }, label = { Text("Password (optional)") }, singleLine = true,
+                visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(),
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
-                    enabled = connected && importName.isNotBlank() && importPath.isNotBlank(),
-                    onClick = { controller.importIdentity(importName.trim(), importPath.trim()); importName = ""; importPath = ""; showForm = false },
+                    enabled = connected && importName.isNotBlank() && importUser.isNotBlank() && importPath.isNotBlank(),
+                    onClick = { controller.importIdentity(importName.trim(), importUser.trim(), importPassword, importPath.trim()); clearForm() },
                 ) { Text("Import key") }
-                OutlinedButton(onClick = { newName = ""; importName = ""; importPath = ""; showForm = false }) { Text("Cancel") }
+                OutlinedButton(onClick = clearForm) { Text("Cancel") }
             }
         }
     }

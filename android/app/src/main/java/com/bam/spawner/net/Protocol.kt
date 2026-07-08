@@ -159,7 +159,7 @@ sealed interface ServerMsg {
             if (arr == null) return emptyList()
             return (0 until arr.length()).map {
                 val i = arr.getJSONObject(it)
-                Identity(i.optString("name"), i.optString("public_key"))
+                Identity(i.optString("name"), i.optString("user"), i.optString("public_key"), i.optBoolean("has_password"))
             }
         }
     }
@@ -247,11 +247,14 @@ data class Host(
     val claudeBin: String = "",
 )
 
-/** A managed SSH identity: a keypair the server holds. The private key never leaves
- *  the server — only the public key is sent, for the user to copy onto a host. */
+/** A managed SSH identity: a login credential the server holds. Carries a required
+ *  default `user`, an optional keypair (public key shown; private key stays server-side),
+ *  and optionally an SSH password (never sent — only `hasPassword` is reported). */
 data class Identity(
     val name: String,
-    val publicKey: String,
+    val user: String = "",
+    val publicKey: String = "",
+    val hasPassword: Boolean = false,
 )
 
 /** One clarification Claude asked (interactive mode). Empty options = free-text. */
@@ -331,8 +334,11 @@ object Outbound {
     // SSH identities (Settings → Identities). The server holds the private keys and
     // broadcasts an updated identity_list after every create/delete.
     fun identitiesList() = JSONObject().put("type", "identities").toString()
-    fun identityCreate(name: String) = JSONObject().put("type", "identity_create").put("name", name).toString()
-    fun identityImport(name: String, keyPath: String) =
-        JSONObject().put("type", "identity_import").put("name", name).put("key_path", keyPath).toString()
+    fun identityCreate(name: String, user: String, password: String, genKey: Boolean) =
+        JSONObject().put("type", "identity_create").put("name", name).put("user", user)
+            .put("password", password).put("gen_key", genKey).toString()
+    fun identityImport(name: String, user: String, password: String, keyPath: String) =
+        JSONObject().put("type", "identity_import").put("name", name).put("user", user)
+            .put("password", password).put("key_path", keyPath).toString()
     fun identityDelete(name: String) = JSONObject().put("type", "identity_delete").put("name", name).toString()
 }

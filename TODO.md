@@ -117,8 +117,11 @@ the feature works as expected, as the ship step (see [[use-android-dev-skill-and
       copyable public keys, delete) and a host-form identity picker; the host card shows the linked
       identity. **Import** an existing server-side key (`identity_import` → copies it into the keys dir,
       records its public key) so the config default key that already authenticates turns shows up and
-      can be linked. Server + app + docs + tests, built and verified on the emulator. Needs the
-      container redeployed (restart button) + the new APK for the feature to be live end to end.
+      can be linked. An identity carries a **required username** (a default a host's User overrides)
+      and an **optional SSH password** (password auth, key optional — a keyless password-only identity
+      is allowed); the password is server-only (never sent; the app sees only `has_password`). Server +
+      app + docs + tests, built and verified on the emulator. Needs the container redeployed (restart
+      button) + the new APK for the feature to be live end to end.
 - [x] 2026-07-08 — **Restart button rebuilds + recreates the container (one-tap deploy).** For the
       container deployment `SPAWNER_RESTART_CMD` now SSHes to the host over loopback and launches
       `deploy/rebuild-container.sh` detached (`setsid`), which runs `compose up -d --build` to rebuild
