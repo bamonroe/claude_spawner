@@ -148,17 +148,28 @@ registry** (Settings → Hosts, persisted server-side as `hosts.json`); `Session
 there, or a bare hostname the pool dials literally with the `SPAWNER_SSH_*` defaults.
 
 `Session.Host` is **always an explicit name** — there is no implicit "empty means localhost"
-default. The loopback machine is the reserved host name **`localhost`** (`session.LocalHost`),
-handled exactly like any other SSH host (dialed over loopback SSH with the config defaults); the app
-lists it as **"Local"** and every spawn carries an explicit host. The one place a default is
+default. The loopback machine is the host name **`localhost`** (`session.LocalHost`), handled
+exactly like any other SSH host (dialed over loopback SSH with the config defaults). It is **not a
+special built-in**: `OpenHostStore` seeds a `localhost` entry into a *fresh* registry so a new
+deployment lists it out of the box, but it is an ordinary row — editable and deletable like any
+other (once the file exists it never re-seeds, so a delete sticks). The one place a default is
 applied is at spawn time (`newSession`): a host-target session with no named host is set to
 `localhost` so voice/legacy spawns keep working. Everywhere downstream — the executor, transcript
 access (`claudeFS`), discovery — treats a hostless host-target session as a bug: the `SSHExecutor`
 returns an error rather than silently running it on the local box. This is what makes a
-**remote-only deployment** possible — a server whose own machine has no `claude`/sshd simply never
-picks Local and drives only remote hosts. (Legacy `sessions.json` records with an empty host are
+**remote-only deployment** possible — delete the `localhost` host and the server drives only remote
+machines, never touching its own box. (Legacy `sessions.json` records with an empty host are
 migrated to `localhost` on load; discovered sessions, found by scanning this machine, are named
 `localhost`.)
+
+**What `localhost` means depends on the server's network namespace.** Bare metal, it's the machine
+the server runs on. In a container it's the container's own loopback — which has no sshd — *unless*
+the container shares the host's network. The `deploy/spawner-container.yml` recipe uses **host
+networking** precisely so that `localhost:22` inside the container is the **host's** sshd: the seeded
+`localhost` host then drives the host machine, and the mounted home/roots line up with the paths the
+host writes. A container *without* host networking can't reach the host as `localhost` — that's a
+deployment where you'd delete the `localhost` entry and register the host (and any others) as
+explicit remotes instead.
 
 ### Sandbox sessions (also without host root)
 

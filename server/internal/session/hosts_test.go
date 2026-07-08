@@ -11,8 +11,9 @@ func TestHostStoreRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(hs.List()) != 0 {
-		t.Fatal("fresh store should be empty")
+	// A fresh registry seeds the loopback host so a new deployment lists it.
+	if got := hs.List(); len(got) != 1 || got[0].Name != LocalHost {
+		t.Fatalf("fresh store should seed %q, got %+v", LocalHost, got)
 	}
 	if err := hs.Put(&Host{Name: "work", Address: "100.64.0.7", User: "bam", Port: 22, KeyFile: "/home/bam/.ssh/id"}); err != nil {
 		t.Fatal(err)
@@ -31,12 +32,13 @@ func TestHostStoreRoundTrip(t *testing.T) {
 	if err := hs.Put(&Host{Name: "work", Address: "10.0.0.9"}); err != nil {
 		t.Fatal(err)
 	}
+	// Seeded localhost + the two added hosts, sorted by name.
 	got := hs.List()
-	if len(got) != 2 || got[0].Name != "local" || got[1].Name != "work" {
+	if len(got) != 3 || got[0].Name != "local" || got[1].Name != LocalHost || got[2].Name != "work" {
 		t.Fatalf("unexpected list: %+v", got)
 	}
-	if got[1].Address != "10.0.0.9" {
-		t.Fatalf("upsert didn't replace: %+v", got[1])
+	if got[2].Address != "10.0.0.9" {
+		t.Fatalf("upsert didn't replace: %+v", got[2])
 	}
 
 	// Reload from disk: persistence survives a new handle.
@@ -59,7 +61,17 @@ func TestHostStoreRoundTrip(t *testing.T) {
 	if hs3.Get("work") != nil {
 		t.Fatal("delete didn't persist")
 	}
-	if len(hs3.List()) != 1 {
-		t.Fatalf("expected 1 host after delete, got %d", len(hs3.List()))
+	if len(hs3.List()) != 2 { // local + seeded localhost
+		t.Fatalf("expected 2 hosts after delete, got %d", len(hs3.List()))
+	}
+
+	// Deleting the seeded localhost sticks — the store isn't re-seeded on reopen
+	// because the file now exists.
+	if err := hs3.Delete(LocalHost); err != nil {
+		t.Fatal(err)
+	}
+	hs4, _ := OpenHostStore(path)
+	if hs4.Get(LocalHost) != nil {
+		t.Fatalf("deleted %q was re-seeded on reopen", LocalHost)
 	}
 }

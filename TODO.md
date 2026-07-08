@@ -112,10 +112,14 @@ the feature works as expected, as the ship step (see [[use-android-dev-skill-and
       the `SSHExecutor` errors on a hostless host-target session instead of coercing to localhost, the
       Usage probe and discovered sessions name `localhost` explicitly, and legacy empty-host records
       migrate to `localhost` on store load. The spawn-time default lives in one place (`newSession`),
-      so voice/legacy spawns still work while a purely **remote-only deployment** is now possible (the
-      server never touches its own box unless Local is chosen). App: "Local" is a permanent, listed,
-      non-deletable entry in Settings → Hosts and the spawn picker always shows it; every spawn sends
-      an explicit host. Server suite green; documented in `docs/architecture.md`.
+      so voice/legacy spawns still work while a purely **remote-only deployment** is now possible.
+      `localhost` is not a special built-in: `OpenHostStore` seeds it into a fresh registry so it's
+      listed out of the box, but it's an ordinary, editable, **deletable** row (delete sticks — the
+      file exists after any change, so it never re-seeds). Delete it and the server drives only remote
+      machines. App: localhost renders from the registry like any other host in Settings → Hosts and
+      the picker (no hardcoded chip); every spawn sends an explicit host. Documented in
+      `docs/architecture.md`, including what `localhost` means under the container's host networking
+      (`localhost:22` = the host's sshd). Server suite green.
 - [x] 2026-07-08 — **`SSHExecutor` + persistent per-host client pool (keepalive + reconnect),
       proven against localhost.** (`internal/session/ssh.go`): pool dials+auths once per host, opens a
       cheap channel per turn, keepalive drops a dead link, executor drops+re-dials once on a stale

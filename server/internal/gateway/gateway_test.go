@@ -153,10 +153,15 @@ func TestHostCRUD(t *testing.T) {
 	send(t, ws, map[string]any{"type": "hello", "token": "secret"})
 	readUntil(t, ws, "hello_ok")
 
-	// Fresh registry is empty.
+	// A fresh registry seeds the loopback host; remove it so the rest of this test
+	// works against an empty registry.
 	send(t, ws, map[string]any{"type": "hosts"})
+	if hs := readUntil(t, ws, "host_list")["hosts"].([]any); len(hs) != 1 || hs[0].(map[string]any)["name"] != "localhost" {
+		t.Fatalf("fresh registry should seed localhost, got %v", hs)
+	}
+	send(t, ws, map[string]any{"type": "host_delete", "name": "localhost"})
 	if hs := readUntil(t, ws, "host_list")["hosts"].([]any); len(hs) != 0 {
-		t.Fatalf("fresh registry should be empty, got %v", hs)
+		t.Fatalf("registry should be empty after removing seed, got %v", hs)
 	}
 
 	// Add a host → broadcast list with it.

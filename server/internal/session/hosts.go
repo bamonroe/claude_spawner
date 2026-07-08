@@ -48,7 +48,13 @@ func OpenHostStore(path string) (*HostStore, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return h, nil // fresh registry
+			// Fresh registry: seed the loopback host so a new deployment lists it out
+			// of the box. It's an ordinary entry — editable and deletable like any
+			// other. Once the user touches the registry the file exists (any Put/Delete
+			// flushes it), so this never re-seeds and a delete sticks. A deployment
+			// whose box can't reach itself over SSH just removes it and drives remotes.
+			h.byName[LocalHost] = &Host{Name: LocalHost, Address: LocalHost}
+			return h, nil
 		}
 		return nil, err
 	}
