@@ -111,8 +111,11 @@ box is nearly free → then containerizing the server is a deploy change, not ne
       `TestLiveSSHLoopback`: dial → cached-conn reuse → streamed remote output through the quoting
       path). Fixed a Go-vs-OpenSSH host-key gotcha the live test caught: Go doesn't bias host-key
       negotiation toward the algorithm already in known_hosts, so a mismatch now retries once with
-      `HostKeyAlgorithms` constrained to the stored key type(s). Still TODO before flipping the default
-      + deleting `HostExecutor`: a real end-to-end claude turn over SSH (not just a smoke command).
+      `HostKeyAlgorithms` constrained to the stored key type(s). **Real end-to-end claude turn proven
+      over loopback SSH** (`TestLiveSSHRealClaude`: `Driver.Turn` → `SSHExecutor` → pooled conn →
+      remote claude → stream-json reply). Remaining before flipping the default + deleting
+      `HostExecutor`: verify against a genuinely remote host (the work box), where the local-FS
+      discovery/resume assumptions no longer hold (that's the discovery checkbox).
 - [ ] Cancel via tagged process-group kill over a second channel (no PTY). *(today: best-effort
       signal+close; without a PTY many sshd builds won't kill the remote process.)*
 - [~] `Session.Host` + spawn-dialog host choice; loopback default. **`Session.Host` field added

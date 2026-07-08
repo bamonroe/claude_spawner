@@ -89,6 +89,40 @@ func TestLiveSSHLoopback(t *testing.T) {
 	}
 }
 
+// TestLiveSSHRealClaude drives a real Claude turn over loopback SSH through
+// Driver.Turn — the full path a live host session takes with SPAWNER_SSH on:
+// SSHExecutor registered for TargetHost, Session.Host empty (loopback), the turn's
+// stream-json parsed back into a reply. Gated on SPAWNER_SSH_LIVE=1 (needs key-based
+// ssh to localhost and a real, authed claude on the box). Loopback keeps the local
+// ~/.claude/PATH, so it isolates the SSH transport from the remote-discovery work.
+func TestLiveSSHRealClaude(t *testing.T) {
+	if os.Getenv("SPAWNER_SSH_LIVE") != "1" {
+		t.Skip("set SPAWNER_SSH_LIVE=1 to run (real claude over loopback SSH)")
+	}
+	pool, err := NewSSHPool(SSHConfig{})
+	if err != nil {
+		t.Fatalf("NewSSHPool: %v", err)
+	}
+	defer pool.Close()
+	d := &Driver{Execs: map[Target]Executor{TargetHost: SSHExecutor{Pool: pool}}, Bypass: true}
+
+	id, err := NewSessionID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Session{Name: "live-ssh", Dir: t.TempDir(), SessionID: id} // Host "" = loopback
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+	defer cancel()
+	reply, _, err := d.Turn(ctx, s, "Reply with exactly the token LIVESSHOK and nothing else.", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("live ssh turn: %v", err)
+	}
+	if !strings.Contains(reply, "LIVESSHOK") {
+		t.Fatalf("reply lacked the token (didn't run real claude over SSH?): %q", reply)
+	}
+	t.Logf("ssh loopback → real claude reply: %q", reply)
+}
+
 // TestSSHCancelWithoutPool guards the ctx-cancel wiring shape: Wait releasing the
 // AfterFunc hook must not panic when stop already fired. Uses a stub proc rather
 // than a live connection.
