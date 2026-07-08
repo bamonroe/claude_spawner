@@ -44,6 +44,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("host store: %v", err)
 	}
+	idStore, err := session.OpenIdentityStore(cfg.IdentitiesPath, cfg.SSHKeysDir)
+	if err != nil {
+		log.Fatalf("identity store: %v", err)
+	}
 	driver := session.NewDriver()
 	driver.RestartCmd = cfg.RestartCmd
 	if len(cfg.SpawnRoots) > 0 {
@@ -65,7 +69,7 @@ func main() {
 			KeyFile:    cfg.SSHKey,
 			KnownHosts: cfg.SSHKnownHosts,
 			Bin:        cfg.SSHClaudeBin,
-		}, hostStore)
+		}, hostStore, idStore)
 		if err != nil {
 			log.Fatalf("ssh: %v", err)
 		}
@@ -133,7 +137,7 @@ func main() {
 	proj := projects.New(cfg.SpawnRoots)
 	log.Printf("project index: %d dirs under roots %v", len(proj.List(1<<30)), cfg.SpawnRoots)
 
-	gw := gateway.New(cfg, store, hostStore, driver, tmuxMgr, stt, proj)
+	gw := gateway.New(cfg, store, hostStore, idStore, driver, tmuxMgr, stt, proj)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {

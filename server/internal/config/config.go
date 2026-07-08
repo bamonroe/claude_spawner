@@ -28,6 +28,12 @@ type Config struct {
 	// (the source of truth is the app; the server just stores it so it survives
 	// restarts and is shared across clients).
 	HostsPath string
+	// IdentitiesPath is the file where the app-managed SSH identity registry (names
+	// + public keys) is persisted; SSHKeysDir is where each identity's private key
+	// is kept (0600). The app creates identities and copies their public keys; the
+	// private material never leaves the server.
+	IdentitiesPath string
+	SSHKeysDir     string
 	// ClaudeBin is the claude binary used for headless turns.
 	ClaudeBin string
 	// WhisperBin is the whisper.cpp CLI (default "whisper-cli").
@@ -121,6 +127,8 @@ func Load() (*Config, error) {
 		AuthToken:        os.Getenv("SPAWNER_TOKEN"),
 		StatePath:        env("SPAWNER_STATE", "sessions.json"),
 		HostsPath:        env("SPAWNER_HOSTS", "hosts.json"),
+		IdentitiesPath:   env("SPAWNER_IDENTITIES", "identities.json"),
+		SSHKeysDir:       env("SPAWNER_SSH_KEYS", "ssh_keys"),
 		ClaudeBin:        env("SPAWNER_CLAUDE_BIN", "claude"),
 		WhisperBin:       env("SPAWNER_WHISPER_BIN", "whisper-cli"),
 		WhisperURL:       os.Getenv("SPAWNER_WHISPER_URL"),

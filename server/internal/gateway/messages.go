@@ -65,6 +65,16 @@ func msgHostList(hosts []*session.Host) map[string]any {
 	return map[string]any{"type": "host_list", "hosts": hosts}
 }
 
+// msgIdentityList carries the SSH identity registry (Settings → Identities): each
+// entry's name and PUBLIC key only — private keys never go over the wire. Sent to
+// the requester on `identities` and broadcast after identity_create/identity_delete.
+func msgIdentityList(ids []*session.Identity) map[string]any {
+	if ids == nil {
+		ids = []*session.Identity{}
+	}
+	return map[string]any{"type": "identity_list", "identities": ids}
+}
+
 // msgPending shows the live hands-free buffer as a draft (uncommitted) so the
 // user sees what's captured before speaking the end token. Empty text clears it.
 func msgPending(text string) map[string]any {

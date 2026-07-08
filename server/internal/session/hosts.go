@@ -28,7 +28,12 @@ type Host struct {
 	Port int `json:"port,omitempty"`
 	// KeyFile is a server-side private-key path for this host; empty relies on the
 	// ssh-agent. (The app configures the path; key material stays on the server.)
+	// Superseded by Identity when that is set.
 	KeyFile string `json:"key_file,omitempty"`
+	// Identity names a managed IdentityStore keypair to authenticate with. When set,
+	// the pool uses that identity's server-side private key and KeyFile is ignored —
+	// this is the app-managed alternative to a raw KeyFile path.
+	Identity string `json:"identity,omitempty"`
 	// ClaudeBin is the claude binary on this host; empty means "claude".
 	ClaudeBin string `json:"claude_bin,omitempty"`
 }

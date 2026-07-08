@@ -43,7 +43,7 @@ func TestLiveSSHClaudeFSMatchesLocal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	pool, err := NewSSHPool(SSHConfig{}, nil)
+	pool, err := NewSSHPool(SSHConfig{}, nil, nil)
 	if err != nil {
 		t.Fatalf("NewSSHPool: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestLiveSSHLoopback(t *testing.T) {
 	if os.Getenv("SPAWNER_SSH_LIVE") != "1" {
 		t.Skip("set SPAWNER_SSH_LIVE=1 to run the live loopback SSH test")
 	}
-	pool, err := NewSSHPool(SSHConfig{}, nil)
+	pool, err := NewSSHPool(SSHConfig{}, nil, nil)
 	if err != nil {
 		t.Fatalf("NewSSHPool: %v", err)
 	}
@@ -195,7 +195,7 @@ func TestLiveSSHCancelKillsRemote(t *testing.T) {
 	if os.Getenv("SPAWNER_SSH_LIVE") != "1" {
 		t.Skip("set SPAWNER_SSH_LIVE=1 to run the live cancel test")
 	}
-	pool, err := NewSSHPool(SSHConfig{}, nil)
+	pool, err := NewSSHPool(SSHConfig{}, nil, nil)
 	if err != nil {
 		t.Fatalf("NewSSHPool: %v", err)
 	}
@@ -251,7 +251,7 @@ func TestLiveSSHRealClaude(t *testing.T) {
 	if os.Getenv("SPAWNER_SSH_LIVE") != "1" {
 		t.Skip("set SPAWNER_SSH_LIVE=1 to run (real claude over loopback SSH)")
 	}
-	pool, err := NewSSHPool(SSHConfig{}, nil)
+	pool, err := NewSSHPool(SSHConfig{}, nil, nil)
 	if err != nil {
 		t.Fatalf("NewSSHPool: %v", err)
 	}
@@ -291,7 +291,7 @@ func TestLiveSSHRemoteClaude(t *testing.T) {
 	if dir == "" {
 		dir = "/tmp"
 	}
-	pool, err := NewSSHPool(SSHConfig{}, nil)
+	pool, err := NewSSHPool(SSHConfig{}, nil, nil)
 	if err != nil {
 		t.Fatalf("NewSSHPool: %v", err)
 	}
@@ -331,7 +331,7 @@ func TestLiveSSHHostRegistry(t *testing.T) {
 	hs := &HostStore{byName: map[string]*Host{
 		"workbox": {Name: "workbox", Address: addr},
 	}}
-	pool, err := NewSSHPool(SSHConfig{}, hs)
+	pool, err := NewSSHPool(SSHConfig{}, hs, nil)
 	if err != nil {
 		t.Fatalf("NewSSHPool: %v", err)
 	}

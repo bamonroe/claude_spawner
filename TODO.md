@@ -107,6 +107,15 @@ box is nearly free → then containerizing the server is a deploy change, not ne
 the feature works as expected, as the ship step (see [[use-android-dev-skill-and-emulator]]).
 **Re-containerizing the server is LOW priority** — it blocks nothing, do it whenever.
 
+- [ ] 2026-07-08 — **SSH identities: app-managed keypairs, hosts reference them.** *(server done; app next.)*
+      New `session.IdentityStore` — the app names/creates keypairs, the server generates ed25519 and
+      **keeps the private key** (`SPAWNER_SSH_KEYS` dir, `0600`), exposing only the public key
+      (`identity_list`) to copy onto a target host. Wire: `identities` / `identity_create` /
+      `identity_delete` → broadcast `identity_list`; `bad_identity` error; `SPAWNER_IDENTITIES` registry
+      file. `Host.Identity` names an identity and, when set, supersedes `KeyFile` — the SSH pool
+      resolves it to the managed private key. Server + docs + tests done and green. **App TODO:** an
+      Identities settings section (list with copyable public keys + create/delete) and a host-form
+      identity picker.
 - [x] 2026-07-08 — **Restart button rebuilds + recreates the container (one-tap deploy).** For the
       container deployment `SPAWNER_RESTART_CMD` now SSHes to the host over loopback and launches
       `deploy/rebuild-container.sh` detached (`setsid`), which runs `compose up -d --build` to rebuild

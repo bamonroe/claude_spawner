@@ -98,7 +98,11 @@ func newTestServerGW(t *testing.T, stt transcribe.Transcriber) (*httptest.Server
 	if err != nil {
 		t.Fatal(err)
 	}
-	gw := New(cfg, store, hosts, driver, tmux.NewManager(), stt, projects.New(cfg.SpawnRoots))
+	ids, err := session.OpenIdentityStore(filepath.Join(t.TempDir(), "identities.json"), filepath.Join(t.TempDir(), "keys"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gw := New(cfg, store, hosts, ids, driver, tmux.NewManager(), stt, projects.New(cfg.SpawnRoots))
 	ts := httptest.NewServer(http.HandlerFunc(gw.HandleWS))
 	t.Cleanup(ts.Close)
 	return ts, root, gw
@@ -184,6 +188,45 @@ func TestHostCRUD(t *testing.T) {
 	send(t, ws, map[string]any{"type": "host_delete", "name": "work"})
 	if hs := readUntil(t, ws, "host_list")["hosts"].([]any); len(hs) != 0 {
 		t.Fatalf("registry should be empty after delete, got %v", hs)
+	}
+}
+
+func TestIdentityCRUD(t *testing.T) {
+	ts, _ := newTestServer(t, nil)
+	ws := dial(t, ts)
+	send(t, ws, map[string]any{"type": "hello", "token": "secret"})
+	readUntil(t, ws, "hello_ok")
+
+	// Fresh registry is empty.
+	send(t, ws, map[string]any{"type": "identities"})
+	if ids := readUntil(t, ws, "identity_list")["identities"].([]any); len(ids) != 0 {
+		t.Fatalf("fresh identity registry should be empty, got %v", ids)
+	}
+
+	// Create → broadcast list with a public key (never a private key).
+	send(t, ws, map[string]any{"type": "identity_create", "name": "work"})
+	ids := readUntil(t, ws, "identity_list")["identities"].([]any)
+	if len(ids) != 1 {
+		t.Fatalf("want 1 identity, got %v", ids)
+	}
+	id := ids[0].(map[string]any)
+	if id["name"] != "work" || !strings.Contains(id["public_key"].(string), "ssh-ed25519") {
+		t.Fatalf("unexpected identity: %v", id)
+	}
+	if _, leaked := id["private_key"]; leaked {
+		t.Fatalf("private key must never be sent: %v", id)
+	}
+
+	// A duplicate name is rejected.
+	send(t, ws, map[string]any{"type": "identity_create", "name": "work"})
+	if e := readUntil(t, ws, "error"); e["code"] != "bad_identity" {
+		t.Fatalf("want bad_identity, got %v", e)
+	}
+
+	// Delete → broadcast empty list.
+	send(t, ws, map[string]any{"type": "identity_delete", "name": "work"})
+	if ids := readUntil(t, ws, "identity_list")["identities"].([]any); len(ids) != 0 {
+		t.Fatalf("registry should be empty after delete, got %v", ids)
 	}
 }
 
@@ -440,7 +483,11 @@ func newSandboxTestServer(t *testing.T) (*httptest.Server, string, *Server) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	gw := New(cfg, store, hosts, driver, tmux.NewManager(), nil, projects.New(cfg.SpawnRoots))
+	ids, err := session.OpenIdentityStore(filepath.Join(t.TempDir(), "identities.json"), filepath.Join(t.TempDir(), "keys"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gw := New(cfg, store, hosts, ids, driver, tmux.NewManager(), nil, projects.New(cfg.SpawnRoots))
 	ts := httptest.NewServer(http.HandlerFunc(gw.HandleWS))
 	t.Cleanup(ts.Close)
 	return ts, root, gw

@@ -33,7 +33,8 @@ import (
 type Server struct {
 	cfg      *config.Config
 	store    *session.Store
-	hosts    *session.HostStore // app-managed SSH host registry (Settings → Hosts)
+	hosts    *session.HostStore     // app-managed SSH host registry (Settings → Hosts)
+	ids      *session.IdentityStore // app-managed SSH identity registry (Settings → Identities)
 	driver   *session.Driver
 	tmuxMgr  *tmux.Manager
 	stt      transcribe.Transcriber // nil disables the audio path
@@ -171,7 +172,7 @@ type clientState struct {
 
 // New builds a gateway Server. stt may be nil, in which case audio frames are
 // rejected but text `utterance` messages still work.
-func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, driver *session.Driver, tmuxMgr *tmux.Manager, stt transcribe.Transcriber, proj *projects.Index) *Server {
+func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, ids *session.IdentityStore, driver *session.Driver, tmuxMgr *tmux.Manager, stt transcribe.Transcriber, proj *projects.Index) *Server {
 	var fast transcribe.Transcriber
 	if cfg.WhisperFastURL != "" {
 		fast = &transcribe.RemoteWhisper{URL: cfg.WhisperFastURL}
@@ -186,6 +187,7 @@ func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, dri
 		cfg:          cfg,
 		store:        store,
 		hosts:        hosts,
+		ids:          ids,
 		driver:       driver,
 		tmuxMgr:      tmuxMgr,
 		stt:          stt,
@@ -546,6 +548,9 @@ var wireHandlers = map[string]func(c *conn, in inbound){
 	"hosts":             func(c *conn, in inbound) { c.sendHostList() },
 	"host_put":          func(c *conn, in inbound) { c.doHostPut(in.Host) },
 	"host_delete":       func(c *conn, in inbound) { c.doHostDelete(in.Name) },
+	"identities":        func(c *conn, in inbound) { c.sendIdentityList() },
+	"identity_create":   func(c *conn, in inbound) { c.doIdentityCreate(in.Name) },
+	"identity_delete":   func(c *conn, in inbound) { c.doIdentityDelete(in.Name) },
 }
 
 // loop reads and dispatches messages until the socket closes. Text frames are

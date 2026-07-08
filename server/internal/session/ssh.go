@@ -149,7 +149,8 @@ func portStr(p int) string {
 // transparently re-dials. Safe for concurrent use.
 type SSHPool struct {
 	cfg     SSHConfig
-	hosts   *HostStore // registry resolving a Session.Host name → connection details; may be nil
+	hosts   *HostStore     // registry resolving a Session.Host name → connection details; may be nil
+	ids     *IdentityStore // resolves a host's Identity → its server-side private key; may be nil
 	hostKey ssh.HostKeyCallback
 	mu      sync.Mutex
 	clients map[string]*ssh.Client
@@ -160,12 +161,12 @@ type SSHPool struct {
 // dial time. hosts is the app-managed registry that resolves a Session.Host name to
 // its address/user/port/key; nil (or a name absent from it) dials the name
 // literally with the config defaults, preserving loopback/raw-hostname behavior.
-func NewSSHPool(cfg SSHConfig, hosts *HostStore) (*SSHPool, error) {
+func NewSSHPool(cfg SSHConfig, hosts *HostStore, ids *IdentityStore) (*SSHPool, error) {
 	cb, err := cfg.hostKeyCallback()
 	if err != nil {
 		return nil, err
 	}
-	return &SSHPool{cfg: cfg, hosts: hosts, hostKey: cb, clients: map[string]*ssh.Client{}}, nil
+	return &SSHPool{cfg: cfg, hosts: hosts, ids: ids, hostKey: cb, clients: map[string]*ssh.Client{}}, nil
 }
 
 // resolve maps a Session.Host name to dial details: a registry entry's
@@ -178,7 +179,12 @@ func (p *SSHPool) resolve(name string) (addr, user, keyFile string, port int) {
 			if a == "" {
 				a = name
 			}
-			return a, h.User, h.KeyFile, h.Port
+			// A managed identity supersedes a raw KeyFile: use its server-side key.
+			keyFile := h.KeyFile
+			if h.Identity != "" && p.ids != nil {
+				keyFile = p.ids.KeyPath(h.Identity)
+			}
+			return a, h.User, keyFile, h.Port
 		}
 	}
 	return name, p.cfg.User, p.cfg.KeyFile, p.cfg.Port
