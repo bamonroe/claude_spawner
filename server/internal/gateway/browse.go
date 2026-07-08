@@ -40,7 +40,7 @@ func (c *conn) doBrowse(path string) {
 
 // doSpawnAt creates a session in the chosen directory and attaches to it — the
 // visual equivalent of finishing the spawn dialog.
-func (c *conn) doSpawnAt(path string, target session.Target, create bool) {
+func (c *conn) doSpawnAt(path string, target session.Target, create bool, host string) {
 	abs, err := c.srv.cfg.ValidateSpawnDir(path)
 	if err != nil {
 		c.fail("bad_path", err.Error())
@@ -78,6 +78,11 @@ func (c *conn) doSpawnAt(path string, target session.Target, create bool) {
 	if err != nil {
 		c.fail("internal", err.Error())
 		return
+	}
+	// Run the session on the chosen SSH host (empty = local). Only meaningful for the
+	// host target — a sandbox session runs in a local container, so ignore any host.
+	if target != session.TargetSandbox {
+		sess.Host = host
 	}
 	if perr := c.srv.store.Put(sess); perr != nil {
 		c.fail("internal", perr.Error())

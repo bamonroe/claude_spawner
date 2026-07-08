@@ -38,6 +38,7 @@ type inbound struct {
 	Brief        bool              `json:"brief"`         // on `hello`: append a "reply briefly for TTS" hint to dictation
 	Interactive  bool              `json:"interactive"`   // on `hello`: let Claude ask clarifying questions mid-task
 	Host         *session.Host     `json:"host"`          // on `host_put`: the SSH host entry to add/update
+	HostName     string            `json:"host_name"`     // on `spawn_at`: which registered SSH host to run the new session on ("" = local)
 }
 
 func msgHelloOK(sessionID, whisperModel string) map[string]any {
