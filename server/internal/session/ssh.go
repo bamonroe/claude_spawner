@@ -63,40 +63,10 @@ type SSHConfig struct {
 	Timeout time.Duration
 }
 
-// clientConfig builds the *ssh.ClientConfig once (shared by every pooled host):
-// resolves the login user, gathers auth methods (agent first, then an explicit key
-// file), and installs strict host-key verification from known_hosts.
-func (c SSHConfig) clientConfig() (*ssh.ClientConfig, error) {
-	login := c.User
-	if login == "" {
-		u, err := user.Current()
-		if err != nil {
-			return nil, fmt.Errorf("ssh: resolve current user: %w", err)
-		}
-		login = u.Username
-	}
-
-	var auths []ssh.AuthMethod
-	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
-		if conn, err := net.Dial("unix", sock); err == nil {
-			auths = append(auths, ssh.PublicKeysCallback(agent.NewClient(conn).Signers))
-		}
-	}
-	if c.KeyFile != "" {
-		key, err := os.ReadFile(c.KeyFile)
-		if err != nil {
-			return nil, fmt.Errorf("ssh: read key %s: %w", c.KeyFile, err)
-		}
-		signer, err := ssh.ParsePrivateKey(key)
-		if err != nil {
-			return nil, fmt.Errorf("ssh: parse key %s: %w", c.KeyFile, err)
-		}
-		auths = append(auths, ssh.PublicKeys(signer))
-	}
-	if len(auths) == 0 {
-		return nil, fmt.Errorf("ssh: no auth method (set a key file or run an ssh-agent)")
-	}
-
+// hostKeyCallback builds strict host-key verification from known_hosts (shared by
+// every pooled host — the known_hosts file is global). Built once at pool
+// construction.
+func (c SSHConfig) hostKeyCallback() (ssh.HostKeyCallback, error) {
 	kh := c.KnownHosts
 	if kh == "" {
 		home, err := os.UserHomeDir()
@@ -105,25 +75,67 @@ func (c SSHConfig) clientConfig() (*ssh.ClientConfig, error) {
 		}
 		kh = filepath.Join(home, ".ssh", "known_hosts")
 	}
-	hostKey, err := knownhosts.New(kh)
+	cb, err := knownhosts.New(kh)
 	if err != nil {
 		return nil, fmt.Errorf("ssh: load known_hosts %s: %w", kh, err)
 	}
-
-	timeout := c.Timeout
-	if timeout == 0 {
-		timeout = sshDialTimeout
-	}
-	return &ssh.ClientConfig{
-		User:            login,
-		Auth:            auths,
-		HostKeyCallback: hostKey,
-		Timeout:         timeout,
-	}, nil
+	return cb, nil
 }
 
-func (c SSHConfig) port() string {
-	p := c.Port
+// resolveUser returns the login user: the given per-host user, else the config
+// default, else the server's current OS user.
+func (c SSHConfig) resolveUser(host string) (string, error) {
+	if host != "" {
+		return host, nil
+	}
+	if c.User != "" {
+		return c.User, nil
+	}
+	u, err := user.Current()
+	if err != nil {
+		return "", fmt.Errorf("ssh: resolve current user: %w", err)
+	}
+	return u.Username, nil
+}
+
+// authMethods gathers auth: the ssh-agent (if present) plus an explicit key file
+// (the per-host key, else the config default). At least one usable method required.
+func (c SSHConfig) authMethods(keyFile string) ([]ssh.AuthMethod, error) {
+	if keyFile == "" {
+		keyFile = c.KeyFile
+	}
+	var auths []ssh.AuthMethod
+	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
+		if conn, err := net.Dial("unix", sock); err == nil {
+			auths = append(auths, ssh.PublicKeysCallback(agent.NewClient(conn).Signers))
+		}
+	}
+	if keyFile != "" {
+		key, err := os.ReadFile(keyFile)
+		if err != nil {
+			return nil, fmt.Errorf("ssh: read key %s: %w", keyFile, err)
+		}
+		signer, err := ssh.ParsePrivateKey(key)
+		if err != nil {
+			return nil, fmt.Errorf("ssh: parse key %s: %w", keyFile, err)
+		}
+		auths = append(auths, ssh.PublicKeys(signer))
+	}
+	if len(auths) == 0 {
+		return nil, fmt.Errorf("ssh: no auth method (set a key file or run an ssh-agent)")
+	}
+	return auths, nil
+}
+
+func (c SSHConfig) timeout() time.Duration {
+	if c.Timeout == 0 {
+		return sshDialTimeout
+	}
+	return c.Timeout
+}
+
+// portStr renders an SSH port, defaulting 0 to 22.
+func portStr(p int) string {
 	if p == 0 {
 		p = sshDefaultPort
 	}
@@ -137,38 +149,96 @@ func (c SSHConfig) port() string {
 // transparently re-dials. Safe for concurrent use.
 type SSHPool struct {
 	cfg     SSHConfig
-	ccfg    *ssh.ClientConfig
+	hosts   *HostStore // registry resolving a Session.Host name → connection details; may be nil
+	hostKey ssh.HostKeyCallback
 	mu      sync.Mutex
 	clients map[string]*ssh.Client
 }
 
-// NewSSHPool validates the config (building the shared client config, which loads
-// keys and known_hosts) and returns a ready, empty pool. Connections are dialed
-// lazily on first use per host.
-func NewSSHPool(cfg SSHConfig) (*SSHPool, error) {
-	ccfg, err := cfg.clientConfig()
+// NewSSHPool validates the global config (building the shared known_hosts
+// verification) and returns a ready, empty pool. Per-host auth/user is built at
+// dial time. hosts is the app-managed registry that resolves a Session.Host name to
+// its address/user/port/key; nil (or a name absent from it) dials the name
+// literally with the config defaults, preserving loopback/raw-hostname behavior.
+func NewSSHPool(cfg SSHConfig, hosts *HostStore) (*SSHPool, error) {
+	cb, err := cfg.hostKeyCallback()
 	if err != nil {
 		return nil, err
 	}
-	return &SSHPool{cfg: cfg, ccfg: ccfg, clients: map[string]*ssh.Client{}}, nil
+	return &SSHPool{cfg: cfg, hosts: hosts, hostKey: cb, clients: map[string]*ssh.Client{}}, nil
 }
 
-// client returns the cached connection for host, dialing and caching one (and
-// starting its keepalive) on first use. Concurrent callers for the same cold host
-// serialize on the pool lock, so exactly one dial happens.
-func (p *SSHPool) client(host string) (*ssh.Client, error) {
+// resolve maps a Session.Host name to dial details: a registry entry's
+// address/user/port/key when present, else the name dialed literally with config
+// defaults (loopback, raw hostnames, and tests).
+func (p *SSHPool) resolve(name string) (addr, user, keyFile string, port int) {
+	if p.hosts != nil {
+		if h := p.hosts.Get(name); h != nil {
+			a := h.Address
+			if a == "" {
+				a = name
+			}
+			return a, h.User, h.KeyFile, h.Port
+		}
+	}
+	return name, p.cfg.User, p.cfg.KeyFile, p.cfg.Port
+}
+
+// binFor returns the claude binary for a host: the registry entry's ClaudeBin, else
+// the config default, else "claude".
+func (p *SSHPool) binFor(name string) string {
+	if p.hosts != nil {
+		if h := p.hosts.Get(name); h != nil && h.ClaudeBin != "" {
+			return h.ClaudeBin
+		}
+	}
+	if p.cfg.Bin != "" {
+		return p.cfg.Bin
+	}
+	return "claude"
+}
+
+// clientConfig builds a per-host *ssh.ClientConfig (user + auth vary by host; the
+// known_hosts callback is shared).
+func (p *SSHPool) clientConfig(user, keyFile string) (*ssh.ClientConfig, error) {
+	login, err := p.cfg.resolveUser(user)
+	if err != nil {
+		return nil, err
+	}
+	auths, err := p.cfg.authMethods(keyFile)
+	if err != nil {
+		return nil, err
+	}
+	return &ssh.ClientConfig{
+		User:            login,
+		Auth:            auths,
+		HostKeyCallback: p.hostKey,
+		Timeout:         p.cfg.timeout(),
+	}, nil
+}
+
+// client returns the cached connection for a host name, resolving it through the
+// registry and dialing (and caching) on first use. Concurrent callers for the same
+// cold host serialize on the pool lock, so exactly one dial happens. Cached by name
+// so two names sharing an address keep independent entries.
+func (p *SSHPool) client(name string) (*ssh.Client, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if c := p.clients[host]; c != nil {
+	if c := p.clients[name]; c != nil {
 		return c, nil
 	}
-	addr := net.JoinHostPort(host, p.cfg.port())
-	c, err := p.dial(addr)
+	address, user, keyFile, port := p.resolve(name)
+	ccfg, err := p.clientConfig(user, keyFile)
+	if err != nil {
+		return nil, err
+	}
+	addr := net.JoinHostPort(address, portStr(port))
+	c, err := p.dial(addr, ccfg)
 	if err != nil {
 		return nil, fmt.Errorf("ssh dial %s: %w", addr, err)
 	}
-	p.clients[host] = c
-	go p.keepalive(host, c)
+	p.clients[name] = c
+	go p.keepalive(name, c)
 	return c, nil
 }
 
@@ -178,16 +248,16 @@ func (p *SSHPool) client(host string) (*ssh.Client, error) {
 // doesn't bias host-key negotiation toward what we already trust, so a server
 // offering (say) an RSA key when we recorded its ed25519 one would otherwise fail
 // as a mismatch even though the ed25519 key is present and valid on both sides.
-func (p *SSHPool) dial(addr string) (*ssh.Client, error) {
-	c, err := ssh.Dial("tcp", addr, p.ccfg)
+func (p *SSHPool) dial(addr string, ccfg *ssh.ClientConfig) (*ssh.Client, error) {
+	c, err := ssh.Dial("tcp", addr, ccfg)
 	if err == nil {
 		return c, nil
 	}
 	var ke *knownhosts.KeyError
 	if errors.As(err, &ke) && len(ke.Want) > 0 {
-		cfg := *p.ccfg
-		cfg.HostKeyAlgorithms = knownHostAlgos(ke.Want)
-		return ssh.Dial("tcp", addr, &cfg)
+		retry := *ccfg
+		retry.HostKeyAlgorithms = knownHostAlgos(ke.Want)
+		return ssh.Dial("tcp", addr, &retry)
 	}
 	return nil, err
 }
@@ -258,19 +328,9 @@ func (p *SSHPool) Close() error {
 type SSHExecutor struct {
 	// Pool supplies the pooled, keepalive'd connection per host.
 	Pool *SSHPool
-	// Bin overrides the remote claude binary; empty falls back to the pool config's
-	// Bin, then "claude".
+	// Bin overrides the remote claude binary for ALL hosts; empty defers to the
+	// per-host registry binary (Pool.binFor), then the config default, then "claude".
 	Bin string
-}
-
-func (e SSHExecutor) bin() string {
-	if e.Bin != "" {
-		return e.Bin
-	}
-	if e.Pool != nil && e.Pool.cfg.Bin != "" {
-		return e.Pool.cfg.Bin
-	}
-	return "claude"
 }
 
 // Start opens a channel on the session's host connection and runs claude there. If
@@ -281,11 +341,15 @@ func (e SSHExecutor) Start(ctx context.Context, s *Session, args []string) (Proc
 	if host == "" {
 		host = "localhost"
 	}
+	bin := e.Bin
+	if bin == "" {
+		bin = e.Pool.binFor(host)
+	}
 	client, err := e.Pool.client(host)
 	if err != nil {
 		return nil, err
 	}
-	proc, err := e.run(ctx, client, s.Dir, args)
+	proc, err := e.run(ctx, client, s.Dir, bin, args)
 	if err != nil {
 		// The pooled connection may have died since the last turn; evict and re-dial
 		// once. A fresh client that still fails is a real error.
@@ -294,7 +358,7 @@ func (e SSHExecutor) Start(ctx context.Context, s *Session, args []string) (Proc
 		if derr != nil {
 			return nil, err
 		}
-		proc, err = e.run(ctx, client, s.Dir, args)
+		proc, err = e.run(ctx, client, s.Dir, bin, args)
 	}
 	return proc, err
 }
@@ -302,7 +366,7 @@ func (e SSHExecutor) Start(ctx context.Context, s *Session, args []string) (Proc
 // run opens one SSH session (channel) on client, launches the remote claude in the
 // session's directory, and wires ctx-cancel to stop it. The returned Proc streams
 // the remote stdout and Waits on the remote exit.
-func (e SSHExecutor) run(ctx context.Context, client *ssh.Client, dir string, args []string) (Proc, error) {
+func (e SSHExecutor) run(ctx context.Context, client *ssh.Client, dir, bin string, args []string) (Proc, error) {
 	sess, err := client.NewSession()
 	if err != nil {
 		return nil, err
@@ -320,7 +384,7 @@ func (e SSHExecutor) run(ctx context.Context, client *ssh.Client, dir string, ar
 		_ = sess.Close()
 		return nil, err
 	}
-	if err := sess.Start(cancelableCommand(remoteCommand(dir, e.bin(), args))); err != nil {
+	if err := sess.Start(cancelableCommand(remoteCommand(dir, bin, args))); err != nil {
 		_ = sess.Close()
 		return nil, fmt.Errorf("start remote claude: %w", err)
 	}

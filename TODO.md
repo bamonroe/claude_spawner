@@ -173,9 +173,15 @@ the feature works as expected, as the ship step (see [[use-android-dev-skill-and
   - [x] 2026-07-08 — **`Host` + `HostStore`** (`internal/session/hosts.go`): name/address/user/port/
         key_file/claude_bin, concurrency-safe, atomic temp+rename persistence (mirrors `Store`).
         `TestHostStoreRoundTrip` covers upsert-in-place, sort, delete, and reload-from-disk.
-  - [ ] Wire the pool to resolve `Session.Host` via the registry (per-host `ClientConfig`), + config
-        for the hosts-file path (`SPAWNER_HOSTS`). Retires the single global `SPAWNER_SSH_*` template
-        as per-host fields (keep as fallback defaults).
+  - [x] 2026-07-08 — **Pool resolves `Session.Host` via the registry.** `SSHPool` takes the
+        `HostStore`; `resolve(name)` maps a host name → address/user/port/key (per-host
+        `ClientConfig`; known_hosts callback shared), `binFor(name)` picks the per-host claude binary.
+        A name absent from the registry (or a nil store) dials literally with the config defaults, so
+        loopback/raw-hostname/tests still work. `SPAWNER_HOSTS` config + `main` opens the store and
+        passes it to the pool. `SPAWNER_SSH_*` stays as fallback defaults. **Live-proven**: a logical
+        name "workbox" resolved through the registry to the Tailscale IP and drove a real claude turn
+        (`TestLiveSSHHostRegistry`); all nil-registry live tests still pass. CLAUDE.md documents
+        `SPAWNER_HOSTS` (docsync green).
   - [ ] Wire protocol: `hosts` (list), `host_put`, `host_delete` messages + gateway handlers, persisted
         via `HostStore`; document in `docs/protocol.md`.
   - [ ] [Android, last] Settings → Hosts page (CRUD) driving those messages; spawn dialog offers the

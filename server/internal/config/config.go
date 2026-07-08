@@ -24,6 +24,10 @@ type Config struct {
 	SpawnRoots []string
 	// StatePath is the file where the durable session registry is persisted.
 	StatePath string
+	// HostsPath is the file where the app-managed SSH host registry is persisted
+	// (the source of truth is the app; the server just stores it so it survives
+	// restarts and is shared across clients).
+	HostsPath string
 	// ClaudeBin is the claude binary used for headless turns.
 	ClaudeBin string
 	// WhisperBin is the whisper.cpp CLI (default "whisper-cli").
@@ -116,6 +120,7 @@ func Load() (*Config, error) {
 		Addr:             env("SPAWNER_ADDR", ":8080"),
 		AuthToken:        os.Getenv("SPAWNER_TOKEN"),
 		StatePath:        env("SPAWNER_STATE", "sessions.json"),
+		HostsPath:        env("SPAWNER_HOSTS", "hosts.json"),
 		ClaudeBin:        env("SPAWNER_CLAUDE_BIN", "claude"),
 		WhisperBin:       env("SPAWNER_WHISPER_BIN", "whisper-cli"),
 		WhisperURL:       os.Getenv("SPAWNER_WHISPER_URL"),

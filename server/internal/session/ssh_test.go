@@ -43,7 +43,7 @@ func TestLiveSSHClaudeFSMatchesLocal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	pool, err := NewSSHPool(SSHConfig{})
+	pool, err := NewSSHPool(SSHConfig{}, nil)
 	if err != nil {
 		t.Fatalf("NewSSHPool: %v", err)
 	}
@@ -117,15 +117,23 @@ func TestRemoteCommand(t *testing.T) {
 }
 
 func TestSSHBinFallback(t *testing.T) {
-	if b := (SSHExecutor{}).bin(); b != "claude" {
+	// No registry, no config default → "claude".
+	if b := (&SSHPool{}).binFor("anything"); b != "claude" {
 		t.Errorf("default bin = %q, want claude", b)
 	}
-	if b := (SSHExecutor{Bin: "/opt/claude"}).bin(); b != "/opt/claude" {
-		t.Errorf("explicit bin = %q, want /opt/claude", b)
-	}
+	// Config default applies when a host has no override.
 	p := &SSHPool{cfg: SSHConfig{Bin: "cfgclaude"}}
-	if b := (SSHExecutor{Pool: p}).bin(); b != "cfgclaude" {
+	if b := p.binFor("work"); b != "cfgclaude" {
 		t.Errorf("pool-config bin = %q, want cfgclaude", b)
+	}
+	// A registry host's ClaudeBin wins over the config default.
+	hs := &HostStore{byName: map[string]*Host{"work": {Name: "work", ClaudeBin: "remoteclaude"}}}
+	p2 := &SSHPool{cfg: SSHConfig{Bin: "cfgclaude"}, hosts: hs}
+	if b := p2.binFor("work"); b != "remoteclaude" {
+		t.Errorf("registry bin = %q, want remoteclaude", b)
+	}
+	if b := p2.binFor("other"); b != "cfgclaude" {
+		t.Errorf("unlisted host bin = %q, want cfgclaude", b)
 	}
 }
 
@@ -139,7 +147,7 @@ func TestLiveSSHLoopback(t *testing.T) {
 	if os.Getenv("SPAWNER_SSH_LIVE") != "1" {
 		t.Skip("set SPAWNER_SSH_LIVE=1 to run the live loopback SSH test")
 	}
-	pool, err := NewSSHPool(SSHConfig{})
+	pool, err := NewSSHPool(SSHConfig{}, nil)
 	if err != nil {
 		t.Fatalf("NewSSHPool: %v", err)
 	}
@@ -187,7 +195,7 @@ func TestLiveSSHCancelKillsRemote(t *testing.T) {
 	if os.Getenv("SPAWNER_SSH_LIVE") != "1" {
 		t.Skip("set SPAWNER_SSH_LIVE=1 to run the live cancel test")
 	}
-	pool, err := NewSSHPool(SSHConfig{})
+	pool, err := NewSSHPool(SSHConfig{}, nil)
 	if err != nil {
 		t.Fatalf("NewSSHPool: %v", err)
 	}
@@ -243,7 +251,7 @@ func TestLiveSSHRealClaude(t *testing.T) {
 	if os.Getenv("SPAWNER_SSH_LIVE") != "1" {
 		t.Skip("set SPAWNER_SSH_LIVE=1 to run (real claude over loopback SSH)")
 	}
-	pool, err := NewSSHPool(SSHConfig{})
+	pool, err := NewSSHPool(SSHConfig{}, nil)
 	if err != nil {
 		t.Fatalf("NewSSHPool: %v", err)
 	}
@@ -283,7 +291,7 @@ func TestLiveSSHRemoteClaude(t *testing.T) {
 	if dir == "" {
 		dir = "/tmp"
 	}
-	pool, err := NewSSHPool(SSHConfig{})
+	pool, err := NewSSHPool(SSHConfig{}, nil)
 	if err != nil {
 		t.Fatalf("NewSSHPool: %v", err)
 	}
@@ -305,6 +313,46 @@ func TestLiveSSHRemoteClaude(t *testing.T) {
 		t.Fatalf("reply lacked the token (didn't run real claude on %s?): %q", host, reply)
 	}
 	t.Logf("ssh %s → real claude reply: %q", host, reply)
+}
+
+// TestLiveSSHHostRegistry proves the pool resolves a logical Session.Host name via
+// the HostStore to a real address and drives a real claude turn there — the host
+// addressing model. The registry entry "workbox" maps to SPAWNER_SSH_REMOTE_HOST;
+// the session names "workbox", never the raw address.
+func TestLiveSSHHostRegistry(t *testing.T) {
+	addr := os.Getenv("SPAWNER_SSH_REMOTE_HOST")
+	if addr == "" {
+		t.Skip("set SPAWNER_SSH_REMOTE_HOST to run the registry-resolution turn")
+	}
+	dir := os.Getenv("SPAWNER_SSH_REMOTE_DIR")
+	if dir == "" {
+		dir = "/tmp"
+	}
+	hs := &HostStore{byName: map[string]*Host{
+		"workbox": {Name: "workbox", Address: addr},
+	}}
+	pool, err := NewSSHPool(SSHConfig{}, hs)
+	if err != nil {
+		t.Fatalf("NewSSHPool: %v", err)
+	}
+	defer pool.Close()
+	d := &Driver{Execs: map[Target]Executor{TargetHost: SSHExecutor{Pool: pool}}, Bypass: true}
+
+	id, err := NewSessionID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Session{Name: "live-registry", Dir: dir, Host: "workbox", SessionID: id}
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+	defer cancel()
+	reply, _, err := d.Turn(ctx, s, "Reply with exactly the token LIVEREGISTRYOK and nothing else.", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("live registry turn (host=workbox → %s): %v", addr, err)
+	}
+	if !strings.Contains(reply, "LIVEREGISTRYOK") {
+		t.Fatalf("reply lacked the token: %q", reply)
+	}
+	t.Logf("host name workbox → %s → real claude reply: %q", addr, reply)
 }
 
 // TestSSHCancelWithoutPool guards the ctx-cancel wiring shape: Wait releasing the

@@ -40,6 +40,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("session store: %v", err)
 	}
+	hostStore, err := session.OpenHostStore(cfg.HostsPath)
+	if err != nil {
+		log.Fatalf("host store: %v", err)
+	}
 	driver := session.NewDriver()
 	driver.RestartCmd = cfg.RestartCmd
 	if len(cfg.SpawnRoots) > 0 {
@@ -61,7 +65,7 @@ func main() {
 			KeyFile:    cfg.SSHKey,
 			KnownHosts: cfg.SSHKnownHosts,
 			Bin:        cfg.SSHClaudeBin,
-		})
+		}, hostStore)
 		if err != nil {
 			log.Fatalf("ssh: %v", err)
 		}

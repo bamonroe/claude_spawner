@@ -110,7 +110,9 @@ systemd user service) is in `README.md`. Don't restate either here.
 All read in `internal/config`; the `docsync` drift test requires each to appear here, backticked:
 
 - `SPAWNER_ADDR` (`:8080`), `SPAWNER_TOKEN` (**required**), `SPAWNER_ROOT` (colon-separated
-  spawn-dir jail), `SPAWNER_STATE` (`sessions.json`), `SPAWNER_CLAUDE_BIN` (`claude`).
+  spawn-dir jail), `SPAWNER_STATE` (`sessions.json`), `SPAWNER_HOSTS` (`hosts.json`; the
+  app-managed SSH host registry — the app is the source of truth, this file just persists it),
+  `SPAWNER_CLAUDE_BIN` (`claude`).
 - Transport TLS (all optional; empty = plain `ws://`, fine behind Tailscale): `SPAWNER_TLS_CERT`
   and `SPAWNER_TLS_KEY` (PEM cert/key — set **both** to serve `wss://`; one without the other is a
   startup error), `SPAWNER_TLS_CLIENT_CA` (PEM CA bundle — when set, the app must present a client
