@@ -189,6 +189,37 @@ func (s *IdentityStore) record(name, user string, priv []byte, authLine, passwor
 	return id, nil
 }
 
+// Update changes an existing identity's login user and, when setPassword is true,
+// its SSH password (an empty password then clears it). The keypair is left as-is —
+// regenerating it would invalidate any host already trusting the public key, so it's
+// never touched here. Errors if the identity is unknown, the user is empty, or the
+// change would leave a key-less identity with no password (hence no way to auth).
+func (s *IdentityStore) Update(name, user string, setPassword bool, password string) (*Identity, error) {
+	user = strings.TrimSpace(user)
+	if user == "" {
+		return nil, fmt.Errorf("identity needs a username")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id, ok := s.byName[name]
+	if !ok {
+		return nil, fmt.Errorf("no identity %q", name)
+	}
+	newPassword := id.Password
+	if setPassword {
+		newPassword = password
+	}
+	if id.PublicKey == "" && newPassword == "" {
+		return nil, fmt.Errorf("a key-less identity needs a password")
+	}
+	id.User = user
+	id.Password = newPassword
+	if err := s.flush(); err != nil {
+		return nil, err
+	}
+	return id, nil
+}
+
 // Delete removes an identity and its private key file. Missing key files are
 // ignored so a partially-created identity can still be cleaned up.
 func (s *IdentityStore) Delete(name string) error {

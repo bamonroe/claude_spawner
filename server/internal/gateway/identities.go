@@ -43,6 +43,20 @@ func (c *conn) doIdentityImport(name, user, password, keyPath string) {
 	c.srv.broadcast(msgIdentityList(c.srv.ids.List()))
 }
 
+// doIdentityUpdate changes an existing identity's user and (when setPassword) its
+// password, keeping the keypair, then broadcasts the new list.
+func (c *conn) doIdentityUpdate(name, user string, setPassword bool, password string) {
+	if name == "" || user == "" {
+		c.fail("bad_identity", "update needs a name and a username")
+		return
+	}
+	if _, err := c.srv.ids.Update(name, user, setPassword, password); err != nil {
+		c.fail("bad_identity", err.Error())
+		return
+	}
+	c.srv.broadcast(msgIdentityList(c.srv.ids.List()))
+}
+
 // doIdentityDelete removes an identity and its private key, then broadcasts the new
 // list. Hosts still referencing it fall back to their KeyFile / the ssh-agent.
 func (c *conn) doIdentityDelete(name string) {

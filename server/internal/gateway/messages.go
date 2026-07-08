@@ -43,6 +43,7 @@ type inbound struct {
 	User         string            `json:"user"`          // on `identity_create`/`identity_import`: the identity's default SSH login user (required)
 	Password     string            `json:"password"`      // on `identity_create`/`identity_import`: optional SSH password (server-only)
 	GenKey       *bool             `json:"gen_key"`       // on `identity_create`: generate a keypair (nil = yes, for older clients)
+	SetPassword  bool              `json:"set_password"`  // on `identity_update`: apply Password (else keep the current one)
 }
 
 func msgHelloOK(sessionID, whisperModel string) map[string]any {

@@ -99,6 +99,27 @@ func TestIdentityStoreCreateListDelete(t *testing.T) {
 		t.Fatalf("delete should persist, leaving only pw: %v", s3.List())
 	}
 
+	// Update: change the user (keeping the key), and set/clear the password.
+	if _, uerr := s3.Update("pw", "root", false, ""); uerr != nil {
+		t.Fatal(uerr)
+	}
+	if got := s3.Get("pw"); got.User != "root" || got.Password != "secret" {
+		t.Fatalf("update should change user, keep password: %+v", got)
+	}
+	if _, uerr := s3.Update("pw", "root", true, "newpw"); uerr != nil {
+		t.Fatal(uerr)
+	}
+	if s3.Get("pw").Password != "newpw" {
+		t.Fatal("update should set the new password")
+	}
+	// Clearing a key-less identity's password is rejected (it'd have no auth left).
+	if _, uerr := s3.Update("pw", "root", true, ""); uerr == nil {
+		t.Fatal("clearing a key-less identity's password should error")
+	}
+	if _, uerr := s3.Update("pw", "", false, ""); uerr == nil {
+		t.Fatal("empty user on update should error")
+	}
+
 	// Import: register an existing on-disk private key as a managed identity.
 	src, err := s3.Create("src", "bam", "", true) // reuse Create to mint a real key file on disk
 	if err != nil {

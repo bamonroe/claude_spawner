@@ -551,6 +551,7 @@ var wireHandlers = map[string]func(c *conn, in inbound){
 	"identities":        func(c *conn, in inbound) { c.sendIdentityList() },
 	"identity_create":   func(c *conn, in inbound) { c.doIdentityCreate(in.Name, in.User, in.Password, in.GenKey == nil || *in.GenKey) },
 	"identity_import":   func(c *conn, in inbound) { c.doIdentityImport(in.Name, in.User, in.Password, in.KeyPath) },
+	"identity_update":   func(c *conn, in inbound) { c.doIdentityUpdate(in.Name, in.User, in.SetPassword, in.Password) },
 	"identity_delete":   func(c *conn, in inbound) { c.doIdentityDelete(in.Name) },
 }
 
