@@ -136,6 +136,11 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     private val _hosts = MutableStateFlow<List<com.bam.spawner.net.Host>>(emptyList())
     val hosts: StateFlow<List<com.bam.spawner.net.Host>> = _hosts.asStateFlow()
 
+    // The app-managed SSH identity registry (Settings → Identities); names + public
+    // keys only (the server holds the private keys). Refreshed from every identity_list.
+    private val _identities = MutableStateFlow<List<com.bam.spawner.net.Identity>>(emptyList())
+    val identities: StateFlow<List<com.bam.spawner.net.Identity>> = _identities.asStateFlow()
+
     private val _mic = MutableStateFlow("")
     val mic: StateFlow<String> = _mic.asStateFlow()
 
@@ -347,6 +352,15 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
 
     /** Delete a host by name; the server broadcasts the refreshed host_list. */
     fun deleteHost(name: String) = client?.send(Outbound.hostDelete(name))
+
+    /** Request the SSH identity registry (Settings → Identities). Replies identity_list. */
+    fun requestIdentities() = client?.send(Outbound.identitiesList())
+
+    /** Create a new identity (server generates the keypair); broadcasts identity_list. */
+    fun createIdentity(name: String) = client?.send(Outbound.identityCreate(name))
+
+    /** Delete an identity by name; broadcasts identity_list. */
+    fun deleteIdentity(name: String) = client?.send(Outbound.identityDelete(name))
 
     /** Adopt a discovered session into the registry and attach to it. */
     fun adopt(sessionId: String, dir: String) = client?.send(Outbound.adopt(sessionId, dir))
@@ -858,6 +872,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
             }
             is ServerMsg.Listing -> _listing.value = msg
             is ServerMsg.HostList -> _hosts.value = msg.hosts
+            is ServerMsg.IdentityList -> _identities.value = msg.identities
             is ServerMsg.Err -> {
                 if (msg.code == "turn_failed") { clearTurnInFlight(); turnStreamed = false }
                 if (_usageLoading.value) _usageLoading.value = false // any error unsticks a pending usage fetch

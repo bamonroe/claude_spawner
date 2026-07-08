@@ -38,6 +38,7 @@ sealed interface ServerMsg {
     data object StopSpeaking : ServerMsg
     data class Listing(val path: String, val parent: String, val entries: List<BrowseEntry>) : ServerMsg
     data class HostList(val hosts: List<Host>) : ServerMsg // app-managed SSH host registry
+    data class IdentityList(val identities: List<Identity>) : ServerMsg // app-managed SSH identities
     data class Unknown(val type: String) : ServerMsg
 
     companion object {
@@ -87,6 +88,7 @@ sealed interface ServerMsg {
                 "stop_speaking" -> StopSpeaking
                 "listing" -> Listing(o.optString("path"), o.optString("parent"), readEntries(o.optJSONArray("entries")))
                 "host_list" -> HostList(readHosts(o.optJSONArray("hosts")))
+                "identity_list" -> IdentityList(readIdentities(o.optJSONArray("identities")))
                 else -> Unknown(o.optString("type"))
             }
         }
@@ -147,8 +149,17 @@ sealed interface ServerMsg {
                 val h = arr.getJSONObject(it)
                 Host(
                     h.optString("name"), h.optString("address"), h.optString("user"),
-                    h.optInt("port"), h.optString("key_file"), h.optString("claude_bin"),
+                    h.optInt("port"), h.optString("key_file"), h.optString("identity"),
+                    h.optString("claude_bin"),
                 )
+            }
+        }
+
+        private fun readIdentities(arr: JSONArray?): List<Identity> {
+            if (arr == null) return emptyList()
+            return (0 until arr.length()).map {
+                val i = arr.getJSONObject(it)
+                Identity(i.optString("name"), i.optString("public_key"))
             }
         }
     }
@@ -232,7 +243,15 @@ data class Host(
     val user: String = "",
     val port: Int = 0,
     val keyFile: String = "",
+    val identity: String = "", // name of a managed Identity; supersedes keyFile when set
     val claudeBin: String = "",
+)
+
+/** A managed SSH identity: a keypair the server holds. The private key never leaves
+ *  the server — only the public key is sent, for the user to copy onto a host. */
+data class Identity(
+    val name: String,
+    val publicKey: String,
 )
 
 /** One clarification Claude asked (interactive mode). Empty options = free-text. */
@@ -305,7 +324,13 @@ object Outbound {
             "host",
             JSONObject().put("name", h.name).put("address", h.address)
                 .put("user", h.user).put("port", h.port)
-                .put("key_file", h.keyFile).put("claude_bin", h.claudeBin),
+                .put("key_file", h.keyFile).put("identity", h.identity).put("claude_bin", h.claudeBin),
         ).toString()
     fun hostDelete(name: String) = JSONObject().put("type", "host_delete").put("name", name).toString()
+
+    // SSH identities (Settings → Identities). The server holds the private keys and
+    // broadcasts an updated identity_list after every create/delete.
+    fun identitiesList() = JSONObject().put("type", "identities").toString()
+    fun identityCreate(name: String) = JSONObject().put("type", "identity_create").put("name", name).toString()
+    fun identityDelete(name: String) = JSONObject().put("type", "identity_delete").put("name", name).toString()
 }

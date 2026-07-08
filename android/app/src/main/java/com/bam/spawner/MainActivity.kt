@@ -97,9 +97,11 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -235,6 +237,7 @@ private fun AppRoot(
             onBack = { screen = "settings" },
         )
         "set_hosts" -> HostsSettings(controller, onBack = { screen = "settings" })
+        "set_identities" -> IdentitiesSettings(controller, onBack = { screen = "settings" })
         "set_appearance" -> AppearanceSettings(settings, themeMode, onThemeChange, onBack = { screen = "settings" })
         "set_commands" -> CommandsSettings(settings, onAliasesChanged = reconnect, onBack = { screen = "settings" })
         "set_audio" -> AudioSettings(
@@ -1417,6 +1420,7 @@ private fun SettingsHub(onOpen: (String) -> Unit, onBack: () -> Unit) {
         SettingsRow("Commands", "Reference & aliases") { onOpen("set_commands") }
         SettingsRow("Audio", "Mic meter, thresholds, transcription, end token") { onOpen("set_audio") }
         SettingsRow("Hosts", "SSH targets sessions can run on") { onOpen("set_hosts") }
+        SettingsRow("Identities", "SSH keypairs hosts authenticate with") { onOpen("set_identities") }
     }
 }
 
@@ -1435,18 +1439,82 @@ private fun SettingsRow(title: String, subtitle: String, onClick: () -> Unit) {
     }
 }
 
+@Composable
+private fun IdentitiesSettings(controller: VoiceController, onBack: () -> Unit) {
+    val identities by controller.identities.collectAsStateWithLifecycle()
+    val connected by controller.connected.collectAsStateWithLifecycle()
+    val clipboard = LocalClipboardManager.current
+    LaunchedEffect(connected) { if (connected) controller.requestIdentities() }
+
+    var newName by rememberSaveable { mutableStateOf("") }
+
+    SettingsScaffold("Identities", onBack) {
+        Text(
+            "SSH keypairs the server holds. The private key never leaves the server — copy the public "
+                + "key onto a host's authorized_keys, then point that host at this identity under Hosts.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
+        )
+        if (!connected) {
+            Text("Connect to the server to manage identities.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        }
+
+        HorizontalDivider()
+        Text("New identity", style = MaterialTheme.typography.titleMedium)
+        OutlinedTextField(newName, { newName = it }, label = { Text("Name (e.g. work-key)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        Button(
+            enabled = connected && newName.isNotBlank(),
+            onClick = { controller.createIdentity(newName.trim()); newName = "" },
+        ) { Text("Generate keypair") }
+
+        HorizontalDivider()
+        Text("Identities", style = MaterialTheme.typography.titleMedium)
+        if (identities.isEmpty()) {
+            Text("None yet.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+        }
+        for (id in identities) {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.padding(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(id.name, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                        TextButton(onClick = { controller.deleteIdentity(id.name) }) {
+                            Text("Delete", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                    // Public key is safe to show/copy; the private key stays on the server.
+                    Text(
+                        id.publicKey,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    )
+                    OutlinedButton(
+                        onClick = { clipboard.setText(AnnotatedString(id.publicKey)) },
+                        modifier = Modifier.padding(top = 6.dp),
+                    ) { Text("Copy public key") }
+                }
+            }
+        }
+    }
+}
+
 // The loopback host name. To the server, localhost is just another SSH host —
 // dialed over loopback SSH using the server's SSH defaults — not a special implicit
 // default, so the app always names it explicitly and lists it like any other host.
 // A deployment whose server can't reach its own box simply never picks Local.
 const val LOCAL_HOST = "localhost"
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun HostsSettings(controller: VoiceController, onBack: () -> Unit) {
     val hosts by controller.hosts.collectAsStateWithLifecycle()
+    val identities by controller.identities.collectAsStateWithLifecycle()
     val connected by controller.connected.collectAsStateWithLifecycle()
-    // Refresh the registry whenever we (re)connect while this screen is open.
-    LaunchedEffect(connected) { if (connected) controller.requestHosts() }
+    // Refresh the host + identity registries whenever we (re)connect while open.
+    LaunchedEffect(connected) { if (connected) { controller.requestHosts(); controller.requestIdentities() } }
 
     // Editor state — empty name means "adding a new host"; loading a row edits it.
     var name by rememberSaveable { mutableStateOf("") }
@@ -1454,10 +1522,11 @@ private fun HostsSettings(controller: VoiceController, onBack: () -> Unit) {
     var user by rememberSaveable { mutableStateOf("") }
     var port by rememberSaveable { mutableStateOf("") }
     var keyFile by rememberSaveable { mutableStateOf("") }
+    var identity by rememberSaveable { mutableStateOf("") } // selected identity name, "" = none
     var claudeBin by rememberSaveable { mutableStateOf("") }
     var editing by rememberSaveable { mutableStateOf("") } // name of the host being edited, "" = new
     val clear = {
-        name = ""; address = ""; user = ""; port = ""; keyFile = ""; claudeBin = ""; editing = ""
+        name = ""; address = ""; user = ""; port = ""; keyFile = ""; identity = ""; claudeBin = ""; editing = ""
     }
 
     SettingsScaffold("Hosts", onBack) {
@@ -1482,6 +1551,15 @@ private fun HostsSettings(controller: VoiceController, onBack: () -> Unit) {
             modifier = Modifier.fillMaxWidth(),
         )
         OutlinedTextField(keyFile, { keyFile = it }, label = { Text("Key file path on server (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        // Identity picker: a managed keypair supersedes the key-file path. "None" leaves
+        // auth to the key file / ssh-agent.
+        Text("Identity (optional — supersedes key file)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            FilterChip(selected = identity == "", onClick = { identity = "" }, label = { Text("None") })
+            identities.forEach { id ->
+                FilterChip(selected = identity == id.name, onClick = { identity = id.name }, label = { Text(id.name) })
+            }
+        }
         OutlinedTextField(claudeBin, { claudeBin = it }, label = { Text("Remote claude binary (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(
@@ -1490,7 +1568,8 @@ private fun HostsSettings(controller: VoiceController, onBack: () -> Unit) {
                     controller.putHost(
                         com.bam.spawner.net.Host(
                             name = name.trim(), address = address.trim(), user = user.trim(),
-                            port = port.toIntOrNull() ?: 0, keyFile = keyFile.trim(), claudeBin = claudeBin.trim(),
+                            port = port.toIntOrNull() ?: 0, keyFile = keyFile.trim(),
+                            identity = identity, claudeBin = claudeBin.trim(),
                         ),
                     )
                     clear()
@@ -1523,6 +1602,7 @@ private fun HostsSettings(controller: VoiceController, onBack: () -> Unit) {
                                 append(if (h.address.isBlank()) h.name else h.address)
                                 if (h.port != 0) append(":${h.port}")
                                 if (h.user.isNotBlank()) append("  ·  ${h.user}")
+                                if (h.identity.isNotBlank()) append("  ·  🔑 ${h.identity}")
                             },
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
                         )
@@ -1530,7 +1610,7 @@ private fun HostsSettings(controller: VoiceController, onBack: () -> Unit) {
                     TextButton(onClick = {
                         name = h.name; address = h.address; user = h.user
                         port = if (h.port != 0) h.port.toString() else ""
-                        keyFile = h.keyFile; claudeBin = h.claudeBin; editing = h.name
+                        keyFile = h.keyFile; identity = h.identity; claudeBin = h.claudeBin; editing = h.name
                     }) { Text("Edit") }
                     TextButton(onClick = {
                         controller.deleteHost(h.name)
