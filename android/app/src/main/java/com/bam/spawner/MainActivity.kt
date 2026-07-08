@@ -1259,7 +1259,21 @@ private fun Sidebar(
             modifier = Modifier.weight(1f),
         ) {
         LazyColumn(Modifier.fillMaxSize()) {
-            items(discovered) { d ->
+            // Group sessions by the host they run on; localhost first, then the rest
+            // alphabetically. Each group gets a header.
+            val grouped = discovered.groupBy { it.host.ifBlank { LOCAL_HOST } }
+            val hostsInOrder = grouped.keys.sortedWith(compareBy({ it != LOCAL_HOST }, { it }))
+            hostsInOrder.forEach { host ->
+                item {
+                    Text(
+                        host,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 2.dp),
+                    )
+                    HorizontalDivider()
+                }
+                items(grouped[host].orEmpty()) { d ->
                 // Highlight the attached row by stable id, not name — the same session
                 // can be named differently here than when we attached (e.g. server switch).
                 val isAttached = d.registered && attachedId.isNotEmpty() && d.sessionId == attachedId
@@ -1289,6 +1303,7 @@ private fun Sidebar(
                     Text("🗑", Modifier.clickable { onDelete(d) }.padding(8.dp))
                 }
                 HorizontalDivider()
+                }
             }
         }
         }

@@ -105,7 +105,7 @@ sealed interface ServerMsg {
                 DiscoveredInfo(
                     s.optString("name"), s.optString("dir"), s.optString("session_id"),
                     s.optLong("last_active"), s.optBoolean("active"), s.optBoolean("registered"),
-                    s.optBoolean("busy"), s.optString("target"),
+                    s.optBoolean("busy"), s.optString("target"), s.optString("host"),
                 )
             }
         }
@@ -227,6 +227,7 @@ data class DiscoveredInfo(
     val registered: Boolean, // already in the spawner registry
     val busy: Boolean = false, // a dictation turn is running for this session now
     val target: String = "",   // execution target ("sandbox") when not the default host
+    val host: String = "",     // the SSH host this session runs on (for grouping)
 )
 
 /** A directory in the "new session" browser. */
