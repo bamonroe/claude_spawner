@@ -8,7 +8,14 @@ plugins {
     id("org.jetbrains.compose")
 }
 
+val ktorVersion = "3.0.3"
+
 kotlin {
+    // We use expect/actual *classes* (ClientTls); opt in to silence the Beta warning.
+    compilerOptions {
+        freeCompilerArgs.add("-Xexpect-actual-classes")
+    }
+
     androidTarget {
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_17)
@@ -38,6 +45,10 @@ kotlin {
             implementation(compose.ui)
             implementation(compose.components.uiToolingPreview)
             implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
+            // Multiplatform WebSocket transport + JSON (shared SpawnerClient/Protocol).
+            implementation("io.ktor:ktor-client-core:$ktorVersion")
+            implementation("io.ktor:ktor-client-websockets:$ktorVersion")
+            implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
         }
         androidMain.dependencies {
             implementation("androidx.core:core-ktx:1.13.1")
@@ -46,8 +57,12 @@ kotlin {
             implementation("androidx.activity:activity-compose:1.9.3")
             implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
             implementation(compose.uiTooling)
-            // WebSocket transport to the server (Android target; web uses Ktor — see M2).
-            implementation("com.squareup.okhttp3:okhttp:4.12.0")
+            // Ktor OkHttp engine (Android transport; brings okhttp transitively).
+            implementation("io.ktor:ktor-client-okhttp:$ktorVersion")
+        }
+        wasmJsMain.dependencies {
+            // Ktor Js engine → the browser's native WebSocket.
+            implementation("io.ktor:ktor-client-js:$ktorVersion")
         }
     }
 }

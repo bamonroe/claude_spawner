@@ -1,7 +1,11 @@
 package com.bam.spawner.net
 
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.okhttp.OkHttp
+import io.ktor.client.plugins.websocket.WebSockets
 import java.io.File
 import java.security.KeyStore
+import java.util.concurrent.TimeUnit
 import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLSocketFactory
@@ -10,7 +14,17 @@ import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509TrustManager
 
 /** OkHttp TLS material for presenting a client certificate (mutual TLS). */
-class ClientTls(val socketFactory: SSLSocketFactory, val trustManager: X509TrustManager)
+actual class ClientTls(val socketFactory: SSLSocketFactory, val trustManager: X509TrustManager)
+
+/** Android transport: the OkHttp engine, with an optional client cert + no read timeout
+ *  (WebSocket stays open; the plugin's ping keeps it alive). */
+actual fun spawnerHttpClient(tls: ClientTls?): HttpClient = HttpClient(OkHttp) {
+    install(WebSockets) { pingIntervalMillis = 20_000 }
+    engine {
+        config { readTimeout(0, TimeUnit.MILLISECONDS) }
+        if (tls != null) config { sslSocketFactory(tls.socketFactory, tls.trustManager) }
+    }
+}
 
 /**
  * Build [ClientTls] from a PKCS#12 (.p12/.pfx) file and its passphrase, for a

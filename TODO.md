@@ -29,9 +29,14 @@ Milestones:
       dropped `FAIL_ON_PROJECT_REPOS` (the Wasm toolchain injects its own binaryen/node download repos).
       Env note: the box's pinned JDK 21 had vanished (breaking all Gradle builds) — restored to
       `/home/bam/opt/jdk-21.0.11+10`.
-- [ ] **M2 — Multiplatform networking.** Replace OkHttp WebSocket (`net/SpawnerClient.kt`) with Ktor
-      client (works on Android + wasmJs). Move `net/Protocol.kt` (pure `org.json` → multiplatform JSON) to
-      `commonMain`. Verify a real connect + hello handshake from the browser.
+- [x] 2026-07-08 — **M2 — Multiplatform networking.** `net/Protocol.kt` moved to `commonMain`, ported
+      from Android `org.json` to multiplatform `kotlinx-serialization-json` (JsonElement API; same public
+      `ServerMsg.parse` + `Outbound` builders, data classes untouched). `net/SpawnerClient.kt` is now a
+      shared Ktor client (reconnect/backoff, hello handshake, ordered outbox channel); `ClientTls` + the
+      HTTP-client factory are `expect`/`actual` — Android keeps the OkHttp engine + mutual-TLS client cert,
+      web uses the browser WebSocket (Ktor Js engine). Both targets compile + build (`:app:assembleDebug`
+      and `:app:wasmJsBrowserDistribution`). Deferred: a **live** browser connect+hello test — needs the
+      server/token connect UI, which is still in `androidMain` MainActivity; wire it once M3 shares that UI.
 - [ ] **M3 — Shared UI.** Move the pure-Compose screens (chat, sidebar, hosts/identities/server/audio/
       appearance/commands settings, browse) into `commonMain`; abstract platform pieces (mic, wake word,
       TTS, permissions, SAF file pickers, prefs) behind `expect`/`actual`. Web stubs where no browser
