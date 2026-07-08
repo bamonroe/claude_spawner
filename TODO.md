@@ -12,6 +12,32 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+### Web client via Compose Multiplatform — no-divergence with the app (proposed 2026-07-08)
+
+**Why:** ship a browser client that mirrors the Android app exactly, with zero UI drift. Since the
+app is 100% Jetpack Compose, we convert it to **Compose Multiplatform**: one `commonMain` renders the
+same composables on Android **and** in the browser via **Kotlin/Wasm**. Mobile web view == the app;
+desktop web view adds the sidebar (Compose `WindowSizeClass`, sidebar when wide). Hosts/identities are
+server-side already, so both clients see the same state once the web client hits the same server.
+
+Milestones:
+- [ ] **M1 — KMP scaffolding.** Convert root/`settings.gradle.kts`/`app` to Kotlin Multiplatform +
+      Compose Multiplatform plugins; source sets `commonMain` / `androidMain` / `wasmJsMain`. Android
+      APK still builds; a trivial shared composable renders in a browser bundle. Keep `generateCommands`.
+- [ ] **M2 — Multiplatform networking.** Replace OkHttp WebSocket (`net/SpawnerClient.kt`) with Ktor
+      client (works on Android + wasmJs). Move `net/Protocol.kt` (pure `org.json` → multiplatform JSON) to
+      `commonMain`. Verify a real connect + hello handshake from the browser.
+- [ ] **M3 — Shared UI.** Move the pure-Compose screens (chat, sidebar, hosts/identities/server/audio/
+      appearance/commands settings, browse) into `commonMain`; abstract platform pieces (mic, wake word,
+      TTS, permissions, SAF file pickers, prefs) behind `expect`/`actual`. Web stubs where no browser
+      equivalent yet.
+- [ ] **M4 — Responsive layout.** `WindowSizeClass`: phone/narrow == app drawer; desktop/wide == persistent
+      sidebar. Same composables, different container.
+- [ ] **M5 — Web-native platform bits.** Browser audio (Web Audio → server STT), `SpeechSynthesis` TTS,
+      browser file up/download for the 📎 flow, `localStorage`-backed prefs.
+- [ ] **M6 — Serve + document.** Static web bundle served (behind the authenticated WS + TLS); README
+      web-client section; `docs/` updated. No divergence check: both targets build from one UI source.
+
 ### File upload/download over the WebSocket (proposed 2026-07-08)
 
 A 📎 button left of the message box transfers files between the phone and the session's host, over the
