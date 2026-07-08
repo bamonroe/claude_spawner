@@ -56,8 +56,12 @@ Then:
 ```bash
 cp deploy/spawner-container.env.example deploy/spawner-container.env   # edit token, key, port
 mkdir -p deploy/state
-UID=$(id -u) GID=$(id -g) docker compose -f deploy/spawner-container.yml up -d --build
+# SPAWNER_UID/GID (not UID/GID — those are readonly in some shells) so it runs as you:
+SPAWNER_UID=$(id -u) SPAWNER_GID=$(id -g) docker compose -f deploy/spawner-container.yml up -d --build
 ```
+
+The `deploy/spawner-container.env` (it holds the token) and `deploy/state/` are
+git-ignored — keep the token out of the repo.
 
 Point a client at its port (`SPAWNER_ADDR`, e.g. `:8098`) to exercise it. Verified
 end to end: a turn dictated through the container runs `claude` on the host over SSH

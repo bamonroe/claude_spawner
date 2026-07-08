@@ -15,6 +15,9 @@
 # Secrets / config
 .env
 *.ppn
+# Containerized server: real env (holds the token) + its state volume (never commit).
+/deploy/spawner-container.env
+/deploy/state/
 
 # Editor / OS
 .DS_Store

@@ -8,8 +8,8 @@
 #     (localhost), and that host key is already in the mounted known_hosts;
 #   - fill in spawner-container.env (copy spawner-container.env.example).
 #
-# Run:
-#   UID=$(id -u) GID=$(id -g) docker compose -f deploy/spawner-container.yml up -d --build
+# Run (SPAWNER_UID/GID rather than UID/GID — the latter are readonly in some shells):
+#   SPAWNER_UID=$(id -u) SPAWNER_GID=$(id -g) docker compose -f deploy/spawner-container.yml up -d --build
 services:
   spawner-server:
     build:
@@ -19,7 +19,7 @@ services:
     # Host networking so localhost:22 is the host's sshd and SPAWNER_ADDR binds on the
     # host directly. Use a port that doesn't collide with any bare-metal instance.
     network_mode: host
-    user: "${UID}:${GID}"
+    user: "${SPAWNER_UID:?set SPAWNER_UID=$(id -u)}:${SPAWNER_GID:?set SPAWNER_GID=$(id -g)}"
     env_file: spawner-container.env
     volumes:
       # The user's home and project roots at the SAME paths the host uses, so the
