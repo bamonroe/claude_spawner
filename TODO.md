@@ -132,8 +132,17 @@ the feature works as expected, as the ship step (see [[use-android-dev-skill-and
 - [~] `Session.Host` + spawn-dialog host choice; loopback default. **`Session.Host` field added
       2026-07-08** (empty = loopback; SSHExecutor reads it). Remaining: the spawn-dialog/protocol/app
       choice that actually sets it (pick the work box by voice).
-- [ ] Discovery/resume over the SSH channel (retire local-FS `~/.claude` scan for remote hosts).
-      Two facts the work-box run surfaced that this must handle: (1) **`Session.Dir` is a REMOTE
+- [x] 2026-07-08 — **Discovery/resume over the SSH channel.** Built the `claudeFS` seam
+      (`internal/session/claudefs.go`) — local (`os.*`) and SSH backends behind the same JSONL parse —
+      selected per session by `Driver.claudeFSFor(Session.Host)`, with a host-namespaced transcript
+      cache key. Gateway per-session ops now read from the session's host: `serveHistory`
+      (`ReadTranscriptChain`), `doAttach` + `startTurn` badge (`LastContextUsage`), and delete
+      (`DeleteSessionByIDs`/`DeleteSessionsForDir`) all take `Session.Host`. Live-proven equivalent to
+      local over loopback (`TestLiveSSHClaudeFSMatchesLocal`); full suite green (local path unchanged).
+      **Deferred:** discovering UNREGISTERED sessions that live only on a remote box (which hosts to
+      scan is an open question) — `doDiscover` still scans the local disk, but registered remote
+      sessions surface via the store, and their history/attach/usage/delete now work over SSH.
+      Two facts the work-box run surfaced that this handles: (1) **`Session.Dir` is a REMOTE
       path** for a remote host (a local temp dir doesn't exist there), so discovery/resume must read
       the remote `~/.claude`, not the server's; (2) **the Go pool dials the literal host string and
       ignores `~/.ssh/config` aliases** — so "work" won't resolve like `ssh work` does; host addressing

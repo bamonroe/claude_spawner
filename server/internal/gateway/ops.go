@@ -317,9 +317,11 @@ func (c *conn) doDeleteDiscovered(sessionID string) {
 	var err error
 	if rec != nil {
 		ids := append([]string{rec.SessionID}, rec.PriorIDs...)
-		_, err = c.srv.driver.DeleteSessionByIDs(c.ctx, ids)
+		_, err = c.srv.driver.DeleteSessionByIDs(c.ctx, rec.Host, ids)
 	} else {
-		_, err = c.srv.driver.DeleteSessionsForDir(c.ctx, sessionID, dir)
+		// Unregistered rows come from the LOCAL on-disk scan (TranscriptPathByID
+		// above is local), so delete locally.
+		_, err = c.srv.driver.DeleteSessionsForDir(c.ctx, "", sessionID, dir)
 	}
 	if err != nil {
 		c.fail("internal", err.Error())
@@ -346,7 +348,7 @@ func (c *conn) serveHistory(name string, before *int, limit int) {
 		c.fail("no_session", "no such session: "+name)
 		return
 	}
-	msgs, err := session.ReadTranscriptChain(s.TranscriptIDs())
+	msgs, err := c.srv.driver.ReadTranscriptChain(s.Host, s.TranscriptIDs())
 	if err != nil {
 		c.fail("history_failed", err.Error())
 		return
@@ -467,7 +469,7 @@ func (c *conn) doAttach(name string, silent bool) {
 	}
 	c.clearBuffer() // fresh message buffer for the new session
 	c.attached = s
-	c.send(msgAttached(s.Name, s.SessionID, session.LastContextUsage(s.TranscriptIDs())))
+	c.send(msgAttached(s.Name, s.SessionID, c.srv.driver.LastContextUsage(s.Host, s.TranscriptIDs())))
 	if !silent {
 		c.send(msgSay("attached to " + s.Name + "."))
 	}

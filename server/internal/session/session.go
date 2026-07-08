@@ -211,10 +211,10 @@ func (d *Driver) Restart(ctx context.Context) error {
 	return nil
 }
 
-// DeleteSessionsForDir removes a directory's Claude transcripts. Returns how many
-// transcripts were removed.
-func (d *Driver) DeleteSessionsForDir(ctx context.Context, sessionID, dir string) (int, error) {
-	return DeleteSessionsForDir(sessionID, dir)
+// DeleteSessionsForDir removes a directory's Claude transcripts on the session's
+// host (empty host = local). Returns how many transcripts were removed.
+func (d *Driver) DeleteSessionsForDir(ctx context.Context, host, sessionID, dir string) (int, error) {
+	return d.claudeFSFor(host).deleteForDir(sessionID, dir)
 }
 
 // MakeSpawnDir creates a brand-new project directory for a spawn. The caller is
@@ -224,9 +224,22 @@ func (d *Driver) MakeSpawnDir(ctx context.Context, dir string) error {
 }
 
 // DeleteSessionByIDs removes exactly the given session_ids' transcripts (one
-// logical session), leaving its dir-mates intact.
-func (d *Driver) DeleteSessionByIDs(ctx context.Context, ids []string) (int, error) {
-	return DeleteSessionsByIDs(ids)
+// logical session) on the session's host (empty host = local), leaving its
+// dir-mates intact.
+func (d *Driver) DeleteSessionByIDs(ctx context.Context, host string, ids []string) (int, error) {
+	return d.claudeFSFor(host).deleteByIDs(ids)
+}
+
+// ReadTranscriptChain reads a session's full history (current + rotated prior ids)
+// from its host (empty host = local), re-indexed contiguously for pagination.
+func (d *Driver) ReadTranscriptChain(host string, ids []string) ([]Message, error) {
+	return d.claudeFSFor(host).readTranscriptChain(ids)
+}
+
+// LastContextUsage returns a session's live context snapshot (last usage-bearing
+// assistant turn) read from its host (empty host = local); nil if none yet.
+func (d *Driver) LastContextUsage(host string, ids []string) *ContextSnapshot {
+	return d.claudeFSFor(host).lastContextUsage(ids)
 }
 
 // ToolUse describes a tool Claude invoked during a turn. FilePath is set for
