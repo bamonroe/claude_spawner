@@ -424,7 +424,9 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     }
 
     // --- Visual directory browser (New session) ---
-    fun browse(path: String) = client?.send(Outbound.browse(path))
+    // Browsing is host-scoped: the listing is produced on `host` (its filesystem
+    // starting at "/"), so the picker reflects the machine the session will run on.
+    fun browse(path: String, host: String = "") = client?.send(Outbound.browse(path, host))
 
     fun spawnAt(path: String, target: String = "", host: String = "") {
         client?.send(Outbound.spawnAt(path, target = target, host = host)) // the resulting `attached` switches the view

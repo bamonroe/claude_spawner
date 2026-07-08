@@ -313,7 +313,10 @@ object Outbound {
     fun renameDiscovered(sessionId: String, dir: String, newName: String) =
         JSONObject().put("type", "rename_discovered").put("session_id", sessionId)
             .put("path", dir).put("new_name", newName).toString()
-    fun browse(path: String) = JSONObject().put("type", "browse").put("path", path).toString()
+    fun browse(path: String, host: String = "") =
+        JSONObject().put("type", "browse").put("path", path)
+            .apply { if (host.isNotEmpty()) put("host_name", host) }
+            .toString()
     fun spawnAt(path: String, create: Boolean = false, target: String = "", host: String = "") =
         JSONObject().put("type", "spawn_at").put("path", path).put("create", create)
             .apply { if (target.isNotEmpty()) put("target", target) }

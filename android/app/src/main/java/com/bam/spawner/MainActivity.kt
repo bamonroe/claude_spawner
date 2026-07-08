@@ -259,7 +259,7 @@ private fun AppRoot(
             onToggleHandsFree = onToggleHandsFree,
             onSelectAudioOutput = onSelectAudioOutput,
             onOpenSettings = { screen = "settings" },
-            onNewSession = { controller.browse(""); screen = "browse" },
+            onNewSession = { screen = "browse" }, // BrowseScreen lists the chosen host's root on open
         )
     }
 }
@@ -2175,8 +2175,6 @@ private fun VadSlider(label: String, initial: Int, min: Int, max: Int, step: Int
 private fun BrowseScreen(controller: VoiceController, onStarted: () -> Unit, onBack: () -> Unit) {
     val listing by controller.listing.collectAsStateWithLifecycle()
     val hosts by controller.hosts.collectAsStateWithLifecycle()
-    LaunchedEffect(Unit) { controller.browse(""); controller.requestHosts() } // roots + host list on open
-    val atRoots = listing?.path.isNullOrEmpty()
     var newFolder by remember { mutableStateOf<String?>(null) } // non-null = the New-folder dialog is open
     var sandbox by remember { mutableStateOf(false) } // execution target: host (default) vs sandbox
     var selectedHost by rememberSaveable { mutableStateOf(LOCAL_HOST) } // an explicit host name (LOCAL_HOST = loopback)
@@ -2189,6 +2187,13 @@ private fun BrowseScreen(controller: VoiceController, onStarted: () -> Unit, onB
     // A host only applies to the host target (a sandbox runs locally); drop any
     // selection when switching to sandbox so we never send a stale host.
     val spawnHost = if (sandbox) "" else selectedHost
+    // Which host's filesystem the picker shows: the chosen host, or localhost for a
+    // sandbox (it runs in a local container over the host's files). Browsing is scoped
+    // to this host and restarts at its root ("/") whenever it changes, so you always
+    // browse the machine the session will run on — not the server's own filesystem.
+    val browseHost = if (sandbox) LOCAL_HOST else selectedHost
+    LaunchedEffect(Unit) { controller.requestHosts() }
+    LaunchedEffect(browseHost) { controller.browse("", browseHost) }
 
     if (newFolder != null) {
         val parent = listing?.path ?: ""
@@ -2225,40 +2230,10 @@ private fun BrowseScreen(controller: VoiceController, onStarted: () -> Unit, onB
             TextButton(onClick = onBack) { Text("←", fontSize = 22.sp) }
             Text("New session", style = MaterialTheme.typography.titleLarge)
         }
-        Text(
-            if (atRoots) "Pick a location" else (listing?.path ?: ""),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.outline,
-            maxLines = 1, overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(vertical = 4.dp),
-        )
-        HorizontalDivider()
-
-        LazyColumn(Modifier.weight(1f)) {
-            if (!atRoots) {
-                item {
-                    Row(
-                        Modifier.fillMaxWidth().clickable { controller.browse(listing?.parent ?: "") }.padding(vertical = 12.dp),
-                    ) { Text("⬆  ..") }
-                }
-            }
-            items(listing?.entries ?: emptyList()) { e ->
-                Row(
-                    Modifier.fillMaxWidth().clickable { controller.browse(e.path) }.padding(vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(if (e.repo) "📦" else "📁")
-                    Text(e.name, Modifier.weight(1f).padding(start = 10.dp))
-                    if (e.repo) {
-                        Text("git", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                    }
-                }
-            }
-        }
-
-        HorizontalDivider()
+        // Target + host first: they decide which machine we browse, so they sit above
+        // the file list. Changing either re-lists from that host's root.
         Row(
-            Modifier.fillMaxWidth().padding(top = 8.dp),
+            Modifier.fillMaxWidth().padding(top = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -2278,14 +2253,47 @@ private fun BrowseScreen(controller: VoiceController, onStarted: () -> Unit, onB
                 }
             }
         }
+        Text(
+            listing?.path ?: "",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.outline,
+            maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(vertical = 4.dp),
+        )
+        HorizontalDivider()
+
+        LazyColumn(Modifier.weight(1f)) {
+            if (!(listing?.parent).isNullOrEmpty()) {
+                item {
+                    Row(
+                        Modifier.fillMaxWidth().clickable { controller.browse(listing?.parent ?: "", browseHost) }.padding(vertical = 12.dp),
+                    ) { Text("⬆  ..") }
+                }
+            }
+            items(listing?.entries ?: emptyList()) { e ->
+                Row(
+                    Modifier.fillMaxWidth().clickable { controller.browse(e.path, browseHost) }.padding(vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(if (e.repo) "📦" else "📁")
+                    Text(e.name, Modifier.weight(1f).padding(start = 10.dp))
+                    if (e.repo) {
+                        Text("git", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            }
+        }
+
+        HorizontalDivider()
+        val canStart = listing?.path?.isNotEmpty() == true
         Button(
             onClick = { listing?.path?.let { controller.spawnAt(it, target, spawnHost) }; onStarted() },
-            enabled = !atRoots,
-            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-        ) { Text(if (atRoots) "Choose a folder…" else "Start session here") }
+            enabled = canStart,
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        ) { Text("Start session here") }
         OutlinedButton(
             onClick = { newFolder = "" },
-            enabled = !atRoots, // need a location under a root to create inside
+            enabled = canStart, // create a new folder inside the current directory
             modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
         ) { Text("New project folder here…") }
     }
