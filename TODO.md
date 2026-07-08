@@ -102,13 +102,17 @@ inventing our own. Motivated by wanting to drive Claude on the work box (`ssh wo
 "real host" is our first remote and we flush out discovery/cancel rework immediately) → then the work
 box is nearly free → then containerizing the server is a deploy change, not new code.
 
-- [~] `SSHExecutor` + persistent per-host client pool (keepalive + reconnect). **Code + unit tests
-      landed 2026-07-08** (`internal/session/ssh.go`): pool dials+auths once per host, opens a cheap
-      channel per turn, keepalive drops a dead link, executor drops+re-dials once on a stale conn.
-      Registered for `TargetHost` when `SPAWNER_SSH=1` (else the direct-fork `HostExecutor` stays), so
-      with SSH on, **every** host turn — loopback included — runs over SSH with no special-cased local
-      path. Remaining: **prove against localhost live** (`SPAWNER_SSH_LIVE=1` test needs a localhost
-      sshd + host key in known_hosts), then flip the default and delete `HostExecutor`.
+- [x] 2026-07-08 — **`SSHExecutor` + persistent per-host client pool (keepalive + reconnect),
+      proven against localhost.** (`internal/session/ssh.go`): pool dials+auths once per host, opens a
+      cheap channel per turn, keepalive drops a dead link, executor drops+re-dials once on a stale
+      conn. Registered for `TargetHost` when `SPAWNER_SSH=1` (else the direct-fork `HostExecutor`
+      stays), so with SSH on, **every** host turn — loopback included — runs over SSH with no
+      special-cased local path. **Live-proven over real loopback sshd** (`SPAWNER_SSH_LIVE=1`
+      `TestLiveSSHLoopback`: dial → cached-conn reuse → streamed remote output through the quoting
+      path). Fixed a Go-vs-OpenSSH host-key gotcha the live test caught: Go doesn't bias host-key
+      negotiation toward the algorithm already in known_hosts, so a mismatch now retries once with
+      `HostKeyAlgorithms` constrained to the stored key type(s). Still TODO before flipping the default
+      + deleting `HostExecutor`: a real end-to-end claude turn over SSH (not just a smoke command).
 - [ ] Cancel via tagged process-group kill over a second channel (no PTY). *(today: best-effort
       signal+close; without a PTY many sshd builds won't kill the remote process.)*
 - [~] `Session.Host` + spawn-dialog host choice; loopback default. **`Session.Host` field added

@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -161,13 +162,56 @@ func (p *SSHPool) client(host string) (*ssh.Client, error) {
 		return c, nil
 	}
 	addr := net.JoinHostPort(host, p.cfg.port())
-	c, err := ssh.Dial("tcp", addr, p.ccfg)
+	c, err := p.dial(addr)
 	if err != nil {
 		return nil, fmt.Errorf("ssh dial %s: %w", addr, err)
 	}
 	p.clients[host] = c
 	go p.keepalive(host, c)
 	return c, nil
+}
+
+// dial connects to addr, verifying the host key against known_hosts. On a
+// known_hosts key mismatch it retries once with the host-key algorithms
+// constrained to the type(s) stored for that host: unlike OpenSSH, the Go client
+// doesn't bias host-key negotiation toward what we already trust, so a server
+// offering (say) an RSA key when we recorded its ed25519 one would otherwise fail
+// as a mismatch even though the ed25519 key is present and valid on both sides.
+func (p *SSHPool) dial(addr string) (*ssh.Client, error) {
+	c, err := ssh.Dial("tcp", addr, p.ccfg)
+	if err == nil {
+		return c, nil
+	}
+	var ke *knownhosts.KeyError
+	if errors.As(err, &ke) && len(ke.Want) > 0 {
+		cfg := *p.ccfg
+		cfg.HostKeyAlgorithms = knownHostAlgos(ke.Want)
+		return ssh.Dial("tcp", addr, &cfg)
+	}
+	return nil, err
+}
+
+// knownHostAlgos returns the host-key algorithm names to offer given the keys
+// known_hosts holds for a host, so negotiation selects a key type we've recorded.
+// A stored RSA key also covers the rsa-sha2 signature variants a server may send.
+func knownHostAlgos(keys []knownhosts.KnownKey) []string {
+	seen := map[string]bool{}
+	var algos []string
+	add := func(a string) {
+		if !seen[a] {
+			seen[a] = true
+			algos = append(algos, a)
+		}
+	}
+	for _, k := range keys {
+		t := k.Key.Type()
+		add(t)
+		if t == ssh.KeyAlgoRSA {
+			add(ssh.KeyAlgoRSASHA256)
+			add(ssh.KeyAlgoRSASHA512)
+		}
+	}
+	return algos
 }
 
 // drop removes c from the cache (only if it's still the current client for host)
