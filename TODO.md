@@ -119,6 +119,12 @@ the feature works as expected, as the ship step (see [[use-android-dev-skill-and
       container redeployed (restart button) to go live, then Android emulator/phone check.**
 - [x] 2026-07-08 — **Server-owned SSH auth material.** Private key and known_hosts moved into the
       server's own `deploy/state/` (`/state/ssh/…`, `/state/known_hosts`), independent of the host home.
+- [x] 2026-07-08 — **Auto-managed host-key trust.** Adding a host in the app now records its SSH key
+      trust-on-first-use (`SSHPool.TrustHost` scans the key in Go, ssh-keyscan style, and appends to
+      `/state/known_hosts`); deleting a host forgets its record (`SSHPool.ForgetHost`). The pool
+      reloads the file after each change, so trust takes effect **without a restart**. Piggybacks on
+      `host_put`/`host_delete` (no new wire messages). Fixes: a newly added host used to fail with
+      "knownhosts: key is unknown" and there was no in-app way to trust or remove a key.
 - [x] 2026-07-08 — **SSH identities: app-managed keypairs, hosts reference them.** New
       `session.IdentityStore` — the app names/creates keypairs, the server generates ed25519 and
       **keeps the private key** (`SPAWNER_SSH_KEYS` dir, `0600`), exposing only the public key

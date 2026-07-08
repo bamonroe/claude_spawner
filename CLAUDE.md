@@ -140,7 +140,9 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
   host-target turn, local included, runs over SSH with no special-cased localhost fork),
   `SPAWNER_SSH_USER` (login user; empty = current OS user), `SPAWNER_SSH_PORT` (`22`),
   `SPAWNER_SSH_KEY` (private-key path; empty relies on the `ssh-agent`), `SPAWNER_SSH_KNOWN_HOSTS`
-  (`~/.ssh/known_hosts`; host keys are always verified — no insecure mode), `SPAWNER_SSH_CLAUDE_BIN`
+  (`~/.ssh/known_hosts`; host keys are always verified — no insecure mode. The server **owns**
+  this file: adding a host in the app records its key trust-on-first-use, deleting the host forgets
+  it, and the running pool reloads the file so it takes effect without a restart), `SPAWNER_SSH_CLAUDE_BIN`
   (`claude`; the remote binary).
 - Restart: `SPAWNER_RESTART_CMD` — a shell command (run via `sh -c`, detached) fired by the app's
   restart button; empty disables restart. The server runs bare metal (a single binary, not
