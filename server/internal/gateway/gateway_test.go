@@ -94,7 +94,11 @@ func newTestServerGW(t *testing.T, stt transcribe.Transcriber) (*httptest.Server
 	driver := session.NewDriver()
 	driver.HostBin(fakeClaude(t, "pong"))
 	driver.Bypass = false
-	gw := New(cfg, store, driver, tmux.NewManager(), stt, projects.New(cfg.SpawnRoots))
+	hosts, err := session.OpenHostStore(filepath.Join(t.TempDir(), "hosts.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gw := New(cfg, store, hosts, driver, tmux.NewManager(), stt, projects.New(cfg.SpawnRoots))
 	ts := httptest.NewServer(http.HandlerFunc(gw.HandleWS))
 	t.Cleanup(ts.Close)
 	return ts, root, gw
@@ -140,6 +144,41 @@ func TestAuthRejectsBadToken(t *testing.T) {
 	m := readUntil(t, ws, "error")
 	if m["code"] != "unauthorized" {
 		t.Fatalf("expected unauthorized, got %v", m)
+	}
+}
+
+func TestHostCRUD(t *testing.T) {
+	ts, _ := newTestServer(t, nil)
+	ws := dial(t, ts)
+	send(t, ws, map[string]any{"type": "hello", "token": "secret"})
+	readUntil(t, ws, "hello_ok")
+
+	// Fresh registry is empty.
+	send(t, ws, map[string]any{"type": "hosts"})
+	if hs := readUntil(t, ws, "host_list")["hosts"].([]any); len(hs) != 0 {
+		t.Fatalf("fresh registry should be empty, got %v", hs)
+	}
+
+	// Add a host → broadcast list with it.
+	send(t, ws, map[string]any{"type": "host_put", "host": map[string]any{"name": "work", "address": "100.64.0.7"}})
+	hs := readUntil(t, ws, "host_list")["hosts"].([]any)
+	if len(hs) != 1 {
+		t.Fatalf("want 1 host, got %v", hs)
+	}
+	if h := hs[0].(map[string]any); h["name"] != "work" || h["address"] != "100.64.0.7" {
+		t.Fatalf("unexpected host: %v", h)
+	}
+
+	// A nameless host is rejected.
+	send(t, ws, map[string]any{"type": "host_put", "host": map[string]any{"address": "x"}})
+	if e := readUntil(t, ws, "error"); e["code"] != "bad_host" {
+		t.Fatalf("want bad_host, got %v", e)
+	}
+
+	// Delete → broadcast empty list.
+	send(t, ws, map[string]any{"type": "host_delete", "name": "work"})
+	if hs := readUntil(t, ws, "host_list")["hosts"].([]any); len(hs) != 0 {
+		t.Fatalf("registry should be empty after delete, got %v", hs)
 	}
 }
 
@@ -392,7 +431,11 @@ func newSandboxTestServer(t *testing.T) (*httptest.Server, string, *Server) {
 	}
 	driver := session.NewDriver()
 	driver.HostBin(fakeClaude(t, "pong"))
-	gw := New(cfg, store, driver, tmux.NewManager(), nil, projects.New(cfg.SpawnRoots))
+	hosts, err := session.OpenHostStore(filepath.Join(t.TempDir(), "hosts.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gw := New(cfg, store, hosts, driver, tmux.NewManager(), nil, projects.New(cfg.SpawnRoots))
 	ts := httptest.NewServer(http.HandlerFunc(gw.HandleWS))
 	t.Cleanup(ts.Close)
 	return ts, root, gw

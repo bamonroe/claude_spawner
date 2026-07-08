@@ -37,6 +37,7 @@ type inbound struct {
 	SessionID    string            `json:"session_id"`    // on `adopt`: the discovered Claude session_id to register
 	Brief        bool              `json:"brief"`         // on `hello`: append a "reply briefly for TTS" hint to dictation
 	Interactive  bool              `json:"interactive"`   // on `hello`: let Claude ask clarifying questions mid-task
+	Host         *session.Host     `json:"host"`          // on `host_put`: the SSH host entry to add/update
 }
 
 func msgHelloOK(sessionID, whisperModel string) map[string]any {
@@ -51,6 +52,16 @@ func msgWhisperModel(name string) map[string]any {
 
 func msgSay(text string) map[string]any {
 	return map[string]any{"type": "say", "text": text}
+}
+
+// msgHostList carries the full SSH host registry (Settings → Hosts). Sent to the
+// requester on `hosts` and broadcast to every client after a host_put/host_delete,
+// so the app-managed list stays in sync across clients.
+func msgHostList(hosts []*session.Host) map[string]any {
+	if hosts == nil {
+		hosts = []*session.Host{}
+	}
+	return map[string]any{"type": "host_list", "hosts": hosts}
 }
 
 // msgPending shows the live hands-free buffer as a draft (uncommitted) so the

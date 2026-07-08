@@ -182,8 +182,12 @@ the feature works as expected, as the ship step (see [[use-android-dev-skill-and
         name "workbox" resolved through the registry to the Tailscale IP and drove a real claude turn
         (`TestLiveSSHHostRegistry`); all nil-registry live tests still pass. CLAUDE.md documents
         `SPAWNER_HOSTS` (docsync green).
-  - [ ] Wire protocol: `hosts` (list), `host_put`, `host_delete` messages + gateway handlers, persisted
-        via `HostStore`; document in `docs/protocol.md`.
+  - [x] 2026-07-08 — **Wire protocol: `hosts`/`host_put`/`host_delete` + `host_list`.** Gateway
+        handlers (`internal/gateway/hosts.go`) list/upsert/delete via `HostStore` and broadcast the
+        updated `host_list` to every client so the shared registry stays in sync; `host_put` errors
+        `bad_host` on a missing name. `HostStore` threaded through `gateway.New` + `main`. Documented in
+        `docs/protocol.md` (3 inbound + 1 outbound + `bad_host` code; docsync green). Wire-level
+        `TestHostCRUD` covers list→put→reject-nameless→delete.
   - [ ] [Android, last] Settings → Hosts page (CRUD) driving those messages; spawn dialog offers the
         configured hosts.
 - [~] Drive the work box (`potato`) end to end; then re-containerize the server (no root broker).

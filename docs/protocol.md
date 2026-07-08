@@ -63,6 +63,9 @@ Every JSON message has a `type`. Optional `id` correlates request/response. `ts`
 | `restart`       | `{}`                                      | ask the server to restart itself. The server fires `SPAWNER_RESTART_CMD` (a detached command, typically `systemctl --user restart --no-block spawner-server`) which relaunches the service; it broadcasts a `say` to every client, and the app auto-reconnects once the fresh process is listening. Any authenticated client may trigger this. If the command is unset, the server replies with an `error` (`restart_failed`) instead of silently doing nothing. |
 | `commit`        | `{}`                                      | force-commit the hands-free buffer (used by the client-side silence timeout); no-op if the buffer is empty |
 | `discard_draft` | `{}`                                      | drop the uncommitted hands-free draft (buffer + audio) without committing it, and clear the on-screen draft (`pending ""`); sent when hands-free is toggled off mid-draft so a stale draft can't bleed into the next capture |
+| `hosts`         | `{}`                                      | request the app-managed SSH host registry (Settings → Hosts) -> `host_list` |
+| `host_put`      | `{ "host": { "name": "<name>", "address": "<host/ip>", "user?": "", "port?": 22, "key_file?": "", "claude_bin?": "" } }` | add or update (upsert by `name`) an SSH host used for SSH-native execution. The app is the source of truth; the server persists it (survives restarts, shared across clients). `address` is dialed literally (NOT an `~/.ssh/config` alias). Errors `bad_host` if `name` is empty. -> `host_list` broadcast to every client |
+| `host_delete`   | `{ "name": "<name>" }`                    | remove an SSH host from the registry by name -> `host_list` broadcast to every client |
 | `ping`          | `{}`                                      | keepalive                                     |
 
 Audio framing: client sends `wake` (with a `codec`, and optional `hands_free` and `calibrate`),
@@ -124,6 +127,7 @@ capped at ~120 s.
 | `rate_limit`    | `{ "status": "allowed", "resets_at": <unix s>, "limit_type": "five_hour", "using_overage": false }` | the Claude subscription's usage-window state, from the stream-json `rate_limit_event` (emitted early in every turn). `limit_type` names the binding window (`five_hour` = the rolling session window, or the weekly cap); `resets_at` is when it resets; `status` is a **coarse** signal (`allowed` until the cap nears — Anthropic exposes no exact remaining quota); `using_overage` = drawing on pay-as-you-go overage. Shown as the session-limit readout at the bottom of the sessions drawer; not spoken. Emitted on each turn, and also **once right after `hello_ok`** (the server caches the last value) so a freshly-connected app shows the limit without waiting for a turn — the cache is empty until the first turn after a server restart. |
 | `usage`         | `{ "session_pct": 40, "session_reset": "Jul 4, 9:59am", "week_pct": 41, "week_reset": "Jul 4, 5:59pm", "text": "<full /usage report>" }` | the Claude plan's usage report (response to a `usage` request or the "usage" voice command). `session_pct` / `week_pct` are percent-used parsed from `/usage` (**-1** when unparseable); `text` is the full report shown verbatim (session/weekly headline + local contributing breakdown). The app shows it in a usage sheet. |
 | `usage_estimate`| `{ "calibrated": true, "session_est_pct": 52.3, "week_est_pct": 43.1, "session_real_pct": 40, "week_real_pct": 41, "cum_tokens": 12345678, "tokens_since_check": 456789, "turns_since_check": 14, "last_check_at": <unix s>, "bench_set": true, "bench_sess_pct": 40, "bench_week_pct": 41, "bench_tokens": 12000000, "tokens_since_set": 345678 }` | the server-global **drift-live usage estimate**, aggregated across ALL sessions and clients. `*_est_pct` drift up every turn (from summed weighted token cost, using a tokens-per-percent rate learned from successive `/usage` calibrations); `*_real_pct` are the last `/usage` calibration's true numbers. `-1` on the `*_pct` fields (or `calibrated: false`) means no `/usage` anchor yet, so no estimate. The `bench_*` fields describe an armed manual benchmark (`usage_set`): the percentages/odometer it was stamped at and `tokens_since_set` burned since, which `usage_calc` divides by the percent gained to set the rate directly. Emitted after **every turn** (drift), after a `/usage` calibration (snap to real), and pushed once on connect. The app shows the estimate in the drawer footer + usage sheet. |
+| `host_list`     | `{ "hosts": [{ "name", "address", "user?", "port?", "key_file?", "claude_bin?" }] }` | the app-managed SSH host registry (Settings → Hosts). Response to `hosts`, and broadcast to every client after a `host_put`/`host_delete` so the shared list stays in sync. |
 | `error`         | `{ "code": "...", "message": "..." }`                 | spoken/displayed error feedback          |
 | `turn_interrupted` | `{ "name": "...", "reason": "server restarting" }` | an in-flight dictation turn was abandoned server-side (turns don't survive a server restart). The app clears its "thinking…" state and prompts the user to resend, instead of waiting on a reply that will never arrive. |
 | `turn_stopped`  | `{ "name": "..." }`                                   | a running turn was deliberately aborted (the `abort` message / "stop the turn" command). The app clears its "thinking…" state without the "say it again" nudge. |
@@ -181,7 +185,7 @@ Every failure sends an `error` message (machine-readable, always displayed). For
 **voice** user can actually trigger, the server *also* sends a friendly spoken `say` alongside it
 (e.g. `bad_path` → "that path won't work, bud…"), so a spoken command never fails silently. The
 wire-level / programmer-facing codes that only come from the app — `bad_message`, `bad_adopt`,
-`bad_delete`, `bad_rename`, `unauthorized`, `internal` — stay screen-only (no spoken line).
+`bad_delete`, `bad_rename`, `bad_host`, `unauthorized`, `internal` — stay screen-only (no spoken line).
 
 | code               | meaning                                                  |
 |--------------------|----------------------------------------------------------|
@@ -191,6 +195,7 @@ wire-level / programmer-facing codes that only come from the app — `bad_messag
 | `bad_adopt`        | invalid `adopt` request                                  |
 | `bad_delete`       | invalid `delete`/`delete_discovered` request             |
 | `bad_rename`       | invalid `rename`/`rename_discovered` request             |
+| `bad_host`         | invalid `host_put`/`host_delete` request (missing name)  |
 | `spawn_failed`     | session directory creation / claude failed to start      |
 | `no_session`       | action referenced an unknown session                     |
 | `not_found`        | referenced directory/session not found                   |

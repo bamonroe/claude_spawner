@@ -33,6 +33,7 @@ import (
 type Server struct {
 	cfg      *config.Config
 	store    *session.Store
+	hosts    *session.HostStore // app-managed SSH host registry (Settings → Hosts)
 	driver   *session.Driver
 	tmuxMgr  *tmux.Manager
 	stt      transcribe.Transcriber // nil disables the audio path
@@ -170,7 +171,7 @@ type clientState struct {
 
 // New builds a gateway Server. stt may be nil, in which case audio frames are
 // rejected but text `utterance` messages still work.
-func New(cfg *config.Config, store *session.Store, driver *session.Driver, tmuxMgr *tmux.Manager, stt transcribe.Transcriber, proj *projects.Index) *Server {
+func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, driver *session.Driver, tmuxMgr *tmux.Manager, stt transcribe.Transcriber, proj *projects.Index) *Server {
 	var fast transcribe.Transcriber
 	if cfg.WhisperFastURL != "" {
 		fast = &transcribe.RemoteWhisper{URL: cfg.WhisperFastURL}
@@ -184,6 +185,7 @@ func New(cfg *config.Config, store *session.Store, driver *session.Driver, tmuxM
 	s := &Server{
 		cfg:          cfg,
 		store:        store,
+		hosts:        hosts,
 		driver:       driver,
 		tmuxMgr:      tmuxMgr,
 		stt:          stt,
@@ -541,6 +543,9 @@ var wireHandlers = map[string]func(c *conn, in inbound){
 	"usage_set":         func(c *conn, in inbound) { c.doUsage(false, usageSetBench) },  // "set" button: arm the benchmark
 	"usage_calc":        func(c *conn, in inbound) { c.doUsage(false, usageCalcBench) }, // "calc" button: derive the rate
 	"audio_end":         func(c *conn, in inbound) { c.endAudio() },
+	"hosts":             func(c *conn, in inbound) { c.sendHostList() },
+	"host_put":          func(c *conn, in inbound) { c.doHostPut(in.Host) },
+	"host_delete":       func(c *conn, in inbound) { c.doHostDelete(in.Name) },
 }
 
 // loop reads and dispatches messages until the socket closes. Text frames are
