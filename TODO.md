@@ -139,6 +139,22 @@ the feature works as expected, as the ship step (see [[use-android-dev-skill-and
       ignores `~/.ssh/config` aliases** — so "work" won't resolve like `ssh work` does; host addressing
       needs the real hostname/IP (or we teach the pool to read ssh_config). Both feed the `Session.Host`
       addressing model.
+      **Plan (scoped 2026-07-08):** all on-disk Claude access funnels through a few primitives with
+      exactly two `os.UserHomeDir()` sites (`discover.go:24`, `transcript.go:158`) — no existing
+      indirection. Introduce a `claudeFS` seam (new file) with primitives — `listTranscripts()`
+      (one remote `find ~/.claude/projects -name '*.jsonl' -printf '%T@ %p\n'`), `readWithStat(path)`
+      (remote `stat -c '%s %Y' … && cat …`, one round trip → feeds size+modtime cache key AND content),
+      `headLines(path,n)` (cwd extraction), `remove(path)`, `findByID(id)`, `globDir(dir)` — with a
+      **local branch** (`os.*`, today's code) and an **SSH branch** (pool `NewSession().Output`).
+      Keep the JSONL PARSE logic shared (operate on fetched bytes); make the fs-touching funcs go
+      through `claudeFS` with package wrappers preserving today's local behavior (existing tests green),
+      then thread a host-aware `claudeFS` (from `Driver` + the SSH pool, selected by `Session.Host`)
+      into the gateway callers: `doDiscover`, `serveHistory`, `doAttach`/`startTurn` (`LastContextUsage`
+      badge), `doDeleteDiscovered`. **Make the transcript cache key host-aware** (prefix with host) so
+      identical remote/local paths can't collide. Note: discovery is 1 + N round trips (one `find` +
+      one head-read per transcript for cwd); fine over the multiplexed pool, optimize later if needed.
+      Staged commits: (a) local `claudeFS` seam, behavior-preserving; (b) SSH branch + host-aware cache
+      key; (c) wire gateway callers by `Session.Host`. Do NOT introduce sshfs (epic rule).
 - [~] Drive the work box (`potato`) end to end; then re-containerize the server (no root broker).
       **Transport proven 2026-07-08**: `TestLiveSSHRemoteClaude` drove a real, authed claude turn on
       the work box (`100.64.0.7` over Tailscale, key `bazzite_ed25519`) from this machine and the token
