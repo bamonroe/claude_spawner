@@ -37,6 +37,7 @@ sealed interface ServerMsg {
     data class Ask(val name: String, val questions: List<AskQuestion>) : ServerMsg // interactive clarification
     data object StopSpeaking : ServerMsg
     data class Listing(val path: String, val parent: String, val entries: List<BrowseEntry>) : ServerMsg
+    data class HostList(val hosts: List<Host>) : ServerMsg // app-managed SSH host registry
     data class Unknown(val type: String) : ServerMsg
 
     companion object {
@@ -85,6 +86,7 @@ sealed interface ServerMsg {
                 "ask" -> Ask(o.optString("name"), readAsk(o.optJSONArray("questions")))
                 "stop_speaking" -> StopSpeaking
                 "listing" -> Listing(o.optString("path"), o.optString("parent"), readEntries(o.optJSONArray("entries")))
+                "host_list" -> HostList(readHosts(o.optJSONArray("hosts")))
                 else -> Unknown(o.optString("type"))
             }
         }
@@ -136,6 +138,17 @@ sealed interface ServerMsg {
             return (0 until arr.length()).map {
                 val e = arr.getJSONObject(it)
                 BrowseEntry(e.optString("name"), e.optString("path"), e.optBoolean("repo"))
+            }
+        }
+
+        private fun readHosts(arr: JSONArray?): List<Host> {
+            if (arr == null) return emptyList()
+            return (0 until arr.length()).map {
+                val h = arr.getJSONObject(it)
+                Host(
+                    h.optString("name"), h.optString("address"), h.optString("user"),
+                    h.optInt("port"), h.optString("key_file"), h.optString("claude_bin"),
+                )
             }
         }
     }
@@ -208,6 +221,20 @@ data class DiscoveredInfo(
 /** A directory in the "new session" browser. */
 data class BrowseEntry(val name: String, val path: String, val repo: Boolean)
 
+/**
+ * A configured SSH host for SSH-native execution (Settings → Hosts). The app is the
+ * source of truth; the server persists the list. `address` is dialed literally (not
+ * an ~/.ssh/config alias). Empty optional fields fall back to server defaults.
+ */
+data class Host(
+    val name: String,
+    val address: String,
+    val user: String = "",
+    val port: Int = 0,
+    val keyFile: String = "",
+    val claudeBin: String = "",
+)
+
 /** One clarification Claude asked (interactive mode). Empty options = free-text. */
 data class AskQuestion(val q: String, val options: List<String>)
 
@@ -268,4 +295,16 @@ object Outbound {
         JSONObject().put("type", "spawn_at").put("path", path).put("create", create)
             .apply { if (target.isNotEmpty()) put("target", target) }
             .toString()
+
+    // SSH host registry (Settings → Hosts). The server persists these and broadcasts
+    // an updated host_list after every put/delete.
+    fun hostsList() = JSONObject().put("type", "hosts").toString()
+    fun hostPut(h: Host) =
+        JSONObject().put("type", "host_put").put(
+            "host",
+            JSONObject().put("name", h.name).put("address", h.address)
+                .put("user", h.user).put("port", h.port)
+                .put("key_file", h.keyFile).put("claude_bin", h.claudeBin),
+        ).toString()
+    fun hostDelete(name: String) = JSONObject().put("type", "host_delete").put("name", name).toString()
 }

@@ -234,6 +234,7 @@ private fun AppRoot(
             onSaveConnect = { url, token -> controller.connect(url, token); screen = "settings" },
             onBack = { screen = "settings" },
         )
+        "set_hosts" -> HostsSettings(controller, onBack = { screen = "settings" })
         "set_appearance" -> AppearanceSettings(settings, themeMode, onThemeChange, onBack = { screen = "settings" })
         "set_commands" -> CommandsSettings(settings, onAliasesChanged = reconnect, onBack = { screen = "settings" })
         "set_audio" -> AudioSettings(
@@ -1415,6 +1416,7 @@ private fun SettingsHub(onOpen: (String) -> Unit, onBack: () -> Unit) {
         SettingsRow("Appearance", "Theme") { onOpen("set_appearance") }
         SettingsRow("Commands", "Reference & aliases") { onOpen("set_commands") }
         SettingsRow("Audio", "Mic meter, thresholds, transcription, end token") { onOpen("set_audio") }
+        SettingsRow("Hosts", "SSH targets sessions can run on") { onOpen("set_hosts") }
     }
 }
 
@@ -1429,6 +1431,104 @@ private fun SettingsRow(title: String, subtitle: String, onClick: () -> Unit) {
         Column(Modifier.padding(14.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium)
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+        }
+    }
+}
+
+@Composable
+private fun HostsSettings(controller: VoiceController, onBack: () -> Unit) {
+    val hosts by controller.hosts.collectAsStateWithLifecycle()
+    val connected by controller.connected.collectAsStateWithLifecycle()
+    // Refresh the registry whenever we (re)connect while this screen is open.
+    LaunchedEffect(connected) { if (connected) controller.requestHosts() }
+
+    // Editor state — empty name means "adding a new host"; loading a row edits it.
+    var name by rememberSaveable { mutableStateOf("") }
+    var address by rememberSaveable { mutableStateOf("") }
+    var user by rememberSaveable { mutableStateOf("") }
+    var port by rememberSaveable { mutableStateOf("") }
+    var keyFile by rememberSaveable { mutableStateOf("") }
+    var claudeBin by rememberSaveable { mutableStateOf("") }
+    var editing by rememberSaveable { mutableStateOf("") } // name of the host being edited, "" = new
+    val clear = {
+        name = ""; address = ""; user = ""; port = ""; keyFile = ""; claudeBin = ""; editing = ""
+    }
+
+    SettingsScaffold("Hosts", onBack) {
+        Text(
+            "SSH targets a session can run on. The app owns this list; the server stores it so it "
+                + "persists and is shared across devices. The address is dialed directly — use a real "
+                + "hostname or IP (a Tailscale IP is fine), not an ~/.ssh/config alias.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
+        )
+        if (!connected) {
+            Text("Connect to the server to manage hosts.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        }
+
+        HorizontalDivider()
+        Text(if (editing.isBlank()) "Add host" else "Editing “$editing”", style = MaterialTheme.typography.titleMedium)
+        OutlinedTextField(name, { name = it }, label = { Text("Name (e.g. work)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(address, { address = it }, label = { Text("Address (hostname / IP)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(user, { user = it }, label = { Text("User (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(
+            port, { port = it.filter { c -> c.isDigit() } }, label = { Text("Port (optional, 22)") },
+            singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(keyFile, { keyFile = it }, label = { Text("Key file path on server (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(claudeBin, { claudeBin = it }, label = { Text("Remote claude binary (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                enabled = connected && name.isNotBlank() && address.isNotBlank(),
+                onClick = {
+                    controller.putHost(
+                        com.bam.spawner.net.Host(
+                            name = name.trim(), address = address.trim(), user = user.trim(),
+                            port = port.toIntOrNull() ?: 0, keyFile = keyFile.trim(), claudeBin = claudeBin.trim(),
+                        ),
+                    )
+                    clear()
+                },
+            ) { Text(if (editing.isBlank()) "Add" else "Save") }
+            if (name.isNotBlank() || editing.isNotBlank()) {
+                OutlinedButton(onClick = clear) { Text("Clear") }
+            }
+        }
+
+        HorizontalDivider()
+        Text("Configured hosts", style = MaterialTheme.typography.titleMedium)
+        if (hosts.isEmpty()) {
+            Text("None yet.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+        }
+        for (h in hosts) {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(h.name, style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            buildString {
+                                append(if (h.address.isBlank()) h.name else h.address)
+                                if (h.port != 0) append(":${h.port}")
+                                if (h.user.isNotBlank()) append("  ·  ${h.user}")
+                            },
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
+                        )
+                    }
+                    TextButton(onClick = {
+                        name = h.name; address = h.address; user = h.user
+                        port = if (h.port != 0) h.port.toString() else ""
+                        keyFile = h.keyFile; claudeBin = h.claudeBin; editing = h.name
+                    }) { Text("Edit") }
+                    TextButton(onClick = {
+                        controller.deleteHost(h.name)
+                        if (editing == h.name) clear()
+                    }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                }
+            }
         }
     }
 }

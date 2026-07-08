@@ -131,6 +131,11 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
     private val _listing = MutableStateFlow<ServerMsg.Listing?>(null)
     val listing: StateFlow<ServerMsg.Listing?> = _listing.asStateFlow()
 
+    // The app-managed SSH host registry (Settings → Hosts). The server is the store
+    // of record on disk, but the app owns the list; refreshed from every host_list.
+    private val _hosts = MutableStateFlow<List<com.bam.spawner.net.Host>>(emptyList())
+    val hosts: StateFlow<List<com.bam.spawner.net.Host>> = _hosts.asStateFlow()
+
     private val _mic = MutableStateFlow("")
     val mic: StateFlow<String> = _mic.asStateFlow()
 
@@ -333,6 +338,15 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
 
     /** Ask the server for all Claude sessions on disk (spawner-created or not). */
     fun discover() = client?.send(Outbound.discover())
+
+    /** Request the SSH host registry (Settings → Hosts). Server replies host_list. */
+    fun requestHosts() = client?.send(Outbound.hostsList())
+
+    /** Add or update a host; the server broadcasts the refreshed host_list. */
+    fun putHost(host: com.bam.spawner.net.Host) = client?.send(Outbound.hostPut(host))
+
+    /** Delete a host by name; the server broadcasts the refreshed host_list. */
+    fun deleteHost(name: String) = client?.send(Outbound.hostDelete(name))
 
     /** Adopt a discovered session into the registry and attach to it. */
     fun adopt(sessionId: String, dir: String) = client?.send(Outbound.adopt(sessionId, dir))
@@ -843,6 +857,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) {
                 }
             }
             is ServerMsg.Listing -> _listing.value = msg
+            is ServerMsg.HostList -> _hosts.value = msg.hosts
             is ServerMsg.Err -> {
                 if (msg.code == "turn_failed") { clearTurnInFlight(); turnStreamed = false }
                 if (_usageLoading.value) _usageLoading.value = false // any error unsticks a pending usage fetch
