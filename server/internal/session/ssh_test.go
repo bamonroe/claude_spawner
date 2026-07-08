@@ -123,6 +123,46 @@ func TestLiveSSHRealClaude(t *testing.T) {
 	t.Logf("ssh loopback → real claude reply: %q", reply)
 }
 
+// TestLiveSSHRemoteClaude drives a real Claude turn on a genuinely remote host
+// (not loopback) — the actual payoff of SSH-native execution. Parameterized by
+// SPAWNER_SSH_REMOTE_HOST (the real hostname/IP — the Go pool dials it directly and
+// does NOT read ~/.ssh/config aliases) and SPAWNER_SSH_REMOTE_DIR (a path that
+// exists ON THE REMOTE, default /tmp; unlike loopback, a local temp dir would not
+// exist there). Needs the remote host key in known_hosts, an agent/key that
+// authenticates, and an authed claude on the far side.
+func TestLiveSSHRemoteClaude(t *testing.T) {
+	host := os.Getenv("SPAWNER_SSH_REMOTE_HOST")
+	if host == "" {
+		t.Skip("set SPAWNER_SSH_REMOTE_HOST (real IP/hostname) to run a real remote claude turn")
+	}
+	dir := os.Getenv("SPAWNER_SSH_REMOTE_DIR")
+	if dir == "" {
+		dir = "/tmp"
+	}
+	pool, err := NewSSHPool(SSHConfig{})
+	if err != nil {
+		t.Fatalf("NewSSHPool: %v", err)
+	}
+	defer pool.Close()
+	d := &Driver{Execs: map[Target]Executor{TargetHost: SSHExecutor{Pool: pool}}, Bypass: true}
+
+	id, err := NewSessionID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Session{Name: "live-ssh-remote", Dir: dir, Host: host, SessionID: id}
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+	defer cancel()
+	reply, _, err := d.Turn(ctx, s, "Reply with exactly the token LIVEREMOTEOK and nothing else.", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("live remote ssh turn on %s: %v", host, err)
+	}
+	if !strings.Contains(reply, "LIVEREMOTEOK") {
+		t.Fatalf("reply lacked the token (didn't run real claude on %s?): %q", host, reply)
+	}
+	t.Logf("ssh %s → real claude reply: %q", host, reply)
+}
+
 // TestSSHCancelWithoutPool guards the ctx-cancel wiring shape: Wait releasing the
 // AfterFunc hook must not panic when stop already fired. Uses a stub proc rather
 // than a live connection.

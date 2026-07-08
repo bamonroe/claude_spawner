@@ -122,6 +122,18 @@ box is nearly free → then containerizing the server is a deploy change, not ne
       2026-07-08** (empty = loopback; SSHExecutor reads it). Remaining: the spawn-dialog/protocol/app
       choice that actually sets it (pick the work box by voice).
 - [ ] Discovery/resume over the SSH channel (retire local-FS `~/.claude` scan for remote hosts).
+      Two facts the work-box run surfaced that this must handle: (1) **`Session.Dir` is a REMOTE
+      path** for a remote host (a local temp dir doesn't exist there), so discovery/resume must read
+      the remote `~/.claude`, not the server's; (2) **the Go pool dials the literal host string and
+      ignores `~/.ssh/config` aliases** — so "work" won't resolve like `ssh work` does; host addressing
+      needs the real hostname/IP (or we teach the pool to read ssh_config). Both feed the `Session.Host`
+      addressing model.
+- [~] Drive the work box (`potato`) end to end; then re-containerize the server (no root broker).
+      **Transport proven 2026-07-08**: `TestLiveSSHRemoteClaude` drove a real, authed claude turn on
+      the work box (`100.64.0.7` over Tailscale, key `bazzite_ed25519`) from this machine and the token
+      round-tripped — a genuinely remote host, not loopback (different key, real network, remote
+      `/tmp`). Remaining: the voice/app path to actually target it (the `Session.Host` dialog), remote
+      discovery/resume (above), then re-containerizing the server.
 - [x] 2026-07-08 — **Host-key verification + ssh-agent/key auth + `SPAWNER_SSH_*` config.** Six env
       vars (`SPAWNER_SSH`, `SPAWNER_SSH_USER`, `SPAWNER_SSH_PORT`, `SPAWNER_SSH_KEY`,
       `SPAWNER_SSH_KNOWN_HOSTS`, `SPAWNER_SSH_CLAUDE_BIN`) in `internal/config`; host keys always
