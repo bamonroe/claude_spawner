@@ -29,4 +29,8 @@ services:
       - "/data:/data"
       # Durable server state (sessions.json, hosts.json) kept out of the image.
       - "./state:/state"
+      # So the container's uid resolves to a real user: the openssh CLIENT the restart
+      # button uses (SPAWNER_RESTART_CMD → ssh to host) aborts with "No user exists for
+      # uid" without a passwd entry. (Go's SSH for turns doesn't need this.)
+      - "/etc/passwd:/etc/passwd:ro"
     restart: unless-stopped

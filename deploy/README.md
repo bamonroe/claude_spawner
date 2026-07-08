@@ -94,9 +94,12 @@ bounce: `SPAWNER_RESTART_CMD` SSHes to the host over loopback and launches
 container. It **must** run on the host — `up --build` replaces the very container
 the server lives in, so an in-container command would be killed mid-recreate;
 `setsid` over SSH decouples it so it survives. The image ships `openssh-client` for
-exactly this. **Bootstrap:** the running container must already have been built from
-this Dockerfile (with `openssh-client`) and have `SPAWNER_RESTART_CMD` in its env, so
-do one manual `SPAWNER_UID=$(id -u) SPAWNER_GID=$(id -g) docker compose -f
+exactly this, and the compose file mounts the host `/etc/passwd` read-only — without
+a passwd entry the openssh client aborts with *"No user exists for uid"* (the container
+runs as a bare uid; Go's SSH for turns doesn't care, but the CLI does). **Bootstrap:**
+the running container must already have been built from this Dockerfile (with
+`openssh-client`), have `SPAWNER_RESTART_CMD` in its env, and have the `/etc/passwd`
+mount, so do one manual `SPAWNER_UID=$(id -u) SPAWNER_GID=$(id -g) docker compose -f
 deploy/spawner-container.yml up -d --build` first; after that the button self-serves.
 A rebuild started this way will drop any in-flight turn as the container is recreated.
 
