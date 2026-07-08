@@ -48,6 +48,26 @@ func main() {
 		driver.UsageDir = cfg.SpawnRoots[0]
 	}
 	driver.HostBin(cfg.ClaudeBin)
+	// SSH-native execution: when enabled, host-target turns run over SSH — every host
+	// including the local machine (Session.Host empty = loopback), so there's no
+	// special-cased local fork path. Transitional: off keeps the direct-fork host
+	// executor. A bad SSH config is fatal (the operator explicitly opted in; don't
+	// silently fall back).
+	var sshConns *session.SSHPool
+	if cfg.SSHEnable {
+		sshConns, err = session.NewSSHPool(session.SSHConfig{
+			User:       cfg.SSHUser,
+			Port:       cfg.SSHPort,
+			KeyFile:    cfg.SSHKey,
+			KnownHosts: cfg.SSHKnownHosts,
+			Bin:        cfg.SSHClaudeBin,
+		})
+		if err != nil {
+			log.Fatalf("ssh: %v", err)
+		}
+		driver.Execs[session.TargetHost] = session.SSHExecutor{Pool: sshConns}
+		log.Printf("SSH-native execution enabled: host turns run over SSH (loopback for local sessions)")
+	}
 	if cfg.SandboxImage != "" {
 		driver.Execs[session.TargetSandbox] = session.SandboxExecutor{
 			Runtime:   cfg.SandboxRuntime,
@@ -161,6 +181,9 @@ func main() {
 	<-stop
 	log.Println("shutting down...")
 	gw.NotifyShutdown() // tell connected apps their in-flight turn was interrupted
+	if sshConns != nil {
+		_ = sshConns.Close() // tear down pooled SSH connections + their keepalives
+	}
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	_ = srv.Shutdown(shutdownCtx)
 	shutdownCancel()

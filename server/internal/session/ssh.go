@@ -128,33 +128,33 @@ func (c SSHConfig) port() string {
 	return strconv.Itoa(p)
 }
 
-// sshPool holds one authenticated *ssh.Client per host so turns don't pay a
+// SSHPool holds one authenticated *ssh.Client per host so turns don't pay a
 // per-turn handshake: the expensive dial+auth happens once, then each turn opens a
 // lightweight channel on the cached connection (≈free). A background keepalive per
 // connection detects a dead link and drops the client, so the next turn
 // transparently re-dials. Safe for concurrent use.
-type sshPool struct {
+type SSHPool struct {
 	cfg     SSHConfig
 	ccfg    *ssh.ClientConfig
 	mu      sync.Mutex
 	clients map[string]*ssh.Client
 }
 
-// newSSHPool validates the config (building the shared client config, which loads
+// NewSSHPool validates the config (building the shared client config, which loads
 // keys and known_hosts) and returns a ready, empty pool. Connections are dialed
 // lazily on first use per host.
-func newSSHPool(cfg SSHConfig) (*sshPool, error) {
+func NewSSHPool(cfg SSHConfig) (*SSHPool, error) {
 	ccfg, err := cfg.clientConfig()
 	if err != nil {
 		return nil, err
 	}
-	return &sshPool{cfg: cfg, ccfg: ccfg, clients: map[string]*ssh.Client{}}, nil
+	return &SSHPool{cfg: cfg, ccfg: ccfg, clients: map[string]*ssh.Client{}}, nil
 }
 
 // client returns the cached connection for host, dialing and caching one (and
 // starting its keepalive) on first use. Concurrent callers for the same cold host
 // serialize on the pool lock, so exactly one dial happens.
-func (p *sshPool) client(host string) (*ssh.Client, error) {
+func (p *SSHPool) client(host string) (*ssh.Client, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if c := p.clients[host]; c != nil {
@@ -172,7 +172,7 @@ func (p *sshPool) client(host string) (*ssh.Client, error) {
 
 // drop removes c from the cache (only if it's still the current client for host)
 // and closes it, so the next client(host) re-dials. Idempotent.
-func (p *sshPool) drop(host string, c *ssh.Client) {
+func (p *SSHPool) drop(host string, c *ssh.Client) {
 	p.mu.Lock()
 	if p.clients[host] == c {
 		delete(p.clients, host)
@@ -184,7 +184,7 @@ func (p *sshPool) drop(host string, c *ssh.Client) {
 // keepalive pings the connection until a request fails, then drops it. The ping is
 // a global SSH request the server answers but otherwise ignores; a failure means
 // the transport is gone, so we evict the client to force a fresh dial next turn.
-func (p *sshPool) keepalive(host string, c *ssh.Client) {
+func (p *SSHPool) keepalive(host string, c *ssh.Client) {
 	t := time.NewTicker(sshKeepaliveInterval)
 	defer t.Stop()
 	for range t.C {
@@ -196,7 +196,7 @@ func (p *sshPool) keepalive(host string, c *ssh.Client) {
 }
 
 // Close tears down every pooled connection. Called on server shutdown.
-func (p *sshPool) Close() error {
+func (p *SSHPool) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for h, c := range p.clients {
@@ -212,7 +212,7 @@ func (p *sshPool) Close() error {
 // loopback); the exact claude argv is the one Driver.Turn already builds.
 type SSHExecutor struct {
 	// Pool supplies the pooled, keepalive'd connection per host.
-	Pool *sshPool
+	Pool *SSHPool
 	// Bin overrides the remote claude binary; empty falls back to the pool config's
 	// Bin, then "claude".
 	Bin string
@@ -318,7 +318,7 @@ func remoteCommand(dir, bin string, args []string) string {
 }
 
 // shellQuote wraps s in single quotes for POSIX sh, escaping embedded single
-// quotes as the standard '\'' sequence, so arbitrary text survives the remote shell
+// quotes as the standard '\” sequence, so arbitrary text survives the remote shell
 // unchanged.
 func shellQuote(s string) string {
 	if s == "" {

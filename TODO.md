@@ -63,7 +63,7 @@ label. (Full code map established 2026-07-05 via two Explore passes — server +
       `session_id` identity still lets the app re-attach to the same session across any two servers
       that name it differently.
 
-### SSH-native unified execution (epic — proposed 2026-07-08; design only, not started)
+### SSH-native unified execution (epic — proposed 2026-07-08; foundation landed 2026-07-08)
 
 **Why:** collapse the three execution paths (host fork, sandbox `podman exec`, would-be remote) into
 **one SSH transport**. Every turn — including on the local machine — runs over SSH, so localhost is
@@ -102,11 +102,25 @@ inventing our own. Motivated by wanting to drive Claude on the work box (`ssh wo
 "real host" is our first remote and we flush out discovery/cancel rework immediately) → then the work
 box is nearly free → then containerizing the server is a deploy change, not new code.
 
-- [ ] `SSHExecutor` + persistent per-host client pool (keepalive + reconnect), proven against localhost.
-- [ ] Cancel via tagged process-group kill over a second channel (no PTY).
-- [ ] `Session.Host` + spawn-dialog host choice; loopback default.
+- [~] `SSHExecutor` + persistent per-host client pool (keepalive + reconnect). **Code + unit tests
+      landed 2026-07-08** (`internal/session/ssh.go`): pool dials+auths once per host, opens a cheap
+      channel per turn, keepalive drops a dead link, executor drops+re-dials once on a stale conn.
+      Registered for `TargetHost` when `SPAWNER_SSH=1` (else the direct-fork `HostExecutor` stays), so
+      with SSH on, **every** host turn — loopback included — runs over SSH with no special-cased local
+      path. Remaining: **prove against localhost live** (`SPAWNER_SSH_LIVE=1` test needs a localhost
+      sshd + host key in known_hosts), then flip the default and delete `HostExecutor`.
+- [ ] Cancel via tagged process-group kill over a second channel (no PTY). *(today: best-effort
+      signal+close; without a PTY many sshd builds won't kill the remote process.)*
+- [~] `Session.Host` + spawn-dialog host choice; loopback default. **`Session.Host` field added
+      2026-07-08** (empty = loopback; SSHExecutor reads it). Remaining: the spawn-dialog/protocol/app
+      choice that actually sets it (pick the work box by voice).
 - [ ] Discovery/resume over the SSH channel (retire local-FS `~/.claude` scan for remote hosts).
-- [ ] Host-key verification + ssh-agent/key auth + `SPAWNER_SSH_*` config.
+- [x] 2026-07-08 — **Host-key verification + ssh-agent/key auth + `SPAWNER_SSH_*` config.** Six env
+      vars (`SPAWNER_SSH`, `SPAWNER_SSH_USER`, `SPAWNER_SSH_PORT`, `SPAWNER_SSH_KEY`,
+      `SPAWNER_SSH_KNOWN_HOSTS`, `SPAWNER_SSH_CLAUDE_BIN`) in `internal/config`; host keys always
+      verified against known_hosts (no insecure mode), auth via ssh-agent and/or a key file; pool built
+      + executor registered + closed on shutdown in `main.go`. CLAUDE.md documents the vars (docsync
+      green).
 - [ ] Drive the work box (`potato`) end to end; then re-containerize the server (no root broker).
 - [ ] (Later, separate) credential propagation between hosts.
 

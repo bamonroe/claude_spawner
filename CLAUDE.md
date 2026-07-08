@@ -127,6 +127,13 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
   CLI — rootless so no host root), `SPAWNER_SANDBOX_CLAUDE_BIN` (`claude`; the binary inside the
   image), `SPAWNER_SANDBOX_MOUNTS` (comma-separated extra `-v` specs, e.g. sharing `$HOME/.claude`),
   `SPAWNER_SANDBOX_RUN_ARGS` (space-separated extra `run` flags, e.g. `--userns=keep-id`).
+- SSH-native execution (host turns over SSH; **empty `SPAWNER_SSH` keeps the direct-fork host
+  path** — transitional until loopback SSH is verified): `SPAWNER_SSH` (`1` enables; then every
+  host-target turn, local included, runs over SSH with no special-cased localhost fork),
+  `SPAWNER_SSH_USER` (login user; empty = current OS user), `SPAWNER_SSH_PORT` (`22`),
+  `SPAWNER_SSH_KEY` (private-key path; empty relies on the `ssh-agent`), `SPAWNER_SSH_KNOWN_HOSTS`
+  (`~/.ssh/known_hosts`; host keys are always verified — no insecure mode), `SPAWNER_SSH_CLAUDE_BIN`
+  (`claude`; the remote binary).
 - Restart: `SPAWNER_RESTART_CMD` — a shell command (run via `sh -c`, detached) fired by the app's
   restart button; empty disables restart. The server runs bare metal (a single binary, not
   containerized), so it forks `claude` for host turns and drives the rootless runtime for sandbox

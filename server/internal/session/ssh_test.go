@@ -44,7 +44,7 @@ func TestSSHBinFallback(t *testing.T) {
 	if b := (SSHExecutor{Bin: "/opt/claude"}).bin(); b != "/opt/claude" {
 		t.Errorf("explicit bin = %q, want /opt/claude", b)
 	}
-	p := &sshPool{cfg: SSHConfig{Bin: "cfgclaude"}}
+	p := &SSHPool{cfg: SSHConfig{Bin: "cfgclaude"}}
 	if b := (SSHExecutor{Pool: p}).bin(); b != "cfgclaude" {
 		t.Errorf("pool-config bin = %q, want cfgclaude", b)
 	}
@@ -60,9 +60,9 @@ func TestLiveSSHLoopback(t *testing.T) {
 	if os.Getenv("SPAWNER_SSH_LIVE") != "1" {
 		t.Skip("set SPAWNER_SSH_LIVE=1 to run the live loopback SSH test")
 	}
-	pool, err := newSSHPool(SSHConfig{})
+	pool, err := NewSSHPool(SSHConfig{})
 	if err != nil {
-		t.Fatalf("newSSHPool: %v", err)
+		t.Fatalf("NewSSHPool: %v", err)
 	}
 	defer pool.Close()
 
