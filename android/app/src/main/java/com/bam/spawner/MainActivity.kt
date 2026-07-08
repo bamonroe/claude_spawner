@@ -1502,27 +1502,12 @@ private fun HostsSettings(controller: VoiceController, onBack: () -> Unit) {
         }
 
         HorizontalDivider()
-        Text("Hosts", style = MaterialTheme.typography.titleMedium)
-        // Local (loopback) is always present and can't be edited or removed — the
-        // server dials it over SSH using its own SSH defaults. Everything below it is
-        // an app-managed remote host.
-        Surface(
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-            shape = RoundedCornerShape(12.dp),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Local", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        "$LOCAL_HOST  ·  loopback (built-in)",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
-                    )
-                }
-            }
-        }
+        Text("Configured hosts", style = MaterialTheme.typography.titleMedium)
+        // localhost (loopback) is seeded by default but is an ordinary entry — edit or
+        // delete it like any other. A server that can't reach its own box just removes
+        // it and drives remotes only.
         if (hosts.isEmpty()) {
-            Text("No remote hosts yet.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            Text("None yet.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
         }
         for (h in hosts) {
             Surface(
@@ -2005,6 +1990,11 @@ private fun BrowseScreen(controller: VoiceController, onStarted: () -> Unit, onB
     var newFolder by remember { mutableStateOf<String?>(null) } // non-null = the New-folder dialog is open
     var sandbox by remember { mutableStateOf(false) } // execution target: host (default) vs sandbox
     var selectedHost by rememberSaveable { mutableStateOf(LOCAL_HOST) } // an explicit host name (LOCAL_HOST = loopback)
+    // Keep the pick valid as the registry loads: if the current host isn't in the list
+    // (e.g. localhost was deleted), fall back to the first configured host.
+    LaunchedEffect(hosts) {
+        if (hosts.isNotEmpty() && hosts.none { it.name == selectedHost }) selectedHost = hosts.first().name
+    }
     val target = if (sandbox) "sandbox" else "host"
     // A host only applies to the host target (a sandbox runs locally); drop any
     // selection when switching to sandbox so we never send a stale host.
@@ -2088,11 +2078,11 @@ private fun BrowseScreen(controller: VoiceController, onStarted: () -> Unit, onB
             )
             Switch(checked = sandbox, onCheckedChange = { sandbox = it })
         }
-        // Host picker (host target only): "Local" (loopback, always available) plus
-        // each configured SSH host. Hidden only for the sandbox target.
-        if (!sandbox) {
+        // Host picker (host target only): one chip per configured host. localhost is an
+        // ordinary, seeded, deletable entry, so it shows up here like any other. Hidden
+        // for sandbox and when the registry is empty.
+        if (!sandbox && hosts.isNotEmpty()) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 4.dp)) {
-                FilterChip(selected = selectedHost == LOCAL_HOST, onClick = { selectedHost = LOCAL_HOST }, label = { Text("Local") })
                 hosts.forEach { h ->
                     FilterChip(selected = selectedHost == h.name, onClick = { selectedHost = h.name }, label = { Text(h.name) })
                 }
