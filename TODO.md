@@ -21,9 +21,14 @@ desktop web view adds the sidebar (Compose `WindowSizeClass`, sidebar when wide)
 server-side already, so both clients see the same state once the web client hits the same server.
 
 Milestones:
-- [ ] **M1 — KMP scaffolding.** Convert root/`settings.gradle.kts`/`app` to Kotlin Multiplatform +
-      Compose Multiplatform plugins; source sets `commonMain` / `androidMain` / `wasmJsMain`. Android
-      APK still builds; a trivial shared composable renders in a browser bundle. Keep `generateCommands`.
+- [x] 2026-07-08 — **M1 — KMP scaffolding.** `app` is now Kotlin Multiplatform + Compose Multiplatform
+      with `commonMain` / `androidMain` / `wasmJsMain`. Existing app code moved verbatim into
+      `androidMain`; a shared `App()` (with `expect/actual platformName()`) renders on both. Verified:
+      `:app:assembleDebug` produces the APK **and** `:app:wasmJsBrowserDistribution` produces the web
+      bundle (index.html + spawnerweb.js + .wasm). `generateCommands` now feeds `commonMain`. Repo hygiene:
+      dropped `FAIL_ON_PROJECT_REPOS` (the Wasm toolchain injects its own binaryen/node download repos).
+      Env note: the box's pinned JDK 21 had vanished (breaking all Gradle builds) — restored to
+      `/home/bam/opt/jdk-21.0.11+10`.
 - [ ] **M2 — Multiplatform networking.** Replace OkHttp WebSocket (`net/SpawnerClient.kt`) with Ktor
       client (works on Android + wasmJs). Move `net/Protocol.kt` (pure `org.json` → multiplatform JSON) to
       `commonMain`. Verify a real connect + hello handshake from the browser.

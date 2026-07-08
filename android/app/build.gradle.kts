@@ -1,7 +1,55 @@
+import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.multiplatform")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.compose")
+}
+
+kotlin {
+    androidTarget {
+        compilerOptions {
+            jvmTarget.set(JvmTarget.JVM_17)
+        }
+    }
+
+    @OptIn(ExperimentalWasmDsl::class)
+    wasmJs {
+        moduleName = "spawnerweb"
+        browser {
+            commonWebpackConfig {
+                outputFileName = "spawnerweb.js"
+            }
+        }
+        binaries.executable()
+    }
+
+    sourceSets {
+        // The generated command list (see generateCommands below) is shared UI data.
+        commonMain {
+            kotlin.srcDir(layout.buildDirectory.dir("generated/commands"))
+        }
+        commonMain.dependencies {
+            implementation(compose.runtime)
+            implementation(compose.foundation)
+            implementation(compose.material3)
+            implementation(compose.ui)
+            implementation(compose.components.uiToolingPreview)
+            implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
+        }
+        androidMain.dependencies {
+            implementation("androidx.core:core-ktx:1.13.1")
+            implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
+            implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.6")
+            implementation("androidx.activity:activity-compose:1.9.3")
+            implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+            implementation(compose.uiTooling)
+            // WebSocket transport to the server (Android target; web uses Ktor — see M2).
+            implementation("com.squareup.okhttp3:okhttp:4.12.0")
+        }
+    }
 }
 
 android {
@@ -14,6 +62,13 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+    }
+
+    // Kotlin Multiplatform maps its `androidMain` kotlin source set to the Android `main`
+    // variant, but AGP still looks under src/main for the manifest/res — point it at androidMain.
+    sourceSets.getByName("main") {
+        manifest.srcFile("src/androidMain/AndroidManifest.xml")
+        res.srcDirs("src/androidMain/res")
     }
 
     signingConfigs {
@@ -41,15 +96,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-    buildFeatures {
-        compose = true
-    }
-
-    // The generated command list (see generateCommands below) is a Kotlin source.
-    sourceSets.getByName("main").java.srcDir(layout.buildDirectory.dir("generated/commands"))
 }
 
 // generateCommands turns the shared docs/commands.json (emitted from the server's
@@ -89,22 +135,7 @@ val generateCommands by tasks.registering {
     }
 }
 
-tasks.named("preBuild") { dependsOn(generateCommands) }
-
-dependencies {
-    implementation("androidx.core:core-ktx:1.13.1")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.6")
-    implementation("androidx.activity:activity-compose:1.9.3")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
-
-    val composeBom = platform("androidx.compose:compose-bom:2024.10.01")
-    implementation(composeBom)
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.ui:ui-tooling-preview")
-    debugImplementation("androidx.compose.ui:ui-tooling")
-
-    // WebSocket transport to the server.
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+// Every Kotlin compilation (Android + wasmJs) needs the generated COMMANDS source present first.
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask<*>>().configureEach {
+    dependsOn(generateCommands)
 }
