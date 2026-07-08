@@ -12,15 +12,15 @@ func (c *conn) sendIdentityList() {
 	c.send(msgIdentityList(c.srv.ids.List()))
 }
 
-// doIdentityCreate generates a fresh keypair for the given name and broadcasts the
-// new list. A duplicate name (or empty) is a bad_identity error — regenerating would
-// invalidate any host already trusting the old public key.
-func (c *conn) doIdentityCreate(name string) {
-	if name == "" {
-		c.fail("bad_identity", "identity needs a name")
+// doIdentityCreate registers a new identity (optionally generating a keypair) for the
+// required user, with an optional password, and broadcasts the new list. A bad
+// name/user or duplicate is a bad_identity error.
+func (c *conn) doIdentityCreate(name, user, password string, genKey bool) {
+	if name == "" || user == "" {
+		c.fail("bad_identity", "identity needs a name and a username")
 		return
 	}
-	if _, err := c.srv.ids.Create(name); err != nil {
+	if _, err := c.srv.ids.Create(name, user, password, genKey); err != nil {
 		c.fail("bad_identity", err.Error())
 		return
 	}
@@ -31,12 +31,12 @@ func (c *conn) doIdentityCreate(name string) {
 // identity (e.g. the config default key that's already authenticating turns) and
 // broadcasts the new list. Bad name/path or an unreadable/encrypted key is a
 // bad_identity error.
-func (c *conn) doIdentityImport(name, keyPath string) {
-	if name == "" || keyPath == "" {
-		c.fail("bad_identity", "import needs a name and a private-key path")
+func (c *conn) doIdentityImport(name, user, password, keyPath string) {
+	if name == "" || user == "" || keyPath == "" {
+		c.fail("bad_identity", "import needs a name, a username, and a private-key path")
 		return
 	}
-	if _, err := c.srv.ids.Import(name, keyPath); err != nil {
+	if _, err := c.srv.ids.Import(name, user, password, keyPath); err != nil {
 		c.fail("bad_identity", err.Error())
 		return
 	}

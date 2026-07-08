@@ -21,8 +21,16 @@ import (
 // user to copy onto a target host. The private key lives at keysDir/<sanitized name>
 // with 0600 permissions; KeyPath derives it from the name (nothing else stores it).
 type Identity struct {
-	Name      string `json:"name"`
-	PublicKey string `json:"public_key"` // authorized_keys line — safe to display/copy
+	Name string `json:"name"`
+	// User is the default SSH login user for this identity; a host's own User
+	// overrides it. Required.
+	User string `json:"user"`
+	// PublicKey is the authorized_keys line — safe to display/copy. Empty for a
+	// password-only identity (no keypair).
+	PublicKey string `json:"public_key,omitempty"`
+	// Password authenticates via SSH password auth. It is SERVER-ONLY — persisted
+	// here but never sent to the app (the wire form reports only whether one is set).
+	Password string `json:"password,omitempty"`
 }
 
 // IdentityStore persists the identity registry (names + public keys) as JSON and
@@ -85,14 +93,22 @@ func (s *IdentityStore) KeyPath(name string) string {
 	return filepath.Join(s.keysDir, sanitizeIdentityName(name))
 }
 
-// Create generates a fresh ed25519 keypair for name, writes the private key (0600)
-// under keysDir, records the public key, and persists the registry. It errors if the
-// name is empty or already taken — regenerating would silently invalidate any host
-// already trusting the old public key.
-func (s *IdentityStore) Create(name string) (*Identity, error) {
-	name = strings.TrimSpace(name)
+// Create registers a new identity for the required user. When genKey is set it
+// generates a fresh ed25519 keypair (private key written 0600 under keysDir, public
+// key recorded); password, if given, adds SSH password auth. A keyless identity must
+// carry a password (otherwise it has no way to authenticate). Errors if the name is
+// empty/taken or the user is empty — regenerating a taken name would invalidate any
+// host already trusting the old key.
+func (s *IdentityStore) Create(name, user, password string, genKey bool) (*Identity, error) {
+	name, user = strings.TrimSpace(name), strings.TrimSpace(user)
 	if name == "" {
 		return nil, fmt.Errorf("identity needs a name")
+	}
+	if user == "" {
+		return nil, fmt.Errorf("identity needs a username")
+	}
+	if !genKey && password == "" {
+		return nil, fmt.Errorf("identity needs a key or a password")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -100,31 +116,39 @@ func (s *IdentityStore) Create(name string) (*Identity, error) {
 		return nil, fmt.Errorf("identity %q already exists", name)
 	}
 
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		return nil, fmt.Errorf("generate key: %w", err)
+	var priv []byte
+	var authLine string
+	if genKey {
+		pub, pk, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			return nil, fmt.Errorf("generate key: %w", err)
+		}
+		pemBlock, err := ssh.MarshalPrivateKey(pk, name)
+		if err != nil {
+			return nil, fmt.Errorf("marshal private key: %w", err)
+		}
+		sshPub, err := ssh.NewPublicKey(pub)
+		if err != nil {
+			return nil, fmt.Errorf("public key: %w", err)
+		}
+		// authorized_keys line with the identity name as the comment.
+		authLine = strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshPub))) + " " + name
+		priv = pem.EncodeToMemory(pemBlock)
 	}
-	pemBlock, err := ssh.MarshalPrivateKey(priv, name)
-	if err != nil {
-		return nil, fmt.Errorf("marshal private key: %w", err)
-	}
-	sshPub, err := ssh.NewPublicKey(pub)
-	if err != nil {
-		return nil, fmt.Errorf("public key: %w", err)
-	}
-	// authorized_keys line with the identity name as the comment.
-	authLine := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshPub))) + " " + name
-	return s.record(name, pem.EncodeToMemory(pemBlock), authLine)
+	return s.record(name, user, priv, authLine, password)
 }
 
 // Import registers an existing private key (already on the server, e.g. the config
-// default SSH key) as a managed identity: it copies the key into keysDir under name
-// and records its public key. The original file is left untouched; encrypted keys
-// are rejected (the server authenticates non-interactively). Name must be free.
-func (s *IdentityStore) Import(name, srcPath string) (*Identity, error) {
-	name = strings.TrimSpace(name)
+// default SSH key) as a managed identity for the required user: it copies the key
+// into keysDir under name and records its public key. The original file is left
+// untouched; encrypted keys are rejected (the server authenticates non-interactively).
+func (s *IdentityStore) Import(name, user, password, srcPath string) (*Identity, error) {
+	name, user = strings.TrimSpace(name), strings.TrimSpace(user)
 	if name == "" {
 		return nil, fmt.Errorf("identity needs a name")
+	}
+	if user == "" {
+		return nil, fmt.Errorf("identity needs a username")
 	}
 	if strings.TrimSpace(srcPath) == "" {
 		return nil, fmt.Errorf("need a private-key path to import")
@@ -143,19 +167,21 @@ func (s *IdentityStore) Import(name, srcPath string) (*Identity, error) {
 		return nil, fmt.Errorf("parse key (encrypted keys are not supported): %w", err)
 	}
 	authLine := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(signer.PublicKey()))) + " " + name
-	return s.record(name, raw, authLine)
+	return s.record(name, user, raw, authLine, password)
 }
 
-// record writes the private key (0600) and registers + persists the identity. The
-// caller holds s.mu.
-func (s *IdentityStore) record(name string, priv []byte, authLine string) (*Identity, error) {
-	if err := os.MkdirAll(s.keysDir, 0o700); err != nil {
-		return nil, fmt.Errorf("keys dir: %w", err)
+// record writes the private key (0600, only when there is one) and registers +
+// persists the identity. The caller holds s.mu.
+func (s *IdentityStore) record(name, user string, priv []byte, authLine, password string) (*Identity, error) {
+	if priv != nil {
+		if err := os.MkdirAll(s.keysDir, 0o700); err != nil {
+			return nil, fmt.Errorf("keys dir: %w", err)
+		}
+		if err := os.WriteFile(s.KeyPath(name), priv, 0o600); err != nil {
+			return nil, fmt.Errorf("write private key: %w", err)
+		}
 	}
-	if err := os.WriteFile(s.KeyPath(name), priv, 0o600); err != nil {
-		return nil, fmt.Errorf("write private key: %w", err)
-	}
-	id := &Identity{Name: name, PublicKey: authLine}
+	id := &Identity{Name: name, User: user, PublicKey: authLine, Password: password}
 	s.byName[name] = id
 	if err := s.flush(); err != nil {
 		return nil, err

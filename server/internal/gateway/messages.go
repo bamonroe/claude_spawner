@@ -40,6 +40,9 @@ type inbound struct {
 	Host         *session.Host     `json:"host"`          // on `host_put`: the SSH host entry to add/update
 	HostName     string            `json:"host_name"`     // on `spawn_at`: which registered SSH host to run the new session on ("" = local)
 	KeyPath      string            `json:"key_path"`      // on `identity_import`: server-side path of the existing private key to register
+	User         string            `json:"user"`          // on `identity_create`/`identity_import`: the identity's default SSH login user (required)
+	Password     string            `json:"password"`      // on `identity_create`/`identity_import`: optional SSH password (server-only)
+	GenKey       *bool             `json:"gen_key"`       // on `identity_create`: generate a keypair (nil = yes, for older clients)
 }
 
 func msgHelloOK(sessionID, whisperModel string) map[string]any {
@@ -67,13 +70,20 @@ func msgHostList(hosts []*session.Host) map[string]any {
 }
 
 // msgIdentityList carries the SSH identity registry (Settings → Identities): each
-// entry's name and PUBLIC key only — private keys never go over the wire. Sent to
-// the requester on `identities` and broadcast after identity_create/identity_delete.
+// entry's name, user, PUBLIC key, and whether a password is set — never the private
+// key or the password itself. Sent to the requester on `identities` and broadcast
+// after identity_create/identity_import/identity_delete.
 func msgIdentityList(ids []*session.Identity) map[string]any {
-	if ids == nil {
-		ids = []*session.Identity{}
+	out := make([]map[string]any, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, map[string]any{
+			"name":         id.Name,
+			"user":         id.User,
+			"public_key":   id.PublicKey,
+			"has_password": id.Password != "",
+		})
 	}
-	return map[string]any{"type": "identity_list", "identities": ids}
+	return map[string]any{"type": "identity_list", "identities": out}
 }
 
 // msgPending shows the live hands-free buffer as a draft (uncommitted) so the

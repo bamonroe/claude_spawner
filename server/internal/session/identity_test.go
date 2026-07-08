@@ -21,9 +21,12 @@ func TestIdentityStoreCreateListDelete(t *testing.T) {
 		t.Fatal("fresh store should be empty")
 	}
 
-	id, err := s.Create("work")
+	id, err := s.Create("work", "bam", "", true)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if id.User != "bam" {
+		t.Fatalf("identity user = %q, want bam", id.User)
 	}
 	// Public key is a parseable authorized_keys line ending in the identity name.
 	if _, _, _, _, perr := ssh.ParseAuthorizedKey([]byte(id.PublicKey)); perr != nil {
@@ -47,11 +50,28 @@ func TestIdentityStoreCreateListDelete(t *testing.T) {
 	}
 
 	// A duplicate name is rejected (regenerating would invalidate the trusted key).
-	if _, derr := s.Create("work"); derr == nil {
+	if _, derr := s.Create("work", "bam", "", true); derr == nil {
 		t.Fatal("duplicate identity should error")
 	}
-	if _, derr := s.Create(""); derr == nil {
+	if _, derr := s.Create("", "bam", "", true); derr == nil {
 		t.Fatal("empty name should error")
+	}
+	if _, derr := s.Create("nouser", "", "", true); derr == nil {
+		t.Fatal("empty username should error")
+	}
+	// A keyless identity must carry a password; with a password it's allowed.
+	if _, derr := s.Create("empty", "bam", "", false); derr == nil {
+		t.Fatal("keyless + passwordless identity should error")
+	}
+	pw, perr := s.Create("pw", "bam", "secret", false)
+	if perr != nil {
+		t.Fatal(perr)
+	}
+	if pw.PublicKey != "" {
+		t.Fatalf("password-only identity should have no public key: %q", pw.PublicKey)
+	}
+	if _, serr := os.Stat(s.KeyPath("pw")); !os.IsNotExist(serr) {
+		t.Fatalf("password-only identity should write no key file, stat err = %v", serr)
 	}
 
 	// Persistence survives a reopen (public key only; private stays on disk).
@@ -59,11 +79,15 @@ func TestIdentityStoreCreateListDelete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := s2.Get("work"); got == nil || got.PublicKey != id.PublicKey {
+	if got := s2.Get("work"); got == nil || got.PublicKey != id.PublicKey || got.User != "bam" {
 		t.Fatalf("reloaded identity wrong: %+v", got)
 	}
+	// The password persists on disk (server-side only).
+	if got := s2.Get("pw"); got == nil || got.Password != "secret" {
+		t.Fatalf("reloaded password-only identity wrong: %+v", got)
+	}
 
-	// Delete removes the entry and the private key file.
+	// Delete removes the entry and the private key file (leaving the password-only one).
 	if derr := s2.Delete("work"); derr != nil {
 		t.Fatal(derr)
 	}
@@ -71,16 +95,16 @@ func TestIdentityStoreCreateListDelete(t *testing.T) {
 		t.Fatalf("private key should be gone, stat err = %v", serr)
 	}
 	s3, _ := OpenIdentityStore(path, keys)
-	if len(s3.List()) != 0 {
-		t.Fatal("delete should persist")
+	if s3.Get("work") != nil || len(s3.List()) != 1 {
+		t.Fatalf("delete should persist, leaving only pw: %v", s3.List())
 	}
 
 	// Import: register an existing on-disk private key as a managed identity.
-	src, err := s3.Create("src") // reuse Create to mint a real key file on disk
+	src, err := s3.Create("src", "bam", "", true) // reuse Create to mint a real key file on disk
 	if err != nil {
 		t.Fatal(err)
 	}
-	imported, err := s3.Import("copied", s3.KeyPath("src"))
+	imported, err := s3.Import("copied", "bam", "", s3.KeyPath("src"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,10 +118,10 @@ func TestIdentityStoreCreateListDelete(t *testing.T) {
 		t.Fatalf("imported private key not written: %v", serr)
 	}
 	// Importing onto a taken name, or from a bad path, errors.
-	if _, ierr := s3.Import("copied", s3.KeyPath("src")); ierr == nil {
+	if _, ierr := s3.Import("copied", "bam", "", s3.KeyPath("src")); ierr == nil {
 		t.Fatal("duplicate import should error")
 	}
-	if _, ierr := s3.Import("nope", filepath.Join(dir, "does-not-exist")); ierr == nil {
+	if _, ierr := s3.Import("nope", "bam", "", filepath.Join(dir, "does-not-exist")); ierr == nil {
 		t.Fatal("import from missing path should error")
 	}
 }

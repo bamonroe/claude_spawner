@@ -98,10 +98,11 @@ func (c SSHConfig) resolveUser(host string) (string, error) {
 	return u.Username, nil
 }
 
-// authMethods gathers auth: the ssh-agent (if present) plus an explicit key file
-// (the per-host key, else the config default). At least one usable method required.
-func (c SSHConfig) authMethods(keyFile string) ([]ssh.AuthMethod, error) {
-	if keyFile == "" {
+// authMethods gathers auth: the ssh-agent (if present), an explicit key file (the
+// per-host/identity key, else the config default), and a password (from a managed
+// identity) as a fallback. At least one usable method is required.
+func (c SSHConfig) authMethods(keyFile, password string) ([]ssh.AuthMethod, error) {
+	if keyFile == "" && password == "" {
 		keyFile = c.KeyFile
 	}
 	var auths []ssh.AuthMethod
@@ -121,8 +122,11 @@ func (c SSHConfig) authMethods(keyFile string) ([]ssh.AuthMethod, error) {
 		}
 		auths = append(auths, ssh.PublicKeys(signer))
 	}
+	if password != "" {
+		auths = append(auths, ssh.Password(password))
+	}
 	if len(auths) == 0 {
-		return nil, fmt.Errorf("ssh: no auth method (set a key file or run an ssh-agent)")
+		return nil, fmt.Errorf("ssh: no auth method (set a key file, a password, or run an ssh-agent)")
 	}
 	return auths, nil
 }
@@ -172,22 +176,33 @@ func NewSSHPool(cfg SSHConfig, hosts *HostStore, ids *IdentityStore) (*SSHPool, 
 // resolve maps a Session.Host name to dial details: a registry entry's
 // address/user/port/key when present, else the name dialed literally with config
 // defaults (loopback, raw hostnames, and tests).
-func (p *SSHPool) resolve(name string) (addr, user, keyFile string, port int) {
+func (p *SSHPool) resolve(name string) (addr, user, keyFile, password string, port int) {
 	if p.hosts != nil {
 		if h := p.hosts.Get(name); h != nil {
 			a := h.Address
 			if a == "" {
 				a = name
 			}
-			// A managed identity supersedes a raw KeyFile: use its server-side key.
+			user := h.User
 			keyFile := h.KeyFile
 			if h.Identity != "" && p.ids != nil {
-				keyFile = p.ids.KeyPath(h.Identity)
+				if id := p.ids.Get(h.Identity); id != nil {
+					// The identity's user is a DEFAULT — a host's own User overrides it.
+					if user == "" {
+						user = id.User
+					}
+					password = id.Password
+					// Only a key-bearing identity has a private key file on disk; a
+					// password-only identity leaves keyFile empty (password auth).
+					if id.PublicKey != "" {
+						keyFile = p.ids.KeyPath(h.Identity)
+					}
+				}
 			}
-			return a, h.User, keyFile, h.Port
+			return a, user, keyFile, password, h.Port
 		}
 	}
-	return name, p.cfg.User, p.cfg.KeyFile, p.cfg.Port
+	return name, p.cfg.User, p.cfg.KeyFile, "", p.cfg.Port
 }
 
 // binFor returns the claude binary for a host: the registry entry's ClaudeBin, else
@@ -206,12 +221,12 @@ func (p *SSHPool) binFor(name string) string {
 
 // clientConfig builds a per-host *ssh.ClientConfig (user + auth vary by host; the
 // known_hosts callback is shared).
-func (p *SSHPool) clientConfig(user, keyFile string) (*ssh.ClientConfig, error) {
+func (p *SSHPool) clientConfig(user, keyFile, password string) (*ssh.ClientConfig, error) {
 	login, err := p.cfg.resolveUser(user)
 	if err != nil {
 		return nil, err
 	}
-	auths, err := p.cfg.authMethods(keyFile)
+	auths, err := p.cfg.authMethods(keyFile, password)
 	if err != nil {
 		return nil, err
 	}
@@ -233,8 +248,8 @@ func (p *SSHPool) client(name string) (*ssh.Client, error) {
 	if c := p.clients[name]; c != nil {
 		return c, nil
 	}
-	address, user, keyFile, port := p.resolve(name)
-	ccfg, err := p.clientConfig(user, keyFile)
+	address, user, keyFile, password, port := p.resolve(name)
+	ccfg, err := p.clientConfig(user, keyFile, password)
 	if err != nil {
 		return nil, err
 	}

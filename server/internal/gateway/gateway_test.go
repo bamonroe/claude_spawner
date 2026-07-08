@@ -203,22 +203,34 @@ func TestIdentityCRUD(t *testing.T) {
 		t.Fatalf("fresh identity registry should be empty, got %v", ids)
 	}
 
-	// Create → broadcast list with a public key (never a private key).
-	send(t, ws, map[string]any{"type": "identity_create", "name": "work"})
+	// Create → broadcast list with a public key (never a private key or password).
+	send(t, ws, map[string]any{"type": "identity_create", "name": "work", "user": "bam", "password": "s3cret"})
 	ids := readUntil(t, ws, "identity_list")["identities"].([]any)
 	if len(ids) != 1 {
 		t.Fatalf("want 1 identity, got %v", ids)
 	}
 	id := ids[0].(map[string]any)
-	if id["name"] != "work" || !strings.Contains(id["public_key"].(string), "ssh-ed25519") {
+	if id["name"] != "work" || id["user"] != "bam" || !strings.Contains(id["public_key"].(string), "ssh-ed25519") {
 		t.Fatalf("unexpected identity: %v", id)
+	}
+	if id["has_password"] != true {
+		t.Fatalf("has_password should be reported true: %v", id)
 	}
 	if _, leaked := id["private_key"]; leaked {
 		t.Fatalf("private key must never be sent: %v", id)
 	}
+	if _, leaked := id["password"]; leaked {
+		t.Fatalf("password must never be sent: %v", id)
+	}
+
+	// A username is required.
+	send(t, ws, map[string]any{"type": "identity_create", "name": "nouser"})
+	if e := readUntil(t, ws, "error"); e["code"] != "bad_identity" {
+		t.Fatalf("want bad_identity for missing user, got %v", e)
+	}
 
 	// A duplicate name is rejected.
-	send(t, ws, map[string]any{"type": "identity_create", "name": "work"})
+	send(t, ws, map[string]any{"type": "identity_create", "name": "work", "user": "bam"})
 	if e := readUntil(t, ws, "error"); e["code"] != "bad_identity" {
 		t.Fatalf("want bad_identity, got %v", e)
 	}
