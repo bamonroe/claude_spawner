@@ -203,6 +203,30 @@ go run -C server ./cmd/wsclient -url ws://localhost:8080/ws
 - To test a change without killing a live turn, run the fresh binary on a scratch port
   (`SPAWNER_ADDR=:8557`) with a separate `SPAWNER_STATE` — see [`deploy/README.md`](./deploy/README.md).
 
+### The browser client (Compose Multiplatform)
+
+The same UI as the Android app also runs **in a browser** via Kotlin/Wasm — one shared `commonMain`
+renders identical composables on both. Build the web bundle and let the server host it:
+
+```bash
+# build the web bundle (index.html + spawnerweb.js + .wasm) — needs JDK 21
+./android/gradlew -p android :app:wasmJsBrowserDistribution
+#   output: android/app/build/dist/wasmJs/productionExecutable/
+
+# point the server at it — served at "/" alongside the "/ws" gateway (one binary)
+SPAWNER_TOKEN=devsecret SPAWNER_ADDR=:8080 SPAWNER_ROOT="$HOME/git:/data" \
+  SPAWNER_WEB_DIR=android/app/build/dist/wasmJs/productionExecutable \
+  ~/.local/bin/spawner-server
+#   then open http://<host>:8080/ in a browser (needs a Wasm-GC browser — recent Firefox/Chrome)
+```
+
+The bundle defaults its WebSocket to the **same origin** it was served from (`/ws`, `wss://` when the
+page is https), so a server-hosted client connects with no setup — you only edit the URL/token under
+**Settings → Server** if you're pointing elsewhere. The static assets are public; the privileged
+surface stays behind the token-authenticated `/ws` handshake (and mutual TLS if configured). Browser
+audio (mic/STT and spoken replies) and the file-transfer picker are not wired yet — text chat, the
+session drawer, hosts/identities, and usage all work.
+
 ## Project history
 
 Built in phases: the response-capture decision and spec (Phase 0), the Go server (Phase 1),

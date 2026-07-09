@@ -112,7 +112,11 @@ systemd user service) is in `README.md`. Don't restate either here.
 
 All read in `internal/config`; the `docsync` drift test requires each to appear here, backticked:
 
-- `SPAWNER_ADDR` (`:8080`), `SPAWNER_TOKEN` (**required**), `SPAWNER_ROOT` (colon-separated
+- `SPAWNER_ADDR` (`:8080`), `SPAWNER_TOKEN` (**required**), `SPAWNER_WEB_DIR` (empty = disabled; a
+  directory holding the built Compose/Wasm web-client bundle — `index.html` + `spawnerweb.js` +
+  `.wasm` — served as static files at `/` alongside the `/ws` gateway, so one binary hosts both the
+  API and the browser client. The static assets are public; the sensitive surface stays behind the
+  token-authenticated `/ws` handshake), `SPAWNER_ROOT` (colon-separated
   spawn-dir jail), `SPAWNER_STATE` (`sessions.json`), `SPAWNER_HOSTS` (`hosts.json`; the
   app-managed SSH host registry — the app is the source of truth, this file just persists it),
   `SPAWNER_IDENTITIES` (`identities.json`; the app-managed SSH identity registry — names + public

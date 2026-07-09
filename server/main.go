@@ -157,6 +157,16 @@ func main() {
 	})
 	mux.HandleFunc("/ws", gw.HandleWS)
 
+	// Serve the built web-client bundle (Compose/Wasm) at "/" when configured, so
+	// one binary hosts both the gateway and the browser client. "/ws" and "/healthz"
+	// are more specific patterns, so they still take precedence over this catch-all.
+	// The static assets are public (JS/Wasm); the sensitive surface stays behind the
+	// token-authenticated "/ws" handshake.
+	if cfg.WebDir != "" {
+		mux.Handle("/", http.FileServer(http.Dir(cfg.WebDir)))
+		log.Printf("serving web client from %s at /", cfg.WebDir)
+	}
+
 	tlsConf, err := cfg.BuildTLSConfig()
 	if err != nil {
 		log.Fatalf("tls: %v", err)

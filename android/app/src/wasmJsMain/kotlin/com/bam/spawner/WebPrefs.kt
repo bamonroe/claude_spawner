@@ -6,6 +6,12 @@ import org.w3c.dom.set
 
 private fun randomUuid(): String = js("crypto.randomUUID()")
 
+// When the bundle is served by the spawner Go server itself, the gateway lives at
+// "/ws" on the same origin — so default to that (wss when the page is https). The
+// user can still override it under Settings → Server.
+private fun sameOriginWsUrl(): String =
+    js("(location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws'")
+
 /**
  * Browser-backed [Prefs]: every key persists in `localStorage`, mirroring the Android
  * `SettingsStore` so both clients keep the same settings with the same defaults. The
@@ -21,7 +27,7 @@ class WebPrefs : Prefs {
     private fun putInt(k: String, v: Int) { localStorage[k] = v.toString() }
 
     override var url: String
-        get() = str("url", Prefs.DEFAULT_URL)
+        get() = localStorage["url"] ?: sameOriginWsUrl()
         set(v) = putStr("url", v)
     override var token: String
         get() = str("token", Prefs.DEFAULT_TOKEN)

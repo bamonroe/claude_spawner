@@ -118,6 +118,12 @@ type Config struct {
 	SSHKey        string
 	SSHKnownHosts string
 	SSHClaudeBin  string
+
+	// WebDir is a directory holding the built Compose/Wasm web-client bundle
+	// (index.html + spawnerweb.js + .wasm). When set, the server serves it as
+	// static files at "/" alongside the "/ws" gateway, so one binary hosts both
+	// the API and the browser client. Empty disables static serving.
+	WebDir string
 }
 
 // Load reads configuration from the environment and validates it.
@@ -125,6 +131,7 @@ func Load() (*Config, error) {
 	c := &Config{
 		Addr:             env("SPAWNER_ADDR", ":8080"),
 		AuthToken:        os.Getenv("SPAWNER_TOKEN"),
+		WebDir:           os.Getenv("SPAWNER_WEB_DIR"),
 		StatePath:        env("SPAWNER_STATE", "sessions.json"),
 		HostsPath:        env("SPAWNER_HOSTS", "hosts.json"),
 		IdentitiesPath:   env("SPAWNER_IDENTITIES", "identities.json"),

@@ -148,8 +148,17 @@ Milestones:
       sidebar. Same composables, different container.
 - [ ] **M5 — Web-native platform bits.** Browser audio (Web Audio → server STT), `SpeechSynthesis` TTS,
       browser file up/download for the 📎 flow, `localStorage`-backed prefs.
-- [ ] **M6 — Serve + document.** Static web bundle served (behind the authenticated WS + TLS); README
-      web-client section; `docs/` updated. No divergence check: both targets build from one UI source.
+- [~] **M6 — Serve + document.** (in progress)
+  - [x] 2026-07-09 — **Server hosts the web bundle.** New `SPAWNER_WEB_DIR` config: when set, the Go
+        server serves that directory (the built Compose/Wasm bundle) as static files at `/` alongside
+        the `/ws` gateway, so one binary hosts both. `/ws` + `/healthz` keep precedence; static assets
+        are public, the privileged surface stays behind the token-authed `/ws`. Go's `FileServer`
+        serves `.wasm` as `application/wasm`. The web bundle defaults its WebSocket to the **same
+        origin** (`/ws`, `wss://` on https) so a server-hosted client connects with no setup.
+        Documented in `CLAUDE.md` (config) + `README.md` (web-client build/run section). Verified on a
+        scratch port: `/`→index.html, `/spawnerweb.wasm`→`application/wasm`, `/healthz`→ok; `go build`
+        + `go test ./...` green. **Live browser load over the server itself + status-bar `expect/actual`
+        remain.**
 
 ### File upload/download over the WebSocket (proposed 2026-07-08)
 
