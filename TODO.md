@@ -85,9 +85,11 @@ Milestones:
               `AppearanceSettings` retyped against `Prefs`. `ThemeMode`/`parseThemeMode` moved to
               `commonMain/ui/ThemeMode.kt` (Android `SpawnerTheme` keeps its status-bar side effect).
               Both targets build.
+        - [x] 2026-07-09 — `CommandsSettings` + its closure (`CommandAliasGroup`, `AliasChip`,
+              `AddAliasForCommandDialog`) lifted into `commonMain/SettingsScreens.kt`, retyped against
+              `Prefs`; uses the shared `COMMANDS`/`Command` and the `Prefs` alias helpers. Both build.
         - Still to lift: `ServerSettings` (SAF `.p12` picker → `expect` file-picker seam; rest is
-          prefs + `setWhisperModel`/`restartServer`/`connected`), `CommandsSettings` (uses shared
-          `COMMANDS` + `Prefs` alias helpers; lift `CommandAliasGroup` too), `AudioSettings`
+          prefs + `setWhisperModel`/`restartServer`/`connected`), `AudioSettings`
           (mic-meter/calibration bits stay Android — split them out or stub on web).
         - `TopBar` + `AudioOutputButton`: share the `AudioOutput` type first (a small data class:
           icon/label/id), keep the actual audio-routing (AudioRouter) Android-only behind the
