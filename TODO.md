@@ -128,14 +128,20 @@ Milestones:
               `BrowseScreen`/`ServerCertSection` and owns permissions/lifecycle) and hosts the shared
               `MainScreen`. **Verified: `:app:assembleDebug` (APK) + `:app:wasmJsBrowserDistribution`
               (web bundle) both build.**
-  - [ ] **(d) Remaining platform seams to add as needed:** clipboard is ALREADY common (used in the
-        Identities screen). Still need: prefs (b), monotonic clock (CacheWarmBar), file pickers
-        (InputBar 📎), status-bar chrome (`ui/Theme.kt` `setStatusBarAppearance` → `expect/actual`;
-        web no-op). Audio capture / wake word / TTS / notifications / foreground service are M5 (web
+  - [~] **(d) Remaining platform seams — mostly done.** Done: prefs (`Prefs`/`WebPrefs`), monotonic +
+        wall clock (`Clock.kt`), file pickers (InputBar 📎 slot), back handler (`PlatformBackHandler`),
+        `AudioOutput`/`ThemeMode` shared. Still open: status-bar chrome (`ui/Theme.kt`
+        `setStatusBarAppearance` → `expect/actual`; the web root uses plain `MaterialTheme` so it's not
+        blocking). Audio capture / wake word / TTS / notifications / foreground service are M5 (web
         gets Web Audio + `SpeechSynthesis`); until then the web controller stubs them.
-  - [ ] **(e) Then M2's deferred check becomes doable:** once `ServerSettings` (server URL + token)
-        is shared and a minimal web `AppController`/`main.kt` wires a real `SpawnerClient`, verify a
-        live browser connect + hello handshake against the running server.
+  - [x] 2026-07-09 — **(e) Web controller + entry point wired.** `wasmJsMain/WebPrefs.kt`
+        (`localStorage`-backed `Prefs`), `WebAppController.kt` (implements `AppController`, wiring a real
+        shared `SpawnerClient`'s `ServerMsg`s → state flows and methods → `Outbound` sends; replicates the
+        non-audio message handling — chat/history, attach, discovery, hosts/identities, usage, ask, file
+        transfer), and `WebRoot.kt` (navigation shell over the shared screens, auto-connects on load,
+        stubs the audio params). `main.kt` now mounts `WebRoot`. **Verified: `:app:wasmJsBrowserDistribution`
+        builds the full bundle.** Remaining: a live in-browser connect+hello smoke test against a running
+        server (needs the bundle served + a Wasm-GC browser — a manual runtime check).
 - [ ] **M4 — Responsive layout.** `WindowSizeClass`: phone/narrow == app drawer; desktop/wide == persistent
       sidebar. Same composables, different container.
 - [ ] **M5 — Web-native platform bits.** Browser audio (Web Audio → server STT), `SpeechSynthesis` TTS,
