@@ -12,6 +12,35 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+### Multi-backend AI registry + per-session model selection (epic — proposed 2026-07-09)
+
+Generalize the server from "drives `claude` only" to a registry of headless AI backends, each
+declaring its binary, how it builds a turn's command line, how its output is parsed, a **default
+model**, and its list of **selectable models** (by spoken alias — opus/sonnet/fable). A session
+records which backend + model it uses; spawn stamps the backend's default model; voice can override
+the model later. Backend (which AI) is orthogonal to Executor (where it runs — host/sandbox/SSH), so
+any backend runs on any target.
+
+- [x] `internal/agent` registry package: `Agent` (id, name, output `Format`, `DefaultModel`,
+      `Models`, per-backend arg builder), `Model` (alias/flag/spoken), `Registry`
+      (`Get`/`Resolve`/`Default`/`List`), and the `claude` entry whose `Args` reproduce the legacy
+      Turn command line plus `--model`. Unit tests cover resolution + arg building. (2026-07-09)
+- [ ] Wire the registry into `session`: `Session.Agent` + `Session.Model` fields (persisted in
+      `sessions.json`, empty = default backend/model for old records); `Driver.Turn` builds args via
+      the session's `Agent.Args(TurnSpec{...})` instead of the hardcoded slice; parser dispatch on
+      `Agent.Format`.
+- [ ] Per-backend binaries per target: the three `SPAWNER_*_CLAUDE_BIN` become backend-keyed (host /
+      sandbox / SSH), so each Executor invokes the right binary for the session's backend.
+- [ ] Spawn stamps `DefaultModel`: `doSpawnAt` sets `Session.Agent` (default backend) and
+      `Session.Model = agent.DefaultModel`. Protocol: add `agent`/`model` to `spawn_at` + surface on
+      `session_list`/`attached` (`docs/protocol.md`, `internal/docsync`).
+- [ ] Voice model override: "hey buddy, use sonnet" / "switch to opus" changes the attached
+      session's model (`internal/command` grammar + `docs/commands.md` + regenerated `commands.json`).
+- [ ] Register a second real backend (TBD which) — the proof the seam holds: a new `Agent` entry
+      (+ parser if its output isn't stream-json), no changes to the session/executor/gateway core.
+- [ ] Docs: `README.md` (user-facing: choosing a backend + model), `docs/architecture.md` (the
+      backend-vs-executor seam), `CLAUDE.md` config section for any new env vars.
+
 ### Web client via Compose Multiplatform — no-divergence with the app (proposed 2026-07-08)
 
 **Why:** ship a browser client that mirrors the Android app exactly, with zero UI drift. Since the
