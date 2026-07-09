@@ -237,6 +237,7 @@ private fun AppRoot(
             settings, controller,
             onSaveConnect = { url, token -> controller.connect(url, token); screen = "settings" },
             onBack = { screen = "settings" },
+            certSection = { ServerCertSection(settings) },
         )
         "set_hosts" -> HostsSettings(controller, onBack = { screen = "settings" })
         "set_identities" -> IdentitiesSettings(controller, onBack = { screen = "settings" })
@@ -1274,17 +1275,14 @@ private fun relativeTime(unixSeconds: Long): String {
 const val LOCAL_HOST = "localhost"
 
 
+/**
+ * The mutual-TLS client-certificate importer — the Android-only slot passed to the shared
+ * [ServerSettings]. Picks a `.p12` via the Storage Access Framework, copies it into app-private
+ * storage, and persists its passphrase (the passphrase is saved as you type, so the next
+ * Save & Connect above picks it up). The `.p12` bytes never leave the device.
+ */
 @Composable
-private fun ServerSettings(
-    settings: SettingsStore,
-    controller: VoiceController,
-    onSaveConnect: (String, String) -> Unit,
-    onBack: () -> Unit,
-) {
-    var url by rememberSaveable { mutableStateOf(settings.url) }
-    var token by rememberSaveable { mutableStateOf(settings.token) }
-    // Client certificate (mutual TLS): pick a .p12 via the Storage Access
-    // Framework, copy it into private storage, and remember its passphrase.
+private fun ServerCertSection(settings: SettingsStore) {
     val context = LocalContext.current
     var certName by remember { mutableStateOf(settings.clientCertName) }
     var certPass by rememberSaveable { mutableStateOf(settings.clientCertPass) }
@@ -1300,103 +1298,35 @@ private fun ServerSettings(
             }
         }
     }
-    // The whisper model is server-global: read the current one, pick a new one,
-    // then push it. Re-sync the picker whenever the server reports a change (even
-    // one made from another device).
-    val current by controller.whisperModel.collectAsStateWithLifecycle()
-    var picked by remember { mutableStateOf(current) }
-    LaunchedEffect(current) { picked = current }
-    val connected by controller.connected.collectAsStateWithLifecycle()
-    var restartConfirm by remember { mutableStateOf(false) }
-    SettingsScaffold("Server", onBack) {
-        OutlinedTextField(url, { url = it }, label = { Text("Server URL") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(token, { token = it }, label = { Text("Token") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        Button(onClick = {
-            settings.url = url; settings.token = token
-            settings.clientCertPass = certPass
-            onSaveConnect(url, token)
-        }) {
-            Text("Save & Connect")
-        }
-        Text("Client ID: ${settings.clientId}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-
-        HorizontalDivider()
-        Text("Client certificate (mTLS)", style = MaterialTheme.typography.titleMedium)
-        Text(
-            "Optional. If the server requires mutual TLS, import your .p12 client certificate and "
-                + "enter its passphrase — the app presents it on top of the token. Only used for "
-                + "wss:// servers; leave empty otherwise.",
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
-        )
-        Text(
-            if (certName.isBlank()) "No certificate imported." else "Imported: $certName",
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
-        )
-        OutlinedTextField(
-            certPass, { certPass = it }, label = { Text("Certificate passphrase") },
-            singleLine = true, visualTransformation = PasswordVisualTransformation(),
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { certPicker.launch(arrayOf("*/*")) }) { Text("Import .p12…") }
-            if (certName.isNotBlank()) {
-                OutlinedButton(onClick = {
-                    settings.clearClientCert(); certName = ""; certPass = ""
-                }) { Text("Remove") }
-            }
-        }
-        Text(
-            "Changes take effect on the next Save & Connect above.",
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
-        )
-
-        HorizontalDivider()
-        Text("Whisper model", style = MaterialTheme.typography.titleMedium)
-        Text(
-            "Shared by every device — this is the model loaded on the server. Changing it hot-swaps "
-                + "it for everyone (a few seconds to load).",
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ThemeChoice("Fast", picked == "small.en") { picked = "small.en" }
-            ThemeChoice("Balanced", picked == "medium.en") { picked = "medium.en" }
-            ThemeChoice("Accurate", picked == "large-v3") { picked = "large-v3" }
-        }
-        Text(
-            "current: ${current.ifBlank { "unknown" }}" +
-                if (picked.isNotBlank() && picked != current) "  →  $picked (not applied)" else "",
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
-        )
-        Button(
-            onClick = { controller.setWhisperModel(picked) },
-            enabled = picked.isNotBlank() && picked != current,
-        ) { Text("Apply Whisper Model") }
-
-        HorizontalDivider()
-        Text("Restart server", style = MaterialTheme.typography.titleMedium)
-        Text(
-            "Restarts the server process on your machine — it rebuilds from current code, so this "
-                + "picks up server changes. In-flight turns are interrupted; the app reconnects on its own.",
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
-        )
-        Button(
-            onClick = { restartConfirm = true },
-            enabled = connected,
-            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-        ) { Text("Restart Server") }
-        if (!connected) {
-            Text("Connect first.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+    HorizontalDivider()
+    Text("Client certificate (mTLS)", style = MaterialTheme.typography.titleMedium)
+    Text(
+        "Optional. If the server requires mutual TLS, import your .p12 client certificate and "
+            + "enter its passphrase — the app presents it on top of the token. Only used for "
+            + "wss:// servers; leave empty otherwise.",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
+    )
+    Text(
+        if (certName.isBlank()) "No certificate imported." else "Imported: $certName",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
+    )
+    OutlinedTextField(
+        certPass, { certPass = it; settings.clientCertPass = it }, label = { Text("Certificate passphrase") },
+        singleLine = true, visualTransformation = PasswordVisualTransformation(),
+        modifier = Modifier.fillMaxWidth(),
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(onClick = { certPicker.launch(arrayOf("*/*")) }) { Text("Import .p12…") }
+        if (certName.isNotBlank()) {
+            OutlinedButton(onClick = {
+                settings.clearClientCert(); certName = ""; certPass = ""
+            }) { Text("Remove") }
         }
     }
-    if (restartConfirm) {
-        AlertDialog(
-            onDismissRequest = { restartConfirm = false },
-            title = { Text("Restart the server?") },
-            text = { Text("The server will rebuild and relaunch. Any running turn is interrupted; the app reconnects automatically.") },
-            confirmButton = { TextButton(onClick = { restartConfirm = false; controller.restartServer() }) { Text("Restart") } },
-            dismissButton = { TextButton(onClick = { restartConfirm = false }) { Text("Cancel") } },
-        )
-    }
+    Text(
+        "Changes take effect on the next Save & Connect above.",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
+    )
 }
 
 @Composable

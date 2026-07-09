@@ -18,6 +18,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -537,4 +538,90 @@ private fun AddAliasForCommandDialog(command: String, onAdd: (String) -> Unit, o
         confirmButton = { TextButton(onClick = { if (misheard.isNotBlank()) onAdd(misheard) }) { Text("Add") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+/**
+ * Server connection settings: URL/token + Save & Connect, the server-global whisper
+ * model picker, and the restart button. The mutual-TLS client-certificate import is a
+ * platform slot ([certSection]) — Android fills it with a SAF `.p12` picker; the web
+ * client leaves it empty (browser mTLS is handled by the user's cert store).
+ */
+@Composable
+fun ServerSettings(
+    settings: Prefs,
+    controller: AppController,
+    onSaveConnect: (String, String) -> Unit,
+    onBack: () -> Unit,
+    certSection: @Composable ColumnScope.() -> Unit = {},
+) {
+    var url by rememberSaveable { mutableStateOf(settings.url) }
+    var token by rememberSaveable { mutableStateOf(settings.token) }
+    // The whisper model is server-global: read the current one, pick a new one, then
+    // push it. Re-sync the picker whenever the server reports a change (even one made
+    // from another device).
+    val current by controller.whisperModel.collectAsState()
+    var picked by remember { mutableStateOf(current) }
+    LaunchedEffect(current) { picked = current }
+    val connected by controller.connected.collectAsState()
+    var restartConfirm by remember { mutableStateOf(false) }
+    SettingsScaffold("Server", onBack) {
+        OutlinedTextField(url, { url = it }, label = { Text("Server URL") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(token, { token = it }, label = { Text("Token") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        Button(onClick = {
+            settings.url = url; settings.token = token
+            onSaveConnect(url, token)
+        }) {
+            Text("Save & Connect")
+        }
+        Text("Client ID: ${settings.clientId}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+
+        certSection()
+
+        HorizontalDivider()
+        Text("Whisper model", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Shared by every device — this is the model loaded on the server. Changing it hot-swaps "
+                + "it for everyone (a few seconds to load).",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ThemeChoice("Fast", picked == "small.en") { picked = "small.en" }
+            ThemeChoice("Balanced", picked == "medium.en") { picked = "medium.en" }
+            ThemeChoice("Accurate", picked == "large-v3") { picked = "large-v3" }
+        }
+        Text(
+            "current: ${current.ifBlank { "unknown" }}" +
+                if (picked.isNotBlank() && picked != current) "  →  $picked (not applied)" else "",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
+        )
+        Button(
+            onClick = { controller.setWhisperModel(picked) },
+            enabled = picked.isNotBlank() && picked != current,
+        ) { Text("Apply Whisper Model") }
+
+        HorizontalDivider()
+        Text("Restart server", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Restarts the server process on your machine — it rebuilds from current code, so this "
+                + "picks up server changes. In-flight turns are interrupted; the app reconnects on its own.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
+        )
+        Button(
+            onClick = { restartConfirm = true },
+            enabled = connected,
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+        ) { Text("Restart Server") }
+        if (!connected) {
+            Text("Connect first.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+        }
+    }
+    if (restartConfirm) {
+        AlertDialog(
+            onDismissRequest = { restartConfirm = false },
+            title = { Text("Restart the server?") },
+            text = { Text("The server will rebuild and relaunch. Any running turn is interrupted; the app reconnects automatically.") },
+            confirmButton = { TextButton(onClick = { restartConfirm = false; controller.restartServer() }) { Text("Restart") } },
+            dismissButton = { TextButton(onClick = { restartConfirm = false }) { Text("Cancel") } },
+        )
+    }
 }

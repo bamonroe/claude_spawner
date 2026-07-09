@@ -88,9 +88,13 @@ Milestones:
         - [x] 2026-07-09 — `CommandsSettings` + its closure (`CommandAliasGroup`, `AliasChip`,
               `AddAliasForCommandDialog`) lifted into `commonMain/SettingsScreens.kt`, retyped against
               `Prefs`; uses the shared `COMMANDS`/`Command` and the `Prefs` alias helpers. Both build.
-        - Still to lift: `ServerSettings` (SAF `.p12` picker → `expect` file-picker seam; rest is
-          prefs + `setWhisperModel`/`restartServer`/`connected`), `AudioSettings`
-          (mic-meter/calibration bits stay Android — split them out or stub on web).
+        - [x] 2026-07-09 — `ServerSettings` lifted into `commonMain/SettingsScreens.kt` (URL/token +
+              Save & Connect, whisper-model picker, restart), retyped against `Prefs` + `AppController`.
+              The mutual-TLS `.p12` importer is a `certSection: @Composable ColumnScope.() -> Unit`
+              slot — Android fills it with `ServerCertSection` (SAF `OpenDocument` picker +
+              client-cert prefs, still in `MainActivity`); web leaves it empty. Both build.
+        - Still to lift: `AudioSettings` (mic-meter/calibration bits stay Android — split them out
+          or stub on web).
         - `TopBar` + `AudioOutputButton`: share the `AudioOutput` type first (a small data class:
           icon/label/id), keep the actual audio-routing (AudioRouter) Android-only behind the
           controller. `CacheWarmBar` needs a monotonic-clock seam (`expect fun nowMonotonicMs()` or
