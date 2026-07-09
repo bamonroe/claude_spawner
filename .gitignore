@@ -23,3 +23,6 @@
 .DS_Store
 *.swp
 server/spawner
+
+# Self-signed TLS material for the web client (deploy-local; key must never be committed)
+deploy/tls/
