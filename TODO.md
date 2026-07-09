@@ -139,9 +139,11 @@ Milestones:
         shared `SpawnerClient`'s `ServerMsg`s → state flows and methods → `Outbound` sends; replicates the
         non-audio message handling — chat/history, attach, discovery, hosts/identities, usage, ask, file
         transfer), and `WebRoot.kt` (navigation shell over the shared screens, auto-connects on load,
-        stubs the audio params). `main.kt` now mounts `WebRoot`. **Verified: `:app:wasmJsBrowserDistribution`
-        builds the full bundle.** Remaining: a live in-browser connect+hello smoke test against a running
-        server (needs the bundle served + a Wasm-GC browser — a manual runtime check).
+        stubs the audio params). `main.kt` now mounts `WebRoot`. **Verified end-to-end: the
+        `:app:wasmJsBrowserDistribution` bundle, served locally and loaded in Firefox (Kotlin/Wasm),
+        rendered the shared UI and completed a live WebSocket connect + hello handshake against the
+        running server — the top bar showed "Claude Spawner · connected" with the detached banner, chat,
+        and input bar all drawing from the shared composables. M2's deferred live-connect check is now done.**
 - [ ] **M4 — Responsive layout.** `WindowSizeClass`: phone/narrow == app drawer; desktop/wide == persistent
       sidebar. Same composables, different container.
 - [ ] **M5 — Web-native platform bits.** Browser audio (Web Audio → server STT), `SpeechSynthesis` TTS,
