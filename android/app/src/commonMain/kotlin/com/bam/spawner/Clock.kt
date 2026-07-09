@@ -8,3 +8,9 @@ package com.bam.spawner
  * `TimeSource`.
  */
 expect fun nowMonotonicMs(): Long
+
+/** Current wall-clock time in unix seconds — for "2h ago" / "resets in …" relative labels. */
+expect fun nowEpochSeconds(): Long
+
+/** A unix-seconds instant as a local time-of-day, e.g. "3:45 PM". */
+expect fun fmtClock(unixSeconds: Long): String
