@@ -24,6 +24,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -622,6 +623,113 @@ fun ServerSettings(
             text = { Text("The server will rebuild and relaunch. Any running turn is interrupted; the app reconnects automatically.") },
             confirmButton = { TextButton(onClick = { restartConfirm = false; controller.restartServer() }) { Text("Restart") } },
             dismissButton = { TextButton(onClick = { restartConfirm = false }) { Text("Cancel") } },
+        )
+    }
+}
+
+/**
+ * Audio settings: VAD thresholds, TTS/interaction toggles, the end token, silence auto-commit,
+ * and the resident-whisper URL — all backed by [Prefs]. The two audio-hardware pieces are
+ * platform slots: [micMeter] draws the live mic-level bar (Android reads the recorder; web is
+ * empty until M5's Web Audio), and [endTokenTest] is the calibration "Test" button + dialog
+ * (Android only). [micMeter] receives the current threshold so it can mark it on the bar.
+ */
+@Composable
+fun AudioSettings(
+    settings: Prefs,
+    onVadChanged: () -> Unit,
+    onSttChanged: () -> Unit,
+    onBack: () -> Unit,
+    micMeter: @Composable (Double) -> Unit = {},
+    endTokenTest: @Composable (String) -> Unit = {},
+) {
+    var threshold by remember { mutableStateOf(settings.vadThreshold.toFloat()) }
+    var endTok by rememberSaveable { mutableStateOf(settings.endToken) }
+    var silence by remember { mutableStateOf(if (settings.silenceCommitSeconds <= 0f) "" else settings.silenceCommitSeconds.toString()) }
+    var whisperUrl by remember { mutableStateOf(settings.whisperUrl) }
+
+    SettingsScaffold("Audio", onBack) {
+        micMeter(threshold.toDouble())
+        Text("Mic threshold (lower = more sensitive): ${threshold.toInt()}", style = MaterialTheme.typography.bodyMedium)
+        Slider(
+            value = threshold, onValueChange = { threshold = it },
+            valueRange = 200f..1500f, steps = 12,
+            onValueChangeFinished = { settings.vadThreshold = threshold.toInt(); onVadChanged() },
+        )
+        VadSlider("Sustained speech to start (ms)", settings.vadOnsetMs, 40, 400, 20) {
+            settings.vadOnsetMs = it; onVadChanged()
+        }
+        VadSlider("Silence to end / \"I'm done\" (ms)", settings.vadSilenceMs, 400, 2000, 100) {
+            settings.vadSilenceMs = it; onVadChanged()
+        }
+
+        HorizontalDivider()
+        var brief by remember { mutableStateOf(settings.brief) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Brief replies", style = MaterialTheme.typography.titleMedium)
+                Text("Ask Claude to keep answers short, for text-to-speech.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            }
+            Switch(checked = brief, onCheckedChange = { brief = it; settings.brief = it; onSttChanged() })
+        }
+        var interactive by remember { mutableStateOf(settings.interactive) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Ask before guessing", style = MaterialTheme.typography.titleMedium)
+                Text("Let Claude ask clarifying questions mid-task instead of guessing.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            }
+            Switch(checked = interactive, onCheckedChange = { interactive = it; settings.interactive = it; onSttChanged() })
+        }
+
+        HorizontalDivider()
+        Text("End token", style = MaterialTheme.typography.titleMedium)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(endTok, { endTok = it }, label = { Text("Commits a message") }, singleLine = true, modifier = Modifier.weight(1f))
+            endTokenTest(endTok)
+        }
+        OutlinedButton(onClick = { settings.endToken = endTok; onSttChanged() }) { Text("Apply end token") }
+        OutlinedTextField(
+            silence,
+            { silence = it; settings.silenceCommitSeconds = it.toFloatOrNull() ?: 0f },
+            label = { Text("Silence auto-commit (seconds, 0 = off)") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Text("Commits after this much quiet. Blank/0 = only the end token commits.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+
+        HorizontalDivider()
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                whisperUrl, { whisperUrl = it; settings.whisperUrl = it },
+                label = { Text("Whisper server URL") }, singleLine = true, modifier = Modifier.weight(1f),
+            )
+            OutlinedButton(onClick = { settings.whisperUrl = whisperUrl; onSttChanged() }) { Text("Apply") }
+        }
+        Text(
+            "A resident whisper server (blank = server default). Resolved on the server host — "
+                + "\"localhost:8571\" is the whisper container running alongside it. When set, the "
+                + "model there is authoritative (the toggles above are ignored).",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
+        )
+    }
+}
+
+/** A labeled slider for an integer VAD dial; persists on release via [onChange]. */
+@Composable
+fun VadSlider(label: String, initial: Int, min: Int, max: Int, step: Int, onChange: (Int) -> Unit) {
+    var v by remember { mutableStateOf(initial.toFloat()) }
+    val steps = ((max - min) / step - 1).coerceAtLeast(0)
+    Column {
+        Text("$label: ${v.toInt()}", style = MaterialTheme.typography.bodyMedium)
+        Slider(
+            value = v,
+            onValueChange = { v = it },
+            valueRange = min.toFloat()..max.toFloat(),
+            steps = steps,
+            onValueChangeFinished = { onChange(v.toInt()) },
         )
     }
 }

@@ -93,8 +93,13 @@ Milestones:
               The mutual-TLS `.p12` importer is a `certSection: @Composable ColumnScope.() -> Unit`
               slot — Android fills it with `ServerCertSection` (SAF `OpenDocument` picker +
               client-cert prefs, still in `MainActivity`); web leaves it empty. Both build.
-        - Still to lift: `AudioSettings` (mic-meter/calibration bits stay Android — split them out
-          or stub on web).
+        - [x] 2026-07-09 — `AudioSettings` lifted into `commonMain/SettingsScreens.kt` (threshold +
+              VAD sliders, brief/interactive toggles, end token, silence auto-commit, whisper URL),
+              retyped against `Prefs`; `VadSlider` moved to common too. The two audio-hardware pieces
+              are platform slots: `micMeter` (Android draws `LevelMeterBar` off `micLevel` +
+              start/stop the meter; web empty) and `endTokenTest` (Android's calibration Test button +
+              `CalibrationDialog`; web empty). `LevelMeterBar`/`CalibrationDialog` stay in `MainActivity`.
+              **All (c) settings screens now shared.** Both build.
         - `TopBar` + `AudioOutputButton`: share the `AudioOutput` type first (a small data class:
           icon/label/id), keep the actual audio-routing (AudioRouter) Android-only behind the
           controller. `CacheWarmBar` needs a monotonic-clock seam (`expect fun nowMonotonicMs()` or
