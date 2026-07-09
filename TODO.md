@@ -112,8 +112,12 @@ Milestones:
         - [x] 2026-07-09 — `Sidebar` (sessions grouped by host, pull-to-refresh, detach, usage footer)
               lifted into `commonMain/Sidebar.kt`; `LOCAL_HOST` const moved to common. Fully
               parameterized over shared types; `PullToRefreshBox`/`LazyColumn` compile in common. Both build.
-        - `InputBar` — the text field + send is pure; the 📎 transfer + mic button are platform
-          (SAF pickers / audio) → gate behind controller callbacks + `expect` pickers, web-stub them.
+        - [x] 2026-07-09 — `InputBar` + `CommandTray` lifted into `commonMain/InputBar.kt`. The whole
+              WhatsApp-style send/mic/hands-free gesture is pure Compose driven through the existing
+              `onTalkStart`/`onTalkStop`/`onTalkCancel`/`onToggleHandsFree`/`onSend` callbacks, so the
+              concrete controller no longer appears. The 📎 transfer button is a `transferButton`
+              slot (Android fills it with `TransferButton`'s SAF/Base64 flow; web empty until M5).
+              Both build.
         - `MainScreen` + `AppRoot` shell last, once its children are shared; the Activity keeps
           permissions/lifecycle/service wiring and just hosts the shared `AppRoot`.
   - [ ] **(d) Remaining platform seams to add as needed:** clipboard is ALREADY common (used in the
