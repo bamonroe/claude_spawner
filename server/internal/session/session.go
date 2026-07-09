@@ -18,6 +18,8 @@ import (
 	"os/exec"
 	"strings"
 	"syscall"
+
+	"github.com/bam/claude_spawner/server/internal/agent"
 )
 
 // newLineScanner returns a bufio.Scanner for newline-delimited JSON. It starts
@@ -67,6 +69,15 @@ type Session struct {
 	// the spawn-dialog choice and Driver routing that select the SSH executor land in
 	// a later commit of the SSH-native epic (see TODO.md); today nothing sets it.
 	Host string `json:"host,omitempty"`
+	// Agent is the id of the AI backend this session runs (agent.Registry). Empty
+	// means the default backend — records predate this field, and it keeps old
+	// sessions on Claude. Chosen at spawn time and durable. Turn resolves it to a
+	// registered agent.Agent, which builds the turn's command line.
+	Agent string `json:"agent,omitempty"`
+	// Model is the backend model alias for this session (e.g. "opus", "sonnet",
+	// "fable"). Empty means the backend's own configured default (no --model flag);
+	// spawn stamps the agent's DefaultModel here, and a voice command can change it.
+	Model string `json:"model,omitempty"`
 }
 
 // TranscriptIDs returns every session_id whose transcript belongs to this
@@ -86,6 +97,11 @@ type Driver struct {
 	// TargetHost, which must always be registered). Register a sandbox target to
 	// make host-vs-container a per-session choice.
 	Execs map[Target]Executor
+	// Agents is the registry of AI backends. Turn resolves a session's Agent id
+	// here to build the turn's command line and pick the output parser; an empty or
+	// unknown id falls back to the registry's default backend (Claude). Never nil
+	// after NewDriver.
+	Agents *agent.Registry
 	// Bypass adds --dangerously-skip-permissions when true (project default).
 	Bypass bool
 	// UsageDir is the working directory for the account-global /usage check. It has
@@ -104,6 +120,7 @@ type Driver struct {
 func NewDriver() *Driver {
 	return &Driver{
 		Execs:  map[Target]Executor{TargetHost: HostExecutor{Bin: "claude"}},
+		Agents: agent.Default(),
 		Bypass: true,
 	}
 }
@@ -119,6 +136,16 @@ func (d *Driver) HostBin(bin string) { d.Execs[TargetHost] = HostExecutor{Bin: b
 func (d *Driver) SandboxEnabled() bool {
 	_, ok := d.Execs[TargetSandbox]
 	return ok
+}
+
+// agents returns the driver's backend registry, defaulting to the built-in
+// registry when unset so a Driver built as a literal (tests, minimal callers)
+// still resolves a session's agent.
+func (d *Driver) agents() *agent.Registry {
+	if d.Agents == nil {
+		d.Agents = agent.Default()
+	}
+	return d.Agents
 }
 
 // executor resolves a Target to its Executor, falling back to the host executor
@@ -293,15 +320,17 @@ func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool fun
 	if s.SessionID == "" {
 		return "", Usage{}, fmt.Errorf("session %q has no SessionID", s.Name)
 	}
-	args := []string{"-p", prompt, "--output-format", "stream-json", "--verbose"}
-	if s.Started {
-		args = append(args, "--resume", s.SessionID)
-	} else {
-		args = append(args, "--session-id", s.SessionID)
-	}
-	if d.Bypass {
-		args = append(args, "--dangerously-skip-permissions")
-	}
+	// The session's AI backend owns the command line: it turns this spec into the
+	// concrete flags (Claude's -p/--output-format/--session-id/--model, another
+	// backend's equivalents). An empty/unknown Agent id resolves to the default.
+	ag := d.agents().Resolve(s.Agent)
+	args := ag.Args(agent.TurnSpec{
+		Prompt:    prompt,
+		SessionID: s.SessionID,
+		Resume:    s.Started,
+		Model:     s.Model,
+		Bypass:    d.Bypass,
+	})
 
 	// Launch via the session's execution target (host by default). The executor
 	// owns process-group/abort semantics; Turn only builds args and parses stdout.
@@ -318,9 +347,15 @@ func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool fun
 	// The caller persists this even on the error path (see gateway/jobs.go).
 	s.Started = true
 
+	// Parse the backend's output into the clean reply + usage. Dispatch on the
+	// agent's Format so a backend with a different output shape adds a parser here
+	// rather than changing the caller. Only Claude's stream-json ships today.
+	if ag.Format != agent.FormatClaudeStreamJSON {
+		return "", Usage{}, fmt.Errorf("agent %q: no parser for output format %q", ag.ID, ag.Format)
+	}
 	reply, usage, perr := parseStream(proc.Stdout(), onTool, onText, onRateLimit)
 	if werr := proc.Wait(); werr != nil {
-		return "", Usage{}, fmt.Errorf("claude exited: %w", werr)
+		return "", Usage{}, fmt.Errorf("%s exited: %w", ag.ID, werr)
 	}
 	if perr != nil {
 		return "", Usage{}, perr

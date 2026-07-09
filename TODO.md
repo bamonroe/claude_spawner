@@ -25,10 +25,10 @@ any backend runs on any target.
       `Models`, per-backend arg builder), `Model` (alias/flag/spoken), `Registry`
       (`Get`/`Resolve`/`Default`/`List`), and the `claude` entry whose `Args` reproduce the legacy
       Turn command line plus `--model`. Unit tests cover resolution + arg building. (2026-07-09)
-- [ ] Wire the registry into `session`: `Session.Agent` + `Session.Model` fields (persisted in
+- [x] Wire the registry into `session`: `Session.Agent` + `Session.Model` fields (persisted in
       `sessions.json`, empty = default backend/model for old records); `Driver.Turn` builds args via
       the session's `Agent.Args(TurnSpec{...})` instead of the hardcoded slice; parser dispatch on
-      `Agent.Format`.
+      `Agent.Format` (nil registry lazily defaults, so Driver literals still resolve). (2026-07-09)
 - [ ] Per-backend binaries per target: the three `SPAWNER_*_CLAUDE_BIN` become backend-keyed (host /
       sandbox / SSH), so each Executor invokes the right binary for the session's backend.
 - [ ] Spawn stamps `DefaultModel`: `doSpawnAt` sets `Session.Agent` (default backend) and
