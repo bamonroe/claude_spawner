@@ -55,10 +55,51 @@ Milestones:
   - [x] 2026-07-08 — **Chat status chrome** (`DetachedBanner`, `SpeakingBar`, `ActivityIndicator`,
         `AskDialog`, `DraftLine`, `VoiceStatePill`) lifted into `commonMain/ChatStatus.kt`; `VoiceState`
         enum moved to shared `ChatModels.kt`. All pure Compose — no new seams. Both targets build.
-  - [ ] Chat screen shell (MainScreen/InputBar/TopBar — `TopBar` needs the `AudioOutput` type shared;
-        `CacheWarmBar` needs a monotonic-clock seam), sidebar, remaining settings (server/appearance/
-        commands/audio), browse screen. Needs the controller interface widened + a prefs abstraction.
-  - [ ] `expect/actual` for prefs (SettingsStore), clipboard is already common, date formatting, status bar.
+  **NEXT STEPS (M3 remaining) — read before resuming.** What's shared so far: the whole net layer
+  (M2), the Hosts/Identities screens, and the chat *presentation* (`ChatModels`, `ChatRendering`,
+  `ChatStatus`, `MarkdownText`, `SettingsScreens`, plus `App.kt`/`platformName`). What's still
+  Android-only is the **orchestration** — `MainActivity.kt` (~2000 lines now) holds `AppRoot`,
+  `MainScreen`, `InputBar`, `TopBar`, the `Sidebar`, the remaining settings screens, `BrowseScreen`,
+  and all the platform plumbing (permissions, SAF pickers, audio, notifications, `SettingsStore`).
+  The two structural enablers below unblock everything else; do them first, in order.
+
+  - [ ] **(a) Widen the shared controller interface.** Today `HostsIdentitiesController`
+        (`SettingsScreens.kt`) only covers hosts/identities. `MainScreen`/`Sidebar`/`InputBar` read a
+        lot more `VoiceController` state (`chat`, `status`, `connected`, `attachedName`, `activity`,
+        `pending`, `voiceState`, `speaking`, `usage`/`rateLimit`/`usageEstimate`, `discovered`,
+        `hasMoreHistory`, `scrollTick`, …) and call many methods (`sendText`, `attach`/`detach`,
+        `wake`/`commit`, `abort`, `loadOlder`, `discover`/`adopt`/`rename`/`delete`, `spawnAt`, …).
+        Define a broad `AppController` interface in `commonMain` exposing these as `StateFlow`s +
+        methods; make `VoiceController` implement it (mark members `override`). Keep audio/mic/TTS OUT
+        of it — those stay Android-only and are driven by the concrete class, not the shared UI.
+  - [ ] **(b) Prefs abstraction.** `SettingsStore` is `SharedPreferences` + `context.filesDir` (client
+        cert). Extract a `commonMain` interface (e.g. `Prefs`) with typed get/set for the keys the
+        shared settings screens need; Android `actual` wraps SharedPreferences, web `actual` wraps
+        `localStorage`. Leave the client-cert file I/O in the Android impl only.
+  - [ ] **(c) Then lift, screen by screen (each its own commit, both targets green):**
+        - Settings that are mostly prefs + server sends: `ServerSettings`, `AppearanceSettings`
+          (needs `ThemeMode` shared), `CommandsSettings` (uses shared `COMMANDS` already),
+          `AudioSettings` (mic-meter/calibration bits stay Android — split them out or stub on web).
+        - `SettingsHub` + `SettingsRow` (trivial, pure) — move alongside.
+        - `TopBar` + `AudioOutputButton`: share the `AudioOutput` type first (a small data class:
+          icon/label/id), keep the actual audio-routing (AudioRouter) Android-only behind the
+          controller. `CacheWarmBar` needs a monotonic-clock seam (`expect fun nowMonotonicMs()` or
+          switch `TurnUsageInfo` to `kotlin.time.TimeSource.Monotonic`).
+        - `Sidebar` (sessions list, usage footer, `UsageEstimateLine`, `SessionLimitFooter`,
+          `UsageSheet`, `UsageBar`) — mostly pure over shared types; move the small `fmtTokL`/`pctStr`
+          helpers to common too (rewrite any `String.format`).
+        - `InputBar` — the text field + send is pure; the 📎 transfer + mic button are platform
+          (SAF pickers / audio) → gate behind controller callbacks + `expect` pickers, web-stub them.
+        - `MainScreen` + `AppRoot` shell last, once its children are shared; the Activity keeps
+          permissions/lifecycle/service wiring and just hosts the shared `AppRoot`.
+  - [ ] **(d) Remaining platform seams to add as needed:** clipboard is ALREADY common (used in the
+        Identities screen). Still need: prefs (b), monotonic clock (CacheWarmBar), file pickers
+        (InputBar 📎), status-bar chrome (`ui/Theme.kt` `setStatusBarAppearance` → `expect/actual`;
+        web no-op). Audio capture / wake word / TTS / notifications / foreground service are M5 (web
+        gets Web Audio + `SpeechSynthesis`); until then the web controller stubs them.
+  - [ ] **(e) Then M2's deferred check becomes doable:** once `ServerSettings` (server URL + token)
+        is shared and a minimal web `AppController`/`main.kt` wires a real `SpawnerClient`, verify a
+        live browser connect + hello handshake against the running server.
 - [ ] **M4 — Responsive layout.** `WindowSizeClass`: phone/narrow == app drawer; desktop/wide == persistent
       sidebar. Same composables, different container.
 - [ ] **M5 — Web-native platform bits.** Browser audio (Web Audio → server STT), `SpeechSynthesis` TTS,
