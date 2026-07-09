@@ -42,6 +42,10 @@ kotlin {
             implementation(compose.runtime)
             implementation(compose.foundation)
             implementation(compose.material3)
+            // Material vector icons (Icons.Filled.*) — the shared UI uses these instead of
+            // emoji glyphs so controls render on every target (the browser/Skiko has no
+            // system emoji font). DCE/R8 strips the unused icons from each bundle.
+            implementation(compose.materialIconsExtended)
             implementation(compose.ui)
             implementation(compose.components.uiToolingPreview)
             implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")

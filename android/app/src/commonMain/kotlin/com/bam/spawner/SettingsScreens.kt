@@ -16,11 +16,16 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -45,7 +50,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.bam.spawner.net.Host
 import com.bam.spawner.net.Identity
 import com.bam.spawner.ui.ThemeMode
@@ -81,7 +85,9 @@ fun SettingsScaffold(title: String, onBack: () -> Unit, content: @Composable Col
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack) { Text("←", fontSize = 22.sp) }
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+            }
             Text(title, style = MaterialTheme.typography.titleLarge)
         }
         content()
@@ -148,7 +154,7 @@ fun IdentitiesSettings(controller: HostsIdentitiesController, onBack: () -> Unit
                     Text(
                         buildString {
                             append(id.user.ifBlank { "(no user)" })
-                            if (id.hasPassword) append("  ·  🔒 password")
+                            if (id.hasPassword) append("  ·  password")
                             if (id.publicKey.isBlank()) append("  ·  no key")
                         },
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
@@ -296,7 +302,7 @@ fun HostsSettings(controller: HostsIdentitiesController, onBack: () -> Unit) {
                                 append(if (h.address.isBlank()) h.name else h.address)
                                 if (h.port != 0) append(":${h.port}")
                                 if (h.user.isNotBlank()) append("  ·  ${h.user}")
-                                if (h.identity.isNotBlank()) append("  ·  🔑 ${h.identity}")
+                                if (h.identity.isNotBlank()) append("  ·  ${h.identity}")
                             },
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
                         )
@@ -483,7 +489,7 @@ private fun CommandAliasGroup(cmd: Command, aliases: List<String>, onAdd: (Strin
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
                     )
                 }
-                OutlinedButton(onClick = { adding = true }) { Text("＋") }
+                OutlinedButton(onClick = { adding = true }) { Icon(Icons.Filled.Add, contentDescription = "Add") }
             }
             if (aliases.isNotEmpty()) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {

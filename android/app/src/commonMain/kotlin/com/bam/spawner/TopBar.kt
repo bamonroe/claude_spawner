@@ -3,14 +3,25 @@ package com.bam.spawner
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AcUnit
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -21,7 +32,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.bam.spawner.audio.AudioOutput
 import kotlinx.coroutines.delay
 
@@ -43,20 +53,29 @@ fun TopBar(
             Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TextButton(onClick = onMenu) { Text("☰", fontSize = 22.sp) }
+            IconButton(onClick = onMenu) { Icon(Icons.Filled.Menu, contentDescription = "Menu") }
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text("· $subtitle", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
             }
             // Current context size — the last turn's context tokens (input + cache).
-            if (contextTokens != null && contextTokens > 0) Text(
-                "🧠 ${fmtTok(contextTokens)}",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.outline,
+            if (contextTokens != null && contextTokens > 0) Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(horizontal = 6.dp),
-            )
+            ) {
+                Icon(
+                    Icons.Filled.Psychology, contentDescription = null,
+                    tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(16.dp),
+                )
+                Spacer(Modifier.width(3.dp))
+                Text(
+                    fmtTok(contextTokens),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.outline,
+                )
+            }
             AudioOutputButton(audioOutput, audioOutputs, onSelectOutput, onOutputMenuOpened)
-            TextButton(onClick = onSettings) { Text("⚙", fontSize = 20.sp) }
+            IconButton(onClick = onSettings) { Icon(Icons.Filled.Settings, contentDescription = "Settings") }
         }
     }
 }
@@ -72,11 +91,23 @@ fun AudioOutputButton(
 ) {
     var open by remember { mutableStateOf(false) }
     Box {
-        TextButton(onClick = { onOpened(); open = true }) { Text(current.icon, fontSize = 18.sp) }
+        IconButton(onClick = { onOpened(); open = true }) {
+            Icon(current.icon, contentDescription = "Audio output: ${current.label}")
+        }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             outputs.forEach { out ->
                 DropdownMenuItem(
-                    text = { Text("${out.icon}  ${out.label}${if (out == current) "  ✓" else ""}") },
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(out.icon, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(out.label)
+                            if (out == current) {
+                                Spacer(Modifier.width(6.dp))
+                                Icon(Icons.Filled.Check, contentDescription = "selected", modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    },
                     onClick = { onSelect(out); open = false },
                 )
             }
@@ -101,14 +132,20 @@ fun CacheWarmBar(info: TurnUsageInfo) {
     val warm = remaining > 0
     val label = if (warm) {
         val secs = (remaining % 60000) / 1000
-        "⚡ cache warm · ${remaining / 60000}:${secs.toString().padStart(2, '0')} left"
+        "cache warm · ${remaining / 60000}:${secs.toString().padStart(2, '0')} left"
     } else {
-        "❄ cache cold — next turn rebuilds context"
+        "cache cold — next turn rebuilds context"
     }
-    Text(
-        label,
-        color = if (warm) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-        style = MaterialTheme.typography.labelMedium,
+    val color = if (warm) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
-    )
+    ) {
+        Icon(
+            if (warm) Icons.Filled.Bolt else Icons.Filled.AcUnit, contentDescription = null,
+            tint = color, modifier = Modifier.size(14.dp),
+        )
+        Spacer(Modifier.width(4.dp))
+        Text(label, color = color, style = MaterialTheme.typography.labelMedium)
+    }
 }

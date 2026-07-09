@@ -9,10 +9,22 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -57,11 +69,20 @@ fun Sidebar(
     Column(Modifier.fillMaxHeight().statusBarsPadding().navigationBarsPadding().padding(12.dp)) {
         Text("Sessions", style = MaterialTheme.typography.titleLarge)
         Row {
-            TextButton(onClick = onNew) { Text("＋ New") }
+            TextButton(onClick = onNew) {
+                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("New")
+            }
         }
         if (discoverError.isNotBlank()) {
-            Text("⚠️ $discoverError", color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Warning, contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(discoverError, color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall)
+            }
         }
         HorizontalDivider()
         // Pull down anywhere on the list to refresh; it also auto-refreshes on open.
@@ -92,14 +113,27 @@ fun Sidebar(
                 Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f).clickable { onOpen(d) }) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (d.busy) Text("⚙️ ") else if (d.active) Text("⚠️ ")
+                            if (d.busy) {
+                                Icon(Icons.Filled.Settings, null, Modifier.size(14.dp))
+                                Spacer(Modifier.width(4.dp))
+                            } else if (d.active) {
+                                Icon(Icons.Filled.Warning, null, Modifier.size(14.dp))
+                                Spacer(Modifier.width(4.dp))
+                            }
                             Text(d.name, style = MaterialTheme.typography.titleSmall,
                                 color = if (isAttached) MaterialTheme.colorScheme.primary else Color.Unspecified,
                                 fontWeight = if (isAttached) FontWeight.Bold else null)
-                            if (d.target == "sandbox") Text("📦 sandbox",
+                            if (d.target == "sandbox") Row(
                                 Modifier.padding(start = 6.dp),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.tertiary)
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(Icons.Filled.Inventory2, contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(14.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("sandbox",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.tertiary)
+                            }
                         }
                         Text(d.dir, style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.outline, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -111,8 +145,10 @@ fun Sidebar(
                         if (parts.isNotEmpty()) Text(parts.joinToString(" · "),
                             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
                     }
-                    Text("✏️", Modifier.clickable { onRename(d) }.padding(8.dp))
-                    Text("🗑", Modifier.clickable { onDelete(d) }.padding(8.dp))
+                    Icon(Icons.Filled.Edit, contentDescription = "Rename",
+                        modifier = Modifier.clickable { onRename(d) }.padding(8.dp).size(20.dp))
+                    Icon(Icons.Filled.Delete, contentDescription = "Delete",
+                        modifier = Modifier.clickable { onDelete(d) }.padding(8.dp).size(20.dp))
                 }
                 HorizontalDivider()
                 }
@@ -129,6 +165,10 @@ fun Sidebar(
         HorizontalDivider()
         usageEstimate?.takeIf { it.calibrated }?.let { UsageEstimateLine(it) }
         rateLimit?.let { SessionLimitFooter(it) }
-        TextButton(onClick = onCheckUsage) { Text("📊 Check usage") }
+        TextButton(onClick = onCheckUsage) {
+            Icon(Icons.Filled.BarChart, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(4.dp))
+            Text("Check usage")
+        }
     }
 }

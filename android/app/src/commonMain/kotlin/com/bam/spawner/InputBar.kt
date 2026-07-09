@@ -20,6 +20,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -38,7 +43,6 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 
 /**
  * The message composer: an optional swipe-up command tray, the 📎 transfer button
@@ -151,7 +155,10 @@ fun InputBar(
                     )
                     // The target at the top of the track.
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-                        Text("🎧", fontSize = 12.sp, modifier = Modifier.padding(top = 3.dp))
+                        Icon(
+                            Icons.Filled.Headphones, contentDescription = "hands-free",
+                            modifier = Modifier.padding(top = 3.dp).size(14.dp),
+                        )
                     }
                 }
             }
@@ -224,9 +231,17 @@ fun InputBar(
                 },
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        when { hasText -> "➤"; !pushToTalkEnabled -> "🎧"; else -> "🎤" },
-                        fontSize = 20.sp,
+                    Icon(
+                        when {
+                            hasText -> Icons.AutoMirrored.Filled.Send
+                            !pushToTalkEnabled -> Icons.Filled.Headphones
+                            else -> Icons.Filled.Mic
+                        },
+                        contentDescription = when {
+                            hasText -> "Send"
+                            !pushToTalkEnabled -> "Hands-free on"
+                            else -> "Hold to talk"
+                        },
                     )
                 }
             }

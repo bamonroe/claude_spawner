@@ -11,9 +11,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Calculate
+import androidx.compose.material.icons.filled.HourglassEmpty
+import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -75,7 +82,10 @@ fun relativeTime(unixSeconds: Long): String {
 @Composable
 fun UsageEstimateLine(e: UsageEstimateInfo) {
     Row(Modifier.padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text("📊", style = MaterialTheme.typography.labelMedium)
+        Icon(
+            Icons.Filled.BarChart, contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp),
+        )
         Spacer(Modifier.width(4.dp))
         Text(
             "Session ~${pctStr(e.sessionEstPct)} · Week ~${pctStr(e.weekEstPct)} (est)",
@@ -98,7 +108,12 @@ fun SessionLimitFooter(info: RateLimitInfo) {
     val reset = if (info.resetsAt > 0) "resets ${fmtClock(info.resetsAt)}${relResetSuffix(info.resetsAt)}" else ""
     Column(Modifier.padding(vertical = 4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(if (warn) "⚠️" else "⏳", style = MaterialTheme.typography.labelMedium)
+            Icon(
+                if (warn) Icons.Filled.Warning else Icons.Filled.HourglassEmpty,
+                contentDescription = null,
+                tint = if (warn) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.size(16.dp),
+            )
             Spacer(Modifier.width(4.dp))
             Text(
                 "Claude $window limit",
@@ -182,8 +197,16 @@ fun UsageSheet(
                         } ?: Text("no benchmark set — tap Set, burn a few % of tokens, then Calc",
                             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
                         Row {
-                            TextButton(onClick = onSet) { Text("📍 Set") }
-                            TextButton(onClick = onCalc) { Text("🧮 Calc max") }
+                            TextButton(onClick = onSet) {
+                                Icon(Icons.Filled.Place, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Set")
+                            }
+                            TextButton(onClick = onCalc) {
+                                Icon(Icons.Filled.Calculate, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Calc max")
+                            }
                         }
                         val idx = report.text.indexOf("What's contributing")
                         if (idx >= 0) {

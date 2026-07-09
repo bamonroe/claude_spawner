@@ -159,6 +159,20 @@ Milestones:
         scratch port: `/`→index.html, `/spawnerweb.wasm`→`application/wasm`, `/healthz`→ok; `go build`
         + `go test ./...` green. **Live browser load over the server itself + status-bar `expect/actual`
         remain.**
+  - [x] 2026-07-09 — **Live browser verified + two connect blockers fixed.** The web client is served
+        by the container (`:8098`) and reachable at `https://claude.bam` (Caddy `tls <cert> <key>` with
+        a self-signed cert in `deploy/tls/`, set via caddyedit — the host Caddy's internal CA had an
+        expired intermediate). Fixed: (1) `crypto.randomUUID` is undefined in an **insecure context**
+        (plain http on a real host), which threw during connect → `WebPrefs` now falls back; (2) the
+        client works only over a **secure context** (https/localhost) — over plain http the prod
+        (wasm-opt) bundle can't connect, so serve over https. Firefox Mobile blanks on the huge dev
+        bundle, so the **production** bundle is served.
+  - [x] 2026-07-09 — **Shared UI uses Material vector icons, not emoji.** Every emoji/symbol glyph in
+        the common composables (menu, settings, mic, send, back, edit, delete, usage, cache warm/cold,
+        audio outputs, …) is now an `Icons.Filled.*` / `Icons.AutoMirrored.Filled.*` vector via
+        `compose.materialIconsExtended`. Emoji rendered as blank tofu boxes in the browser (Skiko has no
+        system emoji font); vectors render on every target. Both `compileDebugKotlinAndroid` and
+        `compileKotlinWasmJs` green; icons verified rendering live at `https://claude.bam`.
 
 ### File upload/download over the WebSocket (proposed 2026-07-08)
 

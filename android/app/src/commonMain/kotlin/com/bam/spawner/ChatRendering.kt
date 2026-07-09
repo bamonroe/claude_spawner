@@ -5,10 +5,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -16,6 +18,11 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -34,7 +41,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.bam.spawner.net.TokenUsage
 import com.bam.spawner.ui.MarkdownText
 import kotlinx.coroutines.flow.collect
@@ -128,7 +134,9 @@ fun ChatList(
         LazyColumn(Modifier.fillMaxSize(), state = listState) {
             if (hasMore) item {
                 TextButton(onClick = onLoadOlder, modifier = Modifier.fillMaxWidth()) {
-                    Text("⤒ load older messages")
+                    Icon(Icons.Filled.KeyboardArrowUp, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("load older messages")
                 }
             }
             items(messages) { Bubble(it, badgeMode) }
@@ -150,7 +158,9 @@ fun ChatList(
                 shadowElevation = 4.dp,
                 modifier = Modifier.size(36.dp),
             ) {
-                Box(contentAlignment = Alignment.Center) { Text("↓", fontSize = 20.sp) }
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Scroll to latest")
+                }
             }
         }
     }
@@ -212,16 +222,27 @@ fun TokenBadge(u: TokenUsage, mode: String) {
         if (u.cacheRead > 0) append(" · ${fmtTok(u.cacheRead)} cached")
         if (u.cacheWrite > 0) append(" · ${fmtTok(u.cacheWrite)} new")
         append(" · ${fmtTok(u.output)} out")
-        if (u.warmHit) append(" ⚡")
     } else {
-        "${fmtTok(u.contextTokens)}↑ ${fmtTok(u.output)}↓" + if (u.warmHit) " ⚡" else ""
+        "${fmtTok(u.contextTokens)}↑ ${fmtTok(u.output)}↓"
     }
-    Text(
-        label,
-        style = MaterialTheme.typography.labelSmall,
-        color = LocalContentColor.current.copy(alpha = 0.6f),
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 6.dp),
-    )
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = LocalContentColor.current.copy(alpha = 0.6f),
+        )
+        // ⚡ warm prompt-cache hit marker.
+        if (u.warmHit) {
+            Spacer(Modifier.width(2.dp))
+            Icon(
+                Icons.Filled.Bolt, contentDescription = "warm cache hit",
+                tint = LocalContentColor.current.copy(alpha = 0.6f), modifier = Modifier.size(12.dp),
+            )
+        }
+    }
 }
 
 /** fmtStamp formats a unix-seconds timestamp as a compact local date/time badge.
