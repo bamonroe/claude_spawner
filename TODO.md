@@ -144,10 +144,25 @@ Milestones:
         rendered the shared UI and completed a live WebSocket connect + hello handshake against the
         running server — the top bar showed "Claude Spawner · connected" with the detached banner, chat,
         and input bar all drawing from the shared composables. M2's deferred live-connect check is now done.**
-- [ ] **M4 — Responsive layout.** `WindowSizeClass`: phone/narrow == app drawer; desktop/wide == persistent
-      sidebar. Same composables, different container.
-- [ ] **M5 — Web-native platform bits.** Browser audio (Web Audio → server STT), `SpeechSynthesis` TTS,
-      browser file up/download for the 📎 flow, `localStorage`-backed prefs.
+- [~] **M4 — Responsive layout + desktop affordances.**
+  - [ ] `WindowSizeClass`: phone/narrow == app drawer; desktop/wide == persistent sidebar. Same
+        composables, different container.
+  - [x] 2026-07-09 — **Discoverable controls for the touch gestures.** Mouse/desktop users had no
+        obvious way to trigger the swipe gestures, so each got a visible affordance (all shared
+        commonMain, so they appear on Android too — harmless, the gestures still work): a chevron
+        handle above the message box toggles the command tray (the swipe-up); a **Refresh** button
+        beside **New** in the sessions drawer (the pull-to-refresh); and **Enter sends / Shift+Enter
+        newlines** on the web client (gated by `platformName() == "Web"`, so mobile keeps Enter as a
+        newline). Both targets compile green.
+- [~] **M5 — Web-native platform bits.** Browser audio (Web Audio → server STT), `SpeechSynthesis` TTS,
+      browser spawn UI.
+  - [x] 2026-07-09 — **Web file transfer (the 📎 flow).** The web `MainScreen` now fills the
+        `transferButton` slot with a browser upload/download button over the existing WebSocket
+        `upload`/`download` protocol (already implemented in `WebAppController`): the DOM File API
+        reads a picked file → base64 → `uploadFile`; a downloaded `file_data` is saved via a blob
+        object-URL. The host directory/file picker (`TransferPickerDialog`) was promoted to commonMain
+        (typed against `AppController`, glyphs → Material icons) so Android and web share one picker.
+  - [ ] `localStorage`-backed prefs — done earlier with `WebPrefs`.
 - [~] **M6 — Serve + document.** (in progress)
   - [x] 2026-07-09 — **Server hosts the web bundle.** New `SPAWNER_WEB_DIR` config: when set, the Go
         server serves that directory (the built Compose/Wasm bundle) as static files at `/` alongside

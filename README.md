@@ -61,11 +61,12 @@ Anything spoken **while attached** that isn't a reserved command is dictated to 
 command fails (a bad path, a name that's taken, a session live in a terminal…), the server speaks a
 plain-language reason instead of failing silently.
 
-**Without your voice:** swipe up on the message box for a **command tray** of tap buttons — one per
-command that needs no argument (`detach`, `clear`, `compress`, `status`, `usage`, …). Open the
-**sessions drawer** with the ☰ menu or by swiping in from the left edge (just inside the edge — the
-very edge is Android's back gesture). The session list **auto-refreshes each time the drawer opens**,
-and you can **pull down on the list to refresh** it at any time. See [`docs/commands.md`](docs/commands.md).
+**Without your voice:** swipe up on the message box — or tap the **chevron handle** just above it —
+for a **command tray** of tap buttons, one per command that needs no argument (`detach`, `clear`,
+`compress`, `status`, `usage`, …). Open the **sessions drawer** with the ☰ menu or by swiping in from
+the left edge (just inside the edge — the very edge is Android's back gesture). The session list
+**auto-refreshes each time the drawer opens**, and you can **pull down on the list** (or tap
+**Refresh**) to re-scan at any time. See [`docs/commands.md`](docs/commands.md).
 
 ### Transferring files to and from a session
 
@@ -223,9 +224,19 @@ SPAWNER_TOKEN=devsecret SPAWNER_ADDR=:8080 SPAWNER_ROOT="$HOME/git:/data" \
 The bundle defaults its WebSocket to the **same origin** it was served from (`/ws`, `wss://` when the
 page is https), so a server-hosted client connects with no setup — you only edit the URL/token under
 **Settings → Server** if you're pointing elsewhere. The static assets are public; the privileged
-surface stays behind the token-authenticated `/ws` handshake (and mutual TLS if configured). Browser
-audio (mic/STT and spoken replies) and the file-transfer picker are not wired yet — text chat, the
-session drawer, hosts/identities, and usage all work.
+surface stays behind the token-authenticated `/ws` handshake (and mutual TLS if configured).
+
+Text chat, the session drawer, hosts/identities, usage, and **file transfer** (the 📎 button — the
+same upload/download flow as the app, reading/writing the browser's own files) all work. Because a
+mouse can't obviously "swipe", the browser client also shows **visible controls** for the touch
+gestures: a chevron handle above the message box opens the command tray, a **Refresh** button sits
+beside **New** in the sessions drawer, and **Enter sends** a message (Shift+Enter for a newline).
+Browser audio (mic/STT and spoken replies) and the browser spawn UI are not wired yet.
+
+> **Secure context required.** The client only connects from a **secure context** — https, or
+> `localhost`/`127.0.0.1`. Served over plain http from a real hostname the browser marks the origin
+> insecure and the connection fails, so put the server behind TLS (a `wss://` cert, or a reverse proxy
+> like Caddy) for anything but local testing.
 
 ## Project history
 
