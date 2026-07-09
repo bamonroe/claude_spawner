@@ -118,8 +118,16 @@ Milestones:
               concrete controller no longer appears. The 📎 transfer button is a `transferButton`
               slot (Android fills it with `TransferButton`'s SAF/Base64 flow; web empty until M5).
               Both build.
-        - `MainScreen` + `AppRoot` shell last, once its children are shared; the Activity keeps
-          permissions/lifecycle/service wiring and just hosts the shared `AppRoot`.
+        - [x] 2026-07-09 — `MainScreen` lifted into `commonMain/MainScreen.kt` (drawer + `Sidebar`,
+              `TopBar`, `ChatList`, status bars, `InputBar`, and the hoisted session/usage dialogs),
+              retyped against `AppController`. Added a `PlatformBackHandler` expect/actual seam
+              (Android `BackHandler`; web no-op). The audio-hardware surface stays off `AppController`
+              and is passed in: `mic`/`audioOutput`/`audioOutputs` values + `onSelectAudioOutput`/
+              `onRefreshOutputs`/`onTalkStart`/`onTalkStop`/`onTalkCancel`/`onStopSpeaking` callbacks,
+              and the 📎 `transferButton` slot. `AppRoot` stays Android (it routes to the Android-only
+              `BrowseScreen`/`ServerCertSection` and owns permissions/lifecycle) and hosts the shared
+              `MainScreen`. **Verified: `:app:assembleDebug` (APK) + `:app:wasmJsBrowserDistribution`
+              (web bundle) both build.**
   - [ ] **(d) Remaining platform seams to add as needed:** clipboard is ALREADY common (used in the
         Identities screen). Still need: prefs (b), monotonic clock (CacheWarmBar), file pickers
         (InputBar 📎), status-bar chrome (`ui/Theme.kt` `setStatusBarAppearance` → `expect/actual`;
