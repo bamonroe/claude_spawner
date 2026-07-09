@@ -63,15 +63,15 @@ Milestones:
   and all the platform plumbing (permissions, SAF pickers, audio, notifications, `SettingsStore`).
   The two structural enablers below unblock everything else; do them first, in order.
 
-  - [ ] **(a) Widen the shared controller interface.** Today `HostsIdentitiesController`
-        (`SettingsScreens.kt`) only covers hosts/identities. `MainScreen`/`Sidebar`/`InputBar` read a
-        lot more `VoiceController` state (`chat`, `status`, `connected`, `attachedName`, `activity`,
-        `pending`, `voiceState`, `speaking`, `usage`/`rateLimit`/`usageEstimate`, `discovered`,
-        `hasMoreHistory`, `scrollTick`, …) and call many methods (`sendText`, `attach`/`detach`,
-        `wake`/`commit`, `abort`, `loadOlder`, `discover`/`adopt`/`rename`/`delete`, `spawnAt`, …).
-        Define a broad `AppController` interface in `commonMain` exposing these as `StateFlow`s +
-        methods; make `VoiceController` implement it (mark members `override`). Keep audio/mic/TTS OUT
-        of it — those stay Android-only and are driven by the concrete class, not the shared UI.
+  - [x] 2026-07-09 — **(a) Widen the shared controller interface.** New `commonMain/AppController.kt`
+        defines `AppController : HostsIdentitiesController`, exposing the whole shared UI surface as
+        `StateFlow`s (`chat`, `status`, `attachedName`, `activity`, `pending`, `voiceState`, `speaking`,
+        `lastTurnUsage`/`rateLimit`/`usageEstimate`/`usageReport`, `discovered`, `hasMoreHistory`,
+        `scrollTick`, `listing`, `fileSaved`/`fileData`, `ask`, `whisperModel`, …) + methods (`sendText`,
+        `attachTo`/`detach`, `abortTurn`, `loadOlder`, `discover`/`adopt`/`rename`/`delete`, `spawnAt`/
+        `spawnNewFolder`, `browse`/`upload`/`download`, usage + server controls). `TurnUsageInfo` moved to
+        `commonMain`. `VoiceController` now `: AppController` with members marked `override`; audio/mic/TTS/
+        connect/lifecycle stay off the interface (driven by the concrete class). Both targets build.
   - [ ] **(b) Prefs abstraction.** `SettingsStore` is `SharedPreferences` + `context.filesDir` (client
         cert). Extract a `commonMain` interface (e.g. `Prefs`) with typed get/set for the keys the
         shared settings screens need; Android `actual` wraps SharedPreferences, web `actual` wraps

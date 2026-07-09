@@ -45,7 +45,6 @@ data class CalibrationState(
 /** The most recent completed turn's token usage, stamped with when it finished
  *  (SystemClock.elapsedRealtime ms) so the UI can count down the ~5-min warm
  *  prompt-cache window from that moment. */
-data class TurnUsageInfo(val usage: TokenUsage, val atElapsedMs: Long)
 
 /**
  * Orchestrates the app's voice/chat loop: connects (with auto-reconnect),
@@ -53,7 +52,7 @@ data class TurnUsageInfo(val usage: TokenUsage, val atElapsedMs: Long)
  * and per-session chat transcript, and reflects server messages into UI state +
  * text-to-speech.
  */
-class VoiceController(context: Context, private val settings: SettingsStore) : HostsIdentitiesController {
+class VoiceController(context: Context, private val settings: SettingsStore) : AppController {
     private val app = context.applicationContext
     private val speaker = Speaker(app)
     private val recorder = OpusRecorder(app)
@@ -68,7 +67,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : H
     override val connected: StateFlow<Boolean> = _connected.asStateFlow()
 
     private val _status = MutableStateFlow("disconnected")
-    val status: StateFlow<String> = _status.asStateFlow()
+    override val status: StateFlow<String> = _status.asStateFlow()
 
     // Per-session chat logs, keyed by session name ("" = the general/unattached
     // view for dialog + system messages). `_chat` mirrors the current key's log.
@@ -93,26 +92,26 @@ class VoiceController(context: Context, private val settings: SettingsStore) : H
     }
 
     private val _chat = MutableStateFlow<List<ChatMessage>>(emptyList())
-    val chat: StateFlow<List<ChatMessage>> = _chat.asStateFlow()
+    override val chat: StateFlow<List<ChatMessage>> = _chat.asStateFlow()
 
     // Whether the current session has older history to page in (drives the
     // "load older" control), and a tick the UI watches to scroll to the bottom.
     private val _hasMoreHistory = MutableStateFlow(false)
-    val hasMoreHistory: StateFlow<Boolean> = _hasMoreHistory.asStateFlow()
+    override val hasMoreHistory: StateFlow<Boolean> = _hasMoreHistory.asStateFlow()
     private val _scrollTick = MutableStateFlow(0)
-    val scrollTick: StateFlow<Int> = _scrollTick.asStateFlow()
+    override val scrollTick: StateFlow<Int> = _scrollTick.asStateFlow()
 
     // Claude sessions found on disk (from `discover`) that can be adopted.
     private val _discovered = MutableStateFlow<List<DiscoveredInfo>>(emptyList())
-    val discovered: StateFlow<List<DiscoveredInfo>> = _discovered.asStateFlow()
+    override val discovered: StateFlow<List<DiscoveredInfo>> = _discovered.asStateFlow()
 
     // Last error from a discover/adopt/delete action, shown on the Discover
     // screen (otherwise it would go to the hidden chat log). "" = none.
     private val _discoverError = MutableStateFlow("")
-    val discoverError: StateFlow<String> = _discoverError.asStateFlow()
+    override val discoverError: StateFlow<String> = _discoverError.asStateFlow()
 
     private val _attachedName = MutableStateFlow<String?>(null)
-    val attachedName: StateFlow<String?> = _attachedName.asStateFlow()
+    override val attachedName: StateFlow<String?> = _attachedName.asStateFlow()
 
     // The stable on-disk id of the attached session. Names diverge between servers
     // (the same session is "spawner-2" on one, "spawner-3" on another) and change on
@@ -121,18 +120,18 @@ class VoiceController(context: Context, private val settings: SettingsStore) : H
     // this id. Exposed so the sidebar highlights the attached row by id (not name).
     // Empty when detached or when the server didn't send an id (older server).
     private val _attachedId = MutableStateFlow("")
-    val attachedId: StateFlow<String> = _attachedId.asStateFlow()
+    override val attachedId: StateFlow<String> = _attachedId.asStateFlow()
 
     private val _listing = MutableStateFlow<ServerMsg.Listing?>(null)
-    val listing: StateFlow<ServerMsg.Listing?> = _listing.asStateFlow()
+    override val listing: StateFlow<ServerMsg.Listing?> = _listing.asStateFlow()
 
     // One-shot file-transfer results (message-box 📎 button): an upload's landed path
     // and a download's bytes. SharedFlow, not StateFlow — each is a fire-once event the
     // UI reacts to (prefill the box / write the download), not retained state.
     private val _fileSaved = MutableSharedFlow<String>(extraBufferCapacity = 4)
-    val fileSaved: SharedFlow<String> = _fileSaved.asSharedFlow()
+    override val fileSaved: SharedFlow<String> = _fileSaved.asSharedFlow()
     private val _fileData = MutableSharedFlow<ServerMsg.FileData>(extraBufferCapacity = 4)
-    val fileData: SharedFlow<ServerMsg.FileData> = _fileData.asSharedFlow()
+    override val fileData: SharedFlow<ServerMsg.FileData> = _fileData.asSharedFlow()
 
     // The app-managed SSH host registry (Settings → Hosts). The server is the store
     // of record on disk, but the app owns the list; refreshed from every host_list.
@@ -148,11 +147,11 @@ class VoiceController(context: Context, private val settings: SettingsStore) : H
     val mic: StateFlow<String> = _mic.asStateFlow()
 
     private val _voiceState = MutableStateFlow(VoiceState.OFF)
-    val voiceState: StateFlow<VoiceState> = _voiceState.asStateFlow()
+    override val voiceState: StateFlow<VoiceState> = _voiceState.asStateFlow()
 
     // Live hands-free draft: what's captured but not yet committed (via end token).
     private val _pending = MutableStateFlow("")
-    val pending: StateFlow<String> = _pending.asStateFlow()
+    override val pending: StateFlow<String> = _pending.asStateFlow()
 
     // Live mic RMS level (~0..32768) for the audio meter, fed by the running
     // hands-free recorder or a standalone LevelMeter.
@@ -161,72 +160,72 @@ class VoiceController(context: Context, private val settings: SettingsStore) : H
 
     // Live "Claude is thinking / editing foo.go" indicator; "" when idle.
     private val _activity = MutableStateFlow("")
-    val activity: StateFlow<String> = _activity.asStateFlow()
+    override val activity: StateFlow<String> = _activity.asStateFlow()
 
     // Token usage of the last completed turn, driving the per-message badge's
     // source data and the status-bar cache-warm countdown. Null until a turn
     // finishes; reset when attaching elsewhere (a new session = a new cache).
     private val _lastTurnUsage = MutableStateFlow<TurnUsageInfo?>(null)
-    val lastTurnUsage: StateFlow<TurnUsageInfo?> = _lastTurnUsage.asStateFlow()
+    override val lastTurnUsage: StateFlow<TurnUsageInfo?> = _lastTurnUsage.asStateFlow()
 
     // The Claude plan's session-limit state (which usage window is binding, when it
     // resets), refreshed from each turn's rate_limit_event. Shown at the bottom of
     // the sessions drawer. Null until the first turn reports it.
     private val _rateLimit = MutableStateFlow<RateLimitInfo?>(null)
-    val rateLimit: StateFlow<RateLimitInfo?> = _rateLimit.asStateFlow()
+    override val rateLimit: StateFlow<RateLimitInfo?> = _rateLimit.asStateFlow()
 
     // Server-global drift-live usage estimate: nudges up each turn, snaps to real
     // on /usage. Server-wide (all sessions/clients), so it does NOT reset on attach.
     private val _usageEstimate = MutableStateFlow<UsageEstimateInfo?>(null)
-    val usageEstimate: StateFlow<UsageEstimateInfo?> = _usageEstimate.asStateFlow()
+    override val usageEstimate: StateFlow<UsageEstimateInfo?> = _usageEstimate.asStateFlow()
 
     // On-demand `/usage` report (session/weekly % used). Loading is set while the
     // server runs /usage; report holds the result. A non-null report opens the
     // usage sheet — including from the "usage" voice command (no prior request).
     private val _usageReport = MutableStateFlow<UsageReport?>(null)
-    val usageReport: StateFlow<UsageReport?> = _usageReport.asStateFlow()
+    override val usageReport: StateFlow<UsageReport?> = _usageReport.asStateFlow()
     private val _usageLoading = MutableStateFlow(false)
-    val usageLoading: StateFlow<Boolean> = _usageLoading.asStateFlow()
+    override val usageLoading: StateFlow<Boolean> = _usageLoading.asStateFlow()
 
     /** Ask the server for the plan's usage report (runs `/usage`); opens the sheet in a loading state. */
-    fun requestUsage() {
+    override fun requestUsage() {
         _usageReport.value = null
         _usageLoading.value = true
         client?.send(Outbound.usage())
     }
 
     /** "set" button: stamp the current odometer + real percentages as the two-point benchmark start. */
-    fun setUsageBenchmark() {
+    override fun setUsageBenchmark() {
         _usageReport.value = null
         _usageLoading.value = true
         client?.send(Outbound.usageSet())
     }
 
     /** "calc" button: derive the tokens-per-percent rate directly from the benchmark interval. */
-    fun calcUsageMax() {
+    override fun calcUsageMax() {
         _usageReport.value = null
         _usageLoading.value = true
         client?.send(Outbound.usageCalc())
     }
 
     /** Dismiss the usage sheet and clear its state. */
-    fun dismissUsage() {
+    override fun dismissUsage() {
         _usageReport.value = null
         _usageLoading.value = false
     }
 
     // True while TTS is speaking (drives the tap-to-stop banner).
     private val _speaking = MutableStateFlow(false)
-    val speaking: StateFlow<Boolean> = _speaking.asStateFlow()
+    override val speaking: StateFlow<Boolean> = _speaking.asStateFlow()
 
     // The resident whisper model the SERVER currently has (server-global). Read on
     // connect; changed only via setWhisperModel. "" until the server reports it.
     private val _whisperModel = MutableStateFlow(settings.whisperModel)
-    val whisperModel: StateFlow<String> = _whisperModel.asStateFlow()
+    override val whisperModel: StateFlow<String> = _whisperModel.asStateFlow()
 
     // Pending clarification questions (interactive mode); null when none.
     private val _ask = MutableStateFlow<List<com.bam.spawner.net.AskQuestion>?>(null)
-    val ask: StateFlow<List<com.bam.spawner.net.AskQuestion>?> = _ask.asStateFlow()
+    override val ask: StateFlow<List<com.bam.spawner.net.AskQuestion>?> = _ask.asStateFlow()
 
     // Spoken-audio output routing (earpiece/speaker/bluetooth). `audioOutputs` is
     // what's currently selectable (bluetooth only when a headset is connected);
@@ -331,7 +330,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : H
         if (client == null) connect(url, token)
     }
 
-    fun sendText(text: String) {
+    override fun sendText(text: String) {
         val t = text.trim()
         if (t.isEmpty()) return
         addChat(Role.USER, t)
@@ -345,7 +344,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : H
     // --- Sidebar actions ---
 
     /** Ask the server for all Claude sessions on disk (spawner-created or not). */
-    fun discover() = client?.send(Outbound.discover())
+    override fun discover() = client?.send(Outbound.discover()).let {}
 
     /** Request the SSH host registry (Settings → Hosts). Server replies host_list. */
     override fun requestHosts() = client?.send(Outbound.hostsList()).let {}
@@ -378,22 +377,22 @@ class VoiceController(context: Context, private val settings: SettingsStore) : H
     override fun deleteIdentity(name: String) = client?.send(Outbound.identityDelete(name)).let {}
 
     /** Adopt a discovered session into the registry and attach to it. */
-    fun adopt(sessionId: String, dir: String) = client?.send(Outbound.adopt(sessionId, dir))
+    override fun adopt(sessionId: String, dir: String) = client?.send(Outbound.adopt(sessionId, dir)).let {}
 
     /** Permanently delete a discovered session's transcript from disk. */
-    fun deleteDiscovered(sessionId: String) = client?.send(Outbound.deleteDiscovered(sessionId))
+    override fun deleteDiscovered(sessionId: String) = client?.send(Outbound.deleteDiscovered(sessionId)).let {}
 
     /** Give a discovered session a custom name (registers it by dir if needed). */
-    fun renameDiscovered(sessionId: String, dir: String, newName: String) =
-        client?.send(Outbound.renameDiscovered(sessionId, dir, newName))
+    override fun renameDiscovered(sessionId: String, dir: String, newName: String) =
+        client?.send(Outbound.renameDiscovered(sessionId, dir, newName)).let {}
 
-    fun attachTo(name: String) {
+    override fun attachTo(name: String) {
         showLog(name) // switch to that session's log immediately (cached if we have it)
         client?.send(Outbound.attach(name))
     }
 
     /** Load the previous page of older history for the current session. */
-    fun loadOlder() {
+    override fun loadOlder() {
         if (currentKey.isNotEmpty()) fetchOlder(currentKey)
     }
 
@@ -406,21 +405,21 @@ class VoiceController(context: Context, private val settings: SettingsStore) : H
         client?.send(Outbound.history(name, before))
     }
 
-    fun detach() = client?.send(Outbound.detach())
+    override fun detach() = client?.send(Outbound.detach()).let {}
 
     /** Abort the running turn on the attached session (kills the claude child). */
-    fun abortTurn() = client?.send(Outbound.abort())
+    override fun abortTurn() = client?.send(Outbound.abort()).let {}
 
     /** Submit answers to the pending interactive questions (from the dialog). The
      *  formatted text goes back as an ordinary turn — Claude has the questions in
      *  context via --resume. */
-    fun submitAnswers(text: String) {
+    override fun submitAnswers(text: String) {
         _ask.value = null
         sendText(text)
     }
 
     /** Dismiss the questions without answering (they stay in the transcript). */
-    fun dismissAsk() { _ask.value = null }
+    override fun dismissAsk() { _ask.value = null }
 
     private fun spokenQuestions(qs: List<AskQuestion>): String {
         fun opts(q: AskQuestion) = if (q.options.isEmpty()) "" else " Options: " + q.options.joinToString(", ") + "."
@@ -432,33 +431,33 @@ class VoiceController(context: Context, private val settings: SettingsStore) : H
     // --- Visual directory browser (New session) ---
     // Browsing is host-scoped: the listing is produced on `host` (its filesystem
     // starting at "/"), so the picker reflects the machine the session will run on.
-    fun browse(path: String, host: String = "", files: Boolean = false) =
-        client?.send(Outbound.browse(path, host, files))
+    override fun browse(path: String, host: String, files: Boolean) =
+        client?.send(Outbound.browse(path, host, files)).let {}
 
     // --- File transfer (message-box 📎 button) ---
     // upload writes a base64 file to <dir>/<name> on host; download reads a file and
     // returns its bytes as `file_data`. host "" = the local/loopback machine.
-    fun uploadFile(dir: String, name: String, contentB64: String, host: String = "") =
-        client?.send(Outbound.upload(dir, name, contentB64, host))
+    override fun uploadFile(dir: String, name: String, contentB64: String, host: String) =
+        client?.send(Outbound.upload(dir, name, contentB64, host)).let {}
 
-    fun downloadFile(path: String, host: String = "") = client?.send(Outbound.download(path, host))
+    override fun downloadFile(path: String, host: String) = client?.send(Outbound.download(path, host)).let {}
 
     /** The attached session's working dir + host, for the transfer picker's starting
      *  point — looked up from discovery by session_id. Null when nothing is attached
      *  or discovery hasn't surfaced it yet (caller falls back to the host root). */
-    fun attachedDirHost(): Pair<String, String>? {
+    override fun attachedDirHost(): Pair<String, String>? {
         val id = _attachedId.value
         if (id.isEmpty()) return null
         val d = _discovered.value.find { it.sessionId == id } ?: return null
         return d.dir to d.host
     }
 
-    fun spawnAt(path: String, target: String = "", host: String = "") {
+    override fun spawnAt(path: String, target: String, host: String) {
         client?.send(Outbound.spawnAt(path, target = target, host = host)) // the resulting `attached` switches the view
     }
 
     /** Create a new project folder `name` under `parent` and spawn a session in it. */
-    fun spawnNewFolder(parent: String, name: String, target: String = "", host: String = "") {
+    override fun spawnNewFolder(parent: String, name: String, target: String, host: String) {
         val clean = name.trim().trim('/')
         if (clean.isEmpty()) return
         client?.send(Outbound.spawnAt("$parent/$clean", create = true, target = target, host = host))
@@ -528,11 +527,11 @@ class VoiceController(context: Context, private val settings: SettingsStore) : H
 
     /** Change the resident whisper model (server-global; the server broadcasts the
      *  new value back to every client). */
-    fun setWhisperModel(model: String) = client?.send(Outbound.setWhisperModel(model))
+    override fun setWhisperModel(model: String) = client?.send(Outbound.setWhisperModel(model)).let {}
 
     /** Ask the server to restart. It exits so its supervisor relaunches it on
      *  current code; the app auto-reconnects once it's listening again. */
-    fun restartServer() = client?.send(Outbound.restart())
+    override fun restartServer() = client?.send(Outbound.restart()).let {}
 
     // --- Live level meter (Audio settings page) ---
     /** Start a standalone meter unless hands-free is already feeding the level. */
