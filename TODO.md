@@ -52,8 +52,12 @@ Milestones:
         rewritten without JVM `String.format`; `fmtStamp` is now `expect`/`actual` (Android
         `SimpleDateFormat`, web `Intl`/JS `Date` via `js()`). Both targets build. The `MainScreen`
         orchestrator (permissions, pickers, audio) stays in `androidMain` and calls the shared pieces.
-  - [ ] Chat screen shell (MainScreen/TopBar/InputBar), sidebar, remaining settings (server/appearance/
-        commands/audio), browse screen. Needs the controller interface widened + prefs abstraction.
+  - [x] 2026-07-08 — **Chat status chrome** (`DetachedBanner`, `SpeakingBar`, `ActivityIndicator`,
+        `AskDialog`, `DraftLine`, `VoiceStatePill`) lifted into `commonMain/ChatStatus.kt`; `VoiceState`
+        enum moved to shared `ChatModels.kt`. All pure Compose — no new seams. Both targets build.
+  - [ ] Chat screen shell (MainScreen/InputBar/TopBar — `TopBar` needs the `AudioOutput` type shared;
+        `CacheWarmBar` needs a monotonic-clock seam), sidebar, remaining settings (server/appearance/
+        commands/audio), browse screen. Needs the controller interface widened + a prefs abstraction.
   - [ ] `expect/actual` for prefs (SettingsStore), clipboard is already common, date formatting, status bar.
 - [ ] **M4 — Responsive layout.** `WindowSizeClass`: phone/narrow == app drawer; desktop/wide == persistent
       sidebar. Same composables, different container.

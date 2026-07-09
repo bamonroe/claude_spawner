@@ -32,9 +32,6 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-/** Hands-free pipeline state, surfaced as a status pill in the UI. */
-enum class VoiceState { OFF, LISTENING, CAPTURING, THINKING, SPEAKING }
-
 /** End-token calibration progress: how reliably the detection model hears the token. */
 data class CalibrationState(
     val active: Boolean = false,

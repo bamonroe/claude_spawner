@@ -5,6 +5,9 @@ import com.bam.spawner.net.TokenUsage
 /** Who a chat message is from — drives left/right alignment + colour in the UI. */
 enum class Role { USER, CLAUDE, SYSTEM }
 
+/** Hands-free pipeline state, surfaced as a status pill in the UI. */
+enum class VoiceState { OFF, LISTENING, CAPTURING, THINKING, SPEAKING }
+
 /** One line in the chat log. `index` ties a live row back to its server-history slot;
  *  `usage` carries the per-turn token badge; `ts` is unix seconds (0 for history). */
 data class ChatMessage(

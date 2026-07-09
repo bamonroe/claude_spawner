@@ -1,0 +1,174 @@
+package com.bam.spawner
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.bam.spawner.net.AskQuestion
+
+/** Shown when no session is attached: a safe "command mode" — utterances are
+ * commands (no "hey buddy" needed) and nothing reaches a Claude session. */
+@Composable
+fun DetachedBanner() {
+    Surface(color = Color(0xFF2E7D32), contentColor = Color.White, modifier = Modifier.fillMaxWidth()) {
+        Text(
+            "🔓 Detached — command mode. Speak commands directly (no \"hey buddy\" needed); " +
+                "nothing goes to a Claude session.",
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+}
+
+/** Shown while TTS is speaking: a full-width tap target that stops the readout. */
+@Composable
+fun SpeakingBar(onStop: () -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        shape = RoundedCornerShape(14.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 3.dp).clickable { onStop() },
+    ) {
+        Text(
+            "🔊 Speaking — tap to stop",
+            Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+        )
+    }
+}
+
+/** Live "Claude is thinking / editing foo.go" indicator, like a typing bubble. */
+@Composable
+fun ActivityIndicator(text: String, onAbort: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 3.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            shape = RoundedCornerShape(14.dp),
+        ) {
+            Text(
+                text, Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                style = MaterialTheme.typography.bodyMedium,
+                fontStyle = FontStyle.Italic,
+            )
+        }
+        TextButton(onClick = onAbort) { Text("⏹ stop", fontSize = 13.sp) }
+    }
+}
+
+/** Interactive-mode clarification questions: chips for multiple-choice, text
+ *  fields otherwise. Also read aloud, so you can just answer by voice (which
+ *  dismisses this). */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun AskDialog(questions: List<AskQuestion>, onSubmit: (String) -> Unit, onDismiss: () -> Unit) {
+    val answers = remember(questions) { mutableStateListOf<String>().apply { repeat(questions.size) { add("") } } }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Claude needs input") },
+        text = {
+            Column(
+                Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                questions.forEachIndexed { i, q ->
+                    Text(q.q, style = MaterialTheme.typography.bodyLarge)
+                    if (q.options.isEmpty()) {
+                        OutlinedTextField(answers[i], { answers[i] = it }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    } else {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            q.options.forEach { opt ->
+                                FilterChip(selected = answers[i] == opt, onClick = { answers[i] = opt }, label = { Text(opt) })
+                            }
+                        }
+                    }
+                }
+                Text("…or just answer out loud.", style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline)
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val text = questions.mapIndexed { i, q ->
+                        "Q: ${q.q}\nA: ${answers[i].ifBlank { "(no preference)" }}"
+                    }.joinToString("\n\n")
+                    onSubmit(text)
+                },
+                enabled = answers.any { it.isNotBlank() },
+            ) { Text("Send") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Dismiss") } },
+    )
+}
+
+/** The live hands-free draft — captured-but-uncommitted text, shown greyed above
+ *  the input bar so you can see what's buffered before you say the end token. */
+@Composable
+fun DraftLine(text: String) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
+    ) {
+        Text(
+            "✎ $text",
+            Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+            fontStyle = FontStyle.Italic,
+        )
+    }
+}
+
+/** Compact hands-free status pill: Listening / Capturing / Thinking / Speaking. */
+@Composable
+fun VoiceStatePill(state: VoiceState) {
+    val (label, dot) = when (state) {
+        VoiceState.OFF -> return
+        VoiceState.LISTENING -> "listening for \"hey buddy\"" to Color(0xFF4CAF50)
+        VoiceState.CAPTURING -> "listening to you…" to Color(0xFF2196F3)
+        VoiceState.THINKING -> "thinking…" to Color(0xFFFFB300)
+        VoiceState.SPEAKING -> "speaking… (talk to interrupt)" to Color(0xFF9C27B0)
+    }
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(8.dp).background(dot, CircleShape))
+        Text(
+            "  $label", style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
