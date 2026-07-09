@@ -100,10 +100,11 @@ Milestones:
               start/stop the meter; web empty) and `endTokenTest` (Android's calibration Test button +
               `CalibrationDialog`; web empty). `LevelMeterBar`/`CalibrationDialog` stay in `MainActivity`.
               **All (c) settings screens now shared.** Both build.
-        - `TopBar` + `AudioOutputButton`: share the `AudioOutput` type first (a small data class:
-          icon/label/id), keep the actual audio-routing (AudioRouter) Android-only behind the
-          controller. `CacheWarmBar` needs a monotonic-clock seam (`expect fun nowMonotonicMs()` or
-          switch `TurnUsageInfo` to `kotlin.time.TimeSource.Monotonic`).
+        - [x] 2026-07-09 — `TopBar` + `AudioOutputButton` + `CacheWarmBar` lifted into
+              `commonMain/TopBar.kt`. `AudioOutput` enum moved to `commonMain/audio/AudioOutput.kt`
+              (the `AudioRouter` hardware stays Android-only, same package). `CacheWarmBar` now uses
+              the shared `nowMonotonicMs()` clock seam and manual mm:ss formatting (no `String.format`).
+              TopBar takes the output as params, so no `AppController` change was needed. Both build.
         - `Sidebar` (sessions list, usage footer, `UsageEstimateLine`, `SessionLimitFooter`,
           `UsageSheet`, `UsageBar`) — mostly pure over shared types; move the small `fmtTokL`/`pctStr`
           helpers to common too (rewrite any `String.format`).

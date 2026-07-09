@@ -5,15 +5,6 @@ import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.os.Build
 
-/** A selectable audio output for the spoken (TTS) path. MUTE isn't a device — it
- *  suppresses TTS entirely (handled by the caller, not routed here). */
-enum class AudioOutput(val label: String, val icon: String) {
-    EARPIECE("Earpiece", "📞"),
-    SPEAKER("Speaker", "🔊"),
-    BLUETOOTH("Bluetooth", "🔵"),
-    MUTE("Mute", "🔇"),
-}
-
 /**
  * Routes the communication-audio stream to a chosen output. The TTS speaks with
  * USAGE_VOICE_COMMUNICATION (so the platform echo canceller can cancel it from the

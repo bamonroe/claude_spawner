@@ -5,7 +5,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.os.SystemClock
 import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -615,94 +614,6 @@ private fun UsageBar(label: String, pct: Int, reset: String) {
     }
 }
 
-
-@Composable
-private fun TopBar(
-    title: String,
-    subtitle: String,
-    contextTokens: Int?,
-    onMenu: () -> Unit,
-    onSettings: () -> Unit,
-    audioOutput: AudioOutput,
-    audioOutputs: List<AudioOutput>,
-    onSelectOutput: (AudioOutput) -> Unit,
-    onOutputMenuOpened: () -> Unit,
-) {
-    Surface(tonalElevation = 2.dp) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            TextButton(onClick = onMenu) { Text("☰", fontSize = 22.sp) }
-            Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("· $subtitle", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
-            }
-            // Current context size — the last turn's context tokens (input + cache).
-            if (contextTokens != null && contextTokens > 0) Text(
-                "🧠 ${fmtTok(contextTokens)}",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.outline,
-                modifier = Modifier.padding(horizontal = 6.dp),
-            )
-            AudioOutputButton(audioOutput, audioOutputs, onSelectOutput, onOutputMenuOpened)
-            TextButton(onClick = onSettings) { Text("⚙", fontSize = 20.sp) }
-        }
-    }
-}
-
-/** Top-bar button showing the current spoken-audio output; tap to pick another
- *  (Bluetooth appears only while a headset is connected). */
-@Composable
-private fun AudioOutputButton(
-    current: AudioOutput,
-    outputs: List<AudioOutput>,
-    onSelect: (AudioOutput) -> Unit,
-    onOpened: () -> Unit,
-) {
-    var open by remember { mutableStateOf(false) }
-    Box {
-        TextButton(onClick = { onOpened(); open = true }) { Text(current.icon, fontSize = 18.sp) }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            outputs.forEach { out ->
-                DropdownMenuItem(
-                    text = { Text("${out.icon}  ${out.label}${if (out == current) "  ✓" else ""}") },
-                    onClick = { onSelect(out); open = false },
-                )
-            }
-        }
-    }
-}
-
-
-
-// CacheWarmBar counts down the ~5-minute window in which the next turn reuses the
-// warm prompt cache (a cache_read hit) rather than rebuilding context. Driven off
-// the last turn's completion time; ticks once a second. See Appearance settings.
-@Composable
-private fun CacheWarmBar(info: TurnUsageInfo) {
-    val windowMs = 5 * 60 * 1000L
-    var now by remember { mutableStateOf(SystemClock.elapsedRealtime()) }
-    LaunchedEffect(info) {
-        while (true) {
-            now = SystemClock.elapsedRealtime()
-            kotlinx.coroutines.delay(1000)
-        }
-    }
-    val remaining = (windowMs - (now - info.atElapsedMs)).coerceAtLeast(0)
-    val warm = remaining > 0
-    val label = if (warm) {
-        "⚡ cache warm · %d:%02d left".format(remaining / 60000, (remaining % 60000) / 1000)
-    } else {
-        "❄ cache cold — next turn rebuilds context"
-    }
-    Text(
-        label,
-        color = if (warm) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-        style = MaterialTheme.typography.labelMedium,
-        modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
-    )
-}
 
 @Composable
 private fun InputBar(
