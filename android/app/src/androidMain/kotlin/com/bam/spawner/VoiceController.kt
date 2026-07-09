@@ -32,9 +32,6 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-/** Who a chat message is from — drives left/right alignment in the UI. */
-enum class Role { USER, CLAUDE, SYSTEM }
-
 /** Hands-free pipeline state, surfaced as a status pill in the UI. */
 enum class VoiceState { OFF, LISTENING, CAPTURING, THINKING, SPEAKING }
 
@@ -47,8 +44,6 @@ data class CalibrationState(
     val samples: List<String> = emptyList(), // what was heard each attempt
     val hits: Int = 0,
 )
-
-data class ChatMessage(val role: Role, val text: String, val index: Int = -1, val usage: TokenUsage? = null, val ts: Long = 0L)
 
 /** The most recent completed turn's token usage, stamped with when it finished
  *  (SystemClock.elapsedRealtime ms) so the UI can count down the ~5-min warm

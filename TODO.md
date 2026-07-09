@@ -47,7 +47,13 @@ Milestones:
         `collectAsStateWithLifecycle` → common `collectAsState`. Both targets build. These were the natural
         first pick — their `Host`/`Identity` types + `Outbound` builders were already shared in M2, and the
         server owns the registries so both clients edit the same data.
-  - [ ] Chat screen, sidebar, remaining settings (server/appearance/commands/audio), browse screen.
+  - [x] 2026-07-08 — **Chat message rendering** (`ChatList`, `Bubble`, `TokenBadge`) + `MarkdownText`
+        lifted into `commonMain`; `Role`/`ChatMessage` moved to a shared `ChatModels.kt`; `fmtTok`
+        rewritten without JVM `String.format`; `fmtStamp` is now `expect`/`actual` (Android
+        `SimpleDateFormat`, web `Intl`/JS `Date` via `js()`). Both targets build. The `MainScreen`
+        orchestrator (permissions, pickers, audio) stays in `androidMain` and calls the shared pieces.
+  - [ ] Chat screen shell (MainScreen/TopBar/InputBar), sidebar, remaining settings (server/appearance/
+        commands/audio), browse screen. Needs the controller interface widened + prefs abstraction.
   - [ ] `expect/actual` for prefs (SettingsStore), clipboard is already common, date formatting, status bar.
 - [ ] **M4 — Responsive layout.** `WindowSizeClass`: phone/narrow == app drawer; desktop/wide == persistent
       sidebar. Same composables, different container.
