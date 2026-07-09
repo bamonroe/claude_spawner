@@ -105,9 +105,13 @@ Milestones:
               (the `AudioRouter` hardware stays Android-only, same package). `CacheWarmBar` now uses
               the shared `nowMonotonicMs()` clock seam and manual mm:ss formatting (no `String.format`).
               TopBar takes the output as params, so no `AppController` change was needed. Both build.
-        - `Sidebar` (sessions list, usage footer, `UsageEstimateLine`, `SessionLimitFooter`,
-          `UsageSheet`, `UsageBar`) — mostly pure over shared types; move the small `fmtTokL`/`pctStr`
-          helpers to common too (rewrite any `String.format`).
+        - [x] 2026-07-09 — Usage UI (`UsageSheet`, `UsageBar`, `UsageEstimateLine`, `SessionLimitFooter`)
+              + helpers (`pctStr`, `fmtTokL` with `String.format` rewritten, `relativeTime`,
+              `relResetSuffix`) lifted into `commonMain/Usage.kt`; added `nowEpochSeconds()`/`fmtClock()`
+              seams so the rate-limit footer drops its `Context` dependency.
+        - [x] 2026-07-09 — `Sidebar` (sessions grouped by host, pull-to-refresh, detach, usage footer)
+              lifted into `commonMain/Sidebar.kt`; `LOCAL_HOST` const moved to common. Fully
+              parameterized over shared types; `PullToRefreshBox`/`LazyColumn` compile in common. Both build.
         - `InputBar` — the text field + send is pure; the 📎 transfer + mic button are platform
           (SAF pickers / audio) → gate behind controller callbacks + `expect` pickers, web-stub them.
         - `MainScreen` + `AppRoot` shell last, once its children are shared; the Activity keeps
