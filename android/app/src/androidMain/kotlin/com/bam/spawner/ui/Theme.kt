@@ -10,14 +10,6 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
-enum class ThemeMode { SYSTEM, LIGHT, DARK }
-
-fun parseThemeMode(s: String): ThemeMode = when (s.lowercase()) {
-    "light" -> ThemeMode.LIGHT
-    "dark" -> ThemeMode.DARK
-    else -> ThemeMode.SYSTEM
-}
-
 /** Material3 theme that follows the system, or is forced light/dark, per [mode]. */
 @Composable
 fun SpawnerTheme(mode: ThemeMode, content: @Composable () -> Unit) {

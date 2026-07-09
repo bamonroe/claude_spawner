@@ -80,10 +80,15 @@ Milestones:
         `: Prefs` (props `override`, dup alias logic dropped); client-cert file I/O stays Android-only.
         A web `localStorage`-backed `Prefs` comes with the web controller (step e / M5). Both build.
   - [ ] **(c) Then lift, screen by screen (each its own commit, both targets green):**
-        - Settings that are mostly prefs + server sends: `ServerSettings`, `AppearanceSettings`
-          (needs `ThemeMode` shared), `CommandsSettings` (uses shared `COMMANDS` already),
-          `AudioSettings` (mic-meter/calibration bits stay Android — split them out or stub on web).
-        - `SettingsHub` + `SettingsRow` (trivial, pure) — move alongside.
+        - [x] 2026-07-09 — `SettingsHub` + `SettingsRow` (pure), `AppearanceSettings` (theme/badge/
+              cache-warm), and the shared `ThemeChoice` pill lifted into `commonMain/SettingsScreens.kt`;
+              `AppearanceSettings` retyped against `Prefs`. `ThemeMode`/`parseThemeMode` moved to
+              `commonMain/ui/ThemeMode.kt` (Android `SpawnerTheme` keeps its status-bar side effect).
+              Both targets build.
+        - Still to lift: `ServerSettings` (SAF `.p12` picker → `expect` file-picker seam; rest is
+          prefs + `setWhisperModel`/`restartServer`/`connected`), `CommandsSettings` (uses shared
+          `COMMANDS` + `Prefs` alias helpers; lift `CommandAliasGroup` too), `AudioSettings`
+          (mic-meter/calibration bits stay Android — split them out or stub on web).
         - `TopBar` + `AudioOutputButton`: share the `AudioOutput` type first (a small data class:
           icon/label/id), keep the actual audio-routing (AudioRouter) Android-only behind the
           controller. `CacheWarmBar` needs a monotonic-clock seam (`expect fun nowMonotonicMs()` or

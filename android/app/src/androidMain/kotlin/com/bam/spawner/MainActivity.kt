@@ -1266,33 +1266,6 @@ private fun relativeTime(unixSeconds: Long): String {
 }
 
 
-@Composable
-private fun SettingsHub(onOpen: (String) -> Unit, onBack: () -> Unit) {
-    SettingsScaffold("Settings", onBack) {
-        SettingsRow("Server", "URL, token, connection") { onOpen("set_server") }
-        SettingsRow("Appearance", "Theme") { onOpen("set_appearance") }
-        SettingsRow("Commands", "Reference & aliases") { onOpen("set_commands") }
-        SettingsRow("Audio", "Mic meter, thresholds, transcription, end token") { onOpen("set_audio") }
-        SettingsRow("Hosts", "SSH targets sessions can run on") { onOpen("set_hosts") }
-        SettingsRow("Identities", "SSH keypairs hosts authenticate with") { onOpen("set_identities") }
-    }
-}
-
-@Composable
-private fun SettingsRow(title: String, subtitle: String, onClick: () -> Unit) {
-    Surface(
-        onClick = onClick,
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-        shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(Modifier.padding(14.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-        }
-    }
-}
-
 
 // The loopback host name. To the server, localhost is just another SSH host —
 // dialed over loopback SSH using the server's SSH defaults — not a special implicit
@@ -1423,40 +1396,6 @@ private fun ServerSettings(
             confirmButton = { TextButton(onClick = { restartConfirm = false; controller.restartServer() }) { Text("Restart") } },
             dismissButton = { TextButton(onClick = { restartConfirm = false }) { Text("Cancel") } },
         )
-    }
-}
-
-@Composable
-private fun AppearanceSettings(settings: SettingsStore, themeMode: ThemeMode, onThemeChange: (ThemeMode) -> Unit, onBack: () -> Unit) {
-    SettingsScaffold("Appearance", onBack) {
-        Text("Theme", style = MaterialTheme.typography.titleMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ThemeChoice("System", themeMode == ThemeMode.SYSTEM) { onThemeChange(ThemeMode.SYSTEM) }
-            ThemeChoice("Light", themeMode == ThemeMode.LIGHT) { onThemeChange(ThemeMode.LIGHT) }
-            ThemeChoice("Dark", themeMode == ThemeMode.DARK) { onThemeChange(ThemeMode.DARK) }
-        }
-
-        HorizontalDivider()
-        Text("Token badge", style = MaterialTheme.typography.titleMedium)
-        Text("Show each reply's token usage under its bubble. Detailed adds the warm-cache split.",
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-        var badge by remember { mutableStateOf(settings.tokenBadge) }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ThemeChoice("Off", badge == "off") { badge = "off"; settings.tokenBadge = "off" }
-            ThemeChoice("Compact", badge == "compact") { badge = "compact"; settings.tokenBadge = "compact" }
-            ThemeChoice("Detailed", badge == "detailed") { badge = "detailed"; settings.tokenBadge = "detailed" }
-        }
-
-        HorizontalDivider()
-        var warm by remember { mutableStateOf(settings.cacheWarmTimer) }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("Cache-warm timer", style = MaterialTheme.typography.titleMedium)
-                Text("Count down the ~5-min window where the next turn reuses a warm prompt cache.",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-            }
-            Switch(checked = warm, onCheckedChange = { warm = it; settings.cacheWarmTimer = it })
-        }
     }
 }
 
@@ -1868,11 +1807,3 @@ private fun BrowseScreen(controller: VoiceController, onStarted: () -> Unit, onB
     }
 }
 
-@Composable
-private fun ThemeChoice(label: String, selected: Boolean, onClick: () -> Unit) {
-    if (selected) {
-        Button(onClick = onClick) { Text(label) }
-    } else {
-        OutlinedButton(onClick = onClick) { Text(label) }
-    }
-}

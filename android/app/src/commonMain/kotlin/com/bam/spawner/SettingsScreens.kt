@@ -31,6 +31,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -44,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bam.spawner.net.Host
 import com.bam.spawner.net.Identity
+import com.bam.spawner.ui.ThemeMode
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -352,5 +354,79 @@ fun HostsSettings(controller: HostsIdentitiesController, onBack: () -> Unit) {
                 OutlinedButton(onClick = { clear(); showForm = false }) { Text("Cancel") }
             }
         }
+    }
+}
+
+/** The settings landing screen: a list of rows that open each sub-screen. */
+@Composable
+fun SettingsHub(onOpen: (String) -> Unit, onBack: () -> Unit) {
+    SettingsScaffold("Settings", onBack) {
+        SettingsRow("Server", "URL, token, connection") { onOpen("set_server") }
+        SettingsRow("Appearance", "Theme") { onOpen("set_appearance") }
+        SettingsRow("Commands", "Reference & aliases") { onOpen("set_commands") }
+        SettingsRow("Audio", "Mic meter, thresholds, transcription, end token") { onOpen("set_audio") }
+        SettingsRow("Hosts", "SSH targets sessions can run on") { onOpen("set_hosts") }
+        SettingsRow("Identities", "SSH keypairs hosts authenticate with") { onOpen("set_identities") }
+    }
+}
+
+/** One tappable card in [SettingsHub]. */
+@Composable
+fun SettingsRow(title: String, subtitle: String, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+        }
+    }
+}
+
+/** Appearance: theme mode, the per-reply token badge, and the cache-warm timer toggle. */
+@Composable
+fun AppearanceSettings(settings: Prefs, themeMode: ThemeMode, onThemeChange: (ThemeMode) -> Unit, onBack: () -> Unit) {
+    SettingsScaffold("Appearance", onBack) {
+        Text("Theme", style = MaterialTheme.typography.titleMedium)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ThemeChoice("System", themeMode == ThemeMode.SYSTEM) { onThemeChange(ThemeMode.SYSTEM) }
+            ThemeChoice("Light", themeMode == ThemeMode.LIGHT) { onThemeChange(ThemeMode.LIGHT) }
+            ThemeChoice("Dark", themeMode == ThemeMode.DARK) { onThemeChange(ThemeMode.DARK) }
+        }
+
+        HorizontalDivider()
+        Text("Token badge", style = MaterialTheme.typography.titleMedium)
+        Text("Show each reply's token usage under its bubble. Detailed adds the warm-cache split.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+        var badge by remember { mutableStateOf(settings.tokenBadge) }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ThemeChoice("Off", badge == "off") { badge = "off"; settings.tokenBadge = "off" }
+            ThemeChoice("Compact", badge == "compact") { badge = "compact"; settings.tokenBadge = "compact" }
+            ThemeChoice("Detailed", badge == "detailed") { badge = "detailed"; settings.tokenBadge = "detailed" }
+        }
+
+        HorizontalDivider()
+        var warm by remember { mutableStateOf(settings.cacheWarmTimer) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Cache-warm timer", style = MaterialTheme.typography.titleMedium)
+                Text("Count down the ~5-min window where the next turn reuses a warm prompt cache.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            }
+            Switch(checked = warm, onCheckedChange = { warm = it; settings.cacheWarmTimer = it })
+        }
+    }
+}
+
+/** A pill button used for exclusive single-choice rows (theme, badge, whisper model). */
+@Composable
+fun ThemeChoice(label: String, selected: Boolean, onClick: () -> Unit) {
+    if (selected) {
+        Button(onClick = onClick) { Text(label) }
+    } else {
+        OutlinedButton(onClick = onClick) { Text(label) }
     }
 }
