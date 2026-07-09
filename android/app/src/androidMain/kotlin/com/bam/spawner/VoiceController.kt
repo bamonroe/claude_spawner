@@ -1,7 +1,6 @@
 package com.bam.spawner
 
 import android.content.Context
-import android.os.SystemClock
 import com.bam.spawner.net.TokenUsage
 import com.bam.spawner.net.RateLimitInfo
 import com.bam.spawner.net.UsageReport
@@ -782,7 +781,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                         attachUsageToLastClaude(msg.usage)
                     }
                     turnStreamed = false
-                    msg.usage?.let { _lastTurnUsage.value = TurnUsageInfo(it, SystemClock.elapsedRealtime()) }
+                    msg.usage?.let { _lastTurnUsage.value = TurnUsageInfo(it, nowMonotonicMs()) }
                     if (!appForeground) notifier.turnDone(msg.name, msg.text) // surface it from the pocket
                 }
             }
@@ -838,7 +837,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                 // (fresh session) leaves the meter blank.
                 _lastTurnUsage.value = msg.usage?.let { u ->
                     val ageMs = if (msg.usageAt > 0) System.currentTimeMillis() - msg.usageAt * 1000 else Long.MAX_VALUE
-                    TurnUsageInfo(u, SystemClock.elapsedRealtime() - ageMs.coerceIn(0, 6 * 60 * 1000L))
+                    TurnUsageInfo(u, nowMonotonicMs() - ageMs.coerceIn(0, 6 * 60 * 1000L))
                 }
                 _attachedId.value = msg.sessionId
                 _attachedName.value = msg.name
