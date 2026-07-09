@@ -64,6 +64,30 @@ func TestSandboxExecArgs(t *testing.T) {
 	}
 }
 
+// The SSH-native sandbox runs `podman exec claude` on the host: every token must be
+// single-quoted so a prompt with spaces/quotes reaches the remote shell verbatim, and
+// the line is prefixed with exec so podman inherits the cancelable wrapper's pgid.
+func TestSandboxSSHInnerCommandQuoted(t *testing.T) {
+	s := SandboxExecutor{Runtime: "podman", Image: "img"}
+	args := s.execArgs("spawner-abc123", "/work/proj", []string{"-p", "fix the 'bug' now", "--output-format", "stream-json"})
+	inner := "exec " + shellJoinCmd(s.Runtime, args)
+	want := `exec 'podman' 'exec' '-i' '-w' '/work/proj' 'spawner-abc123' 'claude' '-p' 'fix the '\''bug'\'' now' '--output-format' 'stream-json'`
+	if inner != want {
+		t.Errorf("inner =\n %q\nwant\n %q", inner, want)
+	}
+}
+
+// A sandbox executor with no explicit Host runs the runtime on the local box; an
+// explicit Host is honored.
+func TestSandboxHostDefault(t *testing.T) {
+	if got := (SandboxExecutor{}).host(); got != LocalHost {
+		t.Errorf("default host = %q, want %q", got, LocalHost)
+	}
+	if got := (SandboxExecutor{Host: "work"}).host(); got != "work" {
+		t.Errorf("host = %q, want work", got)
+	}
+}
+
 // fakeReaper is a sandbox executor that lists a fixed container set and records
 // removals, for testing orphan reconciliation.
 type fakeReaper struct {

@@ -77,7 +77,7 @@ func main() {
 		log.Printf("SSH-native execution enabled: host turns run over SSH (loopback for local sessions)")
 	}
 	if cfg.SandboxImage != "" {
-		driver.Execs[session.TargetSandbox] = session.SandboxExecutor{
+		sandbox := session.SandboxExecutor{
 			Runtime:   cfg.SandboxRuntime,
 			Image:     cfg.SandboxImage,
 			Bin:       cfg.SandboxClaudeBin,
@@ -85,6 +85,17 @@ func main() {
 			RunArgs:   cfg.SandboxRunArgs,
 			HomeMount: os.Getenv("HOME"),
 		}
+		if sshConns != nil {
+			// SSH-native: a containerized server has no runtime of its own, so it drives
+			// rootless podman on the host over the same pool it runs host turns on. All
+			// sandbox mount/dir paths are host paths (as they already are). HomeMount
+			// stays the container's own $HOME — set it to match the host user's home in
+			// this deployment (or configure host mounts via SPAWNER_SANDBOX_MOUNTS).
+			sandbox.Pool = sshConns
+			sandbox.Host = session.LocalHost
+			log.Printf("sandbox turns run over SSH on %s", session.LocalHost)
+		}
+		driver.Execs[session.TargetSandbox] = sandbox
 		log.Printf("sandbox target enabled: %s image %q", cfg.SandboxRuntime, cfg.SandboxImage)
 	}
 	if driver.SandboxEnabled() {

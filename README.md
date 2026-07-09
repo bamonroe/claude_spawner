@@ -157,7 +157,11 @@ Each session picks an **execution target** at spawn time, a durable per-session 
   the server's whole `$HOME` is bind-mounted **read-write at the same path** by default so your
   dotfiles, `~/.claude`, and checkouts are available and writable in the container just like on the
   host. Tune with the other `SPAWNER_SANDBOX_*` vars. A ready-to-build Arch image and the rootless-Podman
-  config live in [`sandbox/`](./sandbox/README.md).
+  config live in [`sandbox/`](./sandbox/README.md). On a **containerized, SSH-native server**
+  (`SPAWNER_SSH=1`) the sandbox works too: the container has no runtime of its own, so it drives
+  rootless Podman **on the host over SSH** (the same connection host turns use) — set the
+  `SPAWNER_SANDBOX_*` vars in the container env as host paths, keep `HOME` pointed at the host user's
+  home, and sandbox sessions run there just as they do bare-metal.
 
 ### The live deployment: a bare-metal server under systemd
 

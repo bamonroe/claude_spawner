@@ -193,6 +193,20 @@ At startup `Driver.ReconcileContainers` sweeps **orphans** — managed container
 down — so they don't accumulate; live sessions' containers are left for `Ensure`-before-turn. The
 server drives the runtime (create/exec/remove/list) directly as the user.
 
+**Sandbox on a containerized (SSH-native) server.** A containerized server has no container
+runtime of its own, so when `SPAWNER_SSH=1` the `SandboxExecutor` is wired with the same
+`SSHPool` and drives **rootless podman on the host over SSH** — every `run`/`exec`/`inspect`/`rm`
+runs on `localhost` (the co-located host, over loopback SSH), exactly the way host turns already
+do. The exec turn streams over SSH via the shared `SSHPool.Stream`/`streamRemote` helper (the same
+cancelable, process-group-killed path as a host turn); lifecycle control goes over `SSHPool.Run`.
+Every mount/dir path is a **host** path (session `Dir` and `SPAWNER_SANDBOX_MOUNTS` already are,
+since sessions are created against the host filesystem), and `HomeMount` stays the container's own
+`$HOME` — which the deployment sets to the host user's home (the compose file mounts `$HOME:$HOME`).
+With `SPAWNER_SSH` unset the executor keeps running the runtime as **local** child processes
+(bare-metal). This is what lets the `sandbox` target — e.g. a `target: sandbox` session with no
+`Session.Host` — run on the containerized server, which otherwise fell back to the host executor and
+failed with "no host set".
+
 ### Net security posture
 
 No component holds host root: the server is a plain user process and sandboxes use a rootless

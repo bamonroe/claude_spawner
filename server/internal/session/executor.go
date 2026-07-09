@@ -107,6 +107,13 @@ func (h HostExecutor) Start(ctx context.Context, s *Session, args []string) (Pro
 // file edits land there AND claude's on-disk transcript is keyed by the same
 // absolute path the host uses (keeping history/discovery working when the host
 // ~/.claude state is shared via Mounts).
+//
+// SSH-native mode: when Pool is non-nil the runtime CLI (create/exec/rm/inspect) is
+// not run locally but over SSH on Host — so a containerized, SSH-native server, which
+// has no container runtime of its own, drives rootless podman on the host exactly the
+// way it already runs host turns there. All mount/dir paths are then HOST paths (the
+// session Dir and Mounts already are, since sessions are created against the host
+// filesystem). With Pool nil it runs the runtime as local child processes (bare-metal).
 type SandboxExecutor struct {
 	// Runtime is the container CLI (e.g. "podman" for rootless, or "docker").
 	Runtime string
@@ -134,6 +141,34 @@ type SandboxExecutor struct {
 	// to a unique prefix can never sweep another server's (or a real session's)
 	// live containers. Production leaves this empty.
 	Prefix string
+	// Pool, when non-nil, routes every runtime command over SSH to Host instead of
+	// running it as a local child process — the SSH-native path (see the type doc).
+	Pool *SSHPool
+	// Host is the registered host the runtime runs on when Pool is set (default
+	// LocalHost — the machine the container is co-located with, reached over loopback
+	// SSH). Ignored in local mode.
+	Host string
+}
+
+// host is the SSH host the runtime runs on in SSH-native mode, defaulting to the
+// local box.
+func (s SandboxExecutor) host() string {
+	if s.Host != "" {
+		return s.Host
+	}
+	return LocalHost
+}
+
+// ctl runs a short runtime control command (create/inspect/rm/ps) to completion and
+// returns its combined output. Local mode execs the runtime directly; SSH-native
+// mode runs it on the host over the pool, folding stderr into stdout (2>&1) to match
+// the local CombinedOutput so error messages survive.
+func (s SandboxExecutor) ctl(ctx context.Context, args []string) (string, error) {
+	if s.Pool != nil {
+		out, err := s.Pool.Run(ctx, s.host(), shellJoinCmd(s.Runtime, args)+" 2>&1")
+		return string(out), err
+	}
+	return runCLI(ctx, s.Runtime, args)
 }
 
 // prefix returns the container-name namespace this executor lists and reaps.
@@ -161,9 +196,16 @@ func (s SandboxExecutor) Start(ctx context.Context, sess *Session, claudeArgs []
 	if err := s.Ensure(ctx, sess.Container, sess.Dir); err != nil {
 		return nil, err
 	}
+	args := s.execArgs(sess.Container, sess.Dir, claudeArgs)
+	if s.Pool != nil {
+		// SSH-native: run the exec on the host. `exec` so podman inherits the remote
+		// wrapper's process group and a cancel kills the exec client (which signals the
+		// in-container process), matching the local group-kill semantics.
+		return s.Pool.Stream(ctx, s.host(), "exec "+shellJoinCmd(s.Runtime, args))
+	}
 	// `exec` is itself a local child process; killing its group on abort stops the
 	// exec client (and the runtime signals the in-container process).
-	return startProc(ctx, s.Runtime, s.execArgs(sess.Container, sess.Dir, claudeArgs), "", "start sandbox turn")
+	return startProc(ctx, s.Runtime, args, "", "start sandbox turn")
 }
 
 // Ensure creates and starts the session's long-lived container if it isn't
@@ -174,7 +216,7 @@ func (s SandboxExecutor) Ensure(ctx context.Context, name, dir string) error {
 		return nil
 	}
 	_ = s.Remove(ctx, name) // clear a stopped leftover so the name is free
-	if out, err := runCLI(ctx, s.Runtime, s.createArgs(name, dir)); err != nil {
+	if out, err := s.ctl(ctx, s.createArgs(name, dir)); err != nil {
 		return fmt.Errorf("create sandbox %s: %w: %s", name, err, strings.TrimSpace(out))
 	}
 	return nil
@@ -183,7 +225,7 @@ func (s SandboxExecutor) Ensure(ctx context.Context, name, dir string) error {
 // Remove force-deletes the session's container. A missing container is not an
 // error (delete is idempotent).
 func (s SandboxExecutor) Remove(ctx context.Context, name string) error {
-	if _, err := runCLI(ctx, s.Runtime, []string{"rm", "-f", name}); err != nil {
+	if _, err := s.ctl(ctx, []string{"rm", "-f", name}); err != nil {
 		return err
 	}
 	return nil
@@ -192,7 +234,7 @@ func (s SandboxExecutor) Remove(ctx context.Context, name string) error {
 // List returns the names of all sandbox containers this server manages (running
 // or stopped), matched by the shared name prefix.
 func (s SandboxExecutor) List(ctx context.Context) ([]string, error) {
-	out, err := runCLI(ctx, s.Runtime, []string{"ps", "-a", "--filter", "name=" + s.prefix(), "--format", "{{.Names}}"})
+	out, err := s.ctl(ctx, []string{"ps", "-a", "--filter", "name=" + s.prefix(), "--format", "{{.Names}}"})
 	if err != nil {
 		return nil, fmt.Errorf("list sandboxes: %w: %s", err, strings.TrimSpace(out))
 	}
@@ -207,7 +249,7 @@ func (s SandboxExecutor) List(ctx context.Context) ([]string, error) {
 
 // running reports whether the named container exists and is currently running.
 func (s SandboxExecutor) running(ctx context.Context, name string) bool {
-	out, err := runCLI(ctx, s.Runtime, []string{"inspect", "-f", "{{.State.Running}}", name})
+	out, err := s.ctl(ctx, []string{"inspect", "-f", "{{.State.Running}}", name})
 	return err == nil && strings.TrimSpace(out) == "true"
 }
 

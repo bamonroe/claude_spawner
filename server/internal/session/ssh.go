@@ -396,6 +396,15 @@ func (e SSHExecutor) Start(ctx context.Context, s *Session, args []string) (Proc
 // session's directory, and wires ctx-cancel to stop it. The returned Proc streams
 // the remote stdout and Waits on the remote exit.
 func (e SSHExecutor) run(ctx context.Context, client *ssh.Client, dir, bin string, args []string) (Proc, error) {
+	return streamRemote(ctx, client, remoteCommand(dir, bin, args))
+}
+
+// streamRemote launches `inner` (a POSIX-sh command) on client, wrapped so an abort
+// can kill the whole remote process tree, and returns a Proc streaming its stdout —
+// the reusable core shared by SSHExecutor.run (remote claude) and the SSH-native
+// SandboxExecutor (remote `podman exec claude`). inner must exec its final process
+// so it inherits the wrapper's process group (see cancelableCommand).
+func streamRemote(ctx context.Context, client *ssh.Client, inner string) (Proc, error) {
 	sess, err := client.NewSession()
 	if err != nil {
 		return nil, err
@@ -413,9 +422,9 @@ func (e SSHExecutor) run(ctx context.Context, client *ssh.Client, dir, bin strin
 		_ = sess.Close()
 		return nil, err
 	}
-	if err := sess.Start(cancelableCommand(remoteCommand(dir, bin, args))); err != nil {
+	if err := sess.Start(cancelableCommand(inner)); err != nil {
 		_ = sess.Close()
-		return nil, fmt.Errorf("start remote claude: %w", err)
+		return nil, fmt.Errorf("start remote command: %w", err)
 	}
 	var pmu sync.Mutex
 	pgid := 0
@@ -505,6 +514,20 @@ func remoteCommand(dir, bin string, args []string) string {
 	b.WriteString(shellQuote(dir))
 	b.WriteString(" && exec ")
 	b.WriteString(shellQuote(bin))
+	for _, a := range args {
+		b.WriteByte(' ')
+		b.WriteString(shellQuote(a))
+	}
+	return b.String()
+}
+
+// shellJoinCmd renders name+args as one POSIX-sh command line, single-quoting each
+// token so runtime flags, Go-template format strings, and a prompt full of spaces or
+// quotes reach the remote shell verbatim — used to run the container runtime (podman)
+// on the host over SSH.
+func shellJoinCmd(name string, args []string) string {
+	var b strings.Builder
+	b.WriteString(shellQuote(name))
 	for _, a := range args {
 		b.WriteByte(' ')
 		b.WriteString(shellQuote(a))
@@ -666,6 +689,27 @@ func (p *SSHPool) Run(ctx context.Context, host, cmd string) ([]byte, error) {
 		out, err = runRemote(ctx, client, cmd)
 	}
 	return out, err
+}
+
+// Stream launches inner on host over the pooled connection and returns a Proc
+// streaming its stdout — the streaming analogue of Run, used by the SSH-native
+// SandboxExecutor to run a turn's `podman exec claude` on the host. Re-dials once if
+// the cached connection has gone stale, mirroring SSHExecutor.Start.
+func (p *SSHPool) Stream(ctx context.Context, host, inner string) (Proc, error) {
+	client, err := p.client(host)
+	if err != nil {
+		return nil, err
+	}
+	proc, err := streamRemote(ctx, client, inner)
+	if err != nil {
+		p.drop(host, client)
+		client, derr := p.client(host)
+		if derr != nil {
+			return nil, err
+		}
+		proc, err = streamRemote(ctx, client, inner)
+	}
+	return proc, err
 }
 
 // runRemote opens one session channel, runs cmd, and returns its stdout. ctx-cancel

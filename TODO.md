@@ -575,6 +575,16 @@ _Robustness / ops (smaller, safe when we get to them):_
 
 ## Done
 
+- [x] 2026-07-09 — **Sandbox sessions on the containerized (SSH-native) server.** A `target: sandbox`
+      session (e.g. `email`) failed with `has no host set` on the containerized server: it has no
+      container runtime, so the sandbox target wasn't registered and the turn fell back to the SSH
+      host executor, which rejects a hostless session. Fix: made `SandboxExecutor` SSH-aware — with a
+      `Pool`/`Host` set it drives rootless podman **on the host over SSH** (lifecycle via
+      `SSHPool.Run`, the exec turn via the new shared `SSHPool.Stream`/`streamRemote` streaming
+      helper, `shellJoinCmd` quoting), keeping local child-process exec when `Pool` is nil. Wired in
+      `main.go` (SSH on + sandbox image → pool + `localhost`); enabled `SPAWNER_SANDBOX_*` in
+      `deploy/spawner-container.env(.example)`. Tests: `TestSandboxSSHInnerCommandQuoted`,
+      `TestSandboxHostDefault`. Takes effect on the next container rebuild (`compose up -d --build`).
 - [x] 2026-07-06 — **Start a new project in a non-existing folder from the sidebar picker.** The
       New-session browser could only spawn in folders that already exist. Added a "New project
       folder here…" action (below "Start session here") that prompts for a name, creates the folder
