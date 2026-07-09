@@ -4,7 +4,16 @@ import kotlinx.browser.localStorage
 import org.w3c.dom.get
 import org.w3c.dom.set
 
-private fun randomUuid(): String = js("crypto.randomUUID()")
+// `crypto.randomUUID()` exists only in a *secure context* (https or localhost). Served
+// over plain http from a real host (e.g. a Tailscale name like claude.bam), the origin is
+// insecure and `crypto.randomUUID` is undefined — calling it threw and broke the connect
+// path, leaving the client stuck "disconnected". The client id is not security-sensitive
+// (just a stable per-browser handle, persisted in localStorage), so fall back to a random
+// string when the secure API is absent.
+private fun randomUuid(): String = js(
+    "(self.crypto && crypto.randomUUID) ? crypto.randomUUID() : " +
+    "('c-' + Date.now().toString(36) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2))"
+)
 
 // When the bundle is served by the spawner Go server itself, the gateway lives at
 // "/ws" on the same origin — so default to that (wss when the page is https). The
