@@ -7,6 +7,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -30,6 +31,7 @@ fun WebRoot() {
     val controller = remember { WebAppController(prefs) }
     var themeMode by remember { mutableStateOf(parseThemeMode(prefs.themeMode)) }
     var screen by remember { mutableStateOf("main") }
+    val connected by controller.connected.collectAsState()
 
     // Connect once on load using the saved server URL + token (edit them under Settings → Server).
     LaunchedEffect(Unit) { controller.connect(prefs.url, prefs.token) }
@@ -81,6 +83,10 @@ fun WebRoot() {
                     onStopSpeaking = {},
                     onOpenSettings = { screen = "settings" },
                     onNewSession = {}, // browser spawn UI is future work (M5+)
+                    // 📎 upload/download to the session's host, over the same socket.
+                    transferButton = { onUploaded ->
+                        WebTransferButton(controller, enabled = connected, onUploaded = onUploaded)
+                    },
                 )
             }
         }

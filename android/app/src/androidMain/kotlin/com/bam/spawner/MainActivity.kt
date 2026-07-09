@@ -299,11 +299,8 @@ private fun AppRoot(
     }
 }
 
-/** The starting point for a transfer picker: the attached session's directory and
- *  host, or the host root when nothing is attached / discovery hasn't surfaced it. */
-private data class DirHost(val dir: String, val host: String)
-
-/** A file the user picked to upload, held while they choose a destination directory. */
+/** A file the user picked to upload, held while they choose a destination directory.
+ *  [DirHost] is shared with the web transfer button (see commonMain/TransferPicker.kt). */
 private data class PendingUpload(val name: String, val content: String, val start: DirHost)
 
 /** The 📎 button left of the message box: a menu to upload a phone file onto the
@@ -407,67 +404,6 @@ private fun TransferButton(
             onDismiss = { downloadStart = null },
         )
     }
-}
-
-/** A host-scoped filesystem picker for file transfer, reusing the `browse`/`listing`
- *  protocol. In directory mode (pickFiles = false) folders are navigable and a
- *  confirm button selects the current directory; in file mode (pickFiles = true) the
- *  listing also shows regular files and tapping one selects it. [onPick] receives the
- *  chosen absolute path. The displayed entries and the confirmed directory are kept in
- *  lockstep by only rendering the listing once it matches the directory we asked for. */
-@Composable
-private fun TransferPickerDialog(
-    controller: VoiceController,
-    host: String,
-    startDir: String,
-    pickFiles: Boolean,
-    title: String,
-    onPick: (String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var dir by remember { mutableStateOf(startDir) }
-    val listing by controller.listing.collectAsStateWithLifecycle()
-    LaunchedEffect(Unit) { controller.browse(startDir, host, pickFiles) }
-    // Only trust the listing when it's the answer to our current directory — otherwise
-    // a stale listing (from the New-session browser, or a slower nav) would mislabel
-    // the confirm target.
-    val current = listing?.takeIf { it.path == dir }
-    fun go(target: String) { dir = target; controller.browse(target, host, pickFiles) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            Column {
-                Text(dir, style = MaterialTheme.typography.labelSmall, maxLines = 1)
-                LazyColumn(Modifier.heightIn(max = 360.dp)) {
-                    if (dir != "/") item {
-                        Text(
-                            "📁 ..",
-                            Modifier.fillMaxWidth()
-                                .clickable { go(current?.parent?.ifEmpty { "/" } ?: "/") }
-                                .padding(vertical = 12.dp),
-                        )
-                    }
-                    items(current?.entries ?: emptyList()) { e ->
-                        Text(
-                            (if (e.dir) "📁 " else "📄 ") + e.name,
-                            Modifier.fillMaxWidth()
-                                .clickable { if (e.dir) go(e.path) else if (pickFiles) onPick(e.path) }
-                                .padding(vertical = 12.dp),
-                        )
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            if (!pickFiles) TextButton(onClick = { onPick(dir) }) { Text("Upload here") }
-            else TextButton(onClick = onDismiss) { Text("Close") }
-        },
-        dismissButton = {
-            if (!pickFiles) TextButton(onClick = onDismiss) { Text("Cancel") }
-        },
-    )
 }
 
 /** The drawer's session list: EVERY Claude session on the machine (discovery),
