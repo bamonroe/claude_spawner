@@ -2,6 +2,7 @@ package com.bam.spawner
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -23,6 +25,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -40,6 +44,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
@@ -80,12 +90,30 @@ fun InputBar(
     // While hands-free owns the mic, push-to-talk is disabled.
     val pushToTalkEnabled = !handsFree
     val micLive = connected && pushToTalkEnabled
+    // On the browser/desktop client a physical Enter sends (Shift+Enter = newline) —
+    // the on-screen mobile clients keep Enter as newline and rely on the send button.
+    val enterSends = platformName() == "Web"
     Column(Modifier.fillMaxWidth()) {
       AnimatedVisibility(visible = trayOpen) {
         CommandTray(
             connected = connected,
             onCommand = { phrase -> onSend(phrase); onTrayOpenChange(false) },
         )
+      }
+      // A visible handle for the swipe-up command tray: makes the gesture discoverable
+      // for mouse/desktop users (who can't obviously "swipe up"), and a plain toggle on
+      // touch too. The chevron flips to point the way the tray will move.
+      Box(
+          Modifier.fillMaxWidth().height(18.dp)
+              .clickable { onTrayOpenChange(!trayOpen) },
+          contentAlignment = Alignment.Center,
+      ) {
+          Icon(
+              if (trayOpen) Icons.Filled.KeyboardArrowDown else Icons.Filled.KeyboardArrowUp,
+              contentDescription = if (trayOpen) "Hide commands" else "Show commands",
+              modifier = Modifier.size(18.dp),
+              tint = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
       }
       Row(
         Modifier.fillMaxWidth().padding(8.dp),
@@ -106,6 +134,18 @@ fun InputBar(
             // the tray is already open). onFocusChanged covers a first-tap focus; this
             // covers a tap when the swipe-to-open already left the box focused.
             modifier = Modifier.weight(1f)
+                // Desktop/web: Enter sends, Shift+Enter inserts a newline. Consumed so
+                // the newline isn't also typed. No-op on mobile (enterSends is false).
+                .onPreviewKeyEvent { e ->
+                    if (enterSends && e.type == KeyEventType.KeyDown &&
+                        e.key == Key.Enter && !e.isShiftPressed
+                    ) {
+                        if (connected && draft.isNotBlank()) { onSend(draft); draft = "" }
+                        true
+                    } else {
+                        false
+                    }
+                }
                 .onFocusChanged { if (it.isFocused) onTrayOpenChange(false) }
                 .pointerInput(trayOpen) {
                     if (trayOpen) awaitEachGesture {
