@@ -72,10 +72,13 @@ Milestones:
         `spawnNewFolder`, `browse`/`upload`/`download`, usage + server controls). `TurnUsageInfo` moved to
         `commonMain`. `VoiceController` now `: AppController` with members marked `override`; audio/mic/TTS/
         connect/lifecycle stay off the interface (driven by the concrete class). Both targets build.
-  - [ ] **(b) Prefs abstraction.** `SettingsStore` is `SharedPreferences` + `context.filesDir` (client
-        cert). Extract a `commonMain` interface (e.g. `Prefs`) with typed get/set for the keys the
-        shared settings screens need; Android `actual` wraps SharedPreferences, web `actual` wraps
-        `localStorage`. Leave the client-cert file I/O in the Android impl only.
+  - [x] 2026-07-09 — **(b) Prefs abstraction.** New `commonMain/Prefs.kt` interface with typed
+        get/set for every shared key (url/token/clientId, theme/badge/cache-warm, hands-free/audio/
+        brief/interactive/end-token, STT/whisper, VAD, command-aliases). Alias parsing (`aliasMap`/
+        `addAlias`/`removeAlias`) is shared as interface default methods; the `DEFAULT_*` constants
+        moved to `Prefs.companion` so both clients use identical defaults. `SettingsStore` now
+        `: Prefs` (props `override`, dup alias logic dropped); client-cert file I/O stays Android-only.
+        A web `localStorage`-backed `Prefs` comes with the web controller (step e / M5). Both build.
   - [ ] **(c) Then lift, screen by screen (each its own commit, both targets green):**
         - Settings that are mostly prefs + server sends: `ServerSettings`, `AppearanceSettings`
           (needs `ThemeMode` shared), `CommandsSettings` (uses shared `COMMANDS` already),
