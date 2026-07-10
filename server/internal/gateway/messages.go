@@ -24,8 +24,8 @@ type inbound struct {
 	Content               string            `json:"content"`                 // on upload: the file's bytes, base64-encoded
 	Target                string            `json:"target"`                  // on spawn_at: "host" (default) | "sandbox" execution target
 	Create                bool              `json:"create"`                  // on spawn_at: mkdir the path (on the target host) first if it doesn't exist
-	Agent                 string            `json:"agent"`                   // on spawn_at: AI backend id ("codex"); "" = default backend
-	Model                 string            `json:"model"`                   // on spawn_at: model alias for the new session; "" = the backend's default
+	Agent                 string            `json:"agent"`                   // on spawn_at/set_agent: AI backend id ("codex"); "" = default backend
+	Model                 string            `json:"model"`                   // on spawn_at/set_agent: model alias for the session; "" = the backend's default
 	Codec                 string            `json:"codec"`                   // audio codec on wake: "ogg_opus" | "pcm16"
 	ClientID              string            `json:"client_id"`               // stable per-app id, for reconnect/resume
 	HandsFree             bool              `json:"hands_free"`              // set on `wake` when the clip is VAD-gated (hands-free)

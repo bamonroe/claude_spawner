@@ -265,6 +265,76 @@ func (c *conn) doRenameDiscovered(sessionID, dir, newName string) {
 	c.doDiscover()
 }
 
+// doSetAgent switches a session's AI backend (and model) durably. It mirrors
+// doRenameDiscovered: it locates the session by session_id (registering a still-
+// discovered one by dir first), then stamps the resolved backend + a model valid
+// for it (an explicit alias that isn't in the new backend's catalogue falls back to
+// its default). Changing the backend rotates to a fresh session_id and un-Starts
+// the session: Claude and Codex transcripts use incompatible on-disk formats, so a
+// switch begins a clean conversation on the new AI rather than trying to resume
+// history it can't parse (the old transcript stays on disk, just off this chain).
+func (c *conn) doSetAgent(sessionID, dir, agentID, modelAlias string) {
+	rec := c.srv.store.GetBySessionID(sessionID)
+	if rec == nil {
+		if dir == "" {
+			c.fail("bad_agent", "need session_id or dir")
+			return
+		}
+		var err error
+		if rec, err = c.srv.registerDiscovered(sessionID, dir); err != nil {
+			c.fail("internal", err.Error())
+			return
+		}
+	}
+	attachedHere := c.attached != nil && c.attached.SessionID == rec.SessionID
+	ag := c.srv.driver.Registry().Resolve(agentID)
+	model := ag.DefaultModel
+	if modelAlias != "" {
+		if m, ok := ag.Model(modelAlias); ok {
+			model = m.Alias
+		}
+	}
+	// Compare resolved ids so an empty/omitted agent (== the default backend) is a
+	// no-op against a session already on that backend and doesn't force a rotation.
+	curID := c.srv.driver.Registry().Resolve(rec.Agent).ID
+	var oldID string
+	if curID != ag.ID {
+		if c.srv.isBusy(rec.SessionID) {
+			c.fail("busy", "still working — switch the agent when the turn finishes")
+			return
+		}
+		newID, err := session.NewSessionID()
+		if err != nil {
+			c.fail("internal", err.Error())
+			return
+		}
+		oldID = rec.SessionID
+		rec.SessionID = newID
+		rec.Started = false
+		rec.AskPrimed = false
+		rec.PriorIDs = nil // don't chain the old backend's transcripts into the new one
+		rec.PendingSeed = ""
+	}
+	rec.Agent = ag.ID
+	rec.Model = model
+	if err := c.srv.store.Put(rec); err != nil {
+		c.fail("internal", err.Error())
+		return
+	}
+	if oldID != "" {
+		// The session_id rotated: move the hub + id index onto the new id so an
+		// attached device still receives the next turn, and forget the old id.
+		c.srv.rekeyJob(oldID, rec.SessionID)
+		_ = c.srv.store.ForgetID(oldID)
+	}
+	if attachedHere {
+		c.attached = rec
+		c.send(msgAttached(rec, nil)) // refresh the app's backend/model badge in place
+	}
+	c.sendSessionList()
+	c.doDiscover()
+}
+
 // doAdopt registers a discovered Claude session (by session_id + dir) into the
 // spawner store and attaches to it, so the app can drive/view it via --resume.
 // If the session_id is already registered, it just attaches.
