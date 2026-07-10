@@ -744,11 +744,39 @@ _Robustness / ops (smaller, safe when we get to them):_
       (`LastContextUsage`) and history paging (`ReadTranscriptChain`) stop re-reading whole
       ever-growing transcripts. Append-only files self-invalidate on the next stat — no explicit
       invalidation needed (`transcript.go`; `TestTranscriptCacheInvalidatesOnChange`).
-- [ ] Validate the audio `codec` field and reject unknown values (`audio.go`) instead of silently
-      treating them as PCM16.
+- [x] 2026-07-10 — Validate the audio `codec` field: unknown values are rejected with `bad_message`
+      before any capture starts, instead of silently treated as PCM16 (`audio.go`; shared
+      `codecPCM16`/`codecOggOpus` constants mirrored by the client's `Codecs` object;
+      `TestAudioUnknownCodecRejected`).
 - [x] 2026-07-05 — Loud startup warning when `SPAWNER_ROOT` is empty (unrestricted spawn scope)
       (`main.go`).
 - [ ] Graceful shutdown waits briefly for an in-flight turn instead of a hard 5s HTTP-server kill.
+
+_2026-07-10 hardening pass (drift-proofing + error handling):_
+- [x] 2026-07-10 — **Client↔server wire drift tests** (`docsync/clientsync_test.go`): the Kotlin
+      client's single wire file (`net/Protocol.kt`) is cross-checked against the Go gateway both
+      ways — every type the client sends must have a `wireHandlers` entry, every type the server
+      emits must have a `ServerMsg.parse` branch (and vice versa), and the audio codec constants
+      must agree on both sides + be documented. Deliberately one-sided messages (e.g. `reply`,
+      `session_list`, `ping`/`pong`) are recorded in exemption maps with reasons, so "the app
+      doesn't use this" is a decision, not drift.
+- [x] 2026-07-10 — The error-code docsync test now also scans `c.fail(...)` call sites (it only
+      caught `msgError(...)` before); that immediately surfaced the undocumented `bad_agent` code,
+      now in protocol.md's error table along with `restart_failed`.
+- [x] 2026-07-10 — Stop silently ignoring persistence/IO errors: session-store `Put`/`ForgetID`/
+      `Delete` failures in the turn/rotation paths are logged (`jobs.go`, `ops.go`), and the
+      whisper HTTP body-read errors propagate instead of being read as garbage (`remote.go`).
+- [x] 2026-07-10 — Prefs defaults single-sourced: every non-zero settings default lives once in
+      the `Prefs` companion (`commonMain`), referenced by both backends (`SettingsStore`,
+      `WebPrefs`) — the two stores can no longer disagree on a default.
+- [x] 2026-07-10 — `docs/web-client.md`: developer guide for the wasmJs client (source-set split,
+      the `js()` interop idiom and its conventions, compile gate, iterate loop) + a doc-map row in
+      CLAUDE.md.
+- [ ] Extend docsync to verify protocol.md **payload field names** (not just message types) against
+      the gateway structs' json tags — the field level can still drift silently today.
+- [ ] Commands pipeline end-to-end check: a Gradle-side test that the generated `Commands.kt`
+      matches `docs/commands.json` (today only the server side is drift-tested; the Gradle
+      generator itself is unchecked).
 
 ## Done
 

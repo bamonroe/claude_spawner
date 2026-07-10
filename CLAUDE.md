@@ -16,6 +16,7 @@ second file (link to the owner instead). This table is itself the index: read it
 | **How a user runs/uses it** (setup, build & run, security, phase history) | `README.md`         | discipline |
 | **WebSocket wire protocol** (every message + error code) | `docs/protocol.md`               | `internal/docsync` tests |
 | **"hey buddy" command grammar** + how to add a command | `docs/commands.md` (prose) + `command.Registry` (code) → `docs/commands.json` (generated) | `internal/command` + `cmd/gencommands` |
+| **How to develop the web client** (wasmJs source sets, `js()` interop idiom, iterate loop) | `docs/web-client.md` | `internal/docsync` client↔server wire tests |
 | **Config env vars** (`SPAWNER_*`)             | `CLAUDE.md` (config section) — code owns them in `internal/config` | `internal/docsync` tests |
 
 **Two classes of fact, two ways they're kept honest:**
@@ -24,7 +25,10 @@ second file (link to the owner instead). This table is itself the index: read it
    the code. The docs are a mirror, and a **drift test fails the build** if they fall out of sync:
    - `internal/command` ↔ `docs/commands.json` (regenerate with `go run ./cmd/gencommands`);
    - `internal/docsync` ↔ `docs/protocol.md` + `CLAUDE.md` (env vars, in/outbound messages, error
-     codes) — see that package's doc comment. A red `go test ./...` names exactly what's stale.
+     codes) — see that package's doc comment. It also cross-checks the **Kotlin client's** wire
+     strings (`net/Protocol.kt` — message types both directions, audio codecs) against the Go
+     gateway (`clientsync_test.go`), so a message added on one side without the other fails the
+     build; deliberately one-sided messages live in the tests' exemption maps with reasons. A red `go test ./...` names exactly what's stale.
    So: **change the code, then `go test ./...` tells you which doc to update.** Never hand-maintain
    a second copy the tests don't check. (Go caches test results on Go-source inputs, not the
    Markdown files — a code change always re-runs the checks; for a **doc-only** edit run the

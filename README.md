@@ -337,6 +337,9 @@ container differs.
 > insecure and the connection fails, so put the server behind TLS (a `wss://` cert, or a reverse proxy
 > like Caddy) for anything but local testing.
 
+Working **on** the web client (source-set layout, the Kotlin↔JS interop idiom, the build/iterate
+loop) is documented in `docs/web-client.md`.
+
 ## Project history
 
 Built in phases: the response-capture decision and spec (Phase 0), the Go server (Phase 1),
