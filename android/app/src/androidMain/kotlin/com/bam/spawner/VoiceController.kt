@@ -17,6 +17,7 @@ import com.bam.spawner.net.DiscoveredInfo
 import com.bam.spawner.net.SpawnerClient
 import com.bam.spawner.tts.Markdown
 import com.bam.spawner.tts.Speaker
+import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -77,6 +78,16 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     private val bridgeTo = mutableMapOf<String, Int>()      // reconnect gap-fill: page older until this index is reached
     private var currentKey = ""
 
+    // Offline transcript cache. `digestHeld` is the server digest (count, hash) the
+    // on-disk cache corresponds to; `serverDigest` is the latest truth the server
+    // reported (connect-time `digests` sweep + every `history` reply). When the two
+    // match and we hold content, an (re)attach skips the history fetch entirely.
+    // `loadedFromCache` tracks which sessions we've pulled from disk into memory.
+    private val cache = TranscriptCache(File(app.filesDir, "transcripts"))
+    private val digestHeld = mutableMapOf<String, Pair<Int, String>>()
+    private val serverDigest = mutableMapOf<String, Pair<Int, String>>()
+    private val loadedFromCache = mutableSetOf<String>()
+
     // migrateSessionKey re-keys every session-name-keyed piece of client state from
     // old to new when a session is renamed, so nothing orphans under the stale name
     // (an orphaned log empties the chat; an orphaned cursor breaks paging). This is
@@ -88,6 +99,41 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
         hasMore.remove(old)?.let { hasMore[new] = it }
         if (loadingOlder.remove(old)) loadingOlder.add(new)
         bridgeTo.remove(old)?.let { bridgeTo[new] = it }
+        digestHeld.remove(old)?.let { digestHeld[new] = it }
+        serverDigest.remove(old)?.let { serverDigest[new] = it }
+        if (loadedFromCache.remove(old)) loadedFromCache.add(new)
+        cache.remove(old) // drop the stale file; the new key is repersisted on the next persist()
+    }
+
+    // ensureLoaded pulls a session's persisted transcript from disk into the
+    // in-memory maps the first time it's needed (so the cached chat shows even
+    // offline), without clobbering a live in-memory log we already hold.
+    private fun ensureLoaded(name: String) {
+        if (name.isEmpty() || name in loadedFromCache) return
+        loadedFromCache.add(name)
+        if (name in logs) return
+        val c = cache.load(name) ?: return
+        logs[name] = c.messages.map { it.toChat() }
+        oldestIndex[name] = c.oldestIndex
+        hasMore[name] = c.hasMore
+        digestHeld[name] = c.count to c.hash
+    }
+
+    // persist writes a session's current log (minus live-only SYSTEM notes, which
+    // aren't part of the server transcript) plus its paging cursor and held digest
+    // to disk, so it survives an app restart and can be shown offline.
+    private fun persist(name: String) {
+        if (name.isEmpty()) return
+        val msgs = logs[name] ?: return
+        val keep = msgs.filter { it.role != Role.SYSTEM }
+        val d = digestHeld[name]
+        cache.save(name, CachedSession(
+            messages = keep.map { it.toCached() },
+            oldestIndex = oldestIndex[name] ?: (keep.firstOrNull { it.index >= 0 }?.index ?: 0),
+            hasMore = hasMore[name] ?: false,
+            count = d?.first ?: 0,
+            hash = d?.second ?: "",
+        ))
     }
 
     private val _chat = MutableStateFlow<List<ChatMessage>>(emptyList())
@@ -701,6 +747,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     private fun onConnected(up: Boolean) {
         _connected.value = up
         _status.value = if (up) "connected" else "reconnecting…"
+        if (!up) persist(currentKey) // flush the visible session to disk so it's available offline
         // Dropped mid-turn: arm the watchdog. If the server is alive it'll re-deliver
         // the reply (or a "still working" breadcrumb) on reconnect and disarm this;
         // if it crashed/restarted, nothing comes and we warn when the grace elapses.
@@ -746,6 +793,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                     settings.whisperModel = msg.whisperModel
                 }
                 discover() // the drawer lists ALL machine sessions (discovery is the source)
+                client?.send(Outbound.digest()) // validate the offline transcript cache (bodies-free)
                 settings.lastSession.takeIf { it.isNotEmpty() }?.let {
                     // Prefer the stable id so we re-attach to the SAME session even when it's
                     // named differently on this server (e.g. after switching servers).
@@ -853,14 +901,22 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                 settings.lastSessionId = msg.sessionId
                 _status.value = "attached: ${msg.name}"
                 showLog(msg.name)
-                // Refetch recent history on EVERY (re)attach, not just the first. A
-                // session keeps running while we view another one, and its output is
-                // persisted to the transcript — but the server only fans live output to
-                // the currently-attached connection, so anything it said while we were
-                // away never reached us. Re-pulling the transcript on reattach replays
-                // it so switching back to a busy session doesn't drop what it produced.
-                // onHistory dedupes against live messages we already have.
-                client?.send(Outbound.history(msg.name, null)) // load recent history
+                // Refetch recent history on (re)attach so a session that produced output
+                // while we viewed another one isn't left stale (the server only fans live
+                // output to the currently-attached connection). But save data when we can:
+                // if the connect-time digest sweep says this session's server hash still
+                // equals what our cache holds — and we actually have cached content — the
+                // transcript is unchanged, so skip the fetch entirely. Otherwise ask for
+                // the recent page, passing the hash we hold so the server can still answer
+                // `unchanged` (no bodies) if nothing moved. onHistory dedupes against live.
+                val held = digestHeld[msg.name]
+                val server = serverDigest[msg.name]
+                val haveContent = logs[msg.name]?.any { it.index >= 0 } == true
+                if (held != null && held == server && haveContent) {
+                    // cache provably current — no fetch needed
+                } else {
+                    client?.send(Outbound.history(msg.name, null, haveHash = held?.second ?: ""))
+                }
             }
             is ServerMsg.Detached -> {
                 turnStreamed = false
@@ -917,6 +973,11 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
             is ServerMsg.Listing -> _listing.value = msg
             is ServerMsg.FileSaved -> _fileSaved.tryEmit(msg.path)
             is ServerMsg.FileData -> _fileData.tryEmit(msg)
+            is ServerMsg.Digests -> {
+                // Latest server truth per session (bodies-free). Stored so an (re)attach
+                // to a session whose hash still equals our cached digest skips the fetch.
+                for (d in msg.items) serverDigest[d.name] = d.count to d.hash
+            }
             is ServerMsg.HostList -> _hosts.value = msg.hosts
             is ServerMsg.IdentityList -> _identities.value = msg.identities
             is ServerMsg.Agents -> _agents.value = msg.agents
@@ -960,6 +1021,11 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
         val updated = ((logs[currentKey] ?: emptyList()) + ChatMessage(role, text, usage = usage, ts = System.currentTimeMillis() / 1000)).takeLast(2000)
         logs[currentKey] = updated
         _chat.value = updated
+        // A user/claude line grows this session's server transcript, so our stored
+        // digest no longer matches — forget the server digest so the next reattach
+        // refetches instead of wrongly deciding the cache is current. (SYSTEM notes
+        // are live-only and never persisted server-side, so they don't invalidate.)
+        if (role == Role.USER || role == Role.CLAUDE) serverDigest.remove(currentKey)
     }
 
     // attachUsageToLastClaude badges the most recent Claude bubble in the current
@@ -976,7 +1042,9 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
 
     /** Switch the visible chat to `key`'s log (session name, or "" for general). */
     private fun showLog(key: String) {
+        if (currentKey != key) persist(currentKey) // save what we were viewing (captures live-streamed tail)
         currentKey = key
+        ensureLoaded(key) // fault the cached transcript in from disk if we don't have it live
         _chat.value = logs[key] ?: emptyList()
         _hasMoreHistory.value = hasMore[key] ?: false
         scrollToBottom() // attaching / switching → show the latest (history refresh re-scrolls)
@@ -1002,6 +1070,18 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     // onHistory merges a server-served page of OLDER messages into the session's
     // log, ordered chronologically with any live messages, and updates the paging cursor.
     private fun onHistory(msg: ServerMsg.History) {
+        // `unchanged` answers a top-page request whose have_hash still matched: our
+        // cached transcript is current, so keep it untouched and just refresh the
+        // stored digest (both held and server) so future freshness checks stand.
+        if (msg.unchanged) {
+            if (msg.hash.isNotEmpty()) {
+                digestHeld[msg.name] = msg.count to msg.hash
+                serverDigest[msg.name] = msg.count to msg.hash
+            }
+            loadingOlder.remove(msg.name)
+            persist(msg.name)
+            return
+        }
         val wasLoadOlder = msg.name in loadingOlder // else it's the top page (on (re)attach)
         // Highest transcript index we already held before applying this page — the
         // watermark a reconnect must page back down to so no middle stays missing.
@@ -1025,6 +1105,13 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
         if (msg.messages.isNotEmpty()) oldestIndex[msg.name] = msg.messages.first().index
         hasMore[msg.name] = msg.more
         loadingOlder.remove(msg.name)
+        // Record the chain digest this page belongs to and persist the merged log, so
+        // the cache is current on disk and a later reattach can short-circuit the fetch.
+        if (msg.hash.isNotEmpty()) {
+            digestHeld[msg.name] = msg.count to msg.hash
+            serverDigest[msg.name] = msg.count to msg.hash
+        }
+        persist(msg.name)
         // Reconnect gap-fill: the reattach top page is only the newest slice, so if the
         // session advanced by more than a page while we were away, a hole is left between
         // what we still held (heldMax) and this page's oldest index. Mark the watermark,

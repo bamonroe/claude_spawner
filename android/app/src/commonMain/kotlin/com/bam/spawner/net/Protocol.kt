@@ -36,7 +36,7 @@ sealed interface ServerMsg {
     data class ContextReset(val name: String) : ServerMsg // Claude context cleared → drop token accounting
     data class Renamed(val old: String, val name: String, val sessionId: String = "") : ServerMsg // attached session renamed → update title in place (matched by id)
     data class Output(val name: String, val text: String, val chunk: Boolean, val usage: TokenUsage? = null) : ServerMsg
-    data class History(val name: String, val messages: List<HistMsg>, val more: Boolean) : ServerMsg
+    data class History(val name: String, val messages: List<HistMsg>, val more: Boolean, val count: Int = 0, val hash: String = "", val unchanged: Boolean = false) : ServerMsg
     data class ReadLast(val count: Int) : ServerMsg
     data class Discovered(val sessions: List<DiscoveredInfo>) : ServerMsg
     data class RateLimit(val info: RateLimitInfo) : ServerMsg // Claude plan's usage-window state
@@ -54,6 +54,7 @@ sealed interface ServerMsg {
     data class Agents(val agents: List<AgentInfo>, val default: String) : ServerMsg // AI backend registry (for the new-session picker)
     data class HostList(val hosts: List<Host>) : ServerMsg // app-managed SSH host registry
     data class IdentityList(val identities: List<Identity>) : ServerMsg // app-managed SSH identities
+    data class Digests(val items: List<SessionDigest>) : ServerMsg // per-session transcript digests for offline-cache validation
     data class Unknown(val type: String) : ServerMsg
 
     companion object {
@@ -76,7 +77,7 @@ sealed interface ServerMsg {
                 "context_reset" -> ContextReset(o.str("name"))
                 "renamed" -> Renamed(o.str("old"), o.str("name"), o.str("session_id"))
                 "output" -> Output(o.str("name"), o.str("text"), o.bool("chunk", false), readUsage(o.obj("usage")))
-                "history" -> History(o.str("name"), readHist(o.arr("messages")), o.bool("more"))
+                "history" -> History(o.str("name"), readHist(o.arr("messages")), o.bool("more"), o.int("count", 0), o.str("hash"), o.bool("unchanged", false))
                 "read_last" -> ReadLast(o.int("count", 1))
                 "discovered" -> Discovered(readDiscovered(o.arr("sessions")))
                 "rate_limit" -> RateLimit(RateLimitInfo(
@@ -109,6 +110,7 @@ sealed interface ServerMsg {
                 "agents" -> Agents(readAgents(o.arr("agents")), o.str("default"))
                 "host_list" -> HostList(readHosts(o.arr("hosts")))
                 "identity_list" -> IdentityList(readIdentities(o.arr("identities")))
+                "digests" -> Digests(readDigests(o.arr("items")))
                 else -> Unknown(o.str("type"))
             }
         }
@@ -134,6 +136,13 @@ sealed interface ServerMsg {
             if (arr == null) return emptyList()
             return arr.map { it.jsonObject }.map { q ->
                 AskQuestion(q.str("q"), readStrings(q.arr("options")))
+            }
+        }
+
+        private fun readDigests(arr: JsonArray?): List<SessionDigest> {
+            if (arr == null) return emptyList()
+            return arr.map { it.jsonObject }.map { d ->
+                SessionDigest(d.str("name"), d.str("session_id"), d.int("count", 0), d.str("hash"))
             }
         }
 
@@ -254,6 +263,10 @@ data class UsageEstimateInfo(
 /** One past message from a session's server-served history. */
 data class HistMsg(val index: Int, val role: String, val text: String, val ts: Long = 0L, val usage: TokenUsage? = null)
 
+/** One session's transcript digest from the `digests` message: message `count`
+ *  and an opaque content `hash` the app compares against its cached copy. */
+data class SessionDigest(val name: String, val sessionId: String, val count: Int, val hash: String)
+
 /** A Claude session found on disk (via `discover`); may be adopted into the app. */
 data class DiscoveredInfo(
     val name: String,
@@ -354,10 +367,12 @@ object Outbound {
         put("silent", silent)
     }.toString()
     fun detach() = buildJsonObject { put("type", "detach") }.toString()
-    fun history(name: String, before: Int?, limit: Int = 30) = buildJsonObject {
+    fun history(name: String, before: Int?, limit: Int = 30, haveHash: String = "") = buildJsonObject {
         put("type", "history"); put("name", name); put("limit", limit)
         if (before != null) put("before", before)
+        if (haveHash.isNotEmpty()) put("have_hash", haveHash) // top-page freshness check → server may reply `unchanged`
     }.toString()
+    fun digest() = buildJsonObject { put("type", "digest") }.toString() // request all sessions' transcript digests (connect-time cache validation)
     fun discover() = buildJsonObject { put("type", "discover") }.toString()
     fun adopt(sessionId: String, dir: String) =
         buildJsonObject { put("type", "adopt"); put("session_id", sessionId); put("path", dir) }.toString()
