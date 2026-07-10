@@ -734,6 +734,15 @@ _Robustness / ops (smaller, safe when we get to them):_
 
 ## Done
 
+- [x] 2026-07-10 — **Sidebar sessions as cards + details/edit dialog with agent switching.** Each
+      session in the drawer is now a card showing name, AI backend/model, and a sandbox badge; tapping
+      it opens a details sheet (path + Open/Edit/Delete). **Edit** renames and can switch the session's
+      AI agent + model via a new `set_agent` wire message — changing the backend rotates to a fresh
+      `session_id` and restarts the conversation (Claude/Codex transcripts are incompatible on disk),
+      while changing only the model is preserved. Client (Sidebar/MainScreen + `Outbound.setAgent` +
+      `AppController.setAgent` in all three source sets) and server (`doSetAgent`) both done; docs in
+      `protocol.md` + `README.md`.
+
 - [x] 2026-07-10 — **Two compression triggers (warm + auto), moved to Server settings.** The single
       warm-cache-window auto-compress became **warm compress** (opportunistic, fires in the last ~15 s
       of the warm window); added a new **auto compress** that fires the moment an idle session crosses

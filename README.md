@@ -76,6 +76,17 @@ the left edge (just inside the edge — the very edge is Android's back gesture)
 **auto-refreshes each time the drawer opens**, and you can **pull down on the list** (or tap
 **Refresh**) to re-scan at any time. See [`docs/commands.md`](docs/commands.md).
 
+Each session is shown as a **card** with its name, AI backend/model, and a **sandbox** badge when
+it runs in a container; the attached session's card is tinted. **Tap a card** to open a details
+sheet showing its **directory path** and three actions:
+
+- **Open** — attach to the session (the same as tapping a row used to do).
+- **Edit** — rename it, and (when the server advertises more than one backend) **switch its AI
+  agent + model**. Changing only the model keeps the conversation; **switching the backend starts a
+  fresh conversation** on the new AI (Claude and Codex transcripts aren't interchangeable on disk —
+  the old history stays on disk but isn't carried over), and the dialog warns you before you commit.
+- **Delete** — permanently remove the session's transcript(s) (with the same confirmation as before).
+
 ### Transferring files to and from a session
 
 To the **left of the message box** is a transfer button (📎). Tap it to **upload** or **download** a
