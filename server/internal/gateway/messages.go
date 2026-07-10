@@ -124,8 +124,16 @@ func msgDialog(state, prompt string) map[string]any {
 // transcript, it carries the last turn's `usage` (the current context size) and
 // `usage_at` (that turn's unix time) so the app shows the context meter — and the
 // cache-warm state — immediately, without waiting for a live turn to complete.
-func msgAttached(name, sessionID string, cx *session.ContextSnapshot) map[string]any {
-	m := map[string]any{"type": "attached", "name": name, "session_id": sessionID}
+func msgAttached(s *session.Session, cx *session.ContextSnapshot) map[string]any {
+	m := map[string]any{"type": "attached", "name": s.Name, "session_id": s.SessionID}
+	// The backend + current model, so the app can show which AI (and which model)
+	// this session runs. Empty for records predating backend selection.
+	if s.Agent != "" {
+		m["agent"] = s.Agent
+	}
+	if s.Model != "" {
+		m["model"] = s.Model
+	}
 	if cx != nil {
 		m["usage"] = cx.Usage
 		m["usage_at"] = cx.At
@@ -298,6 +306,8 @@ type discoveredView struct {
 	Busy       bool   `json:"busy"`             // a dictation turn is running for this session now
 	Target     string `json:"target,omitempty"` // execution target ("sandbox") when not the default host
 	Host       string `json:"host,omitempty"`   // the SSH host the session runs on (for grouping in the app)
+	Agent      string `json:"agent,omitempty"`  // AI backend id ("codex") when not the default; badge in the app
+	Model      string `json:"model,omitempty"`  // current model alias for the session
 }
 
 func msgDiscovered(items []discoveredView) map[string]any {
@@ -326,6 +336,11 @@ type sessionView struct {
 	// Target is the execution target ("sandbox") when it isn't the default host, so
 	// the app can badge sandbox sessions. Omitted (empty) for host sessions.
 	Target string `json:"target,omitempty"`
+	// Agent is the AI backend id ("claude" | "codex") the session runs, so the app
+	// can badge non-default backends. Model is its current model alias. Both may be
+	// empty for records predating backend selection (→ the default backend/model).
+	Agent string `json:"agent,omitempty"`
+	Model string `json:"model,omitempty"`
 }
 
 // listingEntry is one entry in a browse listing.

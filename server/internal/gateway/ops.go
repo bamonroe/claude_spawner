@@ -220,6 +220,7 @@ func (c *conn) doDiscover() {
 			Name: s.Name, Dir: s.Dir, SessionID: s.SessionID,
 			LastActive: discByDir[s.Dir].LastActive, Active: active[s.Dir], Registered: true,
 			Busy: c.srv.isBusy(s.SessionID), Target: sandboxTarget(s), Host: s.Host,
+			Agent: s.Agent, Model: s.Model,
 		})
 	}
 	// Unregistered sessions found on disk — one adoptable row per directory (these
@@ -395,7 +396,7 @@ func (c *conn) sendSessionList() {
 	sessions := c.srv.store.List()
 	views := make([]sessionView, 0, len(sessions))
 	for _, s := range sessions {
-		views = append(views, sessionView{Name: s.Name, Dir: s.Dir, Target: sandboxTarget(s)})
+		views = append(views, sessionView{Name: s.Name, Dir: s.Dir, Target: sandboxTarget(s), Agent: s.Agent, Model: s.Model})
 	}
 	c.send(msgSessionList(views))
 }
@@ -476,7 +477,7 @@ func (c *conn) doAttach(name string, silent bool) {
 	}
 	c.clearBuffer() // fresh message buffer for the new session
 	c.attached = s
-	c.send(msgAttached(s.Name, s.SessionID, c.srv.driver.LastContextUsage(s.Host, s.TranscriptIDs())))
+	c.send(msgAttached(s, c.srv.driver.LastContextUsage(s.Host, s.TranscriptIDs())))
 	if !silent {
 		c.send(msgSay("attached to " + s.Name + "."))
 	}

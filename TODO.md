@@ -47,10 +47,15 @@ any backend runs on any target.
       pulls the backend out (only in selector position, so a path token like `.../codex-x` isn't
       mistaken; "claude" deliberately not a keyword — it's the default and a common path word),
       threaded through the spawn dialog to `newSession`. Parse tests. (2026-07-09)
-- [ ] Surface agent/model over the protocol so the app can DISPLAY and PICK them: add `agent`/`model`
-      to `session_list`/`attached` (+ a backend choice in the visual New-session picker and the spawn
-      dialog's target step). `docs/protocol.md` + `internal/docsync`. (Voice path already complete;
-      this is the visual/app half.)
+- [x] Surface agent/model over the protocol (server half): `agent`/`model` on `session_list`,
+      `attached`, and `discovered` (registered rows), omitted for the default Claude / pre-registry
+      records. `docs/protocol.md` updated (drift test checks types only, so field docs are
+      discipline). (2026-07-09)
+- [ ] App-facing half: render the backend/model badge in the sidebar + status bar (Kotlin), and add
+      a backend choice to the visual New-session picker and the spawn dialog's target step (the data
+      is now on the wire). Needs an APK rebuild.
+- [ ] Optional: `agent`/`model` on the `spawn_at` inbound message so the visual picker can spawn a
+      chosen backend (voice spawn selection already works).
 - [x] Voice model selection: "hey buddy, list models" speaks the attached session's backend
       catalogue numbered (marking current); "hey buddy, use model 3" switches by ordinal (digit or
       number-word) — ordinals dodge hard-to-say model names. `internal/command` (ListModels/UseModel
