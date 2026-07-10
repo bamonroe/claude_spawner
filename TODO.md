@@ -777,9 +777,11 @@ _2026-07-10 hardening pass (drift-proofing + error handling):_
       protocol tables name must exist in the code. Caught two real drifts on landing: `hello`'s
       documented `app_version` (never read; the real field is `client_id`) and `discovered`'s
       undocumented `host` field.
-- [ ] Commands pipeline end-to-end check: a Gradle-side test that the generated `Commands.kt`
-      matches `docs/commands.json` (today only the server side is drift-tested; the Gradle
-      generator itself is unchecked).
+- [x] 2026-07-10 — Commands pipeline end-to-end check: `CommandsSyncTest`
+      (`:app:testDebugUnitTest`, the app's first JVM unit test) compares the compiled-in `COMMANDS`
+      list against `docs/commands.json` entry by entry, so a `generateCommands` translation bug
+      (dropped command, escaping, sorting) fails the build. Verified it fails on an injected
+      generator bug.
 
 ## Done
 

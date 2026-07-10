@@ -199,3 +199,7 @@ The whole procedure for adding or changing a command:
 
 The app therefore can't drift from the server grammar or ship an undocumented command; the only way
 a registry change reaches an installed app is the APK rebuild in step 3.
+
+The generator itself is drift-tested too: `:app:testDebugUnitTest` runs `CommandsSyncTest`, which
+compares the compiled-in `COMMANDS` list against `docs/commands.json` entry by entry — a generator
+bug that drops or mangles a command (escaping, sorting, a schema change it ignores) fails the test.

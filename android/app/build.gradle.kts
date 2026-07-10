@@ -68,6 +68,11 @@ kotlin {
             // Ktor Js engine → the browser's native WebSocket.
             implementation("io.ktor:ktor-client-js:$ktorVersion")
         }
+        // JVM unit tests (`:app:testDebugUnitTest`) — home of the CommandsSyncTest
+        // drift check (generated COMMANDS ↔ docs/commands.json).
+        androidUnitTest.dependencies {
+            implementation(kotlin("test"))
+        }
     }
 }
 
