@@ -12,6 +12,12 @@ Go server reference this. When you change a command, change it here first.
   together — notably **"everybody"** (and "heybuddy"). Add a new mishearing by extending that list.
   (One-word aliases are ordinary English words, so they wake more eagerly — e.g. "everybody knows"
   strips a wake; the set is kept small on purpose.)
+- **Custom wake token (per client):** the app's Commands settings can set an extra wake word (the
+  `wake_token` field of the `hello` handshake). It's accepted **alongside** the built-in "hey buddy"
+  family, not instead of it — the server folds it in via `command.WakePhrase` → `StripWakeWith` /
+  `SplitWakeWith`, and biases whisper toward it (`vocabBias`) so a non-"hey buddy" word transcribes
+  reliably. Blank = built-in only. A custom word has no curated mishearing aliases, so pick one
+  whisper hears cleanly.
 - The wake word is detected **server-side, in the transcript** (`command.StripWake`) — there is no
   on-device wake engine. The app streams speech (VAD-gated) to the server, which transcribes it and
   applies this grammar.

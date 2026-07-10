@@ -93,12 +93,33 @@ func Vocabulary() []string {
 	return append(out, commandVocab...)
 }
 
+// WakePhrase tokenizes a client's custom wake token into the phrase form the
+// matchers below accept (lowercased, punctuation-trimmed words). It returns nil
+// for a blank token so callers can pass the result straight through as the
+// `extra` argument (nil = built-in wakePhrases only).
+func WakePhrase(token string) [][]string {
+	var phrase []string
+	for _, w := range strings.Fields(strings.ToLower(token)) {
+		if w = strings.Trim(w, ",.!?"); w != "" {
+			phrase = append(phrase, w)
+		}
+	}
+	if len(phrase) == 0 {
+		return nil
+	}
+	return [][]string{phrase}
+}
+
 // StripWake removes an optional leading wake phrase (any wakePhrases entry, with
 // optional punctuation) and reports whether it was present. Used to distinguish
 // control commands from plain dictation while attached.
-func StripWake(text string) (rest string, hadWake bool) {
+func StripWake(text string) (rest string, hadWake bool) { return StripWakeWith(text, nil) }
+
+// StripWakeWith is StripWake extended with `extra` wake phrases (a client's
+// custom wake token, from WakePhrase) tried alongside the built-in wakePhrases.
+func StripWakeWith(text string, extra [][]string) (rest string, hadWake bool) {
 	words := strings.Fields(strings.TrimSpace(text))
-	if n := wakeAt(words, 0); n > 0 {
+	if n := wakeAt(words, 0, extra); n > 0 {
 		return strings.Join(words[n:], " "), true
 	}
 	return strings.TrimSpace(text), false
@@ -109,11 +130,15 @@ func StripWake(text string) (rest string, hadWake bool) {
 // command), the LAST one wins: before = text preceding the FIRST wake (the
 // dictation), after = text following the LAST wake (the command); anything in
 // between (earlier command attempts) is discarded.
-func SplitWake(text string) (before, after string, found bool) {
+func SplitWake(text string) (before, after string, found bool) { return SplitWakeWith(text, nil) }
+
+// SplitWakeWith is SplitWake extended with `extra` wake phrases (a client's
+// custom wake token, from WakePhrase) tried alongside the built-in wakePhrases.
+func SplitWakeWith(text string, extra [][]string) (before, after string, found bool) {
 	words := strings.Fields(strings.TrimSpace(text))
 	first, last, lastN := -1, -1, 0
 	for i := 0; i < len(words); {
-		if n := wakeAt(words, i); n > 0 {
+		if n := wakeAt(words, i, extra); n > 0 {
 			if first < 0 {
 				first = i
 			}
@@ -130,14 +155,19 @@ func SplitWake(text string) (before, after string, found bool) {
 }
 
 // wakeAt reports how many words the wake phrase at words[i] consumes (0 if none),
-// tolerating surrounding punctuation and case. The longest matching phrase wins,
-// so a one-word alias can't shadow the canonical two-word form.
-func wakeAt(words []string, i int) (consumed int) {
-	for _, phrase := range wakePhrases {
-		if len(phrase) > consumed && phraseAt(words, i, phrase) {
-			consumed = len(phrase)
+// tolerating surrounding punctuation and case. Both the built-in wakePhrases and
+// any `extra` phrases are considered; the longest matching phrase wins, so a
+// one-word alias can't shadow the canonical two-word form.
+func wakeAt(words []string, i int, extra [][]string) (consumed int) {
+	match := func(phrases [][]string) {
+		for _, phrase := range phrases {
+			if len(phrase) > consumed && phraseAt(words, i, phrase) {
+				consumed = len(phrase)
+			}
 		}
 	}
+	match(wakePhrases)
+	match(extra)
 	return consumed
 }
 

@@ -17,7 +17,7 @@ import (
 // dispatch handles an immediate (push-to-talk / typed) utterance when no dialog
 // is active: a control command, or dictation to the attached session.
 func (c *conn) dispatch(text string) {
-	rest, hadWake := command.StripWake(text)
+	rest, hadWake := c.stripWake(text)
 
 	// Attached + no wake word => plain dictation.
 	if c.attached != nil && !hadWake {
@@ -883,15 +883,16 @@ func stripInjected(text string) string {
 	return text
 }
 
-// affirmative / negative recognize yes/no style dialog replies.
-func affirmative(text string) bool {
-	r, _ := command.StripWake(text)
+// affirmative / negative recognize yes/no style dialog replies. `extra` carries
+// the connection's custom wake token so "<wake> yes" strips like "hey buddy yes".
+func affirmative(text string, extra [][]string) bool {
+	r, _ := command.StripWakeWith(text, extra)
 	return command.Parse(r).Kind != command.Cancel &&
 		containsAny(r, "yes", "yeah", "yep", "yup", "sure", "do it", "please", "go ahead", "ok", "okay")
 }
 
-func negative(text string) bool {
-	r, _ := command.StripWake(text)
+func negative(text string, extra [][]string) bool {
+	r, _ := command.StripWakeWith(text, extra)
 	return containsAny(r, "no", "nope", "nah", "don't", "do not", "scrap", "skip")
 }
 

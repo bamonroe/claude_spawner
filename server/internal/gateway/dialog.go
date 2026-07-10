@@ -147,7 +147,7 @@ func (c *conn) cancelDialog() {
 // handleDialog advances the active dialog with the user's latest utterance.
 func (c *conn) handleDialog(text string) {
 	// "cancel"/"never mind" aborts from any state.
-	if rest, _ := command.StripWake(text); command.Parse(rest).Kind == command.Cancel {
+	if rest, _ := c.stripWake(text); command.Parse(rest).Kind == command.Cancel {
 		c.cancelDialog()
 		return
 	}
@@ -253,9 +253,9 @@ func (c *conn) confirmMatch(dir string) {
 // spawnAwaitConfirm handles the yes/no after a fuzzy-match confirmation.
 func (c *conn) spawnAwaitConfirm(text string) {
 	switch {
-	case affirmative(text):
+	case affirmative(text, c.wakePhrase):
 		c.askTarget(c.dlg.dir, "found "+filepath.Base(c.dlg.dir)+". want to attach?")
-	case negative(text):
+	case negative(text, c.wakePhrase):
 		// Back up to the parent so they can pick again.
 		parent := filepath.Dir(c.dlg.dir)
 		c.dlg.browse = parent
@@ -284,14 +284,14 @@ func (c *conn) promptChildren(dir string) {
 // spawnAwaitCreate confirms creation of a brand-new directory.
 func (c *conn) spawnAwaitCreate(text string) {
 	switch {
-	case affirmative(text):
+	case affirmative(text, c.wakePhrase):
 		if err := c.srv.driver.MakeSpawnDir(c.ctx, c.dlg.dir); err != nil {
 			c.fail("spawn_failed", err.Error())
 			c.dlg = nil
 			return
 		}
 		c.askTarget(c.dlg.dir, "made it. want to attach?")
-	case negative(text):
+	case negative(text, c.wakePhrase):
 		c.cancelDialog()
 	default:
 		c.send(msgSay("yes or no — create it?"))
@@ -476,7 +476,7 @@ func (c *conn) beginAttachQuestion(dir, prompt string, target session.Target) {
 
 func (c *conn) spawnAwaitAttach(text string) {
 	switch {
-	case affirmative(text):
+	case affirmative(text, c.wakePhrase):
 		sess := c.dlg.sess
 		if perr := c.srv.store.Put(sess); perr != nil {
 			c.fail("internal", perr.Error())
@@ -496,7 +496,7 @@ func (c *conn) spawnAwaitAttach(text string) {
 			where = ", in a sandbox."
 		}
 		c.send(msgSay("attached to " + sess.Name + where))
-	case negative(text):
+	case negative(text, c.wakePhrase):
 		sess := c.dlg.sess
 		if perr := c.srv.store.Put(sess); perr != nil {
 			c.fail("internal", perr.Error())

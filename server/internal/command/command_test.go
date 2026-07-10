@@ -51,6 +51,56 @@ func TestSplitWake(t *testing.T) {
 	}
 }
 
+func TestWakePhrase(t *testing.T) {
+	cases := []struct {
+		token string
+		want  [][]string
+	}{
+		{"", nil},
+		{"   ", nil},
+		{"computer", [][]string{{"computer"}}},
+		{"Hey, Computer!", [][]string{{"hey", "computer"}}},
+	}
+	for _, c := range cases {
+		got := WakePhrase(c.token)
+		if len(got) != len(c.want) {
+			t.Errorf("WakePhrase(%q) = %v, want %v", c.token, got, c.want)
+			continue
+		}
+		for i := range got {
+			if len(got[i]) != len(c.want[i]) {
+				t.Errorf("WakePhrase(%q) = %v, want %v", c.token, got, c.want)
+				break
+			}
+			for j := range got[i] {
+				if got[i][j] != c.want[i][j] {
+					t.Errorf("WakePhrase(%q) = %v, want %v", c.token, got, c.want)
+				}
+			}
+		}
+	}
+}
+
+func TestStripWakeWith(t *testing.T) {
+	extra := WakePhrase("hey computer")
+	// The custom token strips like a wake word...
+	if rest, had := StripWakeWith("Hey Computer, status", extra); rest != "status" || !had {
+		t.Errorf("custom wake: got (%q,%v), want (%q,%v)", rest, had, "status", true)
+	}
+	// ...and the built-in "hey buddy" family still works alongside it.
+	if rest, had := StripWakeWith("hey buddy detach", extra); rest != "detach" || !had {
+		t.Errorf("built-in wake with extra: got (%q,%v), want (%q,%v)", rest, had, "detach", true)
+	}
+	// A blank custom token leaves matching identical to plain StripWake.
+	if rest, had := StripWakeWith("hey computer status", nil); had || rest != "hey computer status" {
+		t.Errorf("no extra: got (%q,%v), want (%q,%v)", rest, had, "hey computer status", false)
+	}
+	// SplitWake honors the custom token mid-utterance too.
+	if b, a, f := SplitWakeWith("fix the bug hey computer detach", extra); b != "fix the bug" || a != "detach" || !f {
+		t.Errorf("custom split: got (%q,%q,%v), want (%q,%q,%v)", b, a, f, "fix the bug", "detach", true)
+	}
+}
+
 func TestParseCancel(t *testing.T) {
 	for _, in := range []string{"cancel", "cancel message", "cancel that", "scrap that", "never mind", "forget it"} {
 		if got := Parse(in); got.Kind != Cancel {

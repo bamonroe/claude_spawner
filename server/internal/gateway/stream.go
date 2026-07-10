@@ -27,7 +27,7 @@ func (c *conn) gatedChunk(pcm []byte) {
 	// the TTS the moment it shows up in the live draft — no end token required.
 	// Guarded to a pure command so "…hey buddy stop the build" (dictation) isn't
 	// swallowed; that still commits normally and routes as a Claude turn.
-	if before, after, found := command.SplitWake(joined); found && strings.TrimSpace(before) == "" {
+	if before, after, found := c.splitWake(joined); found && strings.TrimSpace(before) == "" {
 		if command.Parse(command.ApplyAliases(after, c.aliases)).Kind == command.Stop {
 			c.send(msgStopSpeaking())
 			c.buffer = nil
@@ -74,7 +74,7 @@ func (c *conn) commitMessage() {
 		c.handleDialog(msg)
 		return
 	}
-	before, after, hadWake := command.SplitWake(msg)
+	before, after, hadWake := c.splitWake(msg)
 	if !hadWake {
 		if c.attached == nil {
 			// Detached "safe mode": no session to dictate to, so the whole
@@ -105,7 +105,13 @@ func (c *conn) commitMessage() {
 // otherwise mangles (so "hey buddy, attach to sfit" resolves). The command
 // words come first (always present); session names are appended when any exist.
 func (c *conn) vocabBias() string {
-	parts := []string{"Commands: " + strings.Join(command.Vocabulary(), ", ") + "."}
+	vocab := command.Vocabulary()
+	// Bias STT toward the client's custom wake token too, so a non-"hey buddy"
+	// wake word survives transcription and can actually match.
+	for _, phrase := range c.wakePhrase {
+		vocab = append(vocab, strings.Join(phrase, " "))
+	}
+	parts := []string{"Commands: " + strings.Join(vocab, ", ") + "."}
 	if sessions := c.srv.store.List(); len(sessions) > 0 {
 		names := make([]string, 0, len(sessions))
 		for _, s := range sessions {

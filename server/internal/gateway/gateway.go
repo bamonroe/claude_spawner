@@ -393,6 +393,7 @@ type conn struct {
 	brief       bool                   // append a "reply briefly for TTS" hint to dictation
 	interactive bool                   // let Claude ask clarifying questions mid-task
 	endToken    string                 // spoken word that commits the buffer (default "beep")
+	wakePhrase  [][]string             // client's custom wake token (nil = built-in "hey buddy" only)
 	sttMode     string                 // "dynamic" | "fixed" whisper model selection
 	sttModel    string                 // fixed-mode model: "tiny" | "base" | "small"
 	aliases     map[string]string      // mis-transcription -> canonical command word
@@ -461,6 +462,7 @@ func (c *conn) authenticate() bool {
 	if c.endToken == "" {
 		c.endToken = "beep"
 	}
+	c.wakePhrase = command.WakePhrase(in.WakeToken)
 	c.sttMode = in.SttMode
 	c.sttModel = in.SttModel
 	c.aliases = in.Aliases
@@ -620,12 +622,24 @@ func (c *conn) loop() {
 	}
 }
 
+// stripWake / splitWake are the connection-scoped wake matchers: they honor this
+// client's custom wake token (c.wakePhrase) in addition to the built-in "hey
+// buddy" family. Use these instead of the package-level command.StripWake /
+// command.SplitWake anywhere a *conn is in scope.
+func (c *conn) stripWake(text string) (rest string, hadWake bool) {
+	return command.StripWakeWith(text, c.wakePhrase)
+}
+
+func (c *conn) splitWake(text string) (before, after string, found bool) {
+	return command.SplitWakeWith(text, c.wakePhrase)
+}
+
 // handleUtterance routes a transcribed utterance to the active dialog, to a
 // control command, or to dictation, depending on connection state.
 func (c *conn) handleUtterance(text string) {
 	// "stop" (barge-in) is intercepted everywhere: it stops speech without
 	// disturbing dialog state and is never dictated to Claude.
-	rest, _ := command.StripWake(text)
+	rest, _ := c.stripWake(text)
 	if command.Parse(rest).Kind == command.Stop {
 		c.send(msgStopSpeaking())
 		return

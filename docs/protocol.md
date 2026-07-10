@@ -93,6 +93,7 @@ hands_free = true    → streaming: APPEND the transcript to the per-connection 
 ```
 
 `hello` also carries optional flags: `end_token` (the word that commits a hands-free message),
+`wake_token` (a custom wake word accepted alongside the built-in "hey buddy"; empty = built-in only),
 `stt_mode`/`stt_model`/`whisper_url`/`whisper_model` (transcription), `aliases` (misheard→command
 fixups), `brief` (append a "reply briefly for TTS" hint to dictation), `interactive` (let Claude
 ask clarifying questions mid-task, delivered as `ask`), and `auto_compress`/`auto_compress_threshold`
