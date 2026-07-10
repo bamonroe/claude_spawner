@@ -1,5 +1,6 @@
 package com.bam.spawner
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -31,6 +32,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -77,12 +82,17 @@ fun Sidebar(
     onNew: () -> Unit,
     refreshing: Boolean,
     onRefresh: () -> Unit,
-    onCardTap: (DiscoveredInfo) -> Unit,
+    onOpen: (DiscoveredInfo) -> Unit,
+    onEdit: (DiscoveredInfo) -> Unit,
+    onDelete: (DiscoveredInfo) -> Unit,
     onDetach: () -> Unit,
     rateLimit: RateLimitInfo?,
     usageEstimate: UsageEstimateInfo?,
     onCheckUsage: () -> Unit,
 ) {
+    // Which card is expanded in place (keyed by a stable id, falling back to the dir
+    // for a still-discovered session with no session id yet). Only one at a time.
+    var expandedKey by remember { mutableStateOf("") }
     Column(Modifier.fillMaxHeight().statusBarsPadding().navigationBarsPadding().padding(12.dp)) {
         Text("Sessions", style = MaterialTheme.typography.titleLarge)
         Row {
@@ -135,10 +145,13 @@ fun Sidebar(
                 // can be named differently here than when we attached (e.g. server switch).
                 val isAttached = d.registered && attachedId.isNotEmpty() && d.sessionId == attachedId
                 // Each session is a card showing its name, AI backend, and sandbox
-                // badge; tapping it opens a details/actions dialog (path, open, edit,
-                // delete). The attached session's card is tinted.
+                // badge; tapping it expands the card in place to reveal the path and
+                // Open/Edit/Delete actions. The attached session's card is tinted.
+                val cardKey = d.sessionId.ifBlank { d.dir }
+                val expanded = expandedKey == cardKey
                 Card(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onCardTap(d) },
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                        .clickable { expandedKey = if (expanded) "" else cardKey },
                     colors = if (isAttached)
                         CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
                     else CardDefaults.cardColors(),
@@ -183,6 +196,21 @@ fun Sidebar(
                         else relativeTime(d.lastActive).let { if (it.isNotEmpty()) parts.add(it) }
                         if (parts.isNotEmpty()) Text(parts.joinToString(" · "),
                             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                        // Tapping the card expands it in place: the working directory
+                        // and Open / Edit / Delete actions, instead of a pop-up dialog.
+                        AnimatedVisibility(visible = expanded) {
+                            Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                                Text(d.dir, style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.outline)
+                                Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    TextButton(onClick = { onOpen(d) }) { Text("Open") }
+                                    TextButton(onClick = { onEdit(d) }) { Text("Edit") }
+                                    TextButton(onClick = { onDelete(d) }) {
+                                        Text("Delete", color = MaterialTheme.colorScheme.error)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 }

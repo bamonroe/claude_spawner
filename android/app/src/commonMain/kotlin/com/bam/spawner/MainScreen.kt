@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -106,12 +105,11 @@ fun MainScreen(
     val attachedAgent by controller.attachedAgent.collectAsState()
     val attachedModel by controller.attachedModel.collectAsState()
     val agents by controller.agents.collectAsState()
-    // Hoisted dialogs for the drawer's session list. A card tap opens the details
-    // sheet; its Open/Edit/Delete actions fan out to the other three.
+    // Hoisted dialogs for the drawer's session list. A card expands in place to its
+    // Open/Edit/Delete actions, which fan out to these.
     var confirmOpen by remember { mutableStateOf<DiscoveredInfo?>(null) }
     var deleteTarget by remember { mutableStateOf<DiscoveredInfo?>(null) }
     var editTarget by remember { mutableStateOf<DiscoveredInfo?>(null) }
-    var detailsTarget by remember { mutableStateOf<DiscoveredInfo?>(null) }
     // Pull-to-refresh on the session list: kick a discover, then drop the spinner
     // when a fresh list lands or after a short cap so it never hangs (discover is
     // fire-and-forget over the socket, and an unchanged list won't re-emit).
@@ -158,7 +156,9 @@ fun MainScreen(
                     onNew = { onNewSession(); scope.launch { drawerState.close() } },
                     refreshing = refreshing,
                     onRefresh = { refreshing = true },
-                    onCardTap = { detailsTarget = it },
+                    onOpen = { d -> if (d.active) confirmOpen = d else openSession(d) },
+                    onEdit = { editTarget = it },
+                    onDelete = { deleteTarget = it },
                     onDetach = { controller.detach() },
                     rateLimit = rateLimit,
                     usageEstimate = usageEstimate,
@@ -289,39 +289,6 @@ fun MainScreen(
                 dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("Cancel") } },
             )
         }
-    }
-    // Tapping a session card opens this details sheet: its path + backend, with
-    // Open / Edit / Delete actions (tap outside to just close).
-    detailsTarget?.let { d ->
-        AlertDialog(
-            onDismissRequest = { detailsTarget = null },
-            title = { Text(d.name) },
-            text = {
-                Column {
-                    Text(d.dir, style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.outline)
-                    backendBadge(agents, d.agent, d.model).takeIf { it.isNotEmpty() }?.let {
-                        Spacer(Modifier.height(6.dp))
-                        Text(it, style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.secondary)
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    detailsTarget = null
-                    if (d.active) confirmOpen = d else openSession(d)
-                }) { Text("Open") }
-            },
-            dismissButton = {
-                Row {
-                    TextButton(onClick = { detailsTarget = null; editTarget = d }) { Text("Edit") }
-                    TextButton(onClick = { detailsTarget = null; deleteTarget = d }) {
-                        Text("Delete", color = MaterialTheme.colorScheme.error)
-                    }
-                }
-            },
-        )
     }
     // Edit: rename plus (when more than one backend is advertised) switch the
     // session's AI agent + model. Changing the backend restarts the conversation on
