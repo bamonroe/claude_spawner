@@ -88,6 +88,7 @@ interface AppController : HostsIdentitiesController {
     fun adopt(sessionId: String, dir: String)
     fun deleteDiscovered(sessionId: String)
     fun renameDiscovered(sessionId: String, dir: String, newName: String)
+    fun setAgent(sessionId: String, dir: String, agent: String, model: String)
     fun spawnAt(path: String, target: String = "", host: String = "", agent: String = "", model: String = "")
     fun spawnNewFolder(parent: String, name: String, target: String = "", host: String = "", agent: String = "", model: String = "")
 

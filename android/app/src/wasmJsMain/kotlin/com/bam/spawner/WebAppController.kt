@@ -267,6 +267,9 @@ class WebAppController(private val prefs: Prefs) : AppController {
     override fun renameDiscovered(sessionId: String, dir: String, newName: String) {
         client?.send(Outbound.renameDiscovered(sessionId, dir, newName))
     }
+    override fun setAgent(sessionId: String, dir: String, agent: String, model: String) {
+        client?.send(Outbound.setAgent(sessionId, dir, agent, model))
+    }
     override fun spawnAt(path: String, target: String, host: String, agent: String, model: String) { client?.send(Outbound.spawnAt(path, target = target, host = host, agent = agent, model = model)) }
     override fun spawnNewFolder(parent: String, name: String, target: String, host: String, agent: String, model: String) {
         val clean = name.trim().trim('/')

@@ -3,16 +3,23 @@ package com.bam.spawner
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
@@ -50,6 +57,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  * push-to-talk) is passed in as values + callbacks so this stays free of the concrete class.
  * The 📎 transfer button is a [transferButton] slot (Android SAF; web empty until M5).
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun MainScreen(
     controller: AppController,
@@ -98,10 +106,12 @@ fun MainScreen(
     val attachedAgent by controller.attachedAgent.collectAsState()
     val attachedModel by controller.attachedModel.collectAsState()
     val agents by controller.agents.collectAsState()
-    // Hoisted dialogs for the drawer's session list.
+    // Hoisted dialogs for the drawer's session list. A card tap opens the details
+    // sheet; its Open/Edit/Delete actions fan out to the other three.
     var confirmOpen by remember { mutableStateOf<DiscoveredInfo?>(null) }
     var deleteTarget by remember { mutableStateOf<DiscoveredInfo?>(null) }
-    var renameTarget by remember { mutableStateOf<DiscoveredInfo?>(null) }
+    var editTarget by remember { mutableStateOf<DiscoveredInfo?>(null) }
+    var detailsTarget by remember { mutableStateOf<DiscoveredInfo?>(null) }
     // Pull-to-refresh on the session list: kick a discover, then drop the spinner
     // when a fresh list lands or after a short cap so it never hangs (discover is
     // fire-and-forget over the socket, and an unchanged list won't re-emit).
@@ -148,9 +158,7 @@ fun MainScreen(
                     onNew = { onNewSession(); scope.launch { drawerState.close() } },
                     refreshing = refreshing,
                     onRefresh = { refreshing = true },
-                    onOpen = { d -> if (d.active) confirmOpen = d else openSession(d) },
-                    onRename = { renameTarget = it },
-                    onDelete = { deleteTarget = it },
+                    onCardTap = { detailsTarget = it },
                     onDetach = { controller.detach() },
                     rateLimit = rateLimit,
                     usageEstimate = usageEstimate,
@@ -282,19 +290,97 @@ fun MainScreen(
             )
         }
     }
-    renameTarget?.let { d ->
-        var newName by remember(d) { mutableStateOf(d.name) }
+    // Tapping a session card opens this details sheet: its path + backend, with
+    // Open / Edit / Delete actions (tap outside to just close).
+    detailsTarget?.let { d ->
         AlertDialog(
-            onDismissRequest = { renameTarget = null },
-            title = { Text("Rename session") },
-            text = { OutlinedTextField(newName, { newName = it }, singleLine = true, label = { Text("Name") }) },
+            onDismissRequest = { detailsTarget = null },
+            title = { Text(d.name) },
+            text = {
+                Column {
+                    Text(d.dir, style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline)
+                    backendBadge(agents, d.agent, d.model).takeIf { it.isNotEmpty() }?.let {
+                        Spacer(Modifier.height(6.dp))
+                        Text(it, style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.secondary)
+                    }
+                }
+            },
             confirmButton = {
                 TextButton(onClick = {
-                    if (newName.isNotBlank()) controller.renameDiscovered(d.sessionId, d.dir, newName)
-                    renameTarget = null
+                    detailsTarget = null
+                    if (d.active) confirmOpen = d else openSession(d)
+                }) { Text("Open") }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = { detailsTarget = null; editTarget = d }) { Text("Edit") }
+                    TextButton(onClick = { detailsTarget = null; deleteTarget = d }) {
+                        Text("Delete", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            },
+        )
+    }
+    // Edit: rename plus (when more than one backend is advertised) switch the
+    // session's AI agent + model. Changing the backend restarts the conversation on
+    // the new AI — the dialog warns before you commit.
+    editTarget?.let { d ->
+        var newName by remember(d) { mutableStateOf(d.name) }
+        val curAgent = d.agent.ifBlank { "claude" } // "" on the wire == the default Claude backend
+        var selAgent by remember(d) { mutableStateOf(curAgent) }
+        val agentInfo = agents.firstOrNull { it.id == selAgent }
+        var selModel by remember(d) { mutableStateOf(d.model) }
+        // Keep the model valid for the chosen backend; snap to its default otherwise.
+        LaunchedEffect(selAgent, agents) {
+            agentInfo?.let { if (it.models.none { m -> m == selModel }) selModel = it.defaultModel }
+        }
+        AlertDialog(
+            onDismissRequest = { editTarget = null },
+            title = { Text("Edit session") },
+            text = {
+                Column {
+                    OutlinedTextField(newName, { newName = it }, singleLine = true, label = { Text("Name") })
+                    if (agents.size > 1) {
+                        Spacer(Modifier.height(10.dp))
+                        Text("AI agent", style = MaterialTheme.typography.labelMedium)
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            agents.forEach { a ->
+                                FilterChip(selected = selAgent == a.id, onClick = { selAgent = a.id },
+                                    label = { Text(a.name) })
+                            }
+                        }
+                    }
+                    agentInfo?.takeIf { it.models.isNotEmpty() }?.let { a ->
+                        Spacer(Modifier.height(8.dp))
+                        Text("Model", style = MaterialTheme.typography.labelMedium)
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            a.models.forEach { m ->
+                                FilterChip(selected = selModel == m, onClick = { selModel = m },
+                                    label = { Text(m) })
+                            }
+                        }
+                    }
+                    if (selAgent != curAgent) {
+                        Spacer(Modifier.height(8.dp))
+                        Text("Switching agent starts a fresh conversation on ${agentInfo?.name ?: selAgent} — " +
+                            "the old history stays on disk but won't carry over.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (newName.isNotBlank() && newName != d.name)
+                        controller.renameDiscovered(d.sessionId, d.dir, newName)
+                    if (selAgent != curAgent || selModel != d.model)
+                        controller.setAgent(d.sessionId, d.dir, selAgent, selModel)
+                    editTarget = null
                 }) { Text("Save") }
             },
-            dismissButton = { TextButton(onClick = { renameTarget = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { editTarget = null }) { Text("Cancel") } },
         )
     }
     // Usage sheet: opened by "Check usage" (tap) or the "usage" voice command

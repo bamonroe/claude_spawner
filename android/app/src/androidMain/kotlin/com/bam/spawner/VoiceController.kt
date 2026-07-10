@@ -383,6 +383,10 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     override fun renameDiscovered(sessionId: String, dir: String, newName: String) =
         client?.send(Outbound.renameDiscovered(sessionId, dir, newName)).let {}
 
+    /** Switch a session's AI backend + model (registers it by dir if needed). */
+    override fun setAgent(sessionId: String, dir: String, agent: String, model: String) =
+        client?.send(Outbound.setAgent(sessionId, dir, agent, model)).let {}
+
     override fun attachTo(name: String) {
         showLog(name) // switch to that session's log immediately (cached if we have it)
         client?.send(Outbound.attach(name))

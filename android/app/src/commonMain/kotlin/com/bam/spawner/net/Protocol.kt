@@ -367,6 +367,14 @@ object Outbound {
         put("type", "rename_discovered"); put("session_id", sessionId)
         put("path", dir); put("new_name", newName)
     }.toString()
+    // Switch a session's AI backend + model durably (sidebar Edit dialog). A blank
+    // agent/model means the default backend / that backend's default model; changing
+    // the backend restarts the conversation on the new AI (see docs/protocol.md).
+    fun setAgent(sessionId: String, dir: String, agent: String, model: String) = buildJsonObject {
+        put("type", "set_agent"); put("session_id", sessionId); put("path", dir)
+        if (agent.isNotEmpty()) put("agent", agent)
+        if (model.isNotEmpty()) put("model", model)
+    }.toString()
     fun browse(path: String, host: String = "", files: Boolean = false) = buildJsonObject {
         put("type", "browse"); put("path", path)
         if (host.isNotEmpty()) put("host_name", host)

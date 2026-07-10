@@ -17,12 +17,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BarChart
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -77,9 +77,7 @@ fun Sidebar(
     onNew: () -> Unit,
     refreshing: Boolean,
     onRefresh: () -> Unit,
-    onOpen: (DiscoveredInfo) -> Unit,
-    onRename: (DiscoveredInfo) -> Unit,
-    onDelete: (DiscoveredInfo) -> Unit,
+    onCardTap: (DiscoveredInfo) -> Unit,
     onDetach: () -> Unit,
     rateLimit: RateLimitInfo?,
     usageEstimate: UsageEstimateInfo?,
@@ -136,8 +134,16 @@ fun Sidebar(
                 // Highlight the attached row by stable id, not name — the same session
                 // can be named differently here than when we attached (e.g. server switch).
                 val isAttached = d.registered && attachedId.isNotEmpty() && d.sessionId == attachedId
-                Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f).clickable { onOpen(d) }) {
+                // Each session is a card showing its name, AI backend, and sandbox
+                // badge; tapping it opens a details/actions dialog (path, open, edit,
+                // delete). The attached session's card is tinted.
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onCardTap(d) },
+                    colors = if (isAttached)
+                        CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                    else CardDefaults.cardColors(),
+                ) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             if (d.busy) {
                                 Icon(Icons.Filled.Settings, null, Modifier.size(14.dp))
@@ -147,8 +153,10 @@ fun Sidebar(
                                 Spacer(Modifier.width(4.dp))
                             }
                             Text(d.name, style = MaterialTheme.typography.titleSmall,
+                                modifier = Modifier.weight(1f),
                                 color = if (isAttached) MaterialTheme.colorScheme.primary else Color.Unspecified,
-                                fontWeight = if (isAttached) FontWeight.Bold else null)
+                                fontWeight = if (isAttached) FontWeight.Bold else null,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
                             if (d.target == "sandbox") Row(
                                 Modifier.padding(start = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -168,8 +176,6 @@ fun Sidebar(
                             Text(badge, style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.secondary)
                         }
-                        Text(d.dir, style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.outline, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         val parts = mutableListOf<String>()
                         if (d.busy) parts.add("working…")
                         if (isAttached) parts.add("attached")
@@ -178,12 +184,7 @@ fun Sidebar(
                         if (parts.isNotEmpty()) Text(parts.joinToString(" · "),
                             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
                     }
-                    Icon(Icons.Filled.Edit, contentDescription = "Rename",
-                        modifier = Modifier.clickable { onRename(d) }.padding(8.dp).size(20.dp))
-                    Icon(Icons.Filled.Delete, contentDescription = "Delete",
-                        modifier = Modifier.clickable { onDelete(d) }.padding(8.dp).size(20.dp))
                 }
-                HorizontalDivider()
                 }
             }
         }
