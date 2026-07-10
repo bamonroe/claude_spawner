@@ -9,7 +9,9 @@
 //   - SPAWNER_* env vars read in internal/config  -> must be in CLAUDE.md
 //   - inbound wire message types (gateway dispatch) -> must be in docs/protocol.md
 //   - outbound wire message types (messages.go)     -> must be in docs/protocol.md
-//   - msgError(code, ...) codes (internal/gateway)  -> must be in docs/protocol.md
+//   - error codes (msgError(...) and c.fail(...))    -> must be in docs/protocol.md
+//   - the Kotlin client's wire strings (Protocol.kt) -> must match the gateway
+//     both ways; see clientsync_test.go
 //
 // The command list has its own drift test (internal/command, registry <->
 // docs/commands.json); this package covers the facts that previously had a
@@ -134,8 +136,10 @@ func TestConfigEnvVarsDocumented(t *testing.T) {
 		"Document each SPAWNER_* var in CLAUDE.md's config section (backticked).")
 }
 
-func TestInboundMessagesDocumented(t *testing.T) {
-	root := repoRoot(t)
+// serverInboundTypes extracts the wire types the gateway dispatches on — the
+// keys of the `wireHandlers` map in gateway.go.
+func serverInboundTypes(t *testing.T, root string) []string {
+	t.Helper()
 	_, f := parseGo(t, filepath.Join(root, "server", "internal", "gateway", "gateway.go"))
 	var types []string
 	ast.Inspect(f, func(n ast.Node) bool {
@@ -173,13 +177,13 @@ func TestInboundMessagesDocumented(t *testing.T) {
 	if len(types) == 0 {
 		t.Fatal("found no inbound message types in gateway.go wireHandlers — parser broken?")
 	}
-	doc := readDoc(t, root, filepath.Join("docs", "protocol.md"))
-	reportMissing(t, doc, "docs/protocol.md", types,
-		"Add each inbound type to the App -> server table in docs/protocol.md (backticked).")
+	return types
 }
 
-func TestOutboundMessagesDocumented(t *testing.T) {
-	root := repoRoot(t)
+// serverOutboundTypes extracts every wire type the server can emit — the
+// `"type": "<x>"` literals in messages.go's msg* constructors.
+func serverOutboundTypes(t *testing.T, root string) []string {
+	t.Helper()
 	_, f := parseGo(t, filepath.Join(root, "server", "internal", "gateway", "messages.go"))
 	seen := map[string]bool{}
 	var types []string
@@ -206,6 +210,20 @@ func TestOutboundMessagesDocumented(t *testing.T) {
 	if len(types) == 0 {
 		t.Fatal("found no outbound message types in messages.go — parser broken?")
 	}
+	return types
+}
+
+func TestInboundMessagesDocumented(t *testing.T) {
+	root := repoRoot(t)
+	types := serverInboundTypes(t, root)
+	doc := readDoc(t, root, filepath.Join("docs", "protocol.md"))
+	reportMissing(t, doc, "docs/protocol.md", types,
+		"Add each inbound type to the App -> server table in docs/protocol.md (backticked).")
+}
+
+func TestOutboundMessagesDocumented(t *testing.T) {
+	root := repoRoot(t)
+	types := serverOutboundTypes(t, root)
 	doc := readDoc(t, root, filepath.Join("docs", "protocol.md"))
 	reportMissing(t, doc, "docs/protocol.md", types,
 		"Add each server -> app type to the table in docs/protocol.md (backticked).")
@@ -228,11 +246,19 @@ func TestErrorCodesDocumented(t *testing.T) {
 		_, f := parseGo(t, filepath.Join(gwDir, name))
 		ast.Inspect(f, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
-			if !ok {
+			if !ok || len(call.Args) == 0 {
 				return true
 			}
-			id, ok := call.Fun.(*ast.Ident)
-			if !ok || id.Name != "msgError" || len(call.Args) == 0 {
+			// Errors leave the gateway either as msgError("code", ...) or via the
+			// conn helper c.fail("code", ...); both carry the code as arg 0.
+			isErr := false
+			switch fun := call.Fun.(type) {
+			case *ast.Ident:
+				isErr = fun.Name == "msgError"
+			case *ast.SelectorExpr:
+				isErr = fun.Sel.Name == "fail"
+			}
+			if !isErr {
 				return true
 			}
 			if s := strLit(call.Args[0]); s != "" && !seen[s] {

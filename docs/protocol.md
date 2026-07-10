@@ -217,6 +217,7 @@ wire-level / programmer-facing codes that only come from the app — `bad_messag
 | `bad_rename`       | invalid `rename`/`rename_discovered` request             |
 | `bad_host`         | invalid `host_put`/`host_delete` request (missing name)  |
 | `bad_identity`     | invalid `identity_create`/`identity_delete` (missing/duplicate name) |
+| `bad_agent`        | invalid `set_agent` request (needs `session_id` or `path`) |
 | `spawn_failed`     | session directory creation / claude failed to start      |
 | `no_session`       | action referenced an unknown session                     |
 | `not_found`        | referenced directory/session not found                   |
@@ -230,4 +231,5 @@ wire-level / programmer-facing codes that only come from the app — `bad_messag
 | `turn_failed`      | the dictation turn errored (non-success `result`)        |
 | `compress_failed`  | the `compress` summarization turn errored                |
 | `usage_failed`     | running `/usage` to fetch the plan's usage report failed |
+| `restart_failed`   | `restart` requested but `SPAWNER_RESTART_CMD` is unset/failed to launch |
 | `internal`         | unexpected server error                                  |
