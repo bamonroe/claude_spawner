@@ -28,11 +28,16 @@ type dialog struct {
 	// optional host-vs-sandbox target question so the flow resumes cleanly.
 	attachPrompt string
 	sess         *session.Session
+	// agentID is the AI backend chosen inline in the spawn phrase ("spawn a codex
+	// session"); empty means the default backend. Carried across the dialog to
+	// newSession so the created session runs on the chosen backend.
+	agentID string
 }
 
 // startSpawn begins the spawn dialog. isNew selects create-a-new-project mode;
-// location is an optional spoken path ("git personal") to jump straight to.
-func (c *conn) startSpawn(isNew bool, location string) {
+// location is an optional spoken path ("git personal") to jump straight to;
+// agentID is the backend chosen inline ("spawn a codex session"), empty = default.
+func (c *conn) startSpawn(isNew bool, location, agentID string) {
 	if c.srv.projects != nil {
 		c.srv.projects.Refresh()
 	}
@@ -40,7 +45,7 @@ func (c *conn) startSpawn(isNew bool, location string) {
 	if isNew {
 		mode = "new"
 	}
-	c.dlg = &dialog{flow: "spawn", state: "await_root", mode: mode}
+	c.dlg = &dialog{flow: "spawn", state: "await_root", mode: mode, agentID: agentID}
 
 	// If they named a location inline, resolve it and skip the "where?" prompt.
 	if terms := projects.Terms(location); len(terms) > 0 {
@@ -455,7 +460,7 @@ func (c *conn) beginAttachQuestion(dir, prompt string, target session.Target) {
 	sess := c.srv.store.GetByDir(dir)
 	if sess == nil {
 		var err error
-		sess, err = c.newSession(sanitizeName(filepath.Base(dir)), dir, target)
+		sess, err = c.newSession(sanitizeName(filepath.Base(dir)), dir, target, c.dlg.agentID)
 		if err != nil {
 			c.fail("internal", err.Error())
 			c.dlg = nil

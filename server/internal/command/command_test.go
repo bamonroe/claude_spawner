@@ -203,16 +203,25 @@ func TestParseSpawn(t *testing.T) {
 		in       string
 		new      bool
 		location string
+		agent    string
 	}{
-		{"spawn a new session", false, ""},
-		{"spawn a session in git personal", false, "git personal"},
-		{"spawn a new project in git personal", true, "git personal"},
-		{"spawn a new project", true, ""},
-		{"start a project under data", true, "data"},
+		{"spawn a new session", false, "", ""},
+		{"spawn a session in git personal", false, "git personal", ""},
+		{"spawn a new project in git personal", true, "git personal", ""},
+		{"spawn a new project", true, "", ""},
+		{"start a project under data", true, "data", ""},
 		// Inline location with no preposition: the path after "session"/"project"
 		// is still captured so a one-shot command jumps straight there.
-		{"spawn a new session bam git personal", false, "bam git personal"},
-		{"new project data askii", true, "data askii"},
+		{"spawn a new session bam git personal", false, "bam git personal", ""},
+		{"new project data askii", true, "data askii", ""},
+		// Inline backend selection: the backend word is pulled out and doesn't
+		// leak into the location.
+		{"spawn a codex session", false, "", "codex"},
+		{"spawn a codex session in git personal", false, "git personal", "codex"},
+		{"spawn a session on codex", false, "", "codex"},
+		{"spawn a new codex project in data askii", true, "data askii", "codex"},
+		// "codex" in path position (not a selector) stays part of the location.
+		{"spawn a session in data codex work", false, "data codex work", ""},
 	}
 	for _, c := range cases {
 		got := Parse(c.in)
@@ -220,9 +229,9 @@ func TestParseSpawn(t *testing.T) {
 			t.Errorf("Parse(%q).Kind = %s, want spawn", c.in, got.Kind)
 			continue
 		}
-		if got.New != c.new || got.Location != c.location {
-			t.Errorf("Parse(%q) = {new:%v loc:%q}, want {new:%v loc:%q}",
-				c.in, got.New, got.Location, c.new, c.location)
+		if got.New != c.new || got.Location != c.location || got.Agent != c.agent {
+			t.Errorf("Parse(%q) = {new:%v loc:%q agent:%q}, want {new:%v loc:%q agent:%q}",
+				c.in, got.New, got.Location, got.Agent, c.new, c.location, c.agent)
 		}
 	}
 }

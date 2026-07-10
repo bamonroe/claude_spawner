@@ -41,9 +41,16 @@ any backend runs on any target.
       `codex-cli` 0.144.1. Unit tests for args + parser; command lines validated end-to-end. Note:
       on a ChatGPT-account plan only `gpt-5.5` is `-m`-selectable, so the alternates are
       reasoning-effort presets on it. (2026-07-09)
-- [ ] Spawn stamps `DefaultModel`: `doSpawnAt` sets `Session.Agent` (default backend) and
-      `Session.Model = agent.DefaultModel`. Protocol: add `agent`/`model` to `spawn_at` + surface on
-      `session_list`/`attached` (`docs/protocol.md`, `internal/docsync`).
+- [x] Spawn stamps agent + `DefaultModel`: `newSession` (the single choke point for both spawn
+      paths) sets `Session.Agent` and `Session.Model = agent.DefaultModel`. Inline **voice backend
+      selection**: "spawn a codex session" / "spawn a session on codex" → `command.extractSpawnAgent`
+      pulls the backend out (only in selector position, so a path token like `.../codex-x` isn't
+      mistaken; "claude" deliberately not a keyword — it's the default and a common path word),
+      threaded through the spawn dialog to `newSession`. Parse tests. (2026-07-09)
+- [ ] Surface agent/model over the protocol so the app can DISPLAY and PICK them: add `agent`/`model`
+      to `session_list`/`attached` (+ a backend choice in the visual New-session picker and the spawn
+      dialog's target step). `docs/protocol.md` + `internal/docsync`. (Voice path already complete;
+      this is the visual/app half.)
 - [x] Voice model selection: "hey buddy, list models" speaks the attached session's backend
       catalogue numbered (marking current); "hey buddy, use model 3" switches by ordinal (digit or
       number-word) — ordinals dodge hard-to-say model names. `internal/command` (ListModels/UseModel

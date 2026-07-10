@@ -173,6 +173,10 @@ func (d *Driver) binFor(ag *agent.Agent, t Target) string {
 // catalogue for the "list models" / "use model N" voice commands.
 func (d *Driver) AgentFor(s *Session) *agent.Agent { return d.agents().Resolve(s.Agent) }
 
+// Agents returns the backend registry (never nil), so the gateway can resolve a
+// named backend at spawn and list the available backends.
+func (d *Driver) Registry() *agent.Registry { return d.agents() }
+
 // executor resolves a Target to its Executor, falling back to the host executor
 // for the empty string or any target with no registered executor.
 func (d *Driver) executor(t Target) Executor {

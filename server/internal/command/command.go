@@ -42,7 +42,8 @@ type Intent struct {
 	Arg      string
 	Location string
 	New      bool
-	Count    int // for ReadLast: how many recent replies to re-read; for UseModel: the 1-based model number
+	Count    int    // for ReadLast: how many recent replies to re-read; for UseModel: the 1-based model number
+	Agent    string // for Spawn: the AI backend chosen inline ("codex"); empty = default backend
 }
 
 // wakePhrases is the single source of truth for the wake token — the spoken
@@ -78,7 +79,7 @@ var wakePhrases = [][]string{
 var commandVocab = []string{
 	"spawn", "attach", "detach", "list", "kill", "status", "cancel",
 	"stop", "abort", "help", "read last", "clear", "compress", "compact",
-	"usage", "rename", "session", "project", "model", "models",
+	"usage", "rename", "session", "project", "model", "models", "codex",
 }
 
 // Vocabulary returns the control words worth biasing STT toward: the canonical
@@ -237,18 +238,24 @@ func Parse(text string) Intent {
 	// Spawn: "spawn … session/project", or a leading new-session/project phrase.
 	case first == "spawn" && contains(t, "session", "project"),
 		leadsWith(t, "new session", "new project", "create a session", "create a project", "start a session", "start a project"):
+		// Pull an inline backend choice ("spawn a codex session", "… on codex") out
+		// first, so its word doesn't leak into the parsed location.
+		agentID, rest := extractSpawnAgent(t)
 		// Prefer an explicit preposition ("spawn a session in git personal"); if
 		// there's none, take whatever path was spoken right after "session"/
 		// "project" ("spawn a new session bam git personal") so a one-shot command
 		// with an inline location still jumps straight there instead of dropping it.
-		loc := afterAny(t, "in", "at", "under", "inside")
+		loc := afterAny(rest, "in", "at", "under", "inside")
 		if loc == "" {
-			loc = afterAny(t, "session", "project")
+			loc = afterAny(rest, "session", "project")
 		}
 		return Intent{
-			Kind:     Spawn,
-			New:      contains(t, "new project", "new repo", "new folder", "create a project", "start a project"),
+			Kind: Spawn,
+			// Detect on the backend-stripped text so "new codex project" still reads
+			// as new-project (the backend word sits between "new" and "project").
+			New:      contains(rest, "new project", "new repo", "new folder", "create a project", "start a project"),
 			Location: loc,
+			Agent:    agentID,
 		}
 
 	// Detach: bare "detach"/"detach now", or an explicit phrase.
@@ -397,6 +404,46 @@ func readCount(words []string) int {
 		}
 	}
 	return 1
+}
+
+// spawnAgentWords maps a spoken backend name to its agent id for inline spawn
+// selection. Only distinctive, non-path-like names belong here: "claude" is
+// intentionally absent — it's the default backend AND a common path token (dirs
+// like claude_spawner), so treating it as a selector would corrupt locations.
+var spawnAgentWords = map[string]string{"codex": "codex"}
+
+// extractSpawnAgent pulls an inline backend choice out of a spawn utterance and
+// returns the chosen agent id (empty if none) plus the utterance with the
+// backend phrase removed, so the caller parses the location cleanly. A backend
+// word counts as a selector ONLY in selector position — right before
+// "session"/"project" ("codex session") or right after "on"/"using"/"with" ("…
+// on codex"); elsewhere it's left in place as an ordinary path token.
+func extractSpawnAgent(t string) (agentID, rest string) {
+	words := strings.Fields(t)
+	drop := make([]bool, len(words))
+	for i, w := range words {
+		id, ok := spawnAgentWords[w]
+		if !ok {
+			continue
+		}
+		prevSel := i > 0 && (words[i-1] == "on" || words[i-1] == "using" || words[i-1] == "with")
+		nextNoun := i+1 < len(words) && (words[i+1] == "session" || words[i+1] == "project")
+		if !prevSel && !nextNoun {
+			continue // a path token like ".../codex-foo", not a backend selector
+		}
+		agentID = id
+		drop[i] = true
+		if prevSel {
+			drop[i-1] = true
+		}
+	}
+	out := words[:0:0]
+	for i, w := range words {
+		if !drop[i] {
+			out = append(out, w)
+		}
+	}
+	return agentID, strings.Join(out, " ")
 }
 
 // modelIndex extracts the 1-based model number from a UseModel command: the

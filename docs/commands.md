@@ -44,7 +44,7 @@ Reject paths that escape the allowed root unless the user explicitly opts in.
 
 | Intent          | Canonical phrasing                       | Effect                                            |
 |-----------------|------------------------------------------|---------------------------------------------------|
-| `spawn`         | "spawn a new session" / "spawn a session in git personal" / "spawn a new project in git personal" | Starts the spawn dialog (see below). An inline location after "in"/"at" jumps straight there; "new project" switches to create mode. When a sandbox image is configured (`SPAWNER_SANDBOX_IMAGE`), the dialog also asks whether to run the session on the **host** or in a **sandbox**. |
+| `spawn`         | "spawn a new session" / "spawn a session in git personal" / "spawn a new project in git personal" | Starts the spawn dialog (see below). An inline location after "in"/"at" jumps straight there; "new project" switches to create mode. An inline **backend** — "spawn a **codex** session" or "spawn a session **on codex**" — picks the AI for the new session (default is Claude); the session is stamped with that backend and its default model. When a sandbox image is configured (`SPAWNER_SANDBOX_IMAGE`), the dialog also asks whether to run the session on the **host** or in a **sandbox**. |
 | `attach`        | "attach to `<name>`"                     | Attaches; subsequent speech is dictated           |
 | `detach`        | "detach" / "stop dictating"              | Leaves passthrough mode                            |
 | `list`          | "list sessions" / "what sessions"        | Reads back known sessions                          |

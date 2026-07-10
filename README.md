@@ -110,6 +110,10 @@ declares how to invoke it and how to read its output, so they share one interfac
   it turn to turn. Needs `codex` installed and logged in (`codex login`); set `SPAWNER_CODEX_BIN` if
   it isn't on the server's `PATH`.
 
+Pick the backend when you spawn — **"hey buddy, spawn a codex session"** (or "…on codex") creates a
+Codex session; a plain spawn uses Claude. The new session is stamped with that backend and its
+default model.
+
 A session records which backend it runs and which **model**. Each backend has a **default model**
 the spawner picks for you, plus a short catalogue you can switch between by voice:
 

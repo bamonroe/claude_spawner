@@ -133,7 +133,7 @@ func (c *conn) doSpawnAt(path string, target session.Target, create bool, host s
 		c.doAttach(existing.Name, false)
 		return
 	}
-	sess, err := c.newSession(sanitizeName(filepath.Base(dir)), dir, target)
+	sess, err := c.newSession(sanitizeName(filepath.Base(dir)), dir, target, "") // visual picker: default backend
 	if err != nil {
 		c.fail("internal", err.Error())
 		return

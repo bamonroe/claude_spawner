@@ -43,7 +43,7 @@ func (c *conn) dispatch(text string) {
 func (c *conn) runCommand(intent command.Intent) bool {
 	switch intent.Kind {
 	case command.Spawn:
-		c.startSpawn(intent.New, intent.Location)
+		c.startSpawn(intent.New, intent.Location, intent.Agent)
 	case command.List:
 		c.doList()
 	case command.Attach:
@@ -890,12 +890,18 @@ func negative(text string) bool {
 
 // newSession builds a durable record with a generated session_id, ensuring a
 // unique name derived from base.
-func (c *conn) newSession(base, dir string, target session.Target) (*session.Session, error) {
+func (c *conn) newSession(base, dir string, target session.Target, agentID string) (*session.Session, error) {
 	id, err := session.NewSessionID()
 	if err != nil {
 		return nil, err
 	}
 	s := &session.Session{Name: c.srv.uniqueName(base), Dir: dir, SessionID: id, Target: target}
+	// Stamp the AI backend and its default model — spawn chooses the model for you
+	// ("use model N" switches it later). agentID empty/unknown resolves to the
+	// default backend (Claude), so the visual picker (no backend choice yet) and
+	// old callers get Claude.
+	ag := c.srv.driver.Registry().Resolve(agentID)
+	s.Agent, s.Model = ag.ID, ag.DefaultModel
 	if target == session.TargetSandbox {
 		cn, err := session.NewContainerName()
 		if err != nil {
