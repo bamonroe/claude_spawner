@@ -57,6 +57,8 @@ interface Prefs {
     var whisperUrl: String
     /** Resident whisper model to hot-load (ggml name, e.g. "medium.en"). */
     var whisperModel: String
+    /** Fast (draft/detection, "quick" transcribe) whisper model; "" = server default/none. */
+    var whisperFastModel: String
 
     /** Command aliases as "misheard = command" lines (fixes whisper mistakes). */
     var commandAliases: String

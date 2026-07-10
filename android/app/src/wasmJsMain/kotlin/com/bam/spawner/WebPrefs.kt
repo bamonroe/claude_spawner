@@ -104,6 +104,9 @@ class WebPrefs : Prefs {
     override var whisperModel: String
         get() = str("whisper_model", Prefs.DEFAULT_WHISPER_MODEL)
         set(v) = putStr("whisper_model", v)
+    override var whisperFastModel: String
+        get() = str("whisper_fast_model", "")
+        set(v) = putStr("whisper_fast_model", v)
 
     override var commandAliases: String
         get() = str("cmd_aliases", Prefs.DEFAULT_ALIASES)

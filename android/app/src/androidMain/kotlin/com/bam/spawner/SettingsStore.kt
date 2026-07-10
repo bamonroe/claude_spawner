@@ -112,6 +112,11 @@ class SettingsStore(context: Context) : Prefs {
         get() = prefs.getString("whisper_model", Prefs.DEFAULT_WHISPER_MODEL) ?: Prefs.DEFAULT_WHISPER_MODEL
         set(v) = prefs.edit().putString("whisper_model", v).apply()
 
+    /** Fast (draft/detection, "quick" transcribe) whisper model; "" = server default/none. */
+    override var whisperFastModel: String
+        get() = prefs.getString("whisper_fast_model", "") ?: ""
+        set(v) = prefs.edit().putString("whisper_fast_model", v).apply()
+
     /** Command aliases as "misheard = command" lines (fixes whisper mistakes). */
     override var commandAliases: String
         get() = prefs.getString("cmd_aliases", Prefs.DEFAULT_ALIASES) ?: Prefs.DEFAULT_ALIASES

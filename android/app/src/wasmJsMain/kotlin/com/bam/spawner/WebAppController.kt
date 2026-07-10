@@ -106,6 +106,9 @@ class WebAppController(private val prefs: Prefs) : AppController {
 
     private val _whisperModel = MutableStateFlow(prefs.whisperModel)
     override val whisperModel: StateFlow<String> = _whisperModel.asStateFlow()
+    // The fast (draft/detection, "quick") server's model; "" = none configured.
+    private val _whisperFastModel = MutableStateFlow(prefs.whisperFastModel)
+    override val whisperFastModel: StateFlow<String> = _whisperFastModel.asStateFlow()
     private val _ask = MutableStateFlow<List<AskQuestion>?>(null)
     override val ask: StateFlow<List<AskQuestion>?> = _ask.asStateFlow()
 
@@ -160,12 +163,19 @@ class WebAppController(private val prefs: Prefs) : AppController {
             is ServerMsg.HelloOk -> {
                 _status.value = "connected"
                 if (msg.whisperModel.isNotBlank()) _whisperModel.value = msg.whisperModel
+                // Unconditional: "" is meaningful (no fast server configured there).
+                _whisperFastModel.value = msg.whisperModelFast
+                prefs.whisperFastModel = msg.whisperModelFast
                 discover()
                 if (prefs.lastSession.isNotBlank()) {
                     client?.send(Outbound.attach(prefs.lastSession, prefs.lastSessionId, silent = true))
                 }
             }
-            is ServerMsg.WhisperModel -> if (msg.model.isNotBlank()) _whisperModel.value = msg.model
+            is ServerMsg.WhisperModel -> {
+                if (msg.model.isNotBlank()) _whisperModel.value = msg.model
+                _whisperFastModel.value = msg.fastModel
+                prefs.whisperFastModel = msg.fastModel
+            }
             is ServerMsg.Say -> { _activity.value = ""; addChat(Role.SYSTEM, msg.text); speak(msg.text) }
             is ServerMsg.Output -> {
                 _activity.value = ""
@@ -325,7 +335,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
     override fun calcUsageMax() { client?.send(Outbound.usageCalc()) }
     override fun dismissUsage() { _usageLoading.value = false; _usageReport.value = null }
 
-    override fun setWhisperModel(model: String) { client?.send(Outbound.setWhisperModel(model)) }
+    override fun setWhisperModel(model: String, fast: Boolean) { client?.send(Outbound.setWhisperModel(model, fast)) }
     override fun setAutoCompress(warm: Boolean, auto: Boolean, thresholdK: Int) { client?.send(Outbound.autoCompress(warm, auto, thresholdK)) }
     override fun restartServer() { client?.send(Outbound.restart()) }
 

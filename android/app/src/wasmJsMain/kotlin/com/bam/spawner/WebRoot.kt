@@ -67,6 +67,7 @@ fun WebRoot() {
                 )
                 "set_audio" -> AudioSettings(
                     prefs,
+                    controller,
                     onVadChanged = {},
                     onSttChanged = reconnect,
                     onBack = { screen = "settings" },

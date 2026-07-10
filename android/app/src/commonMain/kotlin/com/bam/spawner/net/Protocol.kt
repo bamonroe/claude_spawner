@@ -20,8 +20,10 @@ import kotlinx.serialization.json.putJsonObject
  * JVM-only and this file is now shared between the Android and web clients).
  */
 sealed interface ServerMsg {
-    data class HelloOk(val serverVersion: String, val whisperModel: String) : ServerMsg
-    data class WhisperModel(val model: String) : ServerMsg // resident server's current model (server-global)
+    data class HelloOk(val serverVersion: String, val whisperModel: String, val whisperModelFast: String = "") : ServerMsg
+    // The resident servers' current models, server-global: accurate ("full") +
+    // fast draft/detection ("quick"; empty = no fast server configured).
+    data class WhisperModel(val model: String, val fastModel: String = "") : ServerMsg
     data class Say(val text: String) : ServerMsg
     data class Transcript(val text: String, val final: Boolean) : ServerMsg
     data class Pending(val text: String) : ServerMsg // live hands-free draft buffer
@@ -63,8 +65,8 @@ sealed interface ServerMsg {
         fun parse(raw: String): ServerMsg {
             val o = json.parseToJsonElement(raw).jsonObject
             return when (o.str("type")) {
-                "hello_ok" -> HelloOk(o.str("server_version"), o.str("whisper_model"))
-                "whisper_model" -> WhisperModel(o.str("model"))
+                "hello_ok" -> HelloOk(o.str("server_version"), o.str("whisper_model"), o.str("whisper_model_fast"))
+                "whisper_model" -> WhisperModel(o.str("model"), o.str("fast_model"))
                 "say" -> Say(o.str("text"))
                 "transcript" -> Transcript(o.str("text"), o.bool("final", true))
                 "pending" -> Pending(o.str("text"))
@@ -361,8 +363,13 @@ object Outbound {
     fun usageSet() = buildJsonObject { put("type", "usage_set") }.toString() // arm the two-point rate benchmark
     fun usageCalc() = buildJsonObject { put("type", "usage_calc") }.toString() // derive the rate from the benchmark
     fun abort() = buildJsonObject { put("type", "abort") }.toString() // cancel the running turn
-    fun setWhisperModel(model: String) =
-        buildJsonObject { put("type", "set_whisper_model"); put("whisper_model", model) }.toString()
+    // fast targets the draft/detection ("quick" transcribe) server; default is the
+    // accurate ("full" transcribe) one.
+    fun setWhisperModel(model: String, fast: Boolean = false) =
+        buildJsonObject {
+            put("type", "set_whisper_model"); put("whisper_model", model)
+            if (fast) put("fast", true)
+        }.toString()
     fun restart() = buildJsonObject { put("type", "restart") }.toString() // ask the server to restart
 
     fun wake(codec: String, handsFree: Boolean = false, calibrate: Boolean = false) =

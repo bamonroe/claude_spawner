@@ -37,6 +37,7 @@ type inbound struct {
 	Aliases               map[string]string `json:"aliases"`                 // on `hello`: mis-transcription -> canonical command word
 	WhisperURL            string            `json:"whisper_url"`             // on `hello`: resident whisper server URL (overrides the default)
 	WhisperModel          string            `json:"whisper_model"`           // on `hello`: ggml model to hot-load on the resident server (e.g. "medium.en")
+	Fast                  bool              `json:"fast"`                    // on `set_whisper_model`: target the fast (draft/detection) server instead of the accurate one
 	Before                *int              `json:"before"`                  // on `history`: page cursor (exclusive index); nil = most recent
 	Limit                 int               `json:"limit"`                   // on `history`: page size (default 30)
 	HaveHash              string            `json:"have_hash"`               // on `history`: digest of the top page the app already cached; server replies `unchanged` if it still matches
@@ -78,14 +79,18 @@ func msgAgents(reg *agent.Registry) map[string]any {
 	return map[string]any{"type": "agents", "agents": agents, "default": def}
 }
 
-func msgHelloOK(sessionID, whisperModel string) map[string]any {
-	return map[string]any{"type": "hello_ok", "server_version": serverVersion, "session_id": sessionID, "whisper_model": whisperModel}
+func msgHelloOK(sessionID, whisperModel, whisperFastModel string) map[string]any {
+	return map[string]any{
+		"type": "hello_ok", "server_version": serverVersion, "session_id": sessionID,
+		"whisper_model": whisperModel, "whisper_model_fast": whisperFastModel,
+	}
 }
 
-// msgWhisperModel reports the resident whisper server's current model (server-
-// global). Sent in hello_ok and broadcast to all clients when it changes.
-func msgWhisperModel(name string) map[string]any {
-	return map[string]any{"type": "whisper_model", "model": name}
+// msgWhisperModel reports the resident whisper servers' current models (server-
+// global): the accurate one and the fast draft/detection one (fast_model is ""
+// when no fast server is configured). Broadcast to all clients on any change.
+func msgWhisperModel(name, fastName string) map[string]any {
+	return map[string]any{"type": "whisper_model", "model": name, "fast_model": fastName}
 }
 
 func msgSay(text string) map[string]any {

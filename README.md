@@ -252,11 +252,15 @@ sandbox sessions itself, enforcing the `SPAWNER_ROOT` jail — so no component r
 no separate broker: that indirection existed only to let a containerized server reach the host, and
 the server never needed root, so it was folded back into this binary. The only thing still
 containerized is **transcription** — two resident whisper.cpp HTTP servers ([`whisper/`](./whisper/README.md)),
-an accurate model on `:8571` and a fast draft/detection model on `:8572`. The accurate model is
-server-global and can be hot-swapped from **Settings → Server** (it loads for every device at once);
-that choice is **persisted to `settings.json`** next to the session state, so a restart or rebuild
-keeps it instead of reverting to `SPAWNER_WHISPER_MODEL_NAME`. (Settings the app owns — the
-per-device voice prefs — ride along in each `hello` and don't need server-side storage.)
+an accurate model on `:8571` and a fast draft/detection model on `:8572`. Both models are
+server-global and can be hot-swapped from **Settings → Audio → Transcription models** (they load
+for every device at once): the **full** field is the accurate server (dictation), the **quick**
+field the fast one (live hands-free draft + end-token detection), and each free-text field takes
+any ggml model name in the server's `/models` dir (`tiny.en` … `large-v3`). Both choices are
+**persisted to `settings.json`** next to the session state, so a restart or rebuild keeps them
+instead of reverting to `SPAWNER_WHISPER_MODEL_NAME` / `SPAWNER_WHISPER_FAST_MODEL_NAME`.
+(Settings the app owns — the per-device voice prefs — ride along in each `hello` and don't need
+server-side storage.)
 
 Bring-up lives in [`deploy/`](./deploy/README.md): build the binary, drop the env file, enable the
 lingering user service, and start the whisper servers with `docker compose up -d whisper

@@ -55,6 +55,10 @@ type Config struct {
 	// The model is server-global: apps read it on connect and change it via an
 	// explicit push, so two clients don't bounce it around.
 	WhisperModelName string
+	// WhisperFastModelName is the fast (draft/detection) server's default model
+	// NAME, same semantics and lifecycle as WhisperModelName. Only meaningful
+	// when WhisperFastURL is set.
+	WhisperFastModelName string
 	// WhisperModel is the path to a ggml model file. Empty disables transcription
 	// (the audio path returns not_implemented; text utterances still work).
 	WhisperModel string
@@ -138,40 +142,41 @@ type Config struct {
 // Load reads configuration from the environment and validates it.
 func Load() (*Config, error) {
 	c := &Config{
-		Addr:             env("SPAWNER_ADDR", ":8080"),
-		AuthToken:        os.Getenv("SPAWNER_TOKEN"),
-		WebDir:           os.Getenv("SPAWNER_WEB_DIR"),
-		StatePath:        env("SPAWNER_STATE", "sessions.json"),
-		HostsPath:        env("SPAWNER_HOSTS", "hosts.json"),
-		IdentitiesPath:   env("SPAWNER_IDENTITIES", "identities.json"),
-		SSHKeysDir:       env("SPAWNER_SSH_KEYS", "ssh_keys"),
-		ClaudeBin:        env("SPAWNER_CLAUDE_BIN", "claude"),
-		CodexBin:         env("SPAWNER_CODEX_BIN", "codex"),
-		WhisperBin:       env("SPAWNER_WHISPER_BIN", "whisper-cli"),
-		WhisperURL:       os.Getenv("SPAWNER_WHISPER_URL"),
-		WhisperFastURL:   os.Getenv("SPAWNER_WHISPER_FAST_URL"),
-		WhisperModelName: env("SPAWNER_WHISPER_MODEL_NAME", "medium.en"),
-		WhisperModel:     os.Getenv("SPAWNER_WHISPER_MODEL"),
-		WhisperModelFast: os.Getenv("SPAWNER_WHISPER_MODEL_FAST"),
-		WhisperModelBase: os.Getenv("SPAWNER_WHISPER_MODEL_BASE"),
-		WhisperLang:      env("SPAWNER_WHISPER_LANG", "en"),
-		FfmpegBin:        env("SPAWNER_FFMPEG_BIN", "ffmpeg"),
-		SandboxImage:     os.Getenv("SPAWNER_SANDBOX_IMAGE"),
-		SandboxRuntime:   env("SPAWNER_SANDBOX_RUNTIME", "podman"),
-		SandboxClaudeBin: env("SPAWNER_SANDBOX_CLAUDE_BIN", "claude"),
-		SandboxCodexBin:  env("SPAWNER_SANDBOX_CODEX_BIN", "codex"),
-		SandboxMounts:    splitList(os.Getenv("SPAWNER_SANDBOX_MOUNTS"), ","),
-		SandboxRunArgs:   strings.Fields(os.Getenv("SPAWNER_SANDBOX_RUN_ARGS")),
-		RestartCmd:       os.Getenv("SPAWNER_RESTART_CMD"),
-		TLSCert:          os.Getenv("SPAWNER_TLS_CERT"),
-		TLSKey:           os.Getenv("SPAWNER_TLS_KEY"),
-		TLSClientCA:      os.Getenv("SPAWNER_TLS_CLIENT_CA"),
-		SSHEnable:        os.Getenv("SPAWNER_SSH") == "1",
-		SSHUser:          os.Getenv("SPAWNER_SSH_USER"),
-		SSHKey:           os.Getenv("SPAWNER_SSH_KEY"),
-		SSHKnownHosts:    os.Getenv("SPAWNER_SSH_KNOWN_HOSTS"),
-		SSHClaudeBin:     env("SPAWNER_SSH_CLAUDE_BIN", "claude"),
-		SSHCodexBin:      env("SPAWNER_SSH_CODEX_BIN", "codex"),
+		Addr:                 env("SPAWNER_ADDR", ":8080"),
+		AuthToken:            os.Getenv("SPAWNER_TOKEN"),
+		WebDir:               os.Getenv("SPAWNER_WEB_DIR"),
+		StatePath:            env("SPAWNER_STATE", "sessions.json"),
+		HostsPath:            env("SPAWNER_HOSTS", "hosts.json"),
+		IdentitiesPath:       env("SPAWNER_IDENTITIES", "identities.json"),
+		SSHKeysDir:           env("SPAWNER_SSH_KEYS", "ssh_keys"),
+		ClaudeBin:            env("SPAWNER_CLAUDE_BIN", "claude"),
+		CodexBin:             env("SPAWNER_CODEX_BIN", "codex"),
+		WhisperBin:           env("SPAWNER_WHISPER_BIN", "whisper-cli"),
+		WhisperURL:           os.Getenv("SPAWNER_WHISPER_URL"),
+		WhisperFastURL:       os.Getenv("SPAWNER_WHISPER_FAST_URL"),
+		WhisperModelName:     env("SPAWNER_WHISPER_MODEL_NAME", "medium.en"),
+		WhisperFastModelName: env("SPAWNER_WHISPER_FAST_MODEL_NAME", "base.en"),
+		WhisperModel:         os.Getenv("SPAWNER_WHISPER_MODEL"),
+		WhisperModelFast:     os.Getenv("SPAWNER_WHISPER_MODEL_FAST"),
+		WhisperModelBase:     os.Getenv("SPAWNER_WHISPER_MODEL_BASE"),
+		WhisperLang:          env("SPAWNER_WHISPER_LANG", "en"),
+		FfmpegBin:            env("SPAWNER_FFMPEG_BIN", "ffmpeg"),
+		SandboxImage:         os.Getenv("SPAWNER_SANDBOX_IMAGE"),
+		SandboxRuntime:       env("SPAWNER_SANDBOX_RUNTIME", "podman"),
+		SandboxClaudeBin:     env("SPAWNER_SANDBOX_CLAUDE_BIN", "claude"),
+		SandboxCodexBin:      env("SPAWNER_SANDBOX_CODEX_BIN", "codex"),
+		SandboxMounts:        splitList(os.Getenv("SPAWNER_SANDBOX_MOUNTS"), ","),
+		SandboxRunArgs:       strings.Fields(os.Getenv("SPAWNER_SANDBOX_RUN_ARGS")),
+		RestartCmd:           os.Getenv("SPAWNER_RESTART_CMD"),
+		TLSCert:              os.Getenv("SPAWNER_TLS_CERT"),
+		TLSKey:               os.Getenv("SPAWNER_TLS_KEY"),
+		TLSClientCA:          os.Getenv("SPAWNER_TLS_CLIENT_CA"),
+		SSHEnable:            os.Getenv("SPAWNER_SSH") == "1",
+		SSHUser:              os.Getenv("SPAWNER_SSH_USER"),
+		SSHKey:               os.Getenv("SPAWNER_SSH_KEY"),
+		SSHKnownHosts:        os.Getenv("SPAWNER_SSH_KNOWN_HOSTS"),
+		SSHClaudeBin:         env("SPAWNER_SSH_CLAUDE_BIN", "claude"),
+		SSHCodexBin:          env("SPAWNER_SSH_CODEX_BIN", "codex"),
 	}
 	if c.AuthToken == "" {
 		return nil, fmt.Errorf("SPAWNER_TOKEN is required (refusing to run without auth)")

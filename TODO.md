@@ -12,6 +12,14 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-10 — **Per-server whisper model pair**: Settings → Audio → "Transcription models" —
+      two free-text ggml model fields, **full** (accurate server, dictation) and **quick** (fast
+      server: hands-free draft + end-token detection), each hot-loaded server-globally.
+      `set_whisper_model` gained a `fast` flag; `hello_ok`/`whisper_model` now report both models;
+      the fast choice persists in `settings.json` and boots via `SPAWNER_WHISPER_FAST_MODEL_NAME`.
+      Replaces the fixed three-pill picker in Settings → Server. ⚠ needs a server restart to go
+      live.
+
 ### Multi-backend AI registry + per-session model selection (epic — proposed 2026-07-09)
 
 Generalize the server from "drives `claude` only" to a registry of headless AI backends, each

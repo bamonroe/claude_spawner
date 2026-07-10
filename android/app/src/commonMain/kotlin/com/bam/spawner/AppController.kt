@@ -64,6 +64,9 @@ interface AppController : HostsIdentitiesController {
 
     // --- Misc UI state -------------------------------------------------------
     val whisperModel: StateFlow<String>
+    // The fast (draft/detection, "quick" transcribe) server's model; "" when the
+    // server has no fast whisper server configured.
+    val whisperFastModel: StateFlow<String>
     val ask: StateFlow<List<AskQuestion>?>
     // AI backend registry (from the `agents` message): the backends + models the
     // new-session picker offers. Empty until the server advertises it on connect.
@@ -105,7 +108,8 @@ interface AppController : HostsIdentitiesController {
     fun dismissUsage()
 
     // --- Server controls -----------------------------------------------------
-    fun setWhisperModel(model: String)
+    /** Hot-load a resident whisper model: the accurate ("full") server, or the fast ("quick") one. */
+    fun setWhisperModel(model: String, fast: Boolean = false)
     /** Push the context-compression preference (warm + auto) to the server (live, no reconnect). */
     fun setAutoCompress(warm: Boolean, auto: Boolean, thresholdK: Int)
     fun restartServer()

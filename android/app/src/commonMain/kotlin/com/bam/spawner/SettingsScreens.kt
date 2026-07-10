@@ -613,12 +613,6 @@ fun ServerSettings(
 ) {
     var url by rememberSaveable { mutableStateOf(settings.url) }
     var token by rememberSaveable { mutableStateOf(settings.token) }
-    // The whisper model is server-global: read the current one, pick a new one, then
-    // push it. Re-sync the picker whenever the server reports a change (even one made
-    // from another device).
-    val current by controller.whisperModel.collectAsState()
-    var picked by remember { mutableStateOf(current) }
-    LaunchedEffect(current) { picked = current }
     val connected by controller.connected.collectAsState()
     var restartConfirm by remember { mutableStateOf(false) }
     SettingsScaffold("Server", onBack) {
@@ -631,28 +625,6 @@ fun ServerSettings(
             Text("Save & Connect")
         }
         Text("Client ID: ${settings.clientId}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-
-        HorizontalDivider()
-        Text("Whisper model", style = MaterialTheme.typography.titleMedium)
-        Text(
-            "Shared by every device — this is the model loaded on the server. Changing it hot-swaps "
-                + "it for everyone (a few seconds to load).",
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ThemeChoice("Fast", picked == "small.en") { picked = "small.en" }
-            ThemeChoice("Balanced", picked == "medium.en") { picked = "medium.en" }
-            ThemeChoice("Accurate", picked == "large-v3") { picked = "large-v3" }
-        }
-        Text(
-            "current: ${current.ifBlank { "unknown" }}" +
-                if (picked.isNotBlank() && picked != current) "  →  $picked (not applied)" else "",
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
-        )
-        Button(
-            onClick = { controller.setWhisperModel(picked) },
-            enabled = picked.isNotBlank() && picked != current,
-        ) { Text("Apply Whisper Model") }
 
         HorizontalDivider()
         Text("Context compression", style = MaterialTheme.typography.titleMedium)
@@ -724,15 +696,17 @@ fun ServerSettings(
 }
 
 /**
- * Audio settings: VAD thresholds, TTS/interaction toggles, and the resident-whisper URL — all
- * backed by [Prefs]. (The end token, wake token, and silence auto-commit live on the Commands
- * page, since they're part of the command grammar.) [micMeter] is a platform slot
+ * Audio settings: VAD thresholds, TTS/interaction toggles, the resident-whisper URL, and the
+ * server-global transcription model pair (full + quick) — prefs backed by [Prefs], the models
+ * read/pushed live via [controller]. (The end token, wake token, and silence auto-commit live on
+ * the Commands page, since they're part of the command grammar.) [micMeter] is a platform slot
  * that draws the live mic-level bar (Android reads the recorder; web is empty until M5's Web
  * Audio); it receives the current threshold so it can mark it on the bar.
  */
 @Composable
 fun AudioSettings(
     settings: Prefs,
+    controller: AppController,
     onVadChanged: () -> Unit,
     onSttChanged: () -> Unit,
     onBack: () -> Unit,
@@ -790,7 +764,54 @@ fun AudioSettings(
                 + "model there is authoritative (the toggles above are ignored).",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
         )
+
+        HorizontalDivider()
+        Text("Transcription models", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Server-global — shared by every device, hot-loaded on the whisper containers (a few "
+                + "seconds). Any ggml model in the server's /models dir works: tiny.en, base.en, "
+                + "small.en, medium.en, large-v3, …",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
+        )
+        WhisperModelField("Full transcribe model", controller.whisperModel) {
+            controller.setWhisperModel(it)
+        }
+        WhisperModelField("Quick transcribe model", controller.whisperFastModel) {
+            controller.setWhisperModel(it, fast = true)
+        }
+        Text(
+            "Full handles dictation; quick handles the live hands-free draft and end-token "
+                + "detection. Quick shows \"none\" when the server has no fast whisper server.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
+        )
     }
+}
+
+/**
+ * One server-global whisper model editor: a free-text ggml model name, prefilled from the
+ * server-reported [current] (re-synced on any change, even from another device), with an Apply
+ * that pushes it via [onApply] only when it differs.
+ */
+@Composable
+private fun WhisperModelField(label: String, current: StateFlow<String>, onApply: (String) -> Unit) {
+    val cur by current.collectAsState()
+    var picked by remember { mutableStateOf(cur) }
+    LaunchedEffect(cur) { picked = cur }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedTextField(
+            picked, { picked = it },
+            label = { Text(label) }, singleLine = true, modifier = Modifier.weight(1f),
+            placeholder = { Text(cur.ifBlank { "none" }) },
+        )
+        OutlinedButton(
+            onClick = { onApply(picked.trim()) },
+            enabled = picked.trim().isNotBlank() && picked.trim() != cur,
+        ) { Text("Apply") }
+    }
+    Text(
+        "current: ${cur.ifBlank { "none" }}",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
+    )
 }
 
 /** A labeled slider for an integer VAD dial; persists on release via [onChange]. */

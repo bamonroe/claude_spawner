@@ -56,9 +56,11 @@ type Server struct {
 	connsMu sync.Mutex
 	conns   map[*conn]bool // currently-connected apps, for shutdown broadcasts
 
-	whisperMu     sync.Mutex // guards the resident whisper server's currently-loaded model
-	whisperLoaded string     // "<url>|<model>" last hot-loaded, to skip redundant /load calls
-	currentModel  string     // the resident server's model NAME (server-global; apps read it)
+	whisperMu     sync.Mutex // guards the resident whisper servers' currently-loaded models
+	whisperLoaded string     // "<url>|<model>" last hot-loaded (accurate server), to skip redundant /load calls
+	currentModel  string     // the accurate server's model NAME (server-global; apps read it)
+	fastLoaded    string     // "<url>|<model>" last hot-loaded on the fast (draft/detection) server
+	currentFast   string     // the fast server's model NAME ("" when no fast server is configured)
 
 	settings *session.SettingsStore // persisted server-global prefs (survives restart)
 
@@ -88,20 +90,28 @@ func (s *Server) setRateLimit(rl session.RateLimit) {
 	s.rateLimit = rl
 }
 
-// currentWhisperModel returns the resident server's model name (server-global
-// state that apps read on connect).
-func (s *Server) currentWhisperModel() string {
+// currentWhisperModels returns the resident servers' model names — accurate
+// ("full") and fast ("quick"); the fast name is "" when no fast server is
+// configured. Server-global state that apps read on connect.
+func (s *Server) currentWhisperModels() (model, fastModel string) {
 	s.whisperMu.Lock()
 	defer s.whisperMu.Unlock()
-	return s.currentModel
+	return s.currentModel, s.currentFast
 }
 
-// setWhisperModel hot-loads `name` onto the resident whisper server (at the
-// server's configured URL) and records it as the current model. Blocks on the
-// /load; call it from a goroutine. name maps to /models/ggml-<name>.bin.
-func (s *Server) setWhisperModel(name string) error {
+// setWhisperModel hot-loads `name` onto a resident whisper server — the fast
+// (draft/detection) one when fast is set, else the accurate one — and records
+// it as that server's current model. Blocks on the /load; call it from a
+// goroutine. name maps to /models/ggml-<name>.bin.
+func (s *Server) setWhisperModel(name string, fast bool) error {
 	url := s.cfg.WhisperURL
+	if fast {
+		url = s.cfg.WhisperFastURL
+	}
 	if url == "" {
+		if fast {
+			return fmt.Errorf("no fast whisper server configured")
+		}
 		return fmt.Errorf("no resident whisper server configured")
 	}
 	if !validModelName(name) {
@@ -109,9 +119,13 @@ func (s *Server) setWhisperModel(name string) error {
 	}
 	s.whisperMu.Lock()
 	defer s.whisperMu.Unlock()
+	loaded, current := &s.whisperLoaded, &s.currentModel
+	if fast {
+		loaded, current = &s.fastLoaded, &s.currentFast
+	}
 	key := url + "|" + name
-	if s.whisperLoaded == key {
-		s.currentModel = name
+	if *loaded == key {
+		*current = name
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
@@ -119,15 +133,20 @@ func (s *Server) setWhisperModel(name string) error {
 	if err := transcribe.LoadRemoteModel(ctx, url, "/models/ggml-"+name+".bin"); err != nil {
 		return fmt.Errorf("load %s: %w", name, err)
 	}
-	s.whisperLoaded = key
-	s.currentModel = name
-	log.Printf("whisper: model -> %s", name)
+	*loaded = key
+	*current = name
+	if fast {
+		log.Printf("whisper: fast model -> %s", name)
+	} else {
+		log.Printf("whisper: model -> %s", name)
+	}
 	return nil
 }
 
-// broadcastWhisperModel tells every connected app the current resident model, so
-// a change made by one client updates all of them.
-func (s *Server) broadcastWhisperModel(name string) {
+// broadcastWhisperModel tells every connected app the current resident models
+// (accurate + fast), so a change made by one client updates all of them.
+func (s *Server) broadcastWhisperModel() {
+	model, fastModel := s.currentWhisperModels()
 	s.connsMu.Lock()
 	cs := make([]*conn, 0, len(s.conns))
 	for c := range s.conns {
@@ -135,7 +154,7 @@ func (s *Server) broadcastWhisperModel(name string) {
 	}
 	s.connsMu.Unlock()
 	for _, c := range cs {
-		c.send(msgWhisperModel(name))
+		c.send(msgWhisperModel(model, fastModel))
 	}
 }
 
@@ -202,6 +221,13 @@ func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, ids
 	if m := settings.WhisperModel(); m != "" && validModelName(m) {
 		bootModel = m
 	}
+	bootFast := ""
+	if cfg.WhisperFastURL != "" {
+		bootFast = cfg.WhisperFastModelName
+		if m := settings.WhisperFastModel(); m != "" && validModelName(m) {
+			bootFast = m
+		}
+	}
 	s := &Server{
 		cfg:          cfg,
 		store:        store,
@@ -222,6 +248,7 @@ func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, ids
 		usage:        usage.Open(usagePath),
 		settings:     settings,
 		currentModel: bootModel, // persisted choice or env default; loaded below
+		currentFast:  bootFast,  // ditto, for the fast (draft/detection) server
 		up: websocket.Upgrader{
 			// The app authenticates with a token in the hello message, so origin
 			// checks add little; the network boundary (Tailscale/proxy) is the gate.
@@ -233,8 +260,15 @@ func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, ids
 	// doesn't delay startup.
 	if cfg.WhisperURL != "" && bootModel != "" {
 		go func() {
-			if err := s.setWhisperModel(bootModel); err != nil {
+			if err := s.setWhisperModel(bootModel, false); err != nil {
 				log.Printf("whisper: startup load failed: %v", err)
+			}
+		}()
+	}
+	if cfg.WhisperFastURL != "" && bootFast != "" {
+		go func() {
+			if err := s.setWhisperModel(bootFast, true); err != nil {
+				log.Printf("whisper: fast startup load failed: %v", err)
 			}
 		}()
 	}
@@ -471,7 +505,8 @@ func (c *conn) authenticate() bool {
 	}
 	// The whisper model is server-global: the app reads it here rather than pushing
 	// its own (so two clients don't bounce it), and changes it via set_whisper_model.
-	c.send(msgHelloOK("ws", c.srv.currentWhisperModel()))
+	model, fastModel := c.srv.currentWhisperModels()
+	c.send(msgHelloOK("ws", model, fastModel))
 	// Advertise the AI backend registry so the app's new-session picker can offer a
 	// backend + model choice (and badge sessions by backend).
 	c.send(msgAgents(c.srv.driver.Registry()))
@@ -569,7 +604,7 @@ var wireHandlers = map[string]func(c *conn, in inbound){
 	},
 	"cancel":            func(c *conn, in inbound) { c.cancelDialog() },
 	"abort":             func(c *conn, in inbound) { c.abortTurn() },
-	"set_whisper_model": func(c *conn, in inbound) { c.doSetWhisperModel(in.WhisperModel) },
+	"set_whisper_model": func(c *conn, in inbound) { c.doSetWhisperModel(in.WhisperModel, in.Fast) },
 	"auto_compress": func(c *conn, in inbound) {
 		c.srv.setAutoCompress(in.WarmCompress, in.AutoCompress, in.AutoCompressThreshold)
 	},

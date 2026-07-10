@@ -629,22 +629,27 @@ func (c *conn) resolveSession(spoken string) *session.Session {
 	return nil
 }
 
-// doSetWhisperModel changes the resident whisper server's model (server-global).
+// doSetWhisperModel changes a resident whisper server's model (server-global) —
+// the fast (draft/detection) server when fast is set, else the accurate one.
 // The /load blocks (a big model takes seconds), so run it off the read loop; on
-// success, broadcast the new model to every client, else report the error.
-func (c *conn) doSetWhisperModel(name string) {
+// success, broadcast the new models to every client, else report the error.
+func (c *conn) doSetWhisperModel(name string, fast bool) {
 	go func() {
-		if err := c.srv.setWhisperModel(strings.TrimSpace(name)); err != nil {
+		if err := c.srv.setWhisperModel(strings.TrimSpace(name), fast); err != nil {
 			c.fail("whisper_failed", err.Error())
 			return
 		}
-		model := c.srv.currentWhisperModel()
+		model, fastModel := c.srv.currentWhisperModels()
 		// Persist the choice so a restart/rebuild keeps it instead of reverting to
 		// the env default. A write failure is non-fatal — the live model is set.
-		if err := c.srv.settings.SetWhisperModel(model); err != nil {
-			log.Printf("settings: persist whisper model: %v", err)
+		persist := c.srv.settings.SetWhisperModel(model)
+		if fast {
+			persist = c.srv.settings.SetWhisperFastModel(fastModel)
 		}
-		c.srv.broadcastWhisperModel(model)
+		if persist != nil {
+			log.Printf("settings: persist whisper model: %v", persist)
+		}
+		c.srv.broadcastWhisperModel()
 	}()
 }
 

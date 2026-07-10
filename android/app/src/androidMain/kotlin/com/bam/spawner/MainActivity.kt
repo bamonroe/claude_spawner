@@ -264,6 +264,7 @@ private fun AppRoot(
         )
         "set_audio" -> AudioSettings(
             settings,
+            controller,
             onVadChanged = { controller.restartHandsFree() },
             onSttChanged = reconnect,
             onBack = { screen = "settings" },

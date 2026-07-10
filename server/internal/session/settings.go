@@ -17,6 +17,9 @@ type Settings struct {
 	// WhisperModel is the resident whisper server's model NAME (e.g. "medium.en"),
 	// last selected from a client. Empty means "use SPAWNER_WHISPER_MODEL_NAME".
 	WhisperModel string `json:"whisper_model,omitempty"`
+	// WhisperFastModel is the fast (draft/detection) whisper server's model NAME,
+	// same semantics. Empty means "use SPAWNER_WHISPER_FAST_MODEL_NAME".
+	WhisperFastModel string `json:"whisper_fast_model,omitempty"`
 }
 
 // SettingsStore is a concurrency-safe, file-backed holder for the server's
@@ -70,6 +73,25 @@ func (st *SettingsStore) SetWhisperModel(name string) error {
 		return nil
 	}
 	st.s.WhisperModel = name
+	st.mu.Unlock()
+	return st.flush()
+}
+
+// WhisperFastModel returns the persisted fast-whisper model name (empty if none).
+func (st *SettingsStore) WhisperFastModel() string {
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+	return st.s.WhisperFastModel
+}
+
+// SetWhisperFastModel records the fast-whisper model name and persists the file.
+func (st *SettingsStore) SetWhisperFastModel(name string) error {
+	st.mu.Lock()
+	if st.s.WhisperFastModel == name {
+		st.mu.Unlock()
+		return nil
+	}
+	st.s.WhisperFastModel = name
 	st.mu.Unlock()
 	return st.flush()
 }
