@@ -536,7 +536,13 @@ func (c *conn) doSetWhisperModel(name string) {
 			c.fail("whisper_failed", err.Error())
 			return
 		}
-		c.srv.broadcastWhisperModel(c.srv.currentWhisperModel())
+		model := c.srv.currentWhisperModel()
+		// Persist the choice so a restart/rebuild keeps it instead of reverting to
+		// the env default. A write failure is non-fatal — the live model is set.
+		if err := c.srv.settings.SetWhisperModel(model); err != nil {
+			log.Printf("settings: persist whisper model: %v", err)
+		}
+		c.srv.broadcastWhisperModel(model)
 	}()
 }
 

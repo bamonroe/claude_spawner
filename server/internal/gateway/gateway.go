@@ -60,6 +60,8 @@ type Server struct {
 	whisperLoaded string     // "<url>|<model>" last hot-loaded, to skip redundant /load calls
 	currentModel  string     // the resident server's model NAME (server-global; apps read it)
 
+	settings *session.SettingsStore // persisted server-global prefs (survives restart)
+
 	rateLimitMu sync.Mutex        // guards the last-seen subscription rate-limit state
 	rateLimit   session.RateLimit // account-global; cached from turns, pushed to apps on connect
 
@@ -182,12 +184,24 @@ func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, ids
 	if cfg.WhisperFastURL != "" {
 		fast = &transcribe.RemoteWhisper{URL: cfg.WhisperFastURL}
 	}
-	inflightPath, usagePath := "", ""
+	inflightPath, usagePath, settingsPath := "", "", ""
 	if cfg.StatePath != "" {
 		inflightPath = filepath.Join(filepath.Dir(cfg.StatePath), "inflight.json")
 		usagePath = filepath.Join(filepath.Dir(cfg.StatePath), "usage_estimate.json")
+		settingsPath = filepath.Join(filepath.Dir(cfg.StatePath), "settings.json")
 	}
 	inflight, interrupted := newInflightTracker(inflightPath)
+	settings, err := session.OpenSettings(settingsPath)
+	if err != nil {
+		log.Printf("settings: load failed (%v); using env defaults, changes won't persist", err)
+		settings, _ = session.OpenSettings("") // in-memory fallback
+	}
+	// The persisted whisper model, when a user has picked one, wins over the env
+	// default so a restart doesn't silently revert their choice.
+	bootModel := cfg.WhisperModelName
+	if m := settings.WhisperModel(); m != "" && validModelName(m) {
+		bootModel = m
+	}
 	s := &Server{
 		cfg:          cfg,
 		store:        store,
@@ -206,18 +220,20 @@ func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, ids
 		interrupted:  interrupted,
 		acFired:      map[string]int64{},
 		usage:        usage.Open(usagePath),
-		currentModel: cfg.WhisperModelName, // authoritative from boot; loaded below
+		settings:     settings,
+		currentModel: bootModel, // persisted choice or env default; loaded below
 		up: websocket.Upgrader{
 			// The app authenticates with a token in the hello message, so origin
 			// checks add little; the network boundary (Tailscale/proxy) is the gate.
 			CheckOrigin: func(*http.Request) bool { return true },
 		},
 	}
-	// Load the configured default onto the resident server so its model matches
-	// what we report to apps. Async so a big model doesn't delay startup.
-	if cfg.WhisperURL != "" && cfg.WhisperModelName != "" {
+	// Load the boot model (persisted choice or env default) onto the resident
+	// server so its model matches what we report to apps. Async so a big model
+	// doesn't delay startup.
+	if cfg.WhisperURL != "" && bootModel != "" {
 		go func() {
-			if err := s.setWhisperModel(cfg.WhisperModelName); err != nil {
+			if err := s.setWhisperModel(bootModel); err != nil {
 				log.Printf("whisper: startup load failed: %v", err)
 			}
 		}()

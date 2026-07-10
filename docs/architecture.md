@@ -302,6 +302,7 @@ uppercase letters by voice. Acceptable; documented in `docs/commands.md`.
   internal/session/session.go   headless driver: Driver.Turn (per-agent args + parser), parseStream/parseCodexStream
   internal/session/executor.go  pluggable Executor: HostExecutor (direct exec) + SandboxExecutor (runtime)
   internal/session/store.go     durable session registry (file-backed, atomic writes); Session.Target/Container
+  internal/session/settings.go  server-global preferences persisted to settings.json (survives restart; e.g. resident whisper model)
   internal/session/discover.go  scan ~/.claude/projects for all Claude sessions (adopt/discover)
   internal/session/transcript.go read/stitch Claude on-disk transcripts for `history` (spans clears)
   internal/session/codex_transcript.go  codexFS: read Codex rollout files for `history`/context badge
