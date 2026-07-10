@@ -219,7 +219,9 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk bool) bo
 			// --session-id on an id claude already owns (which fails forever).
 			if sess.Started != wasStarted {
 				sess.PendingSeed = ""
-				_ = s.store.Put(sess)
+				if perr := s.store.Put(sess); perr != nil {
+					log.Printf("turn[%s] persist after failed turn: %v", sess.Name, perr)
+				}
 			}
 			if spoken := spokenError["turn_failed"]; spoken != "" {
 				j.emit(msgSay(spoken)) // don't leave a voice user with a silent failure
@@ -248,7 +250,9 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk bool) bo
 			changedRec = true
 		}
 		if changedRec {
-			_ = s.store.Put(sess)
+			if perr := s.store.Put(sess); perr != nil {
+				log.Printf("turn[%s] persist: %v", sess.Name, perr)
+			}
 		}
 		if len(changed) > 0 { // a compact review summary of what the turn touched
 			if d := diffSummary(sess.Dir); d != "" {
@@ -365,7 +369,9 @@ func (s *Server) startCompress(sess *session.Session) bool {
 		// The session_id rotated: move the hub (holds this connection's sink) and the
 		// id index onto the new id so the seeded next turn reaches the same devices.
 		s.rekeyJob(oldID, newID)
-		_ = s.store.ForgetID(oldID)
+		if ferr := s.store.ForgetID(oldID); ferr != nil {
+			log.Printf("forget rotated id %s: %v", oldID, ferr)
+		}
 		log.Printf("compress[%s] rotated to %s (seed %d bytes)", sess.Name, newID, len(sess.PendingSeed))
 		j.emit(msgContextReset(sess.Name)) // reset the app's context-size readout; the seeded turn sets the new size
 		j.finish(msgSay("compressed. carried a summary forward — your history is still here."))

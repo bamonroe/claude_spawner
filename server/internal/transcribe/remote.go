@@ -34,7 +34,10 @@ func LoadRemoteModel(ctx context.Context, url, modelPath string) error {
 		return fmt.Errorf("whisper load: %w", err)
 	}
 	defer resp.Body.Close()
-	data, _ := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("whisper load response: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("whisper load %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
 	}
@@ -85,7 +88,10 @@ func (w *RemoteWhisper) Transcribe(ctx context.Context, wav []byte, opt Options)
 		return "", fmt.Errorf("whisper server: %w", err)
 	}
 	defer resp.Body.Close()
-	data, _ := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("whisper server response: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("whisper server %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
 	}

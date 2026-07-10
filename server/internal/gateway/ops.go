@@ -325,7 +325,9 @@ func (c *conn) doSetAgent(sessionID, dir, agentID, modelAlias string) {
 		// The session_id rotated: move the hub + id index onto the new id so an
 		// attached device still receives the next turn, and forget the old id.
 		c.srv.rekeyJob(oldID, rec.SessionID)
-		_ = c.srv.store.ForgetID(oldID)
+		if ferr := c.srv.store.ForgetID(oldID); ferr != nil {
+			log.Printf("forget rotated id %s: %v", oldID, ferr)
+		}
 	}
 	if attachedHere {
 		c.attached = rec
@@ -408,7 +410,9 @@ func (c *conn) doDeleteDiscovered(sessionID string) {
 		if c.attached != nil && c.attached.SessionID == rec.SessionID {
 			c.doDetach()
 		}
-		_ = c.srv.store.Delete(rec.Name)
+		if derr := c.srv.store.Delete(rec.Name); derr != nil {
+			log.Printf("delete session record %s: %v", rec.Name, derr)
+		}
 		c.removeSandbox(rec) // destroy the session's container, if any
 		c.srv.dropJob(rec.SessionID)
 	}
@@ -722,7 +726,9 @@ func (c *conn) doClear() {
 	// The session_id rotated: move the hub (holds attached sinks) and the id index
 	// onto the new id so later turns still reach the attached devices.
 	c.srv.rekeyJob(oldID, newID)
-	_ = c.srv.store.ForgetID(oldID)
+	if ferr := c.srv.store.ForgetID(oldID); ferr != nil {
+		log.Printf("forget rotated id %s: %v", oldID, ferr)
+	}
 	c.clearBuffer()
 	c.send(msgContextReset(s.Name)) // reset the app's context-size readout to zero
 	c.send(msgSay("cleared. starting fresh — your history is still here."))
