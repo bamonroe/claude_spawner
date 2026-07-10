@@ -14,41 +14,43 @@ const serverVersion = "0.1.0"
 
 // inbound is the union of fields any app->server message may carry.
 type inbound struct {
-	Type         string            `json:"type"`
-	Token        string            `json:"token"`
-	Text         string            `json:"text"`          // utterance / dialog reply text
-	Name         string            `json:"name"`          // session name for attach/kill/rename
-	NewName      string            `json:"new_name"`      // target name for rename
-	Path         string            `json:"path"`          // directory for browse / spawn_at ("" on browse = the host's root "/"); file path for download
-	Files        bool              `json:"files"`         // on browse: include regular files in the listing (file-transfer picker), not just directories
-	Content      string            `json:"content"`       // on upload: the file's bytes, base64-encoded
-	Target       string            `json:"target"`        // on spawn_at: "host" (default) | "sandbox" execution target
-	Create       bool              `json:"create"`        // on spawn_at: mkdir the path (on the target host) first if it doesn't exist
-	Agent        string            `json:"agent"`         // on spawn_at: AI backend id ("codex"); "" = default backend
-	Model        string            `json:"model"`         // on spawn_at: model alias for the new session; "" = the backend's default
-	Codec        string            `json:"codec"`         // audio codec on wake: "ogg_opus" | "pcm16"
-	ClientID     string            `json:"client_id"`     // stable per-app id, for reconnect/resume
-	HandsFree    bool              `json:"hands_free"`    // set on `wake` when the clip is VAD-gated (hands-free)
-	EndToken     string            `json:"end_token"`     // on `hello`: the spoken word that commits a message
-	SttMode      string            `json:"stt_mode"`      // on `hello`: "dynamic" | "fixed"
-	SttModel     string            `json:"stt_model"`     // on `hello`: fixed model "tiny" | "base" | "small"
-	Calibrate    bool              `json:"calibrate"`     // on `wake`: transcribe (fast model) and return, don't dispatch
-	Aliases      map[string]string `json:"aliases"`       // on `hello`: mis-transcription -> canonical command word
-	WhisperURL   string            `json:"whisper_url"`   // on `hello`: resident whisper server URL (overrides the default)
-	WhisperModel string            `json:"whisper_model"` // on `hello`: ggml model to hot-load on the resident server (e.g. "medium.en")
-	Before       *int              `json:"before"`        // on `history`: page cursor (exclusive index); nil = most recent
-	Limit        int               `json:"limit"`         // on `history`: page size (default 30)
-	Silent       bool              `json:"silent"`        // on `attach`: suppress the spoken "attached…" confirmation (reconnect auto-attach)
-	SessionID    string            `json:"session_id"`    // on `adopt`: the discovered Claude session_id to register
-	Brief        bool              `json:"brief"`         // on `hello`: append a "reply briefly for TTS" hint to dictation
-	Interactive  bool              `json:"interactive"`   // on `hello`: let Claude ask clarifying questions mid-task
-	Host         *session.Host     `json:"host"`          // on `host_put`: the SSH host entry to add/update
-	HostName     string            `json:"host_name"`     // on `browse`/`spawn_at`: which registered SSH host to browse / run the new session on ("" = local)
-	KeyPath      string            `json:"key_path"`      // on `identity_import`: server-side path of the existing private key to register
-	User         string            `json:"user"`          // on `identity_create`/`identity_import`: the identity's default SSH login user (required)
-	Password     string            `json:"password"`      // on `identity_create`/`identity_import`: optional SSH password (server-only)
-	GenKey       *bool             `json:"gen_key"`       // on `identity_create`: generate a keypair (nil = yes, for older clients)
-	SetPassword  bool              `json:"set_password"`  // on `identity_update`: apply Password (else keep the current one)
+	Type                  string            `json:"type"`
+	Token                 string            `json:"token"`
+	Text                  string            `json:"text"`                    // utterance / dialog reply text
+	Name                  string            `json:"name"`                    // session name for attach/kill/rename
+	NewName               string            `json:"new_name"`                // target name for rename
+	Path                  string            `json:"path"`                    // directory for browse / spawn_at ("" on browse = the host's root "/"); file path for download
+	Files                 bool              `json:"files"`                   // on browse: include regular files in the listing (file-transfer picker), not just directories
+	Content               string            `json:"content"`                 // on upload: the file's bytes, base64-encoded
+	Target                string            `json:"target"`                  // on spawn_at: "host" (default) | "sandbox" execution target
+	Create                bool              `json:"create"`                  // on spawn_at: mkdir the path (on the target host) first if it doesn't exist
+	Agent                 string            `json:"agent"`                   // on spawn_at: AI backend id ("codex"); "" = default backend
+	Model                 string            `json:"model"`                   // on spawn_at: model alias for the new session; "" = the backend's default
+	Codec                 string            `json:"codec"`                   // audio codec on wake: "ogg_opus" | "pcm16"
+	ClientID              string            `json:"client_id"`               // stable per-app id, for reconnect/resume
+	HandsFree             bool              `json:"hands_free"`              // set on `wake` when the clip is VAD-gated (hands-free)
+	EndToken              string            `json:"end_token"`               // on `hello`: the spoken word that commits a message
+	SttMode               string            `json:"stt_mode"`                // on `hello`: "dynamic" | "fixed"
+	SttModel              string            `json:"stt_model"`               // on `hello`: fixed model "tiny" | "base" | "small"
+	Calibrate             bool              `json:"calibrate"`               // on `wake`: transcribe (fast model) and return, don't dispatch
+	Aliases               map[string]string `json:"aliases"`                 // on `hello`: mis-transcription -> canonical command word
+	WhisperURL            string            `json:"whisper_url"`             // on `hello`: resident whisper server URL (overrides the default)
+	WhisperModel          string            `json:"whisper_model"`           // on `hello`: ggml model to hot-load on the resident server (e.g. "medium.en")
+	Before                *int              `json:"before"`                  // on `history`: page cursor (exclusive index); nil = most recent
+	Limit                 int               `json:"limit"`                   // on `history`: page size (default 30)
+	Silent                bool              `json:"silent"`                  // on `attach`: suppress the spoken "attached…" confirmation (reconnect auto-attach)
+	SessionID             string            `json:"session_id"`              // on `adopt`: the discovered Claude session_id to register
+	Brief                 bool              `json:"brief"`                   // on `hello`: append a "reply briefly for TTS" hint to dictation
+	Interactive           bool              `json:"interactive"`             // on `hello`: let Claude ask clarifying questions mid-task
+	AutoCompress          bool              `json:"auto_compress"`           // on `hello`/`auto_compress`: auto-compress a session near the warm-cache edge
+	AutoCompressThreshold int               `json:"auto_compress_threshold"` // on `hello`/`auto_compress`: context-token threshold, in thousands
+	Host                  *session.Host     `json:"host"`                    // on `host_put`: the SSH host entry to add/update
+	HostName              string            `json:"host_name"`               // on `browse`/`spawn_at`: which registered SSH host to browse / run the new session on ("" = local)
+	KeyPath               string            `json:"key_path"`                // on `identity_import`: server-side path of the existing private key to register
+	User                  string            `json:"user"`                    // on `identity_create`/`identity_import`: the identity's default SSH login user (required)
+	Password              string            `json:"password"`                // on `identity_create`/`identity_import`: optional SSH password (server-only)
+	GenKey                *bool             `json:"gen_key"`                 // on `identity_create`: generate a keypair (nil = yes, for older clients)
+	SetPassword           bool              `json:"set_password"`            // on `identity_update`: apply Password (else keep the current one)
 }
 
 // msgAgents advertises the AI backend registry to the app so the visual

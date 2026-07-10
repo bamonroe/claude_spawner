@@ -64,6 +64,10 @@ type Server struct {
 	rateLimit   session.RateLimit // account-global; cached from turns, pushed to apps on connect
 
 	usage *usage.Estimator // server-global drift-live usage estimate (all sessions/clients)
+
+	autoCompressMu sync.Mutex
+	acCfg          autoCompressCfg  // global auto-compress preference (set by the app over the wire)
+	acFired        map[string]int64 // session_id -> last turn `At` we auto-compressed, for dedup
 }
 
 // lastRateLimit returns the most recent subscription usage-window state (empty
@@ -200,6 +204,7 @@ func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, ids
 		conns:        map[*conn]bool{},
 		inflight:     inflight,
 		interrupted:  interrupted,
+		acFired:      map[string]int64{},
 		usage:        usage.Open(usagePath),
 		currentModel: cfg.WhisperModelName, // authoritative from boot; loaded below
 		up: websocket.Upgrader{
@@ -217,6 +222,8 @@ func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, ids
 			}
 		}()
 	}
+	// Server-owned watcher that fires auto-compress near the warm-cache edge.
+	go s.autoCompressLoop()
 	return s
 }
 
@@ -433,6 +440,7 @@ func (c *conn) authenticate() bool {
 	c.clientID = in.ClientID
 	c.brief = in.Brief
 	c.interactive = in.Interactive
+	c.srv.setAutoCompress(in.AutoCompress, in.AutoCompressThreshold)
 	c.endToken = strings.TrimSpace(in.EndToken)
 	if c.endToken == "" {
 		c.endToken = "beep"
@@ -537,10 +545,13 @@ var wireHandlers = map[string]func(c *conn, in inbound){
 	"browse":            func(c *conn, in inbound) { c.doBrowse(in.Path, in.HostName, in.Files) },
 	"upload":            func(c *conn, in inbound) { c.doUpload(in.Path, in.Name, in.HostName, in.Content) },
 	"download":          func(c *conn, in inbound) { c.doDownload(in.Path, in.HostName) },
-	"spawn_at":          func(c *conn, in inbound) { c.doSpawnAt(in.Path, session.Target(in.Target), in.Create, in.HostName, in.Agent, in.Model) },
+	"spawn_at": func(c *conn, in inbound) {
+		c.doSpawnAt(in.Path, session.Target(in.Target), in.Create, in.HostName, in.Agent, in.Model)
+	},
 	"cancel":            func(c *conn, in inbound) { c.cancelDialog() },
 	"abort":             func(c *conn, in inbound) { c.abortTurn() },
 	"set_whisper_model": func(c *conn, in inbound) { c.doSetWhisperModel(in.WhisperModel) },
+	"auto_compress":     func(c *conn, in inbound) { c.srv.setAutoCompress(in.AutoCompress, in.AutoCompressThreshold) },
 	"restart":           func(c *conn, in inbound) { c.doRestart() },
 	"wake":              func(c *conn, in inbound) { c.startAudio(in.Codec, in.HandsFree, in.Calibrate) },
 	"commit":            func(c *conn, in inbound) { c.commitMessage() }, // silence-timeout commit of the hands-free buffer

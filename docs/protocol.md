@@ -62,6 +62,7 @@ Every JSON message has a `type`. Optional `id` correlates request/response. `ts`
 | `usage_calc`    | `{}`                                      | close the manual benchmark: read `/usage`, then set each window's tokens-per-percent rate **directly** from `(tokens since the `usage_set` mark) / (percent gained)` — no EMA damping — and re-anchor the estimate (the app's **"calc"** button). A window that moved less than 1% since the mark is left unchanged. -> `usage` + `usage_estimate` + `say`. |
 | `abort`         | `{}`                                      | cancel the running dictation turn on the attached session (kills the claude child) -> `turn_stopped` |
 | `set_whisper_model` | `{ "whisper_model": "<name>" }`       | switch the server-global resident whisper model (fans out a `whisper_model` broadcast to every connected client) |
+| `auto_compress`  | `{ "auto_compress": <bool>, "auto_compress_threshold": <int> }` | set the server-global **auto-compress** preference live (the same two fields the `hello` handshake carries). When enabled, the server watches every started session and, once its context exceeds `auto_compress_threshold` **thousand** tokens (measured as `input + cache_write + cache_read`, matching the app's context badge), auto-runs a `compress` in the last ~15 s of that session's 5-minute warm-cache window — so the summary turn reuses the still-warm cache instead of paying a cold rebuild later. A non-positive threshold disables it. The trigger is server-owned, so it fires even after the app detaches; no arguments echo back — an attached app sees the ordinary compress `activity`/`say`. |
 | `restart`       | `{}`                                      | ask the server to restart itself. The server fires `SPAWNER_RESTART_CMD` (a detached command, typically `systemctl --user restart --no-block spawner-server`) which relaunches the service; it broadcasts a `say` to every client, and the app auto-reconnects once the fresh process is listening. Any authenticated client may trigger this. If the command is unset, the server replies with an `error` (`restart_failed`) instead of silently doing nothing. |
 | `commit`        | `{}`                                      | force-commit the hands-free buffer (used by the client-side silence timeout); no-op if the buffer is empty |
 | `discard_draft` | `{}`                                      | drop the uncommitted hands-free draft (buffer + audio) without committing it, and clear the on-screen draft (`pending ""`); sent when hands-free is toggled off mid-draft so a stale draft can't bleed into the next capture |
@@ -93,8 +94,10 @@ hands_free = true    → streaming: APPEND the transcript to the per-connection 
 
 `hello` also carries optional flags: `end_token` (the word that commits a hands-free message),
 `stt_mode`/`stt_model`/`whisper_url`/`whisper_model` (transcription), `aliases` (misheard→command
-fixups), `brief` (append a "reply briefly for TTS" hint to dictation), and `interactive` (let Claude
-ask clarifying questions mid-task, delivered as `ask`). Interactive mode appends its instruction to
+fixups), `brief` (append a "reply briefly for TTS" hint to dictation), `interactive` (let Claude
+ask clarifying questions mid-task, delivered as `ask`), and `auto_compress`/`auto_compress_threshold`
+(the initial value of the server-global auto-compress preference — see the `auto_compress` message for
+its semantics; the app also pushes changes live with that message). Interactive mode appends its instruction to
 only the **first** turn of a context — Claude retains it via `--resume`, so re-sending it every turn
 would just burn tokens; a `clear` (context rotation) re-primes it. The server sends
 `pending {text}` as the buffer grows (empty `text` clears the draft). The app may also send
