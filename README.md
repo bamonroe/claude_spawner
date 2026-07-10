@@ -319,6 +319,12 @@ message box opens the command tray, a **Refresh** button sits beside **New** in 
 and **Enter sends** a message (Shift+Enter for a newline). Browser audio (mic/STT and spoken replies)
 is not wired yet.
 
+The layout is **responsive**: in a **wide** window (a desktop browser, a tablet, an unfolded phone —
+≥840 px) the sessions sidebar is **pinned permanently** beside the chat instead of hiding in the
+swipe-in drawer, and the ☰ menu button disappears; narrow the window (or run on a phone) and it
+collapses back to the drawer. Both layouts render the exact same shared composables — only the
+container differs.
+
 > **Secure context required.** The client only connects from a **secure context** — https, or
 > `localhost`/`127.0.0.1`. Served over plain http from a real hostname the browser marks the origin
 > insecure and the connection fails, so put the server behind TLS (a `wss://` cert, or a reverse proxy

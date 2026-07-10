@@ -42,7 +42,7 @@ fun TopBar(
     subtitle: String,
     modelBadge: String,
     contextTokens: Int?,
-    onMenu: () -> Unit,
+    onMenu: (() -> Unit)?,
     onSettings: () -> Unit,
     audioOutput: AudioOutput,
     audioOutputs: List<AudioOutput>,
@@ -54,7 +54,9 @@ fun TopBar(
             Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = onMenu) { Icon(Icons.Filled.Menu, contentDescription = "Menu") }
+            // Wide/desktop layouts pin a persistent sidebar and pass null here, so the
+            // ☰ toggle disappears (there's no drawer to open).
+            if (onMenu != null) IconButton(onClick = onMenu) { Icon(Icons.Filled.Menu, contentDescription = "Menu") }
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text("· $subtitle", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)

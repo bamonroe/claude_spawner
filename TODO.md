@@ -215,9 +215,13 @@ Milestones:
         rendered the shared UI and completed a live WebSocket connect + hello handshake against the
         running server — the top bar showed "Claude Spawner · connected" with the detached banner, chat,
         and input bar all drawing from the shared composables. M2's deferred live-connect check is now done.**
-- [~] **M4 — Responsive layout + desktop affordances.**
-  - [ ] `WindowSizeClass`: phone/narrow == app drawer; desktop/wide == persistent sidebar. Same
-        composables, different container.
+- [x] **M4 — Responsive layout + desktop affordances.** (2026-07-10)
+  - [x] 2026-07-10 — **Responsive sidebar.** `MainScreen` now branches on window width via
+        `BoxWithConstraints`: a narrow window (phone, <840.dp) keeps the swipe-in `ModalNavigationDrawer`;
+        a wide one (desktop browser, tablet, unfolded, ≥840.dp) pins the sessions `Sidebar` permanently
+        beside the chat with `PermanentNavigationDrawer` (320.dp sheet) and drops the ☰ toggle
+        (`TopBar.onMenu` is now nullable). The `Sidebar` and chat column were extracted into two local
+        composables shared by both branches — same composables, different container. Both targets build.
   - [x] 2026-07-09 — **Discoverable controls for the touch gestures.** Mouse/desktop users had no
         obvious way to trigger the swipe gestures, so each got a visible affordance (all shared
         commonMain, so they appear on Android too — harmless, the gestures still work): a chevron

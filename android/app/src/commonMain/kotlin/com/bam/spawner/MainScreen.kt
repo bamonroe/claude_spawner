@@ -5,6 +5,7 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -24,6 +25,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PermanentDrawerSheet
+import androidx.compose.material3.PermanentNavigationDrawer
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
@@ -138,36 +141,30 @@ fun MainScreen(
     // anywhere outside it — the chat, the bars, the text field — can dismiss it.
     var trayOpen by rememberSaveable { mutableStateOf(false) }
 
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        // Opened by the ☰ button or a left-edge swipe (a narrow strip on the far
-        // left, see below). We keep the drawer's own gestures limited to when it's
-        // already open (swipe-to-close) rather than enabling them for the whole
-        // content, which would let any horizontal drag across the chat open it.
-        gesturesEnabled = drawerState.isOpen,
-        drawerContent = {
-            ModalDrawerSheet {
-                Sidebar(
-                    discovered = discovered,
-                    discoverError = discoverError,
-                    agents = agents,
-                    attached = attached,
-                    attachedId = attachedId,
-                    onNew = { onNewSession(); scope.launch { drawerState.close() } },
-                    refreshing = refreshing,
-                    onRefresh = { refreshing = true },
-                    onOpen = { d -> if (d.active) confirmOpen = d else openSession(d) },
-                    onEdit = { editTarget = it },
-                    onDelete = { deleteTarget = it },
-                    onDetach = { controller.detach() },
-                    rateLimit = rateLimit,
-                    usageEstimate = usageEstimate,
-                    onCheckUsage = { controller.requestUsage(); scope.launch { drawerState.close() } },
-                )
-            }
-        },
-    ) {
-      Box(Modifier.fillMaxSize()) {
+    // The sessions sidebar. Reused verbatim by both layouts — [onNavigated] closes the
+    // drawer in the narrow layout (a no-op in the wide one, which pins it open).
+    val sidebar: @Composable (onNavigated: () -> Unit) -> Unit = { onNavigated ->
+        Sidebar(
+            discovered = discovered,
+            discoverError = discoverError,
+            agents = agents,
+            attached = attached,
+            attachedId = attachedId,
+            onNew = { onNewSession(); onNavigated() },
+            refreshing = refreshing,
+            onRefresh = { refreshing = true },
+            onOpen = { d -> if (d.active) confirmOpen = d else { openSession(d); onNavigated() } },
+            onEdit = { editTarget = it },
+            onDelete = { deleteTarget = it },
+            onDetach = { controller.detach() },
+            rateLimit = rateLimit,
+            usageEstimate = usageEstimate,
+            onCheckUsage = { controller.requestUsage(); onNavigated() },
+        )
+    }
+    // The chat column (top bar → list → status bars → input bar). [onMenu] is null in
+    // the wide layout, which drops the ☰ toggle since the sidebar is always visible.
+    val chatColumn: @Composable (onMenu: (() -> Unit)?) -> Unit = { onMenu ->
         Column(
             // systemBarsPadding() insets above the status + nav bars; imePadding()
             // lifts the input bar above the keyboard. NOTE: the chat list below must
@@ -188,7 +185,7 @@ fun MainScreen(
                 subtitle = status,
                 modelBadge = if (attached != null) backendBadge(agents, attachedAgent, attachedModel) else "",
                 contextTokens = lastUsage?.usage?.contextTokens,
-                onMenu = { scope.launch { drawerState.open() } },
+                onMenu = onMenu,
                 onSettings = onOpenSettings,
                 audioOutput = audioOutput,
                 audioOutputs = audioOutputs,
@@ -228,23 +225,54 @@ fun MainScreen(
                 transferButton = transferButton,
             )
         }
-        // Left-edge swipe to open the drawer: a narrow strip pinned to the far left
-        // edge that opens the drawer on a rightward drag. Kept thin (and on the left,
-        // away from the mic button on the right) so it doesn't steal normal touches.
-        Box(
-            Modifier.align(Alignment.CenterStart)
-                .fillMaxHeight()
-                .width(24.dp)
-                .pointerInput(Unit) {
-                    val threshold = 24.dp.toPx()
-                    var dx = 0f
-                    detectHorizontalDragGestures(
-                        onDragStart = { dx = 0f },
-                        onHorizontalDrag = { _, delta -> dx += delta },
-                        onDragEnd = { if (dx >= threshold) scope.launch { drawerState.open() } },
-                    )
-                },
-        )
+    }
+
+    // Responsive layout: on a wide window (desktop browser, tablet, unfolded) the
+    // sidebar is pinned permanently beside the chat; on a narrow one (phone) it lives
+    // in a swipe-in modal drawer. Same composables, different container. 840.dp is the
+    // Material "expanded" width breakpoint.
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+      if (maxWidth >= 840.dp) {
+        PermanentNavigationDrawer(
+            drawerContent = {
+                PermanentDrawerSheet(Modifier.width(320.dp)) { sidebar {} }
+            },
+        ) {
+            chatColumn(null)
+        }
+      } else {
+        ModalNavigationDrawer(
+            drawerState = drawerState,
+            // Opened by the ☰ button or a left-edge swipe (a narrow strip on the far
+            // left, see below). We keep the drawer's own gestures limited to when it's
+            // already open (swipe-to-close) rather than enabling them for the whole
+            // content, which would let any horizontal drag across the chat open it.
+            gesturesEnabled = drawerState.isOpen,
+            drawerContent = {
+                ModalDrawerSheet { sidebar { scope.launch { drawerState.close() } } }
+            },
+        ) {
+          Box(Modifier.fillMaxSize()) {
+            chatColumn { scope.launch { drawerState.open() } }
+            // Left-edge swipe to open the drawer: a narrow strip pinned to the far left
+            // edge that opens the drawer on a rightward drag. Kept thin (and on the left,
+            // away from the mic button on the right) so it doesn't steal normal touches.
+            Box(
+                Modifier.align(Alignment.CenterStart)
+                    .fillMaxHeight()
+                    .width(24.dp)
+                    .pointerInput(Unit) {
+                        val threshold = 24.dp.toPx()
+                        var dx = 0f
+                        detectHorizontalDragGestures(
+                            onDragStart = { dx = 0f },
+                            onHorizontalDrag = { _, delta -> dx += delta },
+                            onDragEnd = { if (dx >= threshold) scope.launch { drawerState.open() } },
+                        )
+                    },
+            )
+          }
+        }
       }
     }
 
