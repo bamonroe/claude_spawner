@@ -55,6 +55,10 @@ class WebAppController(private val prefs: Prefs) : AppController {
     override val attachedName: StateFlow<String?> = _attachedName.asStateFlow()
     private val _attachedId = MutableStateFlow("")
     override val attachedId: StateFlow<String> = _attachedId.asStateFlow()
+    private val _attachedAgent = MutableStateFlow("")
+    override val attachedAgent: StateFlow<String> = _attachedAgent.asStateFlow()
+    private val _attachedModel = MutableStateFlow("")
+    override val attachedModel: StateFlow<String> = _attachedModel.asStateFlow()
     private val _discovered = MutableStateFlow<List<DiscoveredInfo>>(emptyList())
     override val discovered: StateFlow<List<DiscoveredInfo>> = _discovered.asStateFlow()
     private val _discoverError = MutableStateFlow("")
@@ -167,6 +171,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
                 turnStreamed = false; _activity.value = ""
                 _attachedId.value = msg.sessionId
                 _attachedName.value = msg.name
+                _attachedAgent.value = msg.agent; _attachedModel.value = msg.model
                 prefs.lastSession = msg.name; prefs.lastSessionId = msg.sessionId
                 _status.value = "attached: ${msg.name}"
                 if (msg.usage != null) _lastTurnUsage.value = TurnUsageInfo(msg.usage, nowMonotonicMs())
@@ -177,6 +182,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
             }
             is ServerMsg.Detached -> {
                 turnStreamed = false; _attachedId.value = ""; _attachedName.value = null
+                _attachedAgent.value = ""; _attachedModel.value = ""
                 prefs.lastSession = ""; prefs.lastSessionId = ""
                 _status.value = "connected"; currentKey = ""; publish()
             }

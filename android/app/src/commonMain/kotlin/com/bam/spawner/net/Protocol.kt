@@ -31,7 +31,7 @@ sealed interface ServerMsg {
     data class Dialog(val state: String, val prompt: String) : ServerMsg
     // usage/usageAt seed the context meter from the transcript's last turn on
     // attach (usageAt = that turn's unix seconds, for the cache-warm countdown).
-    data class Attached(val name: String, val sessionId: String = "", val usage: TokenUsage? = null, val usageAt: Long = 0) : ServerMsg
+    data class Attached(val name: String, val sessionId: String = "", val usage: TokenUsage? = null, val usageAt: Long = 0, val agent: String = "", val model: String = "") : ServerMsg
     data object Detached : ServerMsg
     data class ContextReset(val name: String) : ServerMsg // Claude context cleared → drop token accounting
     data class Renamed(val old: String, val name: String, val sessionId: String = "") : ServerMsg // attached session renamed → update title in place (matched by id)
@@ -71,7 +71,7 @@ sealed interface ServerMsg {
                 "activity" -> Activity(o.str("text"))
                 "files" -> Files(readStrings(o.arr("files")))
                 "dialog" -> Dialog(o.str("state"), o.str("prompt"))
-                "attached" -> Attached(o.str("name"), o.str("session_id"), readUsage(o.obj("usage")), o.long("usage_at"))
+                "attached" -> Attached(o.str("name"), o.str("session_id"), readUsage(o.obj("usage")), o.long("usage_at"), o.str("agent"), o.str("model"))
                 "detached" -> Detached
                 "context_reset" -> ContextReset(o.str("name"))
                 "renamed" -> Renamed(o.str("old"), o.str("name"), o.str("session_id"))
@@ -125,6 +125,7 @@ sealed interface ServerMsg {
                     s.str("name"), s.str("dir"), s.str("session_id"),
                     s.long("last_active"), s.bool("active"), s.bool("registered"),
                     s.bool("busy"), s.str("target"), s.str("host"),
+                    s.str("agent"), s.str("model"),
                 )
             }
         }
@@ -264,6 +265,8 @@ data class DiscoveredInfo(
     val busy: Boolean = false, // a dictation turn is running for this session now
     val target: String = "",   // execution target ("sandbox") when not the default host
     val host: String = "",     // the SSH host this session runs on (for grouping)
+    val agent: String = "",    // AI backend id ("codex"); empty = default (claude)
+    val model: String = "",    // model alias stamped at spawn (opus/gpt-5.5/…)
 )
 
 /** A directory in the "new session" browser. */

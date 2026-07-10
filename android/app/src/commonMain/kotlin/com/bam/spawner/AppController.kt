@@ -43,6 +43,10 @@ interface AppController : HostsIdentitiesController {
     // --- Attach / discovery --------------------------------------------------
     val attachedName: StateFlow<String?>
     val attachedId: StateFlow<String>
+    // The attached session's AI backend id and model alias (from `attached`), for
+    // the status-bar badge. Empty when detached or on a pre-agent server.
+    val attachedAgent: StateFlow<String>
+    val attachedModel: StateFlow<String>
     val discovered: StateFlow<List<DiscoveredInfo>>
     val discoverError: StateFlow<String>
 

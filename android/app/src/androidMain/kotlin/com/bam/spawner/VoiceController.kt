@@ -121,6 +121,12 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     private val _attachedId = MutableStateFlow("")
     override val attachedId: StateFlow<String> = _attachedId.asStateFlow()
 
+    // Backend id + model alias of the attached session (for the status-bar badge).
+    private val _attachedAgent = MutableStateFlow("")
+    override val attachedAgent: StateFlow<String> = _attachedAgent.asStateFlow()
+    private val _attachedModel = MutableStateFlow("")
+    override val attachedModel: StateFlow<String> = _attachedModel.asStateFlow()
+
     private val _listing = MutableStateFlow<ServerMsg.Listing?>(null)
     override val listing: StateFlow<ServerMsg.Listing?> = _listing.asStateFlow()
 
@@ -845,6 +851,8 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                 }
                 _attachedId.value = msg.sessionId
                 _attachedName.value = msg.name
+                _attachedAgent.value = msg.agent
+                _attachedModel.value = msg.model
                 settings.lastSession = msg.name
                 settings.lastSessionId = msg.sessionId
                 _status.value = "attached: ${msg.name}"
@@ -862,6 +870,8 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                 turnStreamed = false
                 _attachedId.value = ""
                 _attachedName.value = null
+                _attachedAgent.value = ""
+                _attachedModel.value = ""
                 settings.lastSession = ""
                 settings.lastSessionId = ""
                 _status.value = "connected"

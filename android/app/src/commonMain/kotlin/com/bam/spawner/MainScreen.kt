@@ -95,6 +95,9 @@ fun MainScreen(
     val discoverError by controller.discoverError.collectAsState()
     val attached by controller.attachedName.collectAsState()
     val attachedId by controller.attachedId.collectAsState()
+    val attachedAgent by controller.attachedAgent.collectAsState()
+    val attachedModel by controller.attachedModel.collectAsState()
+    val agents by controller.agents.collectAsState()
     // Hoisted dialogs for the drawer's session list.
     var confirmOpen by remember { mutableStateOf<DiscoveredInfo?>(null) }
     var deleteTarget by remember { mutableStateOf<DiscoveredInfo?>(null) }
@@ -139,6 +142,7 @@ fun MainScreen(
                 Sidebar(
                     discovered = discovered,
                     discoverError = discoverError,
+                    agents = agents,
                     attached = attached,
                     attachedId = attachedId,
                     onNew = { onNewSession(); scope.launch { drawerState.close() } },
@@ -174,6 +178,7 @@ fun MainScreen(
             TopBar(
                 title = attached ?: "Claude Spawner",
                 subtitle = status,
+                modelBadge = if (attached != null) backendBadge(agents, attachedAgent, attachedModel) else "",
                 contextTokens = lastUsage?.usage?.contextTokens,
                 onMenu = { scope.launch { drawerState.open() } },
                 onSettings = onOpenSettings,

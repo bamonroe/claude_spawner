@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.bam.spawner.net.AgentInfo
 import com.bam.spawner.net.DiscoveredInfo
 import com.bam.spawner.net.RateLimitInfo
 import com.bam.spawner.net.UsageEstimateInfo
@@ -47,6 +48,22 @@ import com.bam.spawner.net.UsageEstimateInfo
 // A deployment whose server can't reach its own box simply never picks Local.
 const val LOCAL_HOST = "localhost"
 
+/**
+ * A compact "Backend · model" label for a session, using the advertised backend
+ * display name (falling back to a capitalized id on a pre-agent server). The
+ * backend prefix is dropped for the default Claude backend so single-backend
+ * setups show just the model alias; returns "" when there's nothing to show.
+ */
+fun backendBadge(agents: List<AgentInfo>, agentId: String, model: String): String {
+    val name = agents.firstOrNull { it.id == agentId }?.name
+        ?: agentId.replaceFirstChar { it.uppercase() }
+    return when {
+        agentId.isBlank() || agentId == "claude" -> model
+        model.isBlank() -> name
+        else -> "$name · $model"
+    }
+}
+
 /** The sessions drawer: discovered sessions grouped by host, pull-to-refresh, detach, and the
  *  usage readouts pinned to the bottom. Fully parameterized so it renders on both clients. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -54,6 +71,7 @@ const val LOCAL_HOST = "localhost"
 fun Sidebar(
     discovered: List<DiscoveredInfo>,
     discoverError: String,
+    agents: List<AgentInfo>,
     attached: String?,
     attachedId: String,
     onNew: () -> Unit,
@@ -142,6 +160,13 @@ fun Sidebar(
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.tertiary)
                             }
+                        }
+                        // Backend/model badge: which AI + model this session runs.
+                        // The backend name is dropped for the default (Claude), so
+                        // single-backend setups just show the model alias.
+                        backendBadge(agents, d.agent, d.model).takeIf { it.isNotEmpty() }?.let { badge ->
+                            Text(badge, style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.secondary)
                         }
                         Text(d.dir, style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.outline, maxLines = 1, overflow = TextOverflow.Ellipsis)

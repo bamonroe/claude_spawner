@@ -40,6 +40,7 @@ import kotlinx.coroutines.delay
 fun TopBar(
     title: String,
     subtitle: String,
+    modelBadge: String,
     contextTokens: Int?,
     onMenu: () -> Unit,
     onSettings: () -> Unit,
@@ -58,6 +59,16 @@ fun TopBar(
                 Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text("· $subtitle", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
             }
+            // Attached session's backend/model badge, so the current AI + model is
+            // always visible (blank when detached or on a pre-agent server).
+            if (modelBadge.isNotEmpty()) Text(
+                modelBadge,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.secondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(horizontal = 6.dp),
+            )
             // Current context size — the last turn's context tokens (input + cache).
             if (contextTokens != null && contextTokens > 0) Row(
                 verticalAlignment = Alignment.CenterVertically,
