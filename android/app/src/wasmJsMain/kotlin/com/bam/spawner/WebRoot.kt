@@ -56,7 +56,6 @@ fun WebRoot() {
                 "set_appearance" -> AppearanceSettings(
                     prefs, themeMode,
                     onThemeChange = { themeMode = it; prefs.themeMode = it.name.lowercase() },
-                    onAutoCompressChanged = { controller.setAutoCompress(prefs.autoCompress, prefs.autoCompressThreshold) },
                     onBack = { screen = "settings" },
                 )
                 "set_commands" -> CommandsSettings(prefs, onAliasesChanged = reconnect, onSttChanged = reconnect, onBack = { screen = "settings" })

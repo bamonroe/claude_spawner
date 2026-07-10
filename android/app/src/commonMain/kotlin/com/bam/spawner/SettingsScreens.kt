@@ -397,7 +397,7 @@ fun SettingsRow(title: String, subtitle: String, onClick: () -> Unit) {
 
 /** Appearance: theme mode, the per-reply token badge, and the cache-warm timer toggle. */
 @Composable
-fun AppearanceSettings(settings: Prefs, themeMode: ThemeMode, onThemeChange: (ThemeMode) -> Unit, onAutoCompressChanged: () -> Unit = {}, onBack: () -> Unit) {
+fun AppearanceSettings(settings: Prefs, themeMode: ThemeMode, onThemeChange: (ThemeMode) -> Unit, onBack: () -> Unit) {
     SettingsScaffold("Appearance", onBack) {
         Text("Theme", style = MaterialTheme.typography.titleMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -426,36 +426,6 @@ fun AppearanceSettings(settings: Prefs, themeMode: ThemeMode, onThemeChange: (Th
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
             }
             Switch(checked = warm, onCheckedChange = { warm = it; settings.cacheWarmTimer = it })
-        }
-
-        HorizontalDivider()
-        var autoCompress by remember { mutableStateOf(settings.autoCompress) }
-        var threshold by remember { mutableStateOf(settings.autoCompressThreshold.toString()) }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("Auto-compress", style = MaterialTheme.typography.titleMedium)
-                Text("When a session grows past the token limit below, compress it automatically " +
-                    "just before its warm cache expires (reuses the warm cache instead of a cold rebuild).",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-            }
-            Switch(checked = autoCompress, onCheckedChange = {
-                autoCompress = it; settings.autoCompress = it; onAutoCompressChanged()
-            })
-        }
-        if (autoCompress) {
-            OutlinedTextField(
-                value = threshold,
-                onValueChange = { v ->
-                    threshold = v.filter { it.isDigit() }.take(4)
-                    settings.autoCompressThreshold = threshold.toIntOrNull() ?: 0
-                    onAutoCompressChanged()
-                },
-                label = { Text("Token limit (thousands)") },
-                suffix = { Text("k tokens") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.fillMaxWidth(),
-            )
         }
     }
 }
@@ -683,6 +653,48 @@ fun ServerSettings(
             onClick = { controller.setWhisperModel(picked) },
             enabled = picked.isNotBlank() && picked != current,
         ) { Text("Apply Whisper Model") }
+
+        HorizontalDivider()
+        Text("Context compression", style = MaterialTheme.typography.titleMedium)
+        Text("Server-global. Both triggers share the token limit below.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+        var warmCompress by remember { mutableStateOf(settings.warmCompress) }
+        var autoCompress by remember { mutableStateOf(settings.autoCompress) }
+        var compressLimit by remember { mutableStateOf(settings.autoCompressThreshold.toString()) }
+        val pushCompress = {
+            controller.setAutoCompress(warmCompress, autoCompress, compressLimit.toIntOrNull() ?: 0)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Warm compress", style = MaterialTheme.typography.titleMedium)
+                Text("Past the limit, compress just before the warm cache expires — reuses the warm cache instead of a cold rebuild.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            }
+            Switch(checked = warmCompress, onCheckedChange = { warmCompress = it; settings.warmCompress = it; pushCompress() })
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Auto compress", style = MaterialTheme.typography.titleMedium)
+                Text("Compress as soon as a session crosses the limit, without waiting for the warm window. Wins over warm compress if both are on.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            }
+            Switch(checked = autoCompress, onCheckedChange = { autoCompress = it; settings.autoCompress = it; pushCompress() })
+        }
+        if (warmCompress || autoCompress) {
+            OutlinedTextField(
+                value = compressLimit,
+                onValueChange = { v ->
+                    compressLimit = v.filter { it.isDigit() }.take(4)
+                    settings.autoCompressThreshold = compressLimit.toIntOrNull() ?: 0
+                    pushCompress()
+                },
+                label = { Text("Compress limit (thousands)") },
+                suffix = { Text("k tokens") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
 
         HorizontalDivider()
         Text("Restart server", style = MaterialTheme.typography.titleMedium)

@@ -734,6 +734,16 @@ _Robustness / ops (smaller, safe when we get to them):_
 
 ## Done
 
+- [x] 2026-07-10 — **Two compression triggers (warm + auto), moved to Server settings.** The single
+      warm-cache-window auto-compress became **warm compress** (opportunistic, fires in the last ~15 s
+      of the warm window); added a new **auto compress** that fires the moment an idle session crosses
+      the shared token limit (immediate, no warm-window wait; wins if both on). Wire: `auto_compress`
+      message + hello now carry `warm_compress` + `auto_compress` + shared `auto_compress_threshold`.
+      Moved the whole UI off the Appearance page onto **Settings → Server**. Also reweighted the
+      compress prompt to keep the most recent exchanges near-verbatim and squeeze older history harder.
+      Note: the old single `auto_compress` client pref is orphaned (both toggles default off) — safe
+      default; reconfigure on the Server page. Docs updated (protocol.md/README).
+
 - [x] 2026-07-10 — **Settable custom wake token + regrouped Commands settings.** The wake word was
       hardcoded server-side (`command.wakePhrases`). Added an optional `wake_token` to the `hello`
       handshake: the app's Commands settings page can now set a custom wake word, accepted *alongside*

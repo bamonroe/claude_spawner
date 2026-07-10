@@ -29,9 +29,11 @@ interface Prefs {
     var tokenBadge: String
     /** Show a status-bar indicator counting down the ~5-min warm prompt-cache window. */
     var cacheWarmTimer: Boolean
-    /** Auto-compress a session when it grows large, just before its warm cache expires. */
+    /** Warm compress: compress a session past the limit just before its warm cache expires. */
+    var warmCompress: Boolean
+    /** Auto compress: compress a session as soon as it crosses the limit (no warm-window wait). */
     var autoCompress: Boolean
-    /** Context-token threshold (in thousands) above which auto-compress fires. */
+    /** Context-token limit (in thousands) that both compress triggers share. */
     var autoCompressThreshold: Int
 
     /** Whether hands-free (always-listening) mode is enabled. */

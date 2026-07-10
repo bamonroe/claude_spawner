@@ -316,7 +316,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
         val hello = com.bam.spawner.net.HelloConfig(
             settings.endToken, settings.wakeToken, settings.sttMode, settings.sttModel, settings.aliasMap(),
             settings.whisperUrl, settings.brief, settings.interactive,
-            settings.autoCompress, settings.autoCompressThreshold,
+            settings.warmCompress, settings.autoCompress, settings.autoCompressThreshold,
         )
         client = SpawnerClient(url, token, settings.clientId, hello, ::onMessage, ::onConnected)
             .also { it.connect() }
@@ -527,8 +527,8 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     override fun setWhisperModel(model: String) = client?.send(Outbound.setWhisperModel(model)).let {}
 
     /** Push the auto-compress preference to the server (server-global; live). */
-    override fun setAutoCompress(enabled: Boolean, thresholdK: Int) =
-        client?.send(Outbound.autoCompress(enabled, thresholdK)).let {}
+    override fun setAutoCompress(warm: Boolean, auto: Boolean, thresholdK: Int) =
+        client?.send(Outbound.autoCompress(warm, auto, thresholdK)).let {}
 
     /** Ask the server to restart. It exits so its supervisor relaunches it on
      *  current code; the app auto-reconnects once it's listening again. */

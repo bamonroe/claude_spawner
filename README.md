@@ -107,12 +107,18 @@ each turn — which makes a long session progressively more expensive.
   dictation — so Claude keeps a compact recap instead of the full transcript. Costs one model turn.
   Use it to keep going on the same task while trimming cost.
 
-**Auto-compress** (Settings → Appearance) runs that compress for you. Turn it on and set a token
-limit (in thousands); the server then watches every session and, once its context grows past that
-limit, fires a compress in the last ~15 seconds of the session's ~5-minute warm prompt-cache window
-— so the summary turn reuses the still-warm cache instead of paying a cold context rebuild later.
-The trigger is server-side, so it fires even when the app is detached. The preference is global
-(one toggle + one limit for all sessions).
+**Automatic compression** (Settings → Server) runs that compress for you. Set a token limit (in
+thousands) and turn on either of two triggers that share it — the trigger is server-side, so it
+fires even when the app is detached, and the preference is global (one limit for all sessions):
+
+- **Warm compress** — once a session's context grows past the limit, fire a compress in the last
+  ~15 seconds of its ~5-minute warm prompt-cache window, so the summary turn reuses the still-warm
+  cache instead of paying a cold context rebuild later. Opportunistic: it waits for that edge.
+- **Auto compress** — compress the moment an idle session crosses the limit, without waiting for the
+  warm window. Immediate (it may pay a cold cache read); wins over warm compress if both are on.
+
+The compress summary keeps your **most recent messages in near-verbatim detail** and squeezes older
+history harder, so the active working context survives compaction.
 
 ### Choosing the AI backend and its model
 

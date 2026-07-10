@@ -50,6 +50,10 @@ class SettingsStore(context: Context) : Prefs {
         get() = prefs.getBoolean("cache_warm_timer", true)
         set(v) = prefs.edit().putBoolean("cache_warm_timer", v).apply()
 
+    override var warmCompress: Boolean
+        get() = prefs.getBoolean("warm_compress", false)
+        set(v) = prefs.edit().putBoolean("warm_compress", v).apply()
+
     override var autoCompress: Boolean
         get() = prefs.getBoolean("auto_compress", false)
         set(v) = prefs.edit().putBoolean("auto_compress", v).apply()

@@ -247,7 +247,6 @@ private fun AppRoot(
         "set_identities" -> IdentitiesSettings(controller, onBack = { screen = "settings" })
         "set_appearance" -> AppearanceSettings(
             settings, themeMode, onThemeChange,
-            onAutoCompressChanged = { controller.setAutoCompress(settings.autoCompress, settings.autoCompressThreshold) },
             onBack = { screen = "settings" },
         )
         "set_commands" -> CommandsSettings(

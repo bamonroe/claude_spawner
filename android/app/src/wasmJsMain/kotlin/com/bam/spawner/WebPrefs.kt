@@ -61,6 +61,10 @@ class WebPrefs : Prefs {
         get() = bool("cache_warm_timer", true)
         set(v) = putBool("cache_warm_timer", v)
 
+    override var warmCompress: Boolean
+        get() = bool("warm_compress", false)
+        set(v) = putBool("warm_compress", v)
+
     override var autoCompress: Boolean
         get() = bool("auto_compress", false)
         set(v) = putBool("auto_compress", v)
