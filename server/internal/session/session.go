@@ -289,16 +289,37 @@ func (d *Driver) DeleteSessionByIDs(ctx context.Context, host string, ids []stri
 	return d.claudeFSFor(host).deleteByIDs(ids)
 }
 
+// transcriptReader reads a session's past conversation and context snapshot from
+// on-disk state, for whichever backend + host the session runs on. claudeFS and
+// codexFS each implement it; transcriptReaderFor picks by the session's backend so
+// a Codex session's rollout replays on reattach just like a Claude transcript.
+type transcriptReader interface {
+	readTranscriptChain(ids []string) ([]Message, error)
+	lastContextUsage(ids []string) *ContextSnapshot
+}
+
+// transcriptReaderFor selects the on-disk reader for a session's backend (agent
+// id) on its host: Codex reads its rollout files, every other backend reads
+// Claude-style transcripts. host empty = local machine.
+func (d *Driver) transcriptReaderFor(agentID, host string) transcriptReader {
+	if d.agents().Resolve(agentID).Format == agent.FormatCodexJSONL {
+		return codexFS{d.claudeFSFor(host)}
+	}
+	return d.claudeFSFor(host)
+}
+
 // ReadTranscriptChain reads a session's full history (current + rotated prior ids)
 // from its host (empty host = local), re-indexed contiguously for pagination.
-func (d *Driver) ReadTranscriptChain(host string, ids []string) ([]Message, error) {
-	return d.claudeFSFor(host).readTranscriptChain(ids)
+// agentID selects the backend's on-disk format (Claude transcript vs Codex rollout).
+func (d *Driver) ReadTranscriptChain(agentID, host string, ids []string) ([]Message, error) {
+	return d.transcriptReaderFor(agentID, host).readTranscriptChain(ids)
 }
 
 // LastContextUsage returns a session's live context snapshot (last usage-bearing
-// assistant turn) read from its host (empty host = local); nil if none yet.
-func (d *Driver) LastContextUsage(host string, ids []string) *ContextSnapshot {
-	return d.claudeFSFor(host).lastContextUsage(ids)
+// turn) read from its host (empty host = local); nil if none yet. agentID selects
+// the backend's on-disk format.
+func (d *Driver) LastContextUsage(agentID, host string, ids []string) *ContextSnapshot {
+	return d.transcriptReaderFor(agentID, host).lastContextUsage(ids)
 }
 
 // ToolUse describes a tool Claude invoked during a turn. FilePath is set for

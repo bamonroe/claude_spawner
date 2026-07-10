@@ -355,7 +355,7 @@ func (c *conn) serveHistory(name string, before *int, limit int) {
 		c.fail("no_session", "no such session: "+name)
 		return
 	}
-	msgs, err := c.srv.driver.ReadTranscriptChain(s.Host, s.TranscriptIDs())
+	msgs, err := c.srv.driver.ReadTranscriptChain(s.Agent, s.Host, s.TranscriptIDs())
 	if err != nil {
 		c.fail("history_failed", err.Error())
 		return
@@ -477,7 +477,7 @@ func (c *conn) doAttach(name string, silent bool) {
 	}
 	c.clearBuffer() // fresh message buffer for the new session
 	c.attached = s
-	c.send(msgAttached(s, c.srv.driver.LastContextUsage(s.Host, s.TranscriptIDs())))
+	c.send(msgAttached(s, c.srv.driver.LastContextUsage(s.Agent, s.Host, s.TranscriptIDs())))
 	if !silent {
 		c.send(msgSay("attached to " + s.Name + "."))
 	}

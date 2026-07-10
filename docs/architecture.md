@@ -140,6 +140,18 @@ normalizing to the same `(reply, usage)` the rest of the server already consumes
 can be **plan-dependent** (on a ChatGPT-account Codex, only `gpt-5.5` is `-m`-selectable, so its
 alternates are reasoning-effort presets); the registry is the single place that catalogue lives.
 
+**Reattach replays each backend's own on-disk transcript.** A session has no live process, so the
+`history` page and the on-attach context badge are rebuilt from disk — and *where* that record lives
+and *how* it's shaped differs by backend, so the reader is chosen by `Agent.Format`
+(`Driver.transcriptReaderFor`). Claude writes `~/.claude/projects/*/<session_id>.jsonl` (read by
+`claudeFS`); Codex writes a **rollout** JSONL at
+`~/.codex/sessions/YYYY/MM/DD/rollout-<ts>-<thread_id>.jsonl` in an unrelated schema — conversation
+prose as `event_msg` `user_message`/`agent_message` lines, context size as `token_count` lines — read
+by `codexFS` (`internal/session/codex_transcript.go`). Both normalize to the same `[]Message` /
+`ContextSnapshot` the gateway already sends, so a Codex session's past turns replay on reattach exactly
+like a Claude session's. (This rollout schema is the persisted record; it is *not* the live
+`codex exec --json` stream `parseCodexStream` consumes during a turn.)
+
 ### The server runs bare metal (no broker)
 
 The server runs **bare metal** as a single binary, as the ordinary user — so it forks `claude` for
@@ -291,7 +303,8 @@ uppercase letters by voice. Acceptable; documented in `docs/commands.md`.
   internal/session/executor.go  pluggable Executor: HostExecutor (direct exec) + SandboxExecutor (runtime)
   internal/session/store.go     durable session registry (file-backed, atomic writes); Session.Target/Container
   internal/session/discover.go  scan ~/.claude/projects for all Claude sessions (adopt/discover)
-  internal/session/transcript.go read/stitch on-disk transcripts for `history` (spans clears)
+  internal/session/transcript.go read/stitch Claude on-disk transcripts for `history` (spans clears)
+  internal/session/codex_transcript.go  codexFS: read Codex rollout files for `history`/context badge
   internal/command/command.go   utterance -> intent parser + StripWake
   internal/command/registry.go  Command registry (single source of truth) + RegistryJSON
   internal/transcribe/          Transcriber interface: WhisperCPP (CLI) + RemoteWhisper (HTTP)

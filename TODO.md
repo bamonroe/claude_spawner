@@ -42,6 +42,14 @@ any backend runs on any target.
       `codex-cli` 0.144.1. Unit tests for args + parser; command lines validated end-to-end. Note:
       on a ChatGPT-account plan only `gpt-5.5` is `-m`-selectable, so the alternates are
       reasoning-effort presets on it. (2026-07-09)
+- [x] Codex sessions replay their transcript on reattach (like Claude): `history` and the on-attach
+      context badge were Claude-only (`claudeFS` reads `~/.claude/projects/*/<id>.jsonl`), so Codex
+      rows came back empty. Added `codexFS` (`internal/session/codex_transcript.go`) reading Codex's
+      rollout JSONL (`~/.codex/sessions/YYYY/MM/DD/rollout-<ts>-<thread_id>.jsonl`) — prose from
+      `event_msg` `user_message`/`agent_message`, context from `token_count`; `Driver.transcriptReaderFor`
+      picks the reader by `Agent.Format`, and `ReadTranscriptChain`/`LastContextUsage` now take the
+      agent id (gateway `serveHistory`/`doAttach`/turn badge pass `s.Agent`). Unit tests +
+      architecture doc. (2026-07-09)
 - [x] Spawn stamps agent + `DefaultModel`: `newSession` (the single choke point for both spawn
       paths) sets `Session.Agent` and `Session.Model = agent.DefaultModel`. Inline **voice backend
       selection**: "spawn a codex session" / "spawn a session on codex" → `command.extractSpawnAgent`

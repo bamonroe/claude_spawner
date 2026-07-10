@@ -269,7 +269,7 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk bool) bo
 		// (turnUsage still feeds the cumulative spend estimate above, where summing is
 		// what we want.)
 		badge := turnUsage
-		if cx := s.driver.LastContextUsage(sess.Host, sess.TranscriptIDs()); cx != nil {
+		if cx := s.driver.LastContextUsage(sess.Agent, sess.Host, sess.TranscriptIDs()); cx != nil {
 			badge = cx.Usage
 		}
 		j.finish(msgOutput(sess.Name, reply, false, &badge))
