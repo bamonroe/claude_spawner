@@ -1,5 +1,6 @@
 package com.bam.spawner
 
+import com.bam.spawner.net.AgentInfo
 import com.bam.spawner.net.AskQuestion
 import com.bam.spawner.net.DiscoveredInfo
 import com.bam.spawner.net.HelloConfig
@@ -82,6 +83,9 @@ class WebAppController(private val prefs: Prefs) : AppController {
     override val whisperModel: StateFlow<String> = _whisperModel.asStateFlow()
     private val _ask = MutableStateFlow<List<AskQuestion>?>(null)
     override val ask: StateFlow<List<AskQuestion>?> = _ask.asStateFlow()
+
+    private val _agents = MutableStateFlow<List<AgentInfo>>(emptyList())
+    override val agents: StateFlow<List<AgentInfo>> = _agents.asStateFlow()
 
     private val _listing = MutableStateFlow<ServerMsg.Listing?>(null)
     override val listing: StateFlow<ServerMsg.Listing?> = _listing.asStateFlow()
@@ -192,6 +196,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
             is ServerMsg.FileData -> _fileData.tryEmit(msg)
             is ServerMsg.HostList -> _hosts.value = msg.hosts
             is ServerMsg.IdentityList -> _identities.value = msg.identities
+            is ServerMsg.Agents -> _agents.value = msg.agents
             is ServerMsg.Err -> {
                 _activity.value = ""
                 if (_usageLoading.value) _usageLoading.value = false
@@ -255,11 +260,11 @@ class WebAppController(private val prefs: Prefs) : AppController {
     override fun renameDiscovered(sessionId: String, dir: String, newName: String) {
         client?.send(Outbound.renameDiscovered(sessionId, dir, newName))
     }
-    override fun spawnAt(path: String, target: String, host: String) { client?.send(Outbound.spawnAt(path, target = target, host = host)) }
-    override fun spawnNewFolder(parent: String, name: String, target: String, host: String) {
+    override fun spawnAt(path: String, target: String, host: String, agent: String, model: String) { client?.send(Outbound.spawnAt(path, target = target, host = host, agent = agent, model = model)) }
+    override fun spawnNewFolder(parent: String, name: String, target: String, host: String, agent: String, model: String) {
         val clean = name.trim().trim('/')
         if (clean.isEmpty()) return
-        client?.send(Outbound.spawnAt("$parent/$clean", create = true, target = target, host = host))
+        client?.send(Outbound.spawnAt("$parent/$clean", create = true, target = target, host = host, agent = agent, model = model))
     }
 
     override fun browse(path: String, host: String, files: Boolean) { client?.send(Outbound.browse(path, host, files)) }

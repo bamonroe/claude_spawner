@@ -51,6 +51,7 @@ sealed interface ServerMsg {
     data class Listing(val path: String, val parent: String, val entries: List<BrowseEntry>) : ServerMsg
     data class FileSaved(val path: String) : ServerMsg // an upload landed on the target host
     data class FileData(val name: String, val path: String, val content: String) : ServerMsg // a download's base64 bytes
+    data class Agents(val agents: List<AgentInfo>, val default: String) : ServerMsg // AI backend registry (for the new-session picker)
     data class HostList(val hosts: List<Host>) : ServerMsg // app-managed SSH host registry
     data class IdentityList(val identities: List<Identity>) : ServerMsg // app-managed SSH identities
     data class Unknown(val type: String) : ServerMsg
@@ -105,6 +106,7 @@ sealed interface ServerMsg {
                 "listing" -> Listing(o.str("path"), o.str("parent"), readEntries(o.arr("entries")))
                 "file_saved" -> FileSaved(o.str("path"))
                 "file_data" -> FileData(o.str("name"), o.str("path"), o.str("content"))
+                "agents" -> Agents(readAgents(o.arr("agents")), o.str("default"))
                 "host_list" -> HostList(readHosts(o.arr("hosts")))
                 "identity_list" -> IdentityList(readIdentities(o.arr("identities")))
                 else -> Unknown(o.str("type"))
@@ -153,6 +155,16 @@ sealed interface ServerMsg {
             }
         }
 
+        private fun readAgents(arr: JsonArray?): List<AgentInfo> {
+            if (arr == null) return emptyList()
+            return arr.map { it.jsonObject }.map { a ->
+                AgentInfo(
+                    a.str("id"), a.str("name"), a.str("default_model"),
+                    (a.arr("models") ?: JsonArray(emptyList())).map { it.jsonObject.str("alias") },
+                )
+            }
+        }
+
         private fun readHosts(arr: JsonArray?): List<Host> {
             if (arr == null) return emptyList()
             return arr.map { it.jsonObject }.map { h ->
@@ -192,6 +204,13 @@ data class TokenUsage(val input: Int, val output: Int, val cacheWrite: Int, val 
     /** True if this turn reused a warm cache rather than rebuilding it. */
     val warmHit: Boolean get() = cacheRead > 0
 }
+
+/**
+ * One AI backend from the `agents` message: its id (sent in `spawn_at`), display
+ * name, default model alias, and the model aliases it offers. Used by the
+ * new-session picker to choose a backend + model.
+ */
+data class AgentInfo(val id: String, val name: String, val defaultModel: String, val models: List<String>)
 
 /**
  * The Claude subscription's usage-window state (see docs/protocol.md `rate_limit`).
@@ -348,10 +367,12 @@ object Outbound {
         put("type", "download"); put("path", path)
         if (host.isNotEmpty()) put("host_name", host)
     }.toString()
-    fun spawnAt(path: String, create: Boolean = false, target: String = "", host: String = "") = buildJsonObject {
+    fun spawnAt(path: String, create: Boolean = false, target: String = "", host: String = "", agent: String = "", model: String = "") = buildJsonObject {
         put("type", "spawn_at"); put("path", path); put("create", create)
         if (target.isNotEmpty()) put("target", target)
         if (host.isNotEmpty()) put("host_name", host)
+        if (agent.isNotEmpty()) put("agent", agent)
+        if (model.isNotEmpty()) put("model", model)
     }.toString()
 
     // SSH host registry (Settings → Hosts). The server persists these and broadcasts

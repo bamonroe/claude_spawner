@@ -226,6 +226,10 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     private val _ask = MutableStateFlow<List<com.bam.spawner.net.AskQuestion>?>(null)
     override val ask: StateFlow<List<com.bam.spawner.net.AskQuestion>?> = _ask.asStateFlow()
 
+    // AI backend registry from the `agents` message (backends + models for the picker).
+    private val _agents = MutableStateFlow<List<com.bam.spawner.net.AgentInfo>>(emptyList())
+    override val agents: StateFlow<List<com.bam.spawner.net.AgentInfo>> = _agents.asStateFlow()
+
     // Spoken-audio output routing (earpiece/speaker/bluetooth). `audioOutputs` is
     // what's currently selectable (bluetooth only when a headset is connected);
     // `audioOutput` is the active one.
@@ -451,15 +455,15 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
         return d.dir to d.host
     }
 
-    override fun spawnAt(path: String, target: String, host: String) {
-        client?.send(Outbound.spawnAt(path, target = target, host = host)) // the resulting `attached` switches the view
+    override fun spawnAt(path: String, target: String, host: String, agent: String, model: String) {
+        client?.send(Outbound.spawnAt(path, target = target, host = host, agent = agent, model = model)) // the resulting `attached` switches the view
     }
 
     /** Create a new project folder `name` under `parent` and spawn a session in it. */
-    override fun spawnNewFolder(parent: String, name: String, target: String, host: String) {
+    override fun spawnNewFolder(parent: String, name: String, target: String, host: String, agent: String, model: String) {
         val clean = name.trim().trim('/')
         if (clean.isEmpty()) return
-        client?.send(Outbound.spawnAt("$parent/$clean", create = true, target = target, host = host))
+        client?.send(Outbound.spawnAt("$parent/$clean", create = true, target = target, host = host, agent = agent, model = model))
     }
 
     // --- Hands-free (always-listening VAD; only speech is sent) ---
@@ -909,6 +913,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
             is ServerMsg.FileData -> _fileData.tryEmit(msg)
             is ServerMsg.HostList -> _hosts.value = msg.hosts
             is ServerMsg.IdentityList -> _identities.value = msg.identities
+            is ServerMsg.Agents -> _agents.value = msg.agents
             is ServerMsg.Err -> {
                 if (msg.code == "turn_failed") { clearTurnInFlight(); turnStreamed = false }
                 if (_usageLoading.value) _usageLoading.value = false // any error unsticks a pending usage fetch

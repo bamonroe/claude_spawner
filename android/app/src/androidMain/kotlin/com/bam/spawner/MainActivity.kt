@@ -544,6 +544,19 @@ private fun BrowseScreen(controller: VoiceController, onStarted: () -> Unit, onB
     LaunchedEffect(hosts) {
         if (hosts.isNotEmpty() && hosts.none { it.name == selectedHost }) selectedHost = hosts.first().name
     }
+    // AI backend + model for the new session (from the `agents` registry). "" = the
+    // server default; the model snaps to the chosen backend's default when the
+    // backend changes or the registry loads.
+    val agents by controller.agents.collectAsStateWithLifecycle()
+    var selectedAgent by rememberSaveable { mutableStateOf("") }
+    LaunchedEffect(agents) {
+        if (agents.isNotEmpty() && agents.none { it.id == selectedAgent }) selectedAgent = agents.first().id
+    }
+    val agentInfo = agents.firstOrNull { it.id == selectedAgent }
+    var selectedModel by rememberSaveable { mutableStateOf("") }
+    LaunchedEffect(selectedAgent, agents) {
+        agentInfo?.let { if (it.models.none { m -> m == selectedModel }) selectedModel = it.defaultModel }
+    }
     val target = if (sandbox) "sandbox" else "host"
     // A host only applies to the host target (a sandbox runs locally); drop any
     // selection when switching to sandbox so we never send a stale host.
@@ -576,7 +589,7 @@ private fun BrowseScreen(controller: VoiceController, onStarted: () -> Unit, onB
             confirmButton = {
                 TextButton(
                     enabled = !newFolder.isNullOrBlank(),
-                    onClick = { controller.spawnNewFolder(parent, newFolder!!, target, spawnHost); newFolder = null; onStarted() },
+                    onClick = { controller.spawnNewFolder(parent, newFolder!!, target, spawnHost, selectedAgent, selectedModel); newFolder = null; onStarted() },
                 ) { Text("Create & start") }
             },
             dismissButton = { TextButton(onClick = { newFolder = null }) { Text("Cancel") } },
@@ -614,6 +627,24 @@ private fun BrowseScreen(controller: VoiceController, onStarted: () -> Unit, onB
                 }
             }
         }
+        // AI backend picker: one chip per backend, shown only when more than one is
+        // available (a single backend needs no choice). Codex/Claude etc.
+        if (agents.size > 1) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 4.dp)) {
+                agents.forEach { a ->
+                    FilterChip(selected = selectedAgent == a.id, onClick = { selectedAgent = a.id }, label = { Text(a.name) })
+                }
+            }
+        }
+        // Model picker: the chosen backend's model aliases (opus/sonnet/fable, or
+        // Codex's presets). Hidden when the backend advertises no models.
+        agentInfo?.takeIf { it.models.isNotEmpty() }?.let { a ->
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 4.dp)) {
+                a.models.forEach { m ->
+                    FilterChip(selected = selectedModel == m, onClick = { selectedModel = m }, label = { Text(m) })
+                }
+            }
+        }
         Text(
             listing?.path ?: "",
             style = MaterialTheme.typography.bodySmall,
@@ -648,7 +679,7 @@ private fun BrowseScreen(controller: VoiceController, onStarted: () -> Unit, onB
         HorizontalDivider()
         val canStart = listing?.path?.isNotEmpty() == true
         Button(
-            onClick = { listing?.path?.let { controller.spawnAt(it, target, spawnHost) }; onStarted() },
+            onClick = { listing?.path?.let { controller.spawnAt(it, target, spawnHost, selectedAgent, selectedModel) }; onStarted() },
             enabled = canStart,
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
         ) { Text("Start session here") }

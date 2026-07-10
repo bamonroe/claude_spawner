@@ -1,5 +1,6 @@
 package com.bam.spawner
 
+import com.bam.spawner.net.AgentInfo
 import com.bam.spawner.net.AskQuestion
 import com.bam.spawner.net.DiscoveredInfo
 import com.bam.spawner.net.RateLimitInfo
@@ -60,6 +61,9 @@ interface AppController : HostsIdentitiesController {
     // --- Misc UI state -------------------------------------------------------
     val whisperModel: StateFlow<String>
     val ask: StateFlow<List<AskQuestion>?>
+    // AI backend registry (from the `agents` message): the backends + models the
+    // new-session picker offers. Empty until the server advertises it on connect.
+    val agents: StateFlow<List<AgentInfo>>
 
     // --- File browse / transfer ----------------------------------------------
     val listing: StateFlow<ServerMsg.Listing?>
@@ -80,8 +84,8 @@ interface AppController : HostsIdentitiesController {
     fun adopt(sessionId: String, dir: String)
     fun deleteDiscovered(sessionId: String)
     fun renameDiscovered(sessionId: String, dir: String, newName: String)
-    fun spawnAt(path: String, target: String = "", host: String = "")
-    fun spawnNewFolder(parent: String, name: String, target: String = "", host: String = "")
+    fun spawnAt(path: String, target: String = "", host: String = "", agent: String = "", model: String = "")
+    fun spawnNewFolder(parent: String, name: String, target: String = "", host: String = "", agent: String = "", model: String = "")
 
     // --- Browse / file transfer ----------------------------------------------
     fun browse(path: String, host: String = "", files: Boolean = false)

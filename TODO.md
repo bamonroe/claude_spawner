@@ -51,9 +51,14 @@ any backend runs on any target.
       `attached`, and `discovered` (registered rows), omitted for the default Claude / pre-registry
       records. `docs/protocol.md` updated (drift test checks types only, so field docs are
       discipline). (2026-07-09)
-- [ ] App-facing half: render the backend/model badge in the sidebar + status bar (Kotlin), and add
-      a backend choice to the visual New-session picker and the spawn dialog's target step (the data
-      is now on the wire). Needs an APK rebuild.
+- [x] App-facing new-session picker: the `agents` outbound message advertises the backend registry
+      on connect; the app parses it (`AgentInfo`, `ServerMsg.Agents`, `AppController.agents`) and the
+      BrowseScreen shows a backend chip row (when >1 backend) + a model chip row, sent in `spawn_at`
+      (`agent`/`model`). Server validates the model against the chosen backend. Both controllers
+      (Android + web) updated for no-divergence. (2026-07-09)
+- [ ] Remaining app polish: render a backend/model badge on each session row in the sidebar (the
+      `discovered` rows already carry `agent`/`model`), show the current model in the status bar (the
+      `attached` message carries it), and add the backend/model pickers to the web browse UI.
 - [ ] Optional: `agent`/`model` on the `spawn_at` inbound message so the visual picker can spawn a
       chosen backend (voice spawn selection already works).
 - [x] Voice model selection: "hey buddy, list models" speaks the attached session's backend
