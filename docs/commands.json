@@ -76,6 +76,15 @@
       "description": "List your sessions"
     },
     {
+      "title": "list models",
+      "aliases": [
+        "list models",
+        "what models",
+        "which models"
+      ],
+      "description": "List the models the attached session's AI offers"
+    },
+    {
       "title": "read last",
       "aliases": [
         "read last",
@@ -128,6 +137,15 @@
         "check usage"
       ],
       "description": "Report your Claude plan's usage — session and weekly % used, with resets"
+    },
+    {
+      "title": "use model",
+      "aliases": [
+        "use model <number>",
+        "switch to model <number>",
+        "select model <number>"
+      ],
+      "description": "Switch the attached session's model by number (from 'list models')"
     }
   ]
 }

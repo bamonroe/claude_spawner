@@ -72,6 +72,10 @@ func (c *conn) runCommand(intent command.Intent) bool {
 		c.doUsage(true, usageCalibrate) // voice command: show the report AND speak a summary
 	case command.Rename:
 		c.doRenameCurrent(intent.Arg)
+	case command.ListModels:
+		c.doListModels()
+	case command.UseModel:
+		c.doUseModel(intent.Count)
 	default:
 		return false
 	}
@@ -373,7 +377,8 @@ func (c *conn) serveHistory(name string, before *int, limit int) {
 // commandHelp is spoken + shown when the user asks "hey buddy help".
 const commandHelp = "here's what I know: attach to a session, detach, list sessions, status, " +
 	"kill a session, spawn a session, spawn a new project, read last, clear the context, compress the context, " +
-	"stop the turn, cancel message, and help. say hey buddy, then the command, then your end token."
+	"list models, use model by number, stop the turn, cancel message, and help. " +
+	"say hey buddy, then the command, then your end token."
 
 // sandboxTarget returns the session's target string only when it's a sandbox
 // session (the non-default target the app badges); "" for host sessions.
@@ -616,6 +621,64 @@ func (c *conn) doClear() {
 	c.clearBuffer()
 	c.send(msgContextReset(s.Name)) // reset the app's context-size readout to zero
 	c.send(msgSay("cleared. starting fresh — your history is still here."))
+}
+
+// doListModels speaks the models the attached session's AI backend offers, in
+// order, so the user can pick one by NUMBER ("use model 2"). Ordinal selection
+// keeps hard-to-say model names (e.g. Codex's gpt-5.5 reasoning presets) out of
+// the voice path. Marks the session's current model.
+func (c *conn) doListModels() {
+	if c.attached == nil {
+		c.send(msgSay("attach to a session first."))
+		return
+	}
+	ag := c.srv.driver.AgentFor(c.attached)
+	if ag == nil || len(ag.Models) == 0 {
+		c.send(msgSay("this session's AI has no selectable models."))
+		return
+	}
+	// An empty session Model means the backend's own default — mark that one.
+	current := c.attached.Model
+	if current == "" {
+		current = ag.DefaultModel
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s has %d models. ", ag.Name, len(ag.Models))
+	for i, m := range ag.Models {
+		mark := ""
+		if m.Alias == current {
+			mark = ", current"
+		}
+		fmt.Fprintf(&b, "%d, %s%s. ", i+1, m.Alias, mark)
+	}
+	b.WriteString("say use model and a number to switch.")
+	c.send(msgSay(b.String()))
+}
+
+// doUseModel switches the attached session's model to the n-th in its backend's
+// catalogue (1-based, matching doListModels). Durable — persisted on the session
+// and read by the next turn (a turn already in flight finishes on the old model).
+func (c *conn) doUseModel(n int) {
+	if c.attached == nil {
+		c.send(msgSay("attach to a session first."))
+		return
+	}
+	ag := c.srv.driver.AgentFor(c.attached)
+	if ag == nil || len(ag.Models) == 0 {
+		c.send(msgSay("this session's AI has no selectable models."))
+		return
+	}
+	if n < 1 || n > len(ag.Models) {
+		c.send(msgSay(fmt.Sprintf("say a model number between 1 and %d — list models to hear them.", len(ag.Models))))
+		return
+	}
+	m := ag.Models[n-1]
+	c.attached.Model = m.Alias
+	if err := c.srv.store.Put(c.attached); err != nil {
+		c.fail("internal", err.Error())
+		return
+	}
+	c.send(msgSay(fmt.Sprintf("switched to %s. it takes effect on your next message.", m.Alias)))
 }
 
 // doCompress compacts the attached session's Claude context: it asks Claude to

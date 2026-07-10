@@ -13,22 +13,24 @@ import (
 type Kind string
 
 const (
-	Spawn     Kind = "spawn"
-	Attach    Kind = "attach"
-	Detach    Kind = "detach"
-	List      Kind = "list"
-	Kill      Kind = "kill"
-	Status    Kind = "status"
-	Cancel    Kind = "cancel"
-	Stop      Kind = "stop"       // stop speaking (barge-in)
-	AbortTurn Kind = "abort_turn" // cancel the running Claude turn
-	Help      Kind = "help"       // list available commands
-	ReadLast  Kind = "read_last"  // re-read the last N Claude replies aloud
-	Clear     Kind = "clear"      // rotate the session's Claude context (keep history for display)
-	Compress  Kind = "compress"   // summarize the context, then rotate — carry a condensed summary forward
-	Usage     Kind = "usage"      // report the Claude plan's usage (session/week % left), via `/usage`
-	Rename    Kind = "rename"     // rename the currently-attached session
-	Unknown   Kind = "unknown"
+	Spawn      Kind = "spawn"
+	Attach     Kind = "attach"
+	Detach     Kind = "detach"
+	List       Kind = "list"
+	Kill       Kind = "kill"
+	Status     Kind = "status"
+	Cancel     Kind = "cancel"
+	Stop       Kind = "stop"        // stop speaking (barge-in)
+	AbortTurn  Kind = "abort_turn"  // cancel the running Claude turn
+	Help       Kind = "help"        // list available commands
+	ReadLast   Kind = "read_last"   // re-read the last N Claude replies aloud
+	Clear      Kind = "clear"       // rotate the session's Claude context (keep history for display)
+	Compress   Kind = "compress"    // summarize the context, then rotate — carry a condensed summary forward
+	Usage      Kind = "usage"       // report the Claude plan's usage (session/week % left), via `/usage`
+	Rename     Kind = "rename"      // rename the currently-attached session
+	ListModels Kind = "list_models" // list the attached session's backend's models
+	UseModel   Kind = "use_model"   // switch the attached session's model by number
+	Unknown    Kind = "unknown"
 )
 
 // Intent is a parsed control command. Arg holds a session name for attach/kill.
@@ -40,7 +42,7 @@ type Intent struct {
 	Arg      string
 	Location string
 	New      bool
-	Count    int // for ReadLast: how many recent Claude replies to re-read
+	Count    int // for ReadLast: how many recent replies to re-read; for UseModel: the 1-based model number
 }
 
 // wakePhrases is the single source of truth for the wake token — the spoken
@@ -76,7 +78,7 @@ var wakePhrases = [][]string{
 var commandVocab = []string{
 	"spawn", "attach", "detach", "list", "kill", "status", "cancel",
 	"stop", "abort", "help", "read last", "clear", "compress", "compact",
-	"usage", "rename", "session", "project",
+	"usage", "rename", "session", "project", "model", "models",
 }
 
 // Vocabulary returns the control words worth biasing STT toward: the canonical
@@ -220,6 +222,17 @@ func Parse(text string) Intent {
 	case (first == "help" && n <= 2) || first == "commands" ||
 		contains(t, "what can you do", "what can i say", "list commands", "show commands", "available commands", "which commands"):
 		return Intent{Kind: Help}
+
+	// Models: list the attached session's backend models, or switch to one by
+	// NUMBER ("use model 3"). Ordinal selection deliberately sidesteps
+	// hard-to-say model names (e.g. "gpt-5.5" reasoning presets). Checked before
+	// List/Status so "list models" isn't swallowed by the bare-"list" case.
+	case leadsWith(t, "list models", "list the models", "show models", "show the models", "list available models"),
+		contains(t, "what models", "which models", "what are the models"):
+		return Intent{Kind: ListModels}
+	case first == "use" && contains(t, "model"),
+		leadsWith(t, "switch to model", "switch model", "select model", "set model", "change model", "change to model", "pick model"):
+		return Intent{Kind: UseModel, Count: modelIndex(words)}
 
 	// Spawn: "spawn … session/project", or a leading new-session/project phrase.
 	case first == "spawn" && contains(t, "session", "project"),
@@ -384,6 +397,19 @@ func readCount(words []string) int {
 		}
 	}
 	return 1
+}
+
+// modelIndex extracts the 1-based model number from a UseModel command: the
+// first number-bearing token anywhere in the utterance (digit or word), so both
+// "use model 3" and "use model three" work. 0 if none was spoken (the gateway
+// then reminds the user to say a number).
+func modelIndex(words []string) int {
+	for _, w := range words {
+		if n := wordToNum(w); n > 0 {
+			return n
+		}
+	}
+	return 0
 }
 
 func wordToNum(w string) int {

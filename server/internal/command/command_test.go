@@ -59,6 +59,35 @@ func TestParseCancel(t *testing.T) {
 	}
 }
 
+func TestParseModels(t *testing.T) {
+	for _, in := range []string{"list models", "what models", "which models", "show models", "list the models"} {
+		if got := Parse(in); got.Kind != ListModels {
+			t.Errorf("Parse(%q).Kind = %s, want list_models", in, got.Kind)
+		}
+	}
+	// UseModel extracts the ordinal from either a digit or a number word.
+	for in, want := range map[string]int{
+		"use model 3":        3,
+		"use model three":    3,
+		"switch to model 2":  2,
+		"select model one":   1,
+		"use model number 4": 4,
+	} {
+		got := Parse(in)
+		if got.Kind != UseModel || got.Count != want {
+			t.Errorf("Parse(%q) = {%s, %d}, want {use_model, %d}", in, got.Kind, got.Count, want)
+		}
+	}
+	// No number spoken → Count 0 (gateway reminds the user).
+	if got := Parse("use model"); got.Kind != UseModel || got.Count != 0 {
+		t.Errorf(`Parse("use model") = {%s, %d}, want {use_model, 0}`, got.Kind, got.Count)
+	}
+	// "list models" must not fall through to the bare List command.
+	if Parse("list sessions").Kind != List {
+		t.Error("list sessions should still be List")
+	}
+}
+
 func TestParseAbortTurn(t *testing.T) {
 	// Abort must win over Cancel/Kill for these "…the turn" phrasings.
 	for _, in := range []string{"abort", "abort the turn", "stop the turn", "stop the command",

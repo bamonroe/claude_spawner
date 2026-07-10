@@ -56,6 +56,7 @@ All prefixed with **"hey buddy"**:
 - `read last` / `read last 3` — re-read Claude's recent replies aloud
 - `clear the context` — start Claude fresh **without** losing your history (see below)
 - `compress the context` — like `clear`, but carries a **summary** forward (see below)
+- `list models` / `use model <number>` — list the AI's models and switch by number (see below)
 
 Anything spoken **while attached** that isn't a reserved command is dictated to the session. When a
 command fails (a bad path, a name that's taken, a session live in a terminal…), the server speaks a
@@ -98,6 +99,26 @@ each turn — which makes a long session progressively more expensive.
   the conversation, rotates to a fresh `session_id`, and prepends that summary to your next
   dictation — so Claude keeps a compact recap instead of the full transcript. Costs one model turn.
   Use it to keep going on the same task while trimming cost.
+
+### Choosing the AI backend and its model
+
+The server drives more than one headless AI. Each **backend** is an entry in an AI registry that
+declares how to invoke it and how to read its output, so they share one interface; two ship today:
+
+- **Claude Code** (the default) — `claude` headless in stream-json mode.
+- **Codex** (OpenAI's CLI) — `codex exec`; the server captures Codex's own session id and resumes
+  it turn to turn. Needs `codex` installed and logged in (`codex login`); set `SPAWNER_CODEX_BIN` if
+  it isn't on the server's `PATH`.
+
+A session records which backend it runs and which **model**. Each backend has a **default model**
+the spawner picks for you, plus a short catalogue you can switch between by voice:
+
+- **"hey buddy, list models"** — speaks the attached session's backend catalogue, numbered, marking
+  the current one (Claude: `opus` / `sonnet` / `fable`; Codex on a ChatGPT-account plan: `gpt-5.5`
+  and its low/high reasoning presets — the account decides which model ids are selectable).
+- **"hey buddy, use model 2"** — switches to that numbered model (say the number — "two" or "2").
+  Selecting by **number** is deliberate: it sidesteps having to pronounce awkward model names. The
+  choice is durable on the session and takes effect on your next message.
 
 ### Token & usage displays
 

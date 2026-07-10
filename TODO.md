@@ -44,8 +44,11 @@ any backend runs on any target.
 - [ ] Spawn stamps `DefaultModel`: `doSpawnAt` sets `Session.Agent` (default backend) and
       `Session.Model = agent.DefaultModel`. Protocol: add `agent`/`model` to `spawn_at` + surface on
       `session_list`/`attached` (`docs/protocol.md`, `internal/docsync`).
-- [ ] Voice model override: "hey buddy, use sonnet" / "switch to opus" changes the attached
-      session's model (`internal/command` grammar + `docs/commands.md` + regenerated `commands.json`).
+- [x] Voice model selection: "hey buddy, list models" speaks the attached session's backend
+      catalogue numbered (marking current); "hey buddy, use model 3" switches by ordinal (digit or
+      number-word) — ordinals dodge hard-to-say model names. `internal/command` (ListModels/UseModel
+      intents + `modelIndex`), gateway `doListModels`/`doUseModel`, `docs/commands.md` + regenerated
+      `commands.json`, parse tests. Durable on the session; applies next turn. (2026-07-09)
 - [ ] Register a second real backend (TBD which) — the proof the seam holds: a new `Agent` entry
       (+ parser if its output isn't stream-json), no changes to the session/executor/gateway core.
 - [ ] Docs: `README.md` (user-facing: choosing a backend + model), `docs/architecture.md` (the

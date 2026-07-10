@@ -58,14 +58,16 @@ Reject paths that escape the allowed root unless the user explicitly opts in.
 | `abort_turn`    | "stop the turn" / "cancel the turn" / "abort" / "stop working" | Cancels the running Claude turn (kills the child). Distinct from `stop` (TTS) and `cancel` (discard a composing message). |
 | `rename`        | "rename to `<name>`" / "rename this session `<name>`" / "call this `<name>`" | Renames the session you're **attached to** (no explicit old name — it always targets the current session). The spoken name is sanitized to one token (multi-word is joined/hyphenated), so "rename to my backend" → `my-backend`. Refused if you're not attached, if no name is given, or if the name is already taken; speaks a confirmation on success. Distinct from the app's rename UI, which renames any session by explicit old→new. |
 | `usage`         | "usage" / "how much usage left" / "check usage" / "how much have I used" | Reports the Claude plan's usage — session and weekly **% used** with reset times — by running `claude -p "/usage"` (the same numbers the desktop TUI's `/usage` shows). The app opens a usage sheet (percent-used bars + the local contributing breakdown); the voice form also speaks a one-line summary. Also reachable via the 📊 Check usage button in the sessions drawer. On-demand — a real, lightweight claude invocation, not per-turn. |
+| `list_models`   | "list models" / "what models" / "which models" | Speaks the models the **attached session's AI backend** offers, numbered in catalogue order, marking the current one. The number is what `use_model` takes — ordinal selection sidesteps hard-to-say model names (e.g. Codex's `gpt-5.5` reasoning presets). Refused if not attached. |
+| `use_model`     | "use model `<number>`" / "switch to model `<number>`" / "select model `<number>`" | Switches the attached session's model to the N-th from `list_models` (1-based; digit or number-word — "use model three"). Durable on the session; takes effect on the **next** message (a turn already running finishes on the old model). Refused if not attached, or if the number is out of range. |
 | `help`          | "help" / "what can you do" / "commands" | Speaks the list of available commands (generated from the command registry). |
 
 ### Non-voice: the command tray
 
 Every argument-free control command can also be fired by hand — no voice needed. **Swipe up on the
 message box** to reveal a **command tray** above it: one tap button per command that takes no extra
-argument (`abort`, `cancel`, `clear`, `compress`, `detach`, `help`, `list`, `read last`, `status`,
-`stop`, `usage`). Tapping a button sends the command (as a wake-prefixed utterance, so the server
+argument (`abort`, `cancel`, `clear`, `compress`, `detach`, `help`, `list`, `list models`, `read last`,
+`status`, `stop`, `usage`). Tapping a button sends the command (as a wake-prefixed utterance, so the server
 treats it as a control command even while attached) and closes the tray; swipe back down to dismiss
 it without firing. The buttons are derived from the generated `COMMANDS` list — any command whose
 aliases contain a `<placeholder>` (`attach`, `kill`, `spawn`) is excluded, since a button can't

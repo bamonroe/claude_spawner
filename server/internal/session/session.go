@@ -168,6 +168,11 @@ func (d *Driver) binFor(ag *agent.Agent, t Target) string {
 	return ag.Bin
 }
 
+// AgentFor resolves the AI backend a session runs on (its Agent id, empty/unknown
+// → the default backend). Exposed so the gateway can read a session's model
+// catalogue for the "list models" / "use model N" voice commands.
+func (d *Driver) AgentFor(s *Session) *agent.Agent { return d.agents().Resolve(s.Agent) }
+
 // executor resolves a Target to its Executor, falling back to the host executor
 // for the empty string or any target with no registered executor.
 func (d *Driver) executor(t Target) Executor {
