@@ -83,6 +83,14 @@ class SettingsStore(context: Context) : Prefs {
         get() = prefs.getBoolean("cache_warm_timer", true)
         set(v) = prefs.edit().putBoolean("cache_warm_timer", v).apply()
 
+    override var autoCompress: Boolean
+        get() = prefs.getBoolean("auto_compress", false)
+        set(v) = prefs.edit().putBoolean("auto_compress", v).apply()
+
+    override var autoCompressThreshold: Int
+        get() = prefs.getInt("auto_compress_threshold", 100)
+        set(v) = prefs.edit().putInt("auto_compress_threshold", v).apply()
+
     /** Whether hands-free (always-listening) mode is enabled. */
     override var handsFree: Boolean
         get() = prefs.getBoolean("hands_free", false)

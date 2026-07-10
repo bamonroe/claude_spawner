@@ -309,6 +309,8 @@ data class HelloConfig(
     val whisperUrl: String,
     val brief: Boolean,
     val interactive: Boolean,
+    val autoCompress: Boolean,
+    val autoCompressThreshold: Int,
 )
 
 /** app -> server message builders. */
@@ -318,6 +320,11 @@ object Outbound {
         put("end_token", cfg.endToken); put("stt_mode", cfg.sttMode); put("stt_model", cfg.sttModel)
         putJsonObject("aliases") { for ((k, v) in cfg.aliases) put(k, v) }
         put("whisper_url", cfg.whisperUrl); put("brief", cfg.brief); put("interactive", cfg.interactive)
+        put("auto_compress", cfg.autoCompress); put("auto_compress_threshold", cfg.autoCompressThreshold)
+    }.toString()
+    // Live-update the server-global auto-compress preference without reconnecting.
+    fun autoCompress(enabled: Boolean, thresholdK: Int) = buildJsonObject {
+        put("type", "auto_compress"); put("auto_compress", enabled); put("auto_compress_threshold", thresholdK)
     }.toString()
     fun utterance(text: String) = buildJsonObject { put("type", "utterance"); put("text", text) }.toString()
     fun usage() = buildJsonObject { put("type", "usage") }.toString() // fetch the plan's /usage report

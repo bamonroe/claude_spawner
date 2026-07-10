@@ -397,7 +397,7 @@ fun SettingsRow(title: String, subtitle: String, onClick: () -> Unit) {
 
 /** Appearance: theme mode, the per-reply token badge, and the cache-warm timer toggle. */
 @Composable
-fun AppearanceSettings(settings: Prefs, themeMode: ThemeMode, onThemeChange: (ThemeMode) -> Unit, onBack: () -> Unit) {
+fun AppearanceSettings(settings: Prefs, themeMode: ThemeMode, onThemeChange: (ThemeMode) -> Unit, onAutoCompressChanged: () -> Unit = {}, onBack: () -> Unit) {
     SettingsScaffold("Appearance", onBack) {
         Text("Theme", style = MaterialTheme.typography.titleMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -426,6 +426,36 @@ fun AppearanceSettings(settings: Prefs, themeMode: ThemeMode, onThemeChange: (Th
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
             }
             Switch(checked = warm, onCheckedChange = { warm = it; settings.cacheWarmTimer = it })
+        }
+
+        HorizontalDivider()
+        var autoCompress by remember { mutableStateOf(settings.autoCompress) }
+        var threshold by remember { mutableStateOf(settings.autoCompressThreshold.toString()) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Auto-compress", style = MaterialTheme.typography.titleMedium)
+                Text("When a session grows past the token limit below, compress it automatically " +
+                    "just before its warm cache expires (reuses the warm cache instead of a cold rebuild).",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            }
+            Switch(checked = autoCompress, onCheckedChange = {
+                autoCompress = it; settings.autoCompress = it; onAutoCompressChanged()
+            })
+        }
+        if (autoCompress) {
+            OutlinedTextField(
+                value = threshold,
+                onValueChange = { v ->
+                    threshold = v.filter { it.isDigit() }.take(4)
+                    settings.autoCompressThreshold = threshold.toIntOrNull() ?: 0
+                    onAutoCompressChanged()
+                },
+                label = { Text("Token limit (thousands)") },
+                suffix = { Text("k tokens") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }

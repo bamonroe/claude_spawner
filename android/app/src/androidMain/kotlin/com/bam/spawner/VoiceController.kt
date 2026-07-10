@@ -316,6 +316,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
         val hello = com.bam.spawner.net.HelloConfig(
             settings.endToken, settings.sttMode, settings.sttModel, settings.aliasMap(),
             settings.whisperUrl, settings.brief, settings.interactive,
+            settings.autoCompress, settings.autoCompressThreshold,
         )
         // Present a client certificate when one is imported (mutual-TLS servers).
         // A bad passphrase / corrupt file is surfaced, then we fall back to a
@@ -537,6 +538,10 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     /** Change the resident whisper model (server-global; the server broadcasts the
      *  new value back to every client). */
     override fun setWhisperModel(model: String) = client?.send(Outbound.setWhisperModel(model)).let {}
+
+    /** Push the auto-compress preference to the server (server-global; live). */
+    override fun setAutoCompress(enabled: Boolean, thresholdK: Int) =
+        client?.send(Outbound.autoCompress(enabled, thresholdK)).let {}
 
     /** Ask the server to restart. It exits so its supervisor relaunches it on
      *  current code; the app auto-reconnects once it's listening again. */

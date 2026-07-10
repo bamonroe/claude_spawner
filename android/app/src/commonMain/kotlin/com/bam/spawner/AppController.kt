@@ -105,5 +105,7 @@ interface AppController : HostsIdentitiesController {
 
     // --- Server controls -----------------------------------------------------
     fun setWhisperModel(model: String)
+    /** Push the auto-compress preference to the server (live, no reconnect). */
+    fun setAutoCompress(enabled: Boolean, thresholdK: Int)
     fun restartServer()
 }

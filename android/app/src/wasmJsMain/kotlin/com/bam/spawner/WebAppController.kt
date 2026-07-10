@@ -110,6 +110,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
         val hello = HelloConfig(
             prefs.endToken, prefs.sttMode, prefs.sttModel, prefs.aliasMap(),
             prefs.whisperUrl, prefs.brief, prefs.interactive,
+            prefs.autoCompress, prefs.autoCompressThreshold,
         )
         client = SpawnerClient(
             url = url, token = token, clientId = prefs.clientId, hello = hello,
@@ -300,5 +301,6 @@ class WebAppController(private val prefs: Prefs) : AppController {
     override fun dismissUsage() { _usageLoading.value = false; _usageReport.value = null }
 
     override fun setWhisperModel(model: String) { client?.send(Outbound.setWhisperModel(model)) }
+    override fun setAutoCompress(enabled: Boolean, thresholdK: Int) { client?.send(Outbound.autoCompress(enabled, thresholdK)) }
     override fun restartServer() { client?.send(Outbound.restart()) }
 }
