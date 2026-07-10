@@ -513,7 +513,7 @@ type fakeSandbox struct {
 	removed []string
 }
 
-func (f *fakeSandbox) Start(context.Context, *session.Session, []string) (session.Proc, error) {
+func (f *fakeSandbox) Start(context.Context, *session.Session, string, []string) (session.Proc, error) {
 	return nil, nil // turns aren't exercised in the lifecycle test
 }
 func (f *fakeSandbox) Ensure(_ context.Context, name, dir string) error {

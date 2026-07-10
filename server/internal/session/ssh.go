@@ -361,7 +361,7 @@ type SSHExecutor struct {
 // Start opens a channel on the session's host connection and runs claude there. If
 // the cached connection has died since the last turn, it drops it and re-dials once
 // before failing, so a link that dropped between turns heals transparently.
-func (e SSHExecutor) Start(ctx context.Context, s *Session, args []string) (Proc, error) {
+func (e SSHExecutor) Start(ctx context.Context, s *Session, bin string, args []string) (Proc, error) {
 	host := s.Host
 	if host == "" {
 		// SSH-native execution never defaults to the local box: a host-target
@@ -370,7 +370,11 @@ func (e SSHExecutor) Start(ctx context.Context, s *Session, args []string) (Proc
 		// not an implicit "run it here".
 		return nil, fmt.Errorf("session %q has no host set", s.Name)
 	}
-	bin := e.Bin
+	// bin (from the session's agent) wins; empty defers to the executor override
+	// then the per-host registry entry, so a Claude session keeps today's behavior.
+	if bin == "" {
+		bin = e.Bin
+	}
 	if bin == "" {
 		bin = e.Pool.binFor(host)
 	}

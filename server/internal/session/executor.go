@@ -39,10 +39,13 @@ const LocalHost = "localhost"
 // spawned. Implementations must run the process in the given working directory and
 // kill it (and its children) when ctx is cancelled.
 type Executor interface {
-	// Start launches `claude <args...>` for session s (it reads s.Dir, and for the
-	// sandbox target s.Container) and returns a running Proc. The caller reads
-	// Proc.Stdout to EOF, then calls Proc.Wait.
-	Start(ctx context.Context, s *Session, args []string) (Proc, error)
+	// Start launches `<bin> <args...>` for session s (it reads s.Dir, and for the
+	// sandbox target s.Container) and returns a running Proc. bin is the backend's
+	// command (e.g. "claude" or "codex"), resolved by the Driver from the session's
+	// agent; an empty bin defers to the executor's own configured binary, so a
+	// Claude session (bin "") keeps using each target's SPAWNER_*_CLAUDE_BIN. The
+	// caller reads Proc.Stdout to EOF, then calls Proc.Wait.
+	Start(ctx context.Context, s *Session, bin string, args []string) (Proc, error)
 }
 
 // containerPrefix names every sandbox SESSION container this server manages, so
@@ -92,8 +95,11 @@ type HostExecutor struct {
 	Bin string
 }
 
-func (h HostExecutor) Start(ctx context.Context, s *Session, args []string) (Proc, error) {
-	return startProc(ctx, h.Bin, args, s.Dir, "start claude")
+func (h HostExecutor) Start(ctx context.Context, s *Session, bin string, args []string) (Proc, error) {
+	if bin == "" {
+		bin = h.Bin
+	}
+	return startProc(ctx, bin, args, s.Dir, "start turn")
 }
 
 // SandboxExecutor runs a session's turns inside a persistent, isolated container
@@ -189,14 +195,17 @@ func (s SandboxExecutor) bin() string {
 // Start runs one turn by exec'ing claude inside the session's persistent
 // container, (re)creating the container first if it isn't running (so a turn
 // survives a server restart or a manually-removed container).
-func (s SandboxExecutor) Start(ctx context.Context, sess *Session, claudeArgs []string) (Proc, error) {
+func (s SandboxExecutor) Start(ctx context.Context, sess *Session, bin string, turnArgs []string) (Proc, error) {
 	if sess.Container == "" {
 		return nil, fmt.Errorf("sandbox session %q has no container name", sess.Name)
 	}
 	if err := s.Ensure(ctx, sess.Container, sess.Dir); err != nil {
 		return nil, err
 	}
-	args := s.execArgs(sess.Container, sess.Dir, claudeArgs)
+	if bin == "" {
+		bin = s.bin()
+	}
+	args := s.execArgs(sess.Container, sess.Dir, bin, turnArgs)
 	if s.Pool != nil {
 		// SSH-native: run the exec on the host. `exec` so podman inherits the remote
 		// wrapper's process group and a cancel kills the exec client (which signals the
@@ -272,11 +281,11 @@ func (s SandboxExecutor) createArgs(name, dir string) []string {
 	return args
 }
 
-// execArgs builds the argv for one turn: exec claude in the session's workdir
-// inside the already-running container.
-func (s SandboxExecutor) execArgs(name, dir string, claudeArgs []string) []string {
-	args := []string{"exec", "-i", "-w", dir, name, s.bin()}
-	return append(args, claudeArgs...)
+// execArgs builds the argv for one turn: exec the backend binary in the
+// session's workdir inside the already-running container.
+func (s SandboxExecutor) execArgs(name, dir, bin string, turnArgs []string) []string {
+	args := []string{"exec", "-i", "-w", dir, name, bin}
+	return append(args, turnArgs...)
 }
 
 // runCLI runs a short runtime command (create/inspect/rm) to completion and

@@ -205,7 +205,7 @@ func TestLiveSSHCancelKillsRemote(t *testing.T) {
 	marker := "998877" // seconds; unmistakable in `pgrep -f`
 	ex := SSHExecutor{Pool: pool, Bin: "sleep"}
 	ctx, cancel := context.WithCancel(context.Background())
-	proc, err := ex.Start(ctx, &Session{Dir: "/"}, []string{marker}) // Host "" = loopback
+	proc, err := ex.Start(ctx, &Session{Dir: "/"}, "", []string{marker}) // Host "" = loopback
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}

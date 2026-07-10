@@ -53,6 +53,11 @@ type Agent struct {
 	ID string
 	// Name is the human-facing display name (e.g. "Claude Code").
 	Name string
+	// Bin is the backend's default command (path or PATH name), e.g. "codex". The
+	// session Driver passes it to the Executor as the process to launch. Empty
+	// means "defer to the executor's own configured binary" — Claude leaves this
+	// empty so every target keeps using its SPAWNER_*_CLAUDE_BIN as before.
+	Bin string
 	// Format is this backend's output shape, selecting the parser on the session side.
 	Format Format
 	// DefaultModel is the alias stamped onto a new session when the spawner picks

@@ -15,7 +15,7 @@ type fakeExecutor struct {
 	launched bool
 }
 
-func (f *fakeExecutor) Start(ctx context.Context, s *Session, args []string) (Proc, error) {
+func (f *fakeExecutor) Start(ctx context.Context, s *Session, bin string, args []string) (Proc, error) {
 	f.launched, f.gotDir, f.gotArgs = true, s.Dir, args
 	line := `{"type":"result","subtype":"success","result":"` + f.id + `"}` + "\n"
 	return &fakeProc{r: strings.NewReader(line)}, nil
@@ -56,7 +56,7 @@ func TestSandboxCreateArgs(t *testing.T) {
 
 func TestSandboxExecArgs(t *testing.T) {
 	s := SandboxExecutor{Runtime: "podman", Image: "img"}
-	got := strings.Join(s.execArgs("spawner-abc123", "/work/proj", []string{"-p", "hi", "--resume", "sid"}), " ")
+	got := strings.Join(s.execArgs("spawner-abc123", "/work/proj", "claude", []string{"-p", "hi", "--resume", "sid"}), " ")
 	// exec into the running container, workdir = session dir, default claude bin.
 	want := "exec -i -w /work/proj spawner-abc123 claude -p hi --resume sid"
 	if got != want {
@@ -69,7 +69,7 @@ func TestSandboxExecArgs(t *testing.T) {
 // the line is prefixed with exec so podman inherits the cancelable wrapper's pgid.
 func TestSandboxSSHInnerCommandQuoted(t *testing.T) {
 	s := SandboxExecutor{Runtime: "podman", Image: "img"}
-	args := s.execArgs("spawner-abc123", "/work/proj", []string{"-p", "fix the 'bug' now", "--output-format", "stream-json"})
+	args := s.execArgs("spawner-abc123", "/work/proj", "claude", []string{"-p", "fix the 'bug' now", "--output-format", "stream-json"})
 	inner := "exec " + shellJoinCmd(s.Runtime, args)
 	want := `exec 'podman' 'exec' '-i' '-w' '/work/proj' 'spawner-abc123' 'claude' '-p' 'fix the '\''bug'\'' now' '--output-format' 'stream-json'`
 	if inner != want {
@@ -95,7 +95,9 @@ type fakeReaper struct {
 	removed []string
 }
 
-func (f *fakeReaper) Start(context.Context, *Session, []string) (Proc, error) { return nil, nil }
+func (f *fakeReaper) Start(context.Context, *Session, string, []string) (Proc, error) {
+	return nil, nil
+}
 func (f *fakeReaper) Ensure(context.Context, string, string) error            { return nil }
 func (f *fakeReaper) List(context.Context) ([]string, error)                  { return f.all, nil }
 func (f *fakeReaper) Remove(_ context.Context, name string) error {

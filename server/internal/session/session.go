@@ -102,6 +102,12 @@ type Driver struct {
 	// unknown id falls back to the registry's default backend (Claude). Never nil
 	// after NewDriver.
 	Agents *agent.Registry
+	// AgentBins overrides the HOST binary for a backend by agent id (from config,
+	// e.g. SPAWNER_CODEX_BIN → {"codex": "codex"}). Consulted only for the host
+	// target; sandbox/SSH use the agent's own Bin (or the executor's per-target
+	// config). Claude is absent here — it defers to HostExecutor.Bin
+	// (SPAWNER_CLAUDE_BIN), so its wiring is unchanged. Nil is fine (no overrides).
+	AgentBins map[string]string
 	// Bypass adds --dangerously-skip-permissions when true (project default).
 	Bypass bool
 	// UsageDir is the working directory for the account-global /usage check. It has
@@ -146,6 +152,20 @@ func (d *Driver) agents() *agent.Registry {
 		d.Agents = agent.Default()
 	}
 	return d.Agents
+}
+
+// binFor resolves the backend command to launch for a session's agent on a
+// target. On the host, an AgentBins config override wins; otherwise (and for
+// sandbox/SSH) the agent's own Bin is used. Claude's Bin is empty and it has no
+// AgentBins entry, so it returns "" — the Executor then uses its own configured
+// binary, preserving the pre-registry behavior on every target.
+func (d *Driver) binFor(ag *agent.Agent, t Target) string {
+	if t == TargetHost {
+		if b := d.AgentBins[ag.ID]; b != "" {
+			return b
+		}
+	}
+	return ag.Bin
 }
 
 // executor resolves a Target to its Executor, falling back to the host executor
@@ -334,7 +354,9 @@ func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool fun
 
 	// Launch via the session's execution target (host by default). The executor
 	// owns process-group/abort semantics; Turn only builds args and parses stdout.
-	proc, err := d.executor(s.Target).Start(ctx, s, args)
+	// The backend command (claude/codex) is resolved from the agent; "" lets the
+	// executor use its own configured binary (the Claude path).
+	proc, err := d.executor(s.Target).Start(ctx, s, d.binFor(ag, s.Target), args)
 	if err != nil {
 		return "", Usage{}, err
 	}
@@ -505,7 +527,7 @@ func (d *Driver) Usage(ctx context.Context) (string, error) {
 	// Account-global probe: run it on the loopback host explicitly (the SSH executor
 	// no longer defaults a hostless session). A purely remote deployment with no
 	// reachable local box can't run /usage; that's an accepted limitation.
-	proc, err := d.executor(TargetHost).Start(ctx, &Session{Name: "usage", Dir: dir, Host: LocalHost}, args)
+	proc, err := d.executor(TargetHost).Start(ctx, &Session{Name: "usage", Dir: dir, Host: LocalHost}, "", args)
 	if err != nil {
 		return "", err
 	}
