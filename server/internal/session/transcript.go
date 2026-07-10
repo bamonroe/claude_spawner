@@ -1,6 +1,9 @@
 package session
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"strings"
 	"sync"
@@ -340,6 +343,29 @@ func extractText(raw json.RawMessage) string {
 		return strings.TrimSpace(strings.Join(parts, "\n"))
 	}
 	return ""
+}
+
+// HistoryDigest summarizes a transcript chain for cheap client-cache validation:
+// the message count and a content hash over each message (index, role, text,
+// timestamp). Two chains producing the same digest are identical as far as the
+// app's replayed chat view is concerned, so a client holding a matching digest
+// can skip refetching the history entirely. A clear/compress rotation re-indexes
+// and rewrites text, so the hash changes — the app sees the mismatch and does a
+// full refetch instead of a bad incremental append. The hash is opaque to the
+// client: it only ever compares two server-produced hashes for equality.
+func HistoryDigest(msgs []Message) (count int, hash string) {
+	h := sha256.New()
+	var b [8]byte
+	for _, m := range msgs {
+		binary.BigEndian.PutUint64(b[:], uint64(m.Index))
+		h.Write(b[:])
+		h.Write([]byte(m.Role))
+		h.Write([]byte{0})
+		h.Write([]byte(m.Text))
+		binary.BigEndian.PutUint64(b[:], uint64(m.Ts))
+		h.Write(b[:])
+	}
+	return len(msgs), hex.EncodeToString(h.Sum(nil))
 }
 
 // HistoryPage returns the window of msgs ending just before index `before`

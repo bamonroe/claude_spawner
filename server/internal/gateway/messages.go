@@ -39,6 +39,7 @@ type inbound struct {
 	WhisperModel          string            `json:"whisper_model"`           // on `hello`: ggml model to hot-load on the resident server (e.g. "medium.en")
 	Before                *int              `json:"before"`                  // on `history`: page cursor (exclusive index); nil = most recent
 	Limit                 int               `json:"limit"`                   // on `history`: page size (default 30)
+	HaveHash              string            `json:"have_hash"`               // on `history`: digest of the top page the app already cached; server replies `unchanged` if it still matches
 	Silent                bool              `json:"silent"`                  // on `attach`: suppress the spoken "attached…" confirmation (reconnect auto-attach)
 	SessionID             string            `json:"session_id"`              // on `adopt`: the discovered Claude session_id to register
 	Brief                 bool              `json:"brief"`                   // on `hello`: append a "reply briefly for TTS" hint to dictation
@@ -315,11 +316,37 @@ func msgStopSpeaking() map[string]any { return map[string]any{"type": "stop_spea
 
 // msgHistory returns a page of a session's past conversation (older-to-newer),
 // with `more` telling the app whether even-older messages remain to page in.
-func msgHistory(name string, messages []session.Message, more bool) map[string]any {
+// `count`/`hash` are the whole chain's digest (the app stores them alongside the
+// cached transcript); `unchanged` is set on a top-page request whose `have_hash`
+// still matched, meaning the app's cache is current and `messages` is empty.
+func msgHistory(name string, messages []session.Message, more bool, count int, hash string, unchanged bool) map[string]any {
 	if messages == nil {
 		messages = []session.Message{}
 	}
-	return map[string]any{"type": "history", "name": name, "messages": messages, "more": more}
+	return map[string]any{
+		"type": "history", "name": name, "messages": messages, "more": more,
+		"count": count, "hash": hash, "unchanged": unchanged,
+	}
+}
+
+// digestView is one session's transcript summary in the `digests` message: the
+// message count and an opaque content hash the app compares against its cached
+// copy to decide whether that session's history changed and needs refetching.
+type digestView struct {
+	Name      string `json:"name"`
+	SessionID string `json:"session_id"`
+	Count     int    `json:"count"`
+	Hash      string `json:"hash"`
+}
+
+// msgDigests reports every session's transcript digest (count + content hash) so
+// the app can validate its offline cache on connect without pulling any message
+// bodies — it refetches history only for sessions whose hash no longer matches.
+func msgDigests(items []digestView) map[string]any {
+	if items == nil {
+		items = []digestView{}
+	}
+	return map[string]any{"type": "digests", "items": items}
 }
 
 // discoveredView is a Claude session found on disk (see session.Discovered),
