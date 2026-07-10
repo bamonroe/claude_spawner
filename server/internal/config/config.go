@@ -36,6 +36,10 @@ type Config struct {
 	SSHKeysDir     string
 	// ClaudeBin is the claude binary used for headless turns.
 	ClaudeBin string
+	// CodexBin is the codex binary for host turns of Codex-backend sessions
+	// (default "codex"). Only the host target is configurable here; sandbox/SSH
+	// Codex sessions use "codex" on their PATH.
+	CodexBin string
 	// WhisperBin is the whisper.cpp CLI (default "whisper-cli").
 	WhisperBin string
 	// WhisperURL points at a resident whisper.cpp server (its base URL, e.g.
@@ -137,6 +141,7 @@ func Load() (*Config, error) {
 		IdentitiesPath:   env("SPAWNER_IDENTITIES", "identities.json"),
 		SSHKeysDir:       env("SPAWNER_SSH_KEYS", "ssh_keys"),
 		ClaudeBin:        env("SPAWNER_CLAUDE_BIN", "claude"),
+		CodexBin:         env("SPAWNER_CODEX_BIN", "codex"),
 		WhisperBin:       env("SPAWNER_WHISPER_BIN", "whisper-cli"),
 		WhisperURL:       os.Getenv("SPAWNER_WHISPER_URL"),
 		WhisperFastURL:   os.Getenv("SPAWNER_WHISPER_FAST_URL"),

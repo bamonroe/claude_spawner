@@ -110,6 +110,36 @@ feature reduces to making that launch pluggable:
   persisted in `sessions.json`, so host-vs-sandbox is a durable per-session property the spawn
   dialog chooses. Default = `host`.
 
+## AI backend registry (which AI — orthogonal to where it runs)
+
+Status: **implemented** (`internal/agent`). The `Executor` seam above answers *where* a turn runs
+(host / sandbox / SSH). A second, orthogonal seam answers *which AI* runs it and *how* to invoke
+and parse it — so the server drives more than `claude`.
+
+- An **`Agent`** (`internal/agent/agent.go`) is a headless backend: an id (persisted on the
+  session), a `Bin` (the command to launch), an output `Format`, a `DefaultModel`, a catalogue of
+  selectable `Models` (each by a short spoken alias — `opus`/`sonnet`/`fable`, or Codex's presets),
+  and a per-backend **arg builder** (`Agent.Args(TurnSpec)`) that emits that backend's exact command
+  line. The `Registry` holds the known agents; an empty/unknown id resolves to the default (Claude),
+  so records predating the field just run on Claude.
+- `Session` gains a durable **`Agent`** (backend id) and **`Model`** (alias). `Driver.Turn` resolves
+  the agent, asks it to build the args, passes the resolved backend binary to the `Executor`
+  (`Driver.binFor` — empty defers to the executor's own `SPAWNER_*_CLAUDE_BIN`, keeping Claude
+  unchanged), and dispatches the output parser on the agent's `Format`.
+- **Backend × target is a matrix, not a special case.** Because *which AI* and *where* are separate
+  seams, any backend runs on any target: the arg builder never mentions host/sandbox/SSH, and the
+  Executor never mentions claude/codex. Adding a backend touches neither the executors nor the
+  gateway.
+
+**Two backends ship today.** *Claude* (`--output-format stream-json`; the server mints the
+`session_id` and passes `--session-id`/`--resume`). *Codex* (`codex exec` / `codex exec resume`,
+`--json` JSONL): Codex **mints its own** session id (`thread_id`, read from the first output event),
+so `Agent.SelfAssignsID` tells `Turn` to capture it from the stream and adopt it as the session id
+rather than supplying one. Each `Format` has its own parser (`parseStream` / `parseCodexStream`)
+normalizing to the same `(reply, usage)` the rest of the server already consumes. Model availability
+can be **plan-dependent** (on a ChatGPT-account Codex, only `gpt-5.5` is `-m`-selectable, so its
+alternates are reasoning-effort presets); the registry is the single place that catalogue lives.
+
 ### The server runs bare metal (no broker)
 
 The server runs **bare metal** as a single binary, as the ordinary user — so it forks `claude` for
@@ -256,7 +286,8 @@ uppercase letters by voice. Acceptable; documented in `docs/commands.md`.
                                   lists the chosen host's FS over SSH from "/" (not the local roots)
     messages.go                 wire message constructors
     *_test.go                   httptest+ws integration (auth, spawn, dictation, ask, stream)
-  internal/session/session.go   headless claude driver: Driver.Turn (stream-json), NewSessionID
+  internal/agent/agent.go       AI backend registry: Agent (id/bin/format/models/arg-builder), Claude + Codex
+  internal/session/session.go   headless driver: Driver.Turn (per-agent args + parser), parseStream/parseCodexStream
   internal/session/executor.go  pluggable Executor: HostExecutor (direct exec) + SandboxExecutor (runtime)
   internal/session/store.go     durable session registry (file-backed, atomic writes); Session.Target/Container
   internal/session/discover.go  scan ~/.claude/projects for all Claude sessions (adopt/discover)

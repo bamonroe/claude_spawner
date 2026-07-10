@@ -122,7 +122,9 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
   `SPAWNER_IDENTITIES` (`identities.json`; the app-managed SSH identity registry — names + public
   keys), `SPAWNER_SSH_KEYS` (`ssh_keys`; directory holding each identity's private key, `0600`; the
   private material never leaves the server, the app only sees/copies the public key),
-  `SPAWNER_CLAUDE_BIN` (`claude`).
+  `SPAWNER_CLAUDE_BIN` (`claude`), `SPAWNER_CODEX_BIN` (`codex`; the host binary for
+  Codex-backend sessions — the second entry in the AI backend registry, see
+  `docs/architecture.md`).
 - Transport TLS (all optional; empty = plain `ws://`, fine behind Tailscale): `SPAWNER_TLS_CERT`
   and `SPAWNER_TLS_KEY` (PEM cert/key — set **both** to serve `wss://`; one without the other is a
   startup error), `SPAWNER_TLS_CLIENT_CA` (PEM CA bundle — when set, the app must present a client

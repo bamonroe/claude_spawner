@@ -64,6 +64,60 @@ func TestParseStreamStreamsProse(t *testing.T) {
 	}
 }
 
+// TestParseCodexStream feeds the real `codex exec --json` event shapes (captured
+// from a live run): thread.started carries the id, a step item becomes a tool
+// breadcrumb, agent_message is the reply, turn.completed carries usage.
+func TestParseCodexStream(t *testing.T) {
+	const stream = `{"type":"thread.started","thread_id":"019f4971-0a8c-74a0-a384-d833e64fd77e"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"i0","type":"command_execution","command":"ls"}}
+{"type":"item.completed","item":{"id":"i1","type":"agent_message","text":"done"}}
+{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":7,"reasoning_output_tokens":3}}
+`
+	var texts []string
+	var tools []ToolUse
+	reply, usage, threadID, err := parseCodexStream(strings.NewReader(stream),
+		func(t ToolUse) { tools = append(tools, t) },
+		func(s string) { texts = append(texts, s) },
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reply != "done" {
+		t.Errorf("reply = %q, want %q", reply, "done")
+	}
+	if threadID != "019f4971-0a8c-74a0-a384-d833e64fd77e" {
+		t.Errorf("threadID = %q", threadID)
+	}
+	// Output folds in reasoning tokens (7+3); cached maps to CacheRead.
+	if want := (Usage{Input: 100, Output: 10, CacheRead: 40}); usage != want {
+		t.Errorf("usage = %+v, want %+v", usage, want)
+	}
+	if want := []string{"done"}; strings.Join(texts, "|") != strings.Join(want, "|") {
+		t.Errorf("texts = %v, want %v", texts, want)
+	}
+	if len(tools) != 1 || tools[0].Name != "command_execution" {
+		t.Errorf("tools = %+v, want one command_execution", tools)
+	}
+}
+
+// TestParseCodexStreamFailure confirms a turn.failed event surfaces as an error
+// while the thread_id (seen first) is still returned, so the failed first turn
+// remains resumable rather than getting re-created.
+func TestParseCodexStreamFailure(t *testing.T) {
+	const stream = `{"type":"thread.started","thread_id":"tid-9"}
+{"type":"turn.started"}
+{"type":"turn.failed","error":{"message":"model not supported"}}
+`
+	_, _, threadID, err := parseCodexStream(strings.NewReader(stream), nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "model not supported") {
+		t.Fatalf("err = %v, want it to mention the failure", err)
+	}
+	if threadID != "tid-9" {
+		t.Errorf("threadID = %q, want tid-9 even on failure", threadID)
+	}
+}
+
 // TestParseStreamReportsCorruption confirms a stream that truncates mid-flight
 // (garbage lines, no result event) surfaces the malformed-line count instead of
 // a bare "no result" — so a corrupted claude stdout is diagnosable.

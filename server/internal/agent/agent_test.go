@@ -41,6 +41,36 @@ func TestModelResolution(t *testing.T) {
 	}
 }
 
+func TestCodexArgs(t *testing.T) {
+	c, ok := Default().Get("codex")
+	if !ok {
+		t.Fatal("codex not registered")
+	}
+	if c.Bin != "codex" {
+		t.Errorf("codex Bin = %q, want codex", c.Bin)
+	}
+
+	// First turn, default model: no id, model pinned, prompt after `--`.
+	got := c.Args(TurnSpec{Prompt: "fix it", SessionID: "ignored", Resume: false, Model: "gpt-5.5", Bypass: true})
+	want := []string{
+		"exec", "--json", "--skip-git-repo-check",
+		"--dangerously-bypass-approvals-and-sandbox", "-m", "gpt-5.5", "--", "fix it",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("codex first-turn args\n got %v\nwant %v", got, want)
+	}
+
+	// Resume turn carries the id after `resume`; reasoning preset expands to -c args.
+	got = c.Args(TurnSpec{Prompt: "-rf danger", SessionID: "thread-abc", Resume: true, Model: "gpt-5.5-high"})
+	want = []string{
+		"exec", "resume", "thread-abc", "--json", "--skip-git-repo-check",
+		"-m", "gpt-5.5", "-c", "model_reasoning_effort=high", "--", "-rf danger",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("codex resume args\n got %v\nwant %v", got, want)
+	}
+}
+
 func TestClaudeArgsMatchLegacyPlusModel(t *testing.T) {
 	c, _ := Default().Get("claude")
 

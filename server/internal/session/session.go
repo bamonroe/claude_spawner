@@ -344,6 +344,12 @@ func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool fun
 	// concrete flags (Claude's -p/--output-format/--session-id/--model, another
 	// backend's equivalents). An empty/unknown Agent id resolves to the default.
 	ag := d.agents().Resolve(s.Agent)
+	switch ag.Format {
+	case agent.FormatClaudeStreamJSON, agent.FormatCodexJSONL:
+		// parseable below
+	default:
+		return "", Usage{}, fmt.Errorf("agent %q: no parser for output format %q", ag.ID, ag.Format)
+	}
 	args := ag.Args(agent.TurnSpec{
 		Prompt:    prompt,
 		SessionID: s.SessionID,
@@ -361,21 +367,42 @@ func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool fun
 		return "", Usage{}, err
 	}
 
-	// Once claude has launched with --session-id it has created (or is creating)
-	// the session on disk. Flip Started here — NOT after a clean Wait — so that a
-	// turn interrupted mid-stream (client drop, container restart) still records
-	// that the id now exists. Otherwise the next turn re-runs --session-id on an
-	// id claude already owns, which exits status 1 forever, bricking the session.
+	// For a backend that takes a caller-supplied id (Claude), the session now
+	// exists on disk the moment the process launched with --session-id. Flip
+	// Started here — NOT after a clean Wait — so a turn interrupted mid-stream
+	// (client drop, container restart) still records that the id exists; otherwise
+	// the next turn re-runs --session-id on an id claude already owns, exiting
+	// status 1 forever and bricking the session. A self-assigning backend (Codex)
+	// has no id yet — it's captured from the stream below and Started flips then.
 	// The caller persists this even on the error path (see gateway/jobs.go).
-	s.Started = true
-
-	// Parse the backend's output into the clean reply + usage. Dispatch on the
-	// agent's Format so a backend with a different output shape adds a parser here
-	// rather than changing the caller. Only Claude's stream-json ships today.
-	if ag.Format != agent.FormatClaudeStreamJSON {
-		return "", Usage{}, fmt.Errorf("agent %q: no parser for output format %q", ag.ID, ag.Format)
+	if !ag.SelfAssignsID {
+		s.Started = true
 	}
-	reply, usage, perr := parseStream(proc.Stdout(), onTool, onText, onRateLimit)
+
+	// Parse the backend's output into the clean reply + usage, dispatching on the
+	// agent's Format so a backend with a different output shape adds a parser here
+	// rather than changing the caller.
+	var (
+		reply string
+		usage Usage
+		perr  error
+	)
+	switch ag.Format {
+	case agent.FormatClaudeStreamJSON:
+		reply, usage, perr = parseStream(proc.Stdout(), onTool, onText, onRateLimit)
+	case agent.FormatCodexJSONL:
+		var threadID string
+		reply, usage, threadID, perr = parseCodexStream(proc.Stdout(), onTool, onText)
+		// Codex mints the session id (thread_id) and reports it as the first event.
+		// Adopt it and mark the session live so the next turn resumes it. Captured
+		// even on the error path (thread.started precedes any failure), and the
+		// caller persists s regardless — so a first turn that fails mid-way is still
+		// resumable rather than re-created.
+		if threadID != "" {
+			s.SessionID = threadID
+			s.Started = true
+		}
+	}
 	if werr := proc.Wait(); werr != nil {
 		return "", Usage{}, fmt.Errorf("%s exited: %w", ag.ID, werr)
 	}
@@ -505,6 +532,106 @@ func parseStream(r interface{ Read([]byte) (int, error) }, onTool func(ToolUse),
 		return "", Usage{}, fmt.Errorf("claude turn failed (%s): %s", subtype, result)
 	}
 	return result, usage, nil
+}
+
+// codexEvent is the subset of Codex CLI's `codex exec --json` JSONL we consume.
+// Unknown fields/events are ignored; non-JSON lines are skipped. See the probe
+// notes in the agent package for the event shapes.
+type codexEvent struct {
+	Type     string `json:"type"`      // "thread.started" | "turn.started" | "item.completed" | "turn.completed" | "turn.failed" | "error"
+	ThreadID string `json:"thread_id"` // on thread.started: the session id
+	Item     struct {
+		Type    string `json:"type"`    // "agent_message" | "error" | "command_execution" | "file_change" | ...
+		Text    string `json:"text"`    // reply prose on agent_message
+		Message string `json:"message"` // error text on an error item
+	} `json:"item"`
+	Usage struct {
+		InputTokens         int `json:"input_tokens"`
+		CachedInputTokens   int `json:"cached_input_tokens"`
+		OutputTokens        int `json:"output_tokens"`
+		ReasoningOutputToks int `json:"reasoning_output_tokens"`
+	} `json:"usage"` // on turn.completed
+	Message string `json:"message"` // on a top-level error event
+	Error   struct {
+		Message string `json:"message"`
+	} `json:"error"` // on turn.failed
+}
+
+// parseCodexStream reads Codex's `--json` JSONL until EOF, returning the final
+// agent_message text, token usage, and the session's thread_id (Codex's id, read
+// from the first event). Tool/step items are fanned out via onTool and each
+// agent_message via onText, mirroring parseStream. threadID is returned on every
+// path (even errors) so a first turn that fails after thread.started is still
+// resumable. A turn.failed / error event (or an error item) fails the turn.
+func parseCodexStream(r io.Reader, onTool func(ToolUse), onText func(string)) (string, Usage, string, error) {
+	sc := newLineScanner(r)
+
+	var reply, threadID, failMsg string
+	var usage Usage
+	var gotReply bool
+	var malformed int
+	for sc.Scan() {
+		line := sc.Bytes()
+		var ev codexEvent
+		if err := json.Unmarshal(line, &ev); err != nil {
+			if len(strings.TrimSpace(string(line))) > 0 {
+				malformed++
+			}
+			continue
+		}
+		switch ev.Type {
+		case "thread.started":
+			if ev.ThreadID != "" {
+				threadID = ev.ThreadID
+			}
+		case "item.completed":
+			switch ev.Item.Type {
+			case "agent_message":
+				reply, gotReply = ev.Item.Text, true
+				if onText != nil && ev.Item.Text != "" {
+					onText(ev.Item.Text)
+				}
+			case "error":
+				if failMsg == "" {
+					failMsg = ev.Item.Message
+				}
+			default:
+				// A step Codex took (command_execution, file_change, reasoning, …):
+				// surface it as a tool breadcrumb, named by the item type.
+				if onTool != nil && ev.Item.Type != "" {
+					onTool(ToolUse{Name: ev.Item.Type})
+				}
+			}
+		case "turn.completed":
+			usage = Usage{
+				Input:      ev.Usage.InputTokens,
+				Output:     ev.Usage.OutputTokens + ev.Usage.ReasoningOutputToks,
+				CacheRead:  ev.Usage.CachedInputTokens,
+				CacheWrite: 0, // Codex reports no separate cache-write count
+			}
+		case "turn.failed":
+			if failMsg == "" {
+				failMsg = ev.Error.Message
+			}
+		case "error":
+			if failMsg == "" {
+				failMsg = ev.Message
+			}
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return "", Usage{}, threadID, fmt.Errorf("read codex stream: %w", err)
+	}
+	if failMsg != "" {
+		return "", Usage{}, threadID, fmt.Errorf("codex turn failed: %s", failMsg)
+	}
+	if !gotReply {
+		if malformed > 0 {
+			return "", Usage{}, threadID, fmt.Errorf("codex stream corrupted: no agent message (%d malformed lines)", malformed)
+		}
+		return "", Usage{}, threadID, fmt.Errorf("codex stream ended without an agent message")
+	}
+	return reply, usage, threadID, nil
 }
 
 // Usage runs `claude -p "/usage"` headless and returns its report text (the

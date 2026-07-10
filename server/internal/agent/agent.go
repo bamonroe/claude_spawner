@@ -25,6 +25,12 @@ type Format string
 // a `result` event carries the clean reply and token usage. See session.parseStream.
 const FormatClaudeStreamJSON Format = "claude-stream-json"
 
+// FormatCodexJSONL is Codex CLI's `codex exec --json` output: a `thread.started`
+// event carries the session id (thread_id), `item.completed` agent_message items
+// carry the reply text, and `turn.completed` carries token usage. See
+// session.parseCodexStream.
+const FormatCodexJSONL Format = "codex-jsonl"
+
 // Model is one selectable model within an [Agent], chosen by a short alias the
 // user can say or type ("opus", "sonnet", "fable"). Flag is the concrete value
 // handed to the backend's model flag — an alias the CLI accepts, or a full model
@@ -33,6 +39,12 @@ type Model struct {
 	Alias  string   // canonical alias, unique within the Agent
 	Flag   string   // value passed to the backend's model flag (e.g. "opus")
 	Spoken []string // extra spoken/typed forms that also resolve here (e.g. "fable five")
+	// Args, when set, is the exact CLI fragment this model contributes, used
+	// instead of the backend's default "<model-flag> <Flag>" convention. It lets a
+	// backend express choices its model flag can't — e.g. Codex encoding a
+	// reasoning-effort preset as "-m gpt-5.5 -c model_reasoning_effort=high". Empty
+	// falls back to Flag.
+	Args []string
 }
 
 // TurnSpec is everything an [Agent] needs to build one turn's command line. It
@@ -60,6 +72,12 @@ type Agent struct {
 	Bin string
 	// Format is this backend's output shape, selecting the parser on the session side.
 	Format Format
+	// SelfAssignsID reports that the backend mints its own session id (read from
+	// its output) rather than accepting a caller-supplied one. Claude takes an id
+	// (--session-id), so false; Codex assigns a thread_id on the first turn, so
+	// true — the session driver captures it from the stream and persists it, and
+	// only marks the session "started" once it has.
+	SelfAssignsID bool
 	// DefaultModel is the alias stamped onto a new session when the spawner picks
 	// for you. Must name one of Models. Spawn uses it so every session has an
 	// explicit model; voice can override later.
@@ -155,6 +173,7 @@ func (r *Registry) List() []*Agent { return r.order }
 func Default() *Registry {
 	r := &Registry{byID: map[string]*Agent{}}
 	r.register(claude())
+	r.register(codex())
 	return r
 }
 
@@ -189,9 +208,55 @@ func claude() *Agent {
 			if s.Bypass {
 				args = append(args, "--dangerously-skip-permissions")
 			}
-			if m.Flag != "" {
+			if len(m.Args) > 0 {
+				args = append(args, m.Args...)
+			} else if m.Flag != "" {
 				args = append(args, "--model", m.Flag)
 			}
+			return args
+		},
+	}
+}
+
+// codex builds the Codex CLI backend entry. Codex runs non-interactively via
+// `codex exec`; unlike Claude it mints its OWN session id (the thread_id, read
+// from the first output event) rather than accepting a caller-supplied one, so
+// the first turn omits any id and the session driver captures thread_id from the
+// stream. Resume replays via `codex exec resume <id>`. The working directory is
+// set by the Executor (the process cwd), so no -C is needed. On this account the
+// supported model is gpt-5.5; the alternates are reasoning-effort presets on it
+// (plan-independent), which is why ordinal selection ("use model 2") matters —
+// the labels are awkward to say.
+func codex() *Agent {
+	return &Agent{
+		ID:            "codex",
+		Name:          "Codex CLI",
+		Bin:           "codex",
+		Format:        FormatCodexJSONL,
+		SelfAssignsID: true,
+		DefaultModel:  "gpt-5.5",
+		Models: []Model{
+			{Alias: "gpt-5.5", Flag: "gpt-5.5", Spoken: []string{"five five", "gpt five five", "standard"}},
+			{Alias: "gpt-5.5-high", Args: []string{"-m", "gpt-5.5", "-c", "model_reasoning_effort=high"}, Spoken: []string{"high", "high reasoning", "thorough"}},
+			{Alias: "gpt-5.5-low", Args: []string{"-m", "gpt-5.5", "-c", "model_reasoning_effort=low"}, Spoken: []string{"low", "low reasoning", "fast"}},
+		},
+		build: func(a *Agent, s TurnSpec, m Model) []string {
+			args := []string{"exec"}
+			if s.Resume {
+				args = append(args, "resume", s.SessionID)
+			}
+			// Options before the positional prompt; `--` terminates flags so a dictated
+			// prompt starting with "-" (or the word "resume") can't be misparsed as one.
+			args = append(args, "--json", "--skip-git-repo-check")
+			if s.Bypass {
+				args = append(args, "--dangerously-bypass-approvals-and-sandbox")
+			}
+			if len(m.Args) > 0 {
+				args = append(args, m.Args...)
+			} else if m.Flag != "" {
+				args = append(args, "-m", m.Flag)
+			}
+			args = append(args, "--", s.Prompt)
 			return args
 		},
 	}

@@ -29,8 +29,18 @@ any backend runs on any target.
       `sessions.json`, empty = default backend/model for old records); `Driver.Turn` builds args via
       the session's `Agent.Args(TurnSpec{...})` instead of the hardcoded slice; parser dispatch on
       `Agent.Format` (nil registry lazily defaults, so Driver literals still resolve). (2026-07-09)
-- [ ] Per-backend binaries per target: the three `SPAWNER_*_CLAUDE_BIN` become backend-keyed (host /
-      sandbox / SSH), so each Executor invokes the right binary for the session's backend.
+- [x] Per-backend binaries at the Executor seam: `Executor.Start` takes a `bin` param the Driver
+      resolves from the session's agent (`Driver.binFor` / `AgentBins`); empty defers to each
+      executor's own `SPAWNER_*_CLAUDE_BIN`, so Claude is untouched. Host binary override via
+      `SPAWNER_CODEX_BIN`; sandbox/SSH Codex use `codex` on PATH (per-target Codex bin config
+      deferred). (2026-07-09)
+- [x] Register Codex as the second backend: `agent.codex()` (id `codex`, bin `codex`, format
+      `FormatCodexJSONL`, `SelfAssignsID`, default model `gpt-5.5` + reasoning-effort presets).
+      `codex exec`/`codex exec resume`; Codex mints its own `thread_id`, captured from the stream by
+      `parseCodexStream` and adopted as the session id. Arg/parse shapes verified against a live
+      `codex-cli` 0.144.1. Unit tests for args + parser; command lines validated end-to-end. Note:
+      on a ChatGPT-account plan only `gpt-5.5` is `-m`-selectable, so the alternates are
+      reasoning-effort presets on it. (2026-07-09)
 - [ ] Spawn stamps `DefaultModel`: `doSpawnAt` sets `Session.Agent` (default backend) and
       `Session.Model = agent.DefaultModel`. Protocol: add `agent`/`model` to `spawn_at` + surface on
       `session_list`/`attached` (`docs/protocol.md`, `internal/docsync`).
