@@ -205,6 +205,9 @@ Context tokens are the main cost here, so default to the frugal path:
     can't validate — real mic/hands-free, real turns, hardware) or when the emulator run left the
     feature only partly checked: don't stop at the emulator and leave the phone on the old build.
     Install it before reporting the work complete.
+  - **Installing on the phone never interrupts a turn** — `adb install -r` swaps the APK without
+    touching the running WebSocket/session. So there's no "good moment" to wait for: whenever a
+    phone-side feature is stable and ready to deploy, just push it to the phone. Don't ask first.
 - When you change the architecture or make a design decision (e.g. the headless-vs-TUI capture
   question in `docs/architecture.md`), record it in the owning doc and the README so it isn't
   re-litigated.
