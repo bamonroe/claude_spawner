@@ -37,8 +37,8 @@ type Config struct {
 	// ClaudeBin is the claude binary used for headless turns.
 	ClaudeBin string
 	// CodexBin is the codex binary for host turns of Codex-backend sessions
-	// (default "codex"). Only the host target is configurable here; sandbox/SSH
-	// Codex sessions use "codex" on their PATH.
+	// (default "codex"). SandboxCodexBin / SSHCodexBin configure the sandbox and
+	// SSH targets analogous to the per-target Claude binaries.
 	CodexBin string
 	// WhisperBin is the whisper.cpp CLI (default "whisper-cli").
 	WhisperBin string
@@ -79,6 +79,9 @@ type Config struct {
 	// SandboxClaudeBin is the claude binary inside the sandbox image (default
 	// "claude").
 	SandboxClaudeBin string
+	// SandboxCodexBin is the codex binary inside the sandbox image (default
+	// "codex"), for Codex-backend sandbox sessions.
+	SandboxCodexBin string
 	// SandboxMounts are extra `-v` volume specs ("host:container[:opts]") for
 	// sandbox sessions, comma-separated. Typically shares "$HOME/.claude" so
 	// in-sandbox transcripts stay discoverable by the host.
@@ -116,12 +119,14 @@ type Config struct {
 	// connection template shared by every host in the pool. SSHUser empty = current
 	// OS user; SSHPort 0 = 22; SSHKey empty = rely on the ssh-agent; SSHKnownHosts
 	// empty = ~/.ssh/known_hosts (host keys are always verified — no insecure mode);
-	// SSHClaudeBin is the remote claude binary (default "claude").
+	// SSHClaudeBin/SSHCodexBin are the remote claude/codex binaries (default
+	// "claude"/"codex").
 	SSHUser       string
 	SSHPort       int
 	SSHKey        string
 	SSHKnownHosts string
 	SSHClaudeBin  string
+	SSHCodexBin   string
 
 	// WebDir is a directory holding the built Compose/Wasm web-client bundle
 	// (index.html + spawnerweb.js + .wasm). When set, the server serves it as
@@ -154,6 +159,7 @@ func Load() (*Config, error) {
 		SandboxImage:     os.Getenv("SPAWNER_SANDBOX_IMAGE"),
 		SandboxRuntime:   env("SPAWNER_SANDBOX_RUNTIME", "podman"),
 		SandboxClaudeBin: env("SPAWNER_SANDBOX_CLAUDE_BIN", "claude"),
+		SandboxCodexBin:  env("SPAWNER_SANDBOX_CODEX_BIN", "codex"),
 		SandboxMounts:    splitList(os.Getenv("SPAWNER_SANDBOX_MOUNTS"), ","),
 		SandboxRunArgs:   strings.Fields(os.Getenv("SPAWNER_SANDBOX_RUN_ARGS")),
 		RestartCmd:       os.Getenv("SPAWNER_RESTART_CMD"),
@@ -165,6 +171,7 @@ func Load() (*Config, error) {
 		SSHKey:           os.Getenv("SPAWNER_SSH_KEY"),
 		SSHKnownHosts:    os.Getenv("SPAWNER_SSH_KNOWN_HOSTS"),
 		SSHClaudeBin:     env("SPAWNER_SSH_CLAUDE_BIN", "claude"),
+		SSHCodexBin:      env("SPAWNER_SSH_CODEX_BIN", "codex"),
 	}
 	if c.AuthToken == "" {
 		return nil, fmt.Errorf("SPAWNER_TOKEN is required (refusing to run without auth)")

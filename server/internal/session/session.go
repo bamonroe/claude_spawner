@@ -102,12 +102,15 @@ type Driver struct {
 	// unknown id falls back to the registry's default backend (Claude). Never nil
 	// after NewDriver.
 	Agents *agent.Registry
-	// AgentBins overrides the HOST binary for a backend by agent id (from config,
-	// e.g. SPAWNER_CODEX_BIN → {"codex": "codex"}). Consulted only for the host
-	// target; sandbox/SSH use the agent's own Bin (or the executor's per-target
-	// config). Claude is absent here — it defers to HostExecutor.Bin
-	// (SPAWNER_CLAUDE_BIN), so its wiring is unchanged. Nil is fine (no overrides).
-	AgentBins map[string]string
+	// AgentBins overrides a backend's binary per (agent id, target) from config —
+	// e.g. {"codex": {host: SPAWNER_CODEX_BIN, sandbox: SPAWNER_SANDBOX_CODEX_BIN}}.
+	// A non-empty entry wins for that target; a missing/empty one falls through to
+	// the agent's own Bin (then the executor's per-target config). Claude is absent
+	// here — it defers to each executor's Bin (SPAWNER_CLAUDE_BIN /
+	// SPAWNER_SANDBOX_CLAUDE_BIN / SPAWNER_SSH_CLAUDE_BIN), so its wiring is
+	// unchanged. (SSH reuses the host target, so its Codex bin is wired into the
+	// host entry when SSH is enabled — see main.go.) Nil is fine (no overrides).
+	AgentBins map[string]map[Target]string
 	// Bypass adds --dangerously-skip-permissions when true (project default).
 	Bypass bool
 	// UsageDir is the working directory for the account-global /usage check. It has
@@ -155,13 +158,13 @@ func (d *Driver) agents() *agent.Registry {
 }
 
 // binFor resolves the backend command to launch for a session's agent on a
-// target. On the host, an AgentBins config override wins; otherwise (and for
-// sandbox/SSH) the agent's own Bin is used. Claude's Bin is empty and it has no
-// AgentBins entry, so it returns "" — the Executor then uses its own configured
-// binary, preserving the pre-registry behavior on every target.
+// target. A per-target AgentBins config override wins; otherwise the agent's own
+// Bin is used. Claude's Bin is empty and it has no AgentBins entry, so it returns
+// "" — the Executor then uses its own configured binary, preserving the
+// pre-registry behavior on every target.
 func (d *Driver) binFor(ag *agent.Agent, t Target) string {
-	if t == TargetHost {
-		if b := d.AgentBins[ag.ID]; b != "" {
+	if m := d.AgentBins[ag.ID]; m != nil {
+		if b := m[t]; b != "" {
 			return b
 		}
 	}

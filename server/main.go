@@ -56,10 +56,21 @@ func main() {
 		driver.UsageDir = cfg.SpawnRoots[0]
 	}
 	driver.HostBin(cfg.ClaudeBin)
-	// Per-agent host binaries: Claude uses the host executor's Bin (set above);
-	// other backends launch their own command on the host. Sandbox/SSH Codex use
-	// the agent's default "codex" on PATH.
-	driver.AgentBins = map[string]string{"codex": cfg.CodexBin}
+	// Per-agent binaries: Claude uses each executor's own Bin (host set above,
+	// sandbox/SSH below); other backends launch their own command per target.
+	// SSH reuses the host target (its executor replaces the host one when enabled),
+	// so the SSH codex binary is wired into the host entry in that case — mirroring
+	// how SSHExecutor.Bin carries SPAWNER_SSH_CLAUDE_BIN for Claude.
+	hostCodexBin := cfg.CodexBin
+	if cfg.SSHEnable {
+		hostCodexBin = cfg.SSHCodexBin
+	}
+	driver.AgentBins = map[string]map[session.Target]string{
+		"codex": {
+			session.TargetHost:    hostCodexBin,
+			session.TargetSandbox: cfg.SandboxCodexBin,
+		},
+	}
 	// SSH-native execution: when enabled, host-target turns run over SSH — every host
 	// including the local machine (Session.Host empty = loopback), so there's no
 	// special-cased local fork path. Transitional: off keeps the direct-fork host

@@ -139,7 +139,8 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
 - Sandbox sessions (per-session `target: sandbox` execution): `SPAWNER_SANDBOX_IMAGE` (container
   image; **empty disables** the sandbox target), `SPAWNER_SANDBOX_RUNTIME` (`podman`; the container
   CLI — rootless so no host root), `SPAWNER_SANDBOX_CLAUDE_BIN` (`claude`; the binary inside the
-  image), `SPAWNER_SANDBOX_MOUNTS` (comma-separated extra `-v` specs, e.g. sharing `$HOME/.claude`),
+  image), `SPAWNER_SANDBOX_CODEX_BIN` (`codex`; the codex binary inside the image for Codex-backend
+  sandbox sessions), `SPAWNER_SANDBOX_MOUNTS` (comma-separated extra `-v` specs, e.g. sharing `$HOME/.claude`),
   `SPAWNER_SANDBOX_RUN_ARGS` (space-separated extra `run` flags, e.g. `--userns=keep-id`).
 - SSH-native execution (host turns over SSH; **empty `SPAWNER_SSH` keeps the direct-fork host
   path** — transitional until loopback SSH is verified): `SPAWNER_SSH` (`1` enables; then every
@@ -149,7 +150,9 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
   (`~/.ssh/known_hosts`; host keys are always verified — no insecure mode. The server **owns**
   this file: adding a host in the app records its key trust-on-first-use, deleting the host forgets
   it, and the running pool reloads the file so it takes effect without a restart), `SPAWNER_SSH_CLAUDE_BIN`
-  (`claude`; the remote binary).
+  (`claude`; the remote claude binary), `SPAWNER_SSH_CODEX_BIN` (`codex`; the remote codex binary for
+  Codex-backend SSH sessions — SSH reuses the host target, so this feeds the host codex binary when
+  `SPAWNER_SSH` is enabled).
 - Restart: `SPAWNER_RESTART_CMD` — a shell command (run via `sh -c`, detached) fired by the app's
   restart button; empty disables restart. The server runs bare metal (a single binary, not
   containerized), so it forks `claude` for host turns and drives the rootless runtime for sandbox
