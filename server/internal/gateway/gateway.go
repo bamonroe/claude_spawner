@@ -570,23 +570,25 @@ var wireHandlers = map[string]func(c *conn, in inbound){
 	"cancel":            func(c *conn, in inbound) { c.cancelDialog() },
 	"abort":             func(c *conn, in inbound) { c.abortTurn() },
 	"set_whisper_model": func(c *conn, in inbound) { c.doSetWhisperModel(in.WhisperModel) },
-	"auto_compress":     func(c *conn, in inbound) { c.srv.setAutoCompress(in.WarmCompress, in.AutoCompress, in.AutoCompressThreshold) },
-	"restart":           func(c *conn, in inbound) { c.doRestart() },
-	"wake":              func(c *conn, in inbound) { c.startAudio(in.Codec, in.HandsFree, in.Calibrate) },
-	"commit":            func(c *conn, in inbound) { c.commitMessage() }, // silence-timeout commit of the hands-free buffer
-	"discard_draft":     func(c *conn, in inbound) { c.clearBuffer() },   // drop the uncommitted hands-free draft
-	"history":           func(c *conn, in inbound) { c.serveHistory(in.Name, in.Before, in.Limit, in.HaveHash) },
-	"digest":            func(c *conn, in inbound) { c.serveDigests() },
-	"clear":             func(c *conn, in inbound) { c.doClear() },
-	"compress":          func(c *conn, in inbound) { c.doCompress() },
-	"usage":             func(c *conn, in inbound) { c.doUsage(false, usageCalibrate) }, // tap: show the report, don't speak it
-	"usage_set":         func(c *conn, in inbound) { c.doUsage(false, usageSetBench) },  // "set" button: arm the benchmark
-	"usage_calc":        func(c *conn, in inbound) { c.doUsage(false, usageCalcBench) }, // "calc" button: derive the rate
-	"audio_end":         func(c *conn, in inbound) { c.endAudio() },
-	"hosts":             func(c *conn, in inbound) { c.sendHostList() },
-	"host_put":          func(c *conn, in inbound) { c.doHostPut(in.Host) },
-	"host_delete":       func(c *conn, in inbound) { c.doHostDelete(in.Name) },
-	"identities":        func(c *conn, in inbound) { c.sendIdentityList() },
+	"auto_compress": func(c *conn, in inbound) {
+		c.srv.setAutoCompress(in.WarmCompress, in.AutoCompress, in.AutoCompressThreshold)
+	},
+	"restart":       func(c *conn, in inbound) { c.doRestart() },
+	"wake":          func(c *conn, in inbound) { c.startAudio(in.Codec, in.HandsFree, in.Calibrate) },
+	"commit":        func(c *conn, in inbound) { c.commitMessage() }, // silence-timeout commit of the hands-free buffer
+	"discard_draft": func(c *conn, in inbound) { c.clearBuffer() },   // drop the uncommitted hands-free draft
+	"history":       func(c *conn, in inbound) { c.serveHistory(in.Name, in.Before, in.Limit, in.HaveHash) },
+	"digest":        func(c *conn, in inbound) { c.serveDigests() },
+	"clear":         func(c *conn, in inbound) { c.doClear() },
+	"compress":      func(c *conn, in inbound) { c.doCompress() },
+	"usage":         func(c *conn, in inbound) { c.doUsage(false, usageCalibrate) }, // tap: show the report, don't speak it
+	"usage_set":     func(c *conn, in inbound) { c.doUsage(false, usageSetBench) },  // "set" button: arm the benchmark
+	"usage_calc":    func(c *conn, in inbound) { c.doUsage(false, usageCalcBench) }, // "calc" button: derive the rate
+	"audio_end":     func(c *conn, in inbound) { c.endAudio() },
+	"hosts":         func(c *conn, in inbound) { c.sendHostList() },
+	"host_put":      func(c *conn, in inbound) { c.doHostPut(in.Host) },
+	"host_delete":   func(c *conn, in inbound) { c.doHostDelete(in.Name) },
+	"identities":    func(c *conn, in inbound) { c.sendIdentityList() },
 	"identity_create": func(c *conn, in inbound) {
 		c.doIdentityCreate(in.Name, in.User, in.Password, in.GenKey == nil || *in.GenKey)
 	},

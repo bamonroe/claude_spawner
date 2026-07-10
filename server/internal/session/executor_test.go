@@ -98,8 +98,8 @@ type fakeReaper struct {
 func (f *fakeReaper) Start(context.Context, *Session, string, []string) (Proc, error) {
 	return nil, nil
 }
-func (f *fakeReaper) Ensure(context.Context, string, string) error            { return nil }
-func (f *fakeReaper) List(context.Context) ([]string, error)                  { return f.all, nil }
+func (f *fakeReaper) Ensure(context.Context, string, string) error { return nil }
+func (f *fakeReaper) List(context.Context) ([]string, error)       { return f.all, nil }
 func (f *fakeReaper) Remove(_ context.Context, name string) error {
 	f.removed = append(f.removed, name)
 	return nil
