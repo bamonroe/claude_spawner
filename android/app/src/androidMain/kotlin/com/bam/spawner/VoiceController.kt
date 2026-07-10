@@ -982,6 +982,11 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
             is ServerMsg.IdentityList -> _identities.value = msg.identities
             is ServerMsg.Agents -> _agents.value = msg.agents
             is ServerMsg.Err -> {
+                // Version skew: an older server that predates the transcript-cache feature
+                // rejects our connect-time `digest` probe with bad_message. That's harmless
+                // (we just get no digests and fall back to fetching history), so swallow it
+                // instead of spamming a scary note in the chat during a rollout.
+                if (msg.code == "bad_message" && msg.message.contains("digest")) return
                 if (msg.code == "turn_failed") { clearTurnInFlight(); turnStreamed = false }
                 if (_usageLoading.value) _usageLoading.value = false // any error unsticks a pending usage fetch
                 _activity.value = ""
