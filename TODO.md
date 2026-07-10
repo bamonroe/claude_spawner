@@ -772,8 +772,11 @@ _2026-07-10 hardening pass (drift-proofing + error handling):_
 - [x] 2026-07-10 — `docs/web-client.md`: developer guide for the wasmJs client (source-set split,
       the `js()` interop idiom and its conventions, compile gate, iterate loop) + a doc-map row in
       CLAUDE.md.
-- [ ] Extend docsync to verify protocol.md **payload field names** (not just message types) against
-      the gateway structs' json tags — the field level can still drift silently today.
+- [x] 2026-07-10 — docsync now verifies protocol.md **payload field names** both ways
+      (`fieldsync_test.go`): every json tag / `msg*` map key must be documented, and every field the
+      protocol tables name must exist in the code. Caught two real drifts on landing: `hello`'s
+      documented `app_version` (never read; the real field is `client_id`) and `discovered`'s
+      undocumented `host` field.
 - [ ] Commands pipeline end-to-end check: a Gradle-side test that the generated `Commands.kt`
       matches `docs/commands.json` (today only the server side is drift-tested; the Gradle
       generator itself is unchecked).

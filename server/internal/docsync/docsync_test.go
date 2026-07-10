@@ -10,6 +10,8 @@
 //   - inbound wire message types (gateway dispatch) -> must be in docs/protocol.md
 //   - outbound wire message types (messages.go)     -> must be in docs/protocol.md
 //   - error codes (msgError(...) and c.fail(...))    -> must be in docs/protocol.md
+//   - payload field names (json tags + msg* map keys) -> must match the protocol
+//     tables both ways; see fieldsync_test.go
 //   - the Kotlin client's wire strings (Protocol.kt) -> must match the gateway
 //     both ways; see clientsync_test.go
 //
