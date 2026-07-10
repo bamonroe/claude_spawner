@@ -32,8 +32,9 @@ any backend runs on any target.
 - [x] Per-backend binaries at the Executor seam: `Executor.Start` takes a `bin` param the Driver
       resolves from the session's agent (`Driver.binFor` / `AgentBins`); empty defers to each
       executor's own `SPAWNER_*_CLAUDE_BIN`, so Claude is untouched. Host binary override via
-      `SPAWNER_CODEX_BIN`; sandbox/SSH Codex use `codex` on PATH (per-target Codex bin config
-      deferred). (2026-07-09)
+      `SPAWNER_CODEX_BIN`; per-target Codex bins via `SPAWNER_SANDBOX_CODEX_BIN` /
+      `SPAWNER_SSH_CODEX_BIN` (`AgentBins` is now `map[agent]map[target]bin`; SSH reuses the host
+      target, so its bin feeds the host entry when `SPAWNER_SSH` is on). (2026-07-09)
 - [x] Register Codex as the second backend: `agent.codex()` (id `codex`, bin `codex`, format
       `FormatCodexJSONL`, `SelfAssignsID`, default model `gpt-5.5` + reasoning-effort presets).
       `codex exec`/`codex exec resume`; Codex mints its own `thread_id`, captured from the stream by
@@ -56,9 +57,12 @@ any backend runs on any target.
       BrowseScreen shows a backend chip row (when >1 backend) + a model chip row, sent in `spawn_at`
       (`agent`/`model`). Server validates the model against the chosen backend. Both controllers
       (Android + web) updated for no-divergence. (2026-07-09)
-- [ ] Remaining app polish: render a backend/model badge on each session row in the sidebar (the
-      `discovered` rows already carry `agent`/`model`), show the current model in the status bar (the
-      `attached` message carries it), and add the backend/model pickers to the web browse UI.
+- [x] Remaining app polish: session rows show a backend/model badge (shared `backendBadge` helper in
+      `Sidebar.kt`, dropping the backend prefix for the default Claude), the `TopBar` shows the
+      attached session's backend/model badge (`attachedAgent`/`attachedModel` flows on `AppController`,
+      fed from the `attached` message), and the new-session `BrowseScreen` — with its backend/model/host
+      pickers — moved to `commonMain` typed against `AppController`, so the **web** client now has the
+      full spawn flow too (`WebRoot` routes `onNewSession` → `browse`). (2026-07-09)
 - [ ] Optional: `agent`/`model` on the `spawn_at` inbound message so the visual picker can spawn a
       chosen backend (voice spawn selection already works).
 - [x] Voice model selection: "hey buddy, list models" speaks the attached session's backend
@@ -221,6 +225,12 @@ Milestones:
         reads a picked file → base64 → `uploadFile`; a downloaded `file_data` is saved via a blob
         object-URL. The host directory/file picker (`TransferPickerDialog`) was promoted to commonMain
         (typed against `AppController`, glyphs → Material icons) so Android and web share one picker.
+  - [x] 2026-07-09 — **Browser spawn UI.** The Android-only `BrowseScreen` moved to
+        `commonMain/BrowseScreen.kt`, retyped against `AppController` (only `collectAsStateWithLifecycle`
+        → `collectAsState` differed; every data path — `listing`/`hosts`/`agents`/`browse`/`spawnAt`/
+        `spawnNewFolder`/`requestHosts` — was already on the interface). `WebRoot` routes
+        `onNewSession` → a `"browse"` screen, so the web client gets the full New-session flow
+        (target/host + backend/model chips + filesystem browse). Both targets compile green.
   - [ ] `localStorage`-backed prefs — done earlier with `WebPrefs`.
 - [~] **M6 — Serve + document.** (in progress)
   - [x] 2026-07-09 — **Server hosts the web bundle.** New `SPAWNER_WEB_DIR` config: when set, the Go

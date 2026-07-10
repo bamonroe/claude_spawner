@@ -108,10 +108,13 @@ declares how to invoke it and how to read its output, so they share one interfac
 - **Claude Code** (the default) — `claude` headless in stream-json mode.
 - **Codex** (OpenAI's CLI) — `codex exec`; the server captures Codex's own session id and resumes
   it turn to turn. Needs `codex` installed and logged in (`codex login`); set `SPAWNER_CODEX_BIN` if
-  it isn't on the server's `PATH`.
+  it isn't on the server's `PATH` (and `SPAWNER_SANDBOX_CODEX_BIN` / `SPAWNER_SSH_CODEX_BIN` for the
+  sandbox and SSH targets, analogous to the per-target Claude binaries).
 
-Pick the backend when you spawn — **"hey buddy, spawn a codex session"** (or "…on codex") creates a
-Codex session; a plain spawn uses Claude. The new session is stamped with that backend and its
+Pick the backend when you spawn — by **voice**, "hey buddy, spawn a codex session" (or "…on codex")
+creates a Codex session; a plain spawn uses Claude. In the **visual New-session picker** (the app or
+the browser client), a backend chip row (shown when more than one backend is available) and a model
+chip row let you choose both before starting. The new session is stamped with that backend and its
 default model.
 
 A session records which backend it runs and which **model**. Each backend has a **default model**
@@ -123,6 +126,11 @@ the spawner picks for you, plus a short catalogue you can switch between by voic
 - **"hey buddy, use model 2"** — switches to that numbered model (say the number — "two" or "2").
   Selecting by **number** is deliberate: it sidesteps having to pronounce awkward model names. The
   choice is durable on the session and takes effect on your next message.
+
+Each session's backend and model are also shown on screen: the sessions drawer tags every row with a
+small **"Backend · model"** badge (the backend name is dropped for the default Claude, so a
+single-backend setup just shows the model), and the title bar shows the attached session's badge next
+to the context meter.
 
 ### Token & usage displays
 
@@ -251,12 +259,14 @@ page is https), so a server-hosted client connects with no setup — you only ed
 **Settings → Server** if you're pointing elsewhere. The static assets are public; the privileged
 surface stays behind the token-authenticated `/ws` handshake (and mutual TLS if configured).
 
-Text chat, the session drawer, hosts/identities, usage, and **file transfer** (the 📎 button — the
-same upload/download flow as the app, reading/writing the browser's own files) all work. Because a
-mouse can't obviously "swipe", the browser client also shows **visible controls** for the touch
-gestures: a chevron handle above the message box opens the command tray, a **Refresh** button sits
-beside **New** in the sessions drawer, and **Enter sends** a message (Shift+Enter for a newline).
-Browser audio (mic/STT and spoken replies) and the browser spawn UI are not wired yet.
+Text chat, the session drawer, hosts/identities, usage, **file transfer** (the 📎 button — the same
+upload/download flow as the app, reading/writing the browser's own files), and **spawning new
+sessions** (the same New-session picker as the app — target/host + backend/model + filesystem browse,
+sharing one `commonMain` `BrowseScreen`) all work. Because a mouse can't obviously "swipe", the
+browser client also shows **visible controls** for the touch gestures: a chevron handle above the
+message box opens the command tray, a **Refresh** button sits beside **New** in the sessions drawer,
+and **Enter sends** a message (Shift+Enter for a newline). Browser audio (mic/STT and spoken replies)
+is not wired yet.
 
 > **Secure context required.** The client only connects from a **secure context** — https, or
 > `localhost`/`127.0.0.1`. Served over plain http from a real hostname the browser marks the origin

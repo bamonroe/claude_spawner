@@ -59,6 +59,11 @@ fun WebRoot() {
                     onBack = { screen = "settings" },
                 )
                 "set_commands" -> CommandsSettings(prefs, onAliasesChanged = reconnect, onBack = { screen = "settings" })
+                "browse" -> BrowseScreen(
+                    controller,
+                    onStarted = { screen = "main" },
+                    onBack = { screen = "main" },
+                )
                 "set_audio" -> AudioSettings(
                     prefs,
                     onVadChanged = {},
@@ -82,7 +87,7 @@ fun WebRoot() {
                     onTalkCancel = {},
                     onStopSpeaking = {},
                     onOpenSettings = { screen = "settings" },
-                    onNewSession = {}, // browser spawn UI is future work (M5+)
+                    onNewSession = { screen = "browse" }, // shared BrowseScreen: pick backend/model/host + dir
                     // 📎 upload/download to the session's host, over the same socket.
                     transferButton = { onUploaded ->
                         WebTransferButton(controller, enabled = connected, onUploaded = onUploaded)
