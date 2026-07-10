@@ -167,20 +167,22 @@ token from the app, and constrain spawn directories.
 
 ### Transport TLS and mutual TLS (optional)
 
-By default the WebSocket is plain `ws://`, which is fine when the only hop is a Tailscale/WireGuard
-tunnel (it already encrypts). To encrypt the channel independently, or to require a client
-certificate on top of the shared token, set these env vars:
+**In the common deployment, TLS is terminated at a reverse proxy (Caddy) in front of the server:**
+the proxy serves `wss://` with a publicly-trusted cert and forwards plain `ws://` to the spawner on
+localhost. The app just points at the proxy's `wss://…` URL and authenticates with the token — there
+is **no client certificate to install in the app** (removed; if you need mutual TLS, enforce it at
+the proxy). By default, with no proxy, the WebSocket is plain `ws://`, which is fine when the only
+hop is a Tailscale/WireGuard tunnel (it already encrypts).
+
+The server can also do TLS itself (for setups without a proxy) via these env vars:
 
 - **Server TLS (`wss://`)** — set `SPAWNER_TLS_CERT` and `SPAWNER_TLS_KEY` to a PEM cert/key pair
   (both or neither; one alone is a startup error). The listener then serves `wss://`; point the app
-  at a `wss://…` URL. With a publicly-trusted cert (e.g. a Tailscale HTTPS/Let's Encrypt cert) the
-  Android client needs no change — just the `wss://` URL.
+  at a `wss://…` URL.
 - **Mutual TLS** — also set `SPAWNER_TLS_CLIENT_CA` to a PEM bundle of the CA(s) that sign your
   client certificates. The server then demands a valid client cert **in addition to** the token, so
-  a leaked token alone can't attach. Requires the server cert/key pair. In the Android app, open
-  **Settings → Server → Client certificate (mTLS)**, import your `.p12`/PKCS#12 file, and enter its
-  passphrase; the app presents it on every (re)connect. A bad passphrase or corrupt file is reported
-  and the app falls back to a cert-less connection.
+  a leaked token alone can't attach (requires the server cert/key pair). The app itself no longer
+  presents a client cert, so this path is for non-app clients or is better handled at the proxy.
 
 ## Where sessions run: host vs. sandbox
 

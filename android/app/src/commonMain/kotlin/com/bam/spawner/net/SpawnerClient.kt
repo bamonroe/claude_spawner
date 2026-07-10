@@ -21,8 +21,8 @@ import kotlinx.coroutines.launch
  * called. Audio is sent as binary frames; everything else is JSON text.
  *
  * The transport is Ktor: the platform [spawnerHttpClient] provides the engine
- * (OkHttp on Android — with optional mutual-TLS client cert — and the browser
- * WebSocket on wasmJs).
+ * (OkHttp on Android, the browser WebSocket on wasmJs). TLS, when used, is
+ * terminated at the reverse proxy — the app just connects with `wss://` + token.
  */
 class SpawnerClient(
     private val url: String,
@@ -31,11 +31,8 @@ class SpawnerClient(
     private val hello: HelloConfig,
     private val onMessage: (ServerMsg) -> Unit,
     private val onConnected: (Boolean) -> Unit,
-    // Optional client certificate for mutual-TLS servers (wss:// with a client-CA
-    // requirement). Null = no client cert (plain ws:// or one-way wss://). Android-only.
-    private val tls: ClientTls? = null,
 ) {
-    private val client: HttpClient = spawnerHttpClient(tls)
+    private val client: HttpClient = spawnerHttpClient()
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
     // Outgoing frames are funnelled through one channel so sends from any thread
@@ -101,12 +98,9 @@ class SpawnerClient(
     }
 }
 
-/** Opaque per-platform TLS material for a mutual-TLS server; only Android builds one. */
-expect class ClientTls
-
 /**
  * Build the platform Ktor client with WebSocket support. Android uses the OkHttp
- * engine (applying [tls] as a client certificate + ping interval); the browser uses
- * its native WebSocket (TLS is handled by the browser, so [tls] is ignored).
+ * engine (ping interval, no read timeout); the browser uses its native WebSocket.
+ * TLS, when present, is terminated at the reverse proxy — neither engine handles it.
  */
-expect fun spawnerHttpClient(tls: ClientTls?): HttpClient
+expect fun spawnerHttpClient(): HttpClient

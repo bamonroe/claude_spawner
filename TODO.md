@@ -734,6 +734,22 @@ _Robustness / ops (smaller, safe when we get to them):_
 
 ## Done
 
+- [x] 2026-07-10 — **Persist server-global settings across restart (`settings.json`).** The
+      hot-swappable resident whisper model was held only in memory, so a restart/rebuild reverted it to
+      `SPAWNER_WHISPER_MODEL_NAME`. New `internal/session/settings.go` (`SettingsStore`, mirrors the
+      `Store` atomic-write pattern) persists it to `settings.json` next to the session state; the
+      gateway seeds its boot model from the file (persisted choice wins over the env default) and
+      `doSetWhisperModel` writes the file on every change. Unit tests cover round-trip + empty-path
+      in-memory mode. Docs: README (whisper section), `docs/architecture.md` (layout).
+
+- [x] 2026-07-10 — **Remove the in-app mutual-TLS client-certificate importer.** TLS is now terminated
+      at the reverse proxy (Caddy), so the app no longer imports a `.p12`/presents a client cert. Dropped
+      the `certSection` slot from `ServerSettings`, `ServerCertSection` + the SAF picker, the
+      `clientCert*` prefs/methods in `SettingsStore`, the `ClientTls` expect/actual + `buildClientTls`,
+      and the `tls` param threaded through `SpawnerClient`/`spawnerHttpClient` (renamed
+      `ClientTls.*.kt` → `HttpTransport.*.kt`). Server-side `SPAWNER_TLS_CLIENT_CA` stays for
+      non-app/proxy-enforced mTLS. Docs: README (transport TLS section).
+
 - [x] 2026-07-10 — **Auto-compress near the warm-cache edge.** New Appearance toggle + token-limit
       (thousands) setting; the app sends the global preference in `hello` and live via a new
       `auto_compress` message. A server-owned monitor (`internal/gateway/autocompress.go`) scans every

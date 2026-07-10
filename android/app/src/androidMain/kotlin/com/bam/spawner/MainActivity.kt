@@ -242,7 +242,6 @@ private fun AppRoot(
             settings, controller,
             onSaveConnect = { url, token -> controller.connect(url, token); screen = "settings" },
             onBack = { screen = "settings" },
-            certSection = { ServerCertSection(settings) },
         )
         "set_hosts" -> HostsSettings(controller, onBack = { screen = "settings" })
         "set_identities" -> IdentitiesSettings(controller, onBack = { screen = "settings" })
@@ -413,60 +412,6 @@ private fun TransferButton(
 /** The drawer's session list: EVERY Claude session on the machine (discovery),
  * with registry names/attach merged in. Tap to open; ✏️ rename; 🗑 delete. */
 
-
-/**
- * The mutual-TLS client-certificate importer — the Android-only slot passed to the shared
- * [ServerSettings]. Picks a `.p12` via the Storage Access Framework, copies it into app-private
- * storage, and persists its passphrase (the passphrase is saved as you type, so the next
- * Save & Connect above picks it up). The `.p12` bytes never leave the device.
- */
-@Composable
-private fun ServerCertSection(settings: SettingsStore) {
-    val context = LocalContext.current
-    var certName by remember { mutableStateOf(settings.clientCertName) }
-    var certPass by rememberSaveable { mutableStateOf(settings.clientCertPass) }
-    val certPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
-            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-            if (bytes != null) {
-                val name = context.contentResolver
-                    .query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
-                    ?.use { c -> if (c.moveToFirst()) c.getString(0) else null } ?: "client.p12"
-                settings.importClientCert(bytes, name)
-                certName = name
-            }
-        }
-    }
-    HorizontalDivider()
-    Text("Client certificate (mTLS)", style = MaterialTheme.typography.titleMedium)
-    Text(
-        "Optional. If the server requires mutual TLS, import your .p12 client certificate and "
-            + "enter its passphrase — the app presents it on top of the token. Only used for "
-            + "wss:// servers; leave empty otherwise.",
-        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
-    )
-    Text(
-        if (certName.isBlank()) "No certificate imported." else "Imported: $certName",
-        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
-    )
-    OutlinedTextField(
-        certPass, { certPass = it; settings.clientCertPass = it }, label = { Text("Certificate passphrase") },
-        singleLine = true, visualTransformation = PasswordVisualTransformation(),
-        modifier = Modifier.fillMaxWidth(),
-    )
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(onClick = { certPicker.launch(arrayOf("*/*")) }) { Text("Import .p12…") }
-        if (certName.isNotBlank()) {
-            OutlinedButton(onClick = {
-                settings.clearClientCert(); certName = ""; certPass = ""
-            }) { Text("Remove") }
-        }
-    }
-    Text(
-        "Changes take effect on the next Save & Connect above.",
-        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
-    )
-}
 
 /** Live mic RMS bar with the VAD threshold marked (speech above the line is captured). */
 @Composable

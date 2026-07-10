@@ -579,9 +579,8 @@ private fun AddAliasForCommandDialog(command: String, onAdd: (String) -> Unit, o
 
 /**
  * Server connection settings: URL/token + Save & Connect, the server-global whisper
- * model picker, and the restart button. The mutual-TLS client-certificate import is a
- * platform slot ([certSection]) — Android fills it with a SAF `.p12` picker; the web
- * client leaves it empty (browser mTLS is handled by the user's cert store).
+ * model picker, and the restart button. TLS is terminated at the reverse proxy (Caddy),
+ * so the app just speaks `wss://` and authenticates with the token — no client cert.
  */
 @Composable
 fun ServerSettings(
@@ -589,7 +588,6 @@ fun ServerSettings(
     controller: AppController,
     onSaveConnect: (String, String) -> Unit,
     onBack: () -> Unit,
-    certSection: @Composable ColumnScope.() -> Unit = {},
 ) {
     var url by rememberSaveable { mutableStateOf(settings.url) }
     var token by rememberSaveable { mutableStateOf(settings.token) }
@@ -611,8 +609,6 @@ fun ServerSettings(
             Text("Save & Connect")
         }
         Text("Client ID: ${settings.clientId}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-
-        certSection()
 
         HorizontalDivider()
         Text("Whisper model", style = MaterialTheme.typography.titleMedium)
