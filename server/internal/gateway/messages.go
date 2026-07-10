@@ -43,8 +43,9 @@ type inbound struct {
 	SessionID             string            `json:"session_id"`              // on `adopt`: the discovered Claude session_id to register
 	Brief                 bool              `json:"brief"`                   // on `hello`: append a "reply briefly for TTS" hint to dictation
 	Interactive           bool              `json:"interactive"`             // on `hello`: let Claude ask clarifying questions mid-task
-	AutoCompress          bool              `json:"auto_compress"`           // on `hello`/`auto_compress`: auto-compress a session near the warm-cache edge
-	AutoCompressThreshold int               `json:"auto_compress_threshold"` // on `hello`/`auto_compress`: context-token threshold, in thousands
+	WarmCompress          bool              `json:"warm_compress"`           // on `hello`/`auto_compress`: compress a session in the last seconds of its warm-cache window
+	AutoCompress          bool              `json:"auto_compress"`           // on `hello`/`auto_compress`: compress a session immediately once it crosses the limit
+	AutoCompressThreshold int               `json:"auto_compress_threshold"` // on `hello`/`auto_compress`: context-token limit, in thousands (shared by warm + auto)
 	Host                  *session.Host     `json:"host"`                    // on `host_put`: the SSH host entry to add/update
 	HostName              string            `json:"host_name"`               // on `browse`/`spawn_at`: which registered SSH host to browse / run the new session on ("" = local)
 	KeyPath               string            `json:"key_path"`                // on `identity_import`: server-side path of the existing private key to register

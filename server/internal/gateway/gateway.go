@@ -457,7 +457,7 @@ func (c *conn) authenticate() bool {
 	c.clientID = in.ClientID
 	c.brief = in.Brief
 	c.interactive = in.Interactive
-	c.srv.setAutoCompress(in.AutoCompress, in.AutoCompressThreshold)
+	c.srv.setAutoCompress(in.WarmCompress, in.AutoCompress, in.AutoCompressThreshold)
 	c.endToken = strings.TrimSpace(in.EndToken)
 	if c.endToken == "" {
 		c.endToken = "beep"
@@ -569,7 +569,7 @@ var wireHandlers = map[string]func(c *conn, in inbound){
 	"cancel":            func(c *conn, in inbound) { c.cancelDialog() },
 	"abort":             func(c *conn, in inbound) { c.abortTurn() },
 	"set_whisper_model": func(c *conn, in inbound) { c.doSetWhisperModel(in.WhisperModel) },
-	"auto_compress":     func(c *conn, in inbound) { c.srv.setAutoCompress(in.AutoCompress, in.AutoCompressThreshold) },
+	"auto_compress":     func(c *conn, in inbound) { c.srv.setAutoCompress(in.WarmCompress, in.AutoCompress, in.AutoCompressThreshold) },
 	"restart":           func(c *conn, in inbound) { c.doRestart() },
 	"wake":              func(c *conn, in inbound) { c.startAudio(in.Codec, in.HandsFree, in.Calibrate) },
 	"commit":            func(c *conn, in inbound) { c.commitMessage() }, // silence-timeout commit of the hands-free buffer

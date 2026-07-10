@@ -283,8 +283,10 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk bool) bo
 const compressPrompt = "Summarize our conversation so far into a compact but complete briefing that a " +
 	"fresh session with no prior memory could use to continue seamlessly. Capture the task/goal, key " +
 	"decisions and their rationale, the current state, important file paths and code specifics, and any " +
-	"open threads or next steps. Be thorough on specifics but drop small talk. Output only the summary " +
-	"prose — no preamble, no tool use."
+	"open threads or next steps. Weight the most recent exchanges disproportionately: preserve the latest " +
+	"messages in near-verbatim detail (they are the active working context), and compress older history " +
+	"more aggressively the further back it goes. Be thorough on specifics but drop small talk. Output only " +
+	"the summary prose — no preamble, no tool use."
 
 // startCompress compacts the attached session's Claude context in the background:
 // it asks Claude (on the current session_id) to summarize the conversation, then

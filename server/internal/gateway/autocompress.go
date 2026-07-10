@@ -24,18 +24,27 @@ const autoCompressLead = 15 * time.Second
 // autoCompressTick is how often the monitor re-scans every session.
 const autoCompressTick = 5 * time.Second
 
-// autoCompressCfg is the global auto-compress preference (all sessions/clients).
+// autoCompressCfg is the global compression preference (all sessions/clients).
+// Two independent triggers share one token limit:
+//   - warm: opportunistic — compress in the last seconds of the warm-cache window
+//     so the summary turn reuses the still-warm cache (cheap, but may wait).
+//   - auto: aggressive — compress as soon as the limit is crossed and the session
+//     is idle, without waiting for the warm window (immediate, may pay a cold read).
+//
+// If both are on, auto wins: it fires at the limit before the warm edge is reached.
 type autoCompressCfg struct {
-	enabled    bool
-	thresholdK int // context-token threshold, in thousands
+	warm       bool
+	auto       bool
+	thresholdK int // context-token limit, in thousands
 }
 
 // setAutoCompress records the global preference (from `hello` or a live
-// `auto_compress` message). A non-positive threshold is treated as disabled.
-func (s *Server) setAutoCompress(enabled bool, thresholdK int) {
+// `auto_compress` message). A non-positive limit disables both triggers.
+func (s *Server) setAutoCompress(warm, auto bool, thresholdK int) {
 	s.autoCompressMu.Lock()
 	defer s.autoCompressMu.Unlock()
-	s.acCfg = autoCompressCfg{enabled: enabled && thresholdK > 0, thresholdK: thresholdK}
+	on := thresholdK > 0
+	s.acCfg = autoCompressCfg{warm: warm && on, auto: auto && on, thresholdK: thresholdK}
 }
 
 func (s *Server) autoCompressConfig() autoCompressCfg {
@@ -58,14 +67,14 @@ func (s *Server) firedAutoCompress(sessionID string, at int64) bool {
 }
 
 // autoCompressLoop is the server-owned monitor: every tick it scans started
-// sessions and compresses any that are over the token threshold and within the
-// last autoCompressLead of their warm-cache window. Started once from New().
+// sessions and compresses any over the token limit — immediately (auto) or in the
+// last autoCompressLead of their warm-cache window (warm). Started once from New().
 func (s *Server) autoCompressLoop() {
 	t := time.NewTicker(autoCompressTick)
 	defer t.Stop()
 	for range t.C {
 		cfg := s.autoCompressConfig()
-		if !cfg.enabled {
+		if !cfg.warm && !cfg.auto {
 			continue
 		}
 		now := time.Now()
@@ -83,6 +92,18 @@ func (s *Server) autoCompressLoop() {
 			if ctxTokens < cfg.thresholdK*1000 {
 				continue
 			}
+			// Auto (aggressive): fire the moment the idle session is over the limit,
+			// without waiting for the warm-cache edge.
+			if cfg.auto {
+				if s.firedAutoCompress(sess.SessionID, cx.At) {
+					continue
+				}
+				log.Printf("auto-compress[%s]: %d ctx tokens ≥ %dk — compressing (auto)",
+					sess.Name, ctxTokens, cfg.thresholdK)
+				s.startCompress(sess)
+				continue
+			}
+			// Warm (opportunistic): only within the last autoCompressLead of the window.
 			remaining := warmCacheWindow - now.Sub(time.Unix(cx.At, 0))
 			if remaining > autoCompressLead || remaining <= 0 {
 				continue // not yet in the trigger window, or the cache is already cold
@@ -90,7 +111,7 @@ func (s *Server) autoCompressLoop() {
 			if s.firedAutoCompress(sess.SessionID, cx.At) {
 				continue
 			}
-			log.Printf("auto-compress[%s]: %d ctx tokens ≥ %dk, %ds to cache expiry — compressing",
+			log.Printf("auto-compress[%s]: %d ctx tokens ≥ %dk, %ds to cache expiry — compressing (warm)",
 				sess.Name, ctxTokens, cfg.thresholdK, int(remaining.Seconds()))
 			s.startCompress(sess)
 		}
