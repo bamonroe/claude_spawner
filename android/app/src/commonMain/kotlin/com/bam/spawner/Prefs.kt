@@ -99,5 +99,21 @@ interface Prefs {
 
         // Resolved on the SERVER host — the resident whisper container's published port.
         const val DEFAULT_WHISPER_URL = "http://localhost:8571"
+
+        // Every non-zero default lives here, once, so the two Prefs backends
+        // (SettingsStore / WebPrefs) can't drift apart. Defaults of false or ""
+        // stay inline at the property — they're unambiguous zero values.
+        const val DEFAULT_THEME_MODE = "system"
+        const val DEFAULT_TOKEN_BADGE = "compact"
+        const val DEFAULT_CACHE_WARM_TIMER = true
+        const val DEFAULT_AUTO_COMPRESS_THRESHOLD_K = 100
+        const val DEFAULT_AUDIO_OUTPUT = "earpiece"
+        const val DEFAULT_END_TOKEN = "beep"
+        const val DEFAULT_STT_MODE = "dynamic"
+        const val DEFAULT_STT_MODEL = "small"
+        const val DEFAULT_WHISPER_MODEL = "medium.en"
+        const val DEFAULT_VAD_THRESHOLD = 500
+        const val DEFAULT_VAD_ONSET_MS = 120
+        const val DEFAULT_VAD_SILENCE_MS = 800
     }
 }

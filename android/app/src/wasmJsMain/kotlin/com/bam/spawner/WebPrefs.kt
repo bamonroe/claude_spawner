@@ -52,13 +52,13 @@ class WebPrefs : Prefs {
         set(v) = putStr("last_session_id", v)
 
     override var themeMode: String
-        get() = str("theme_mode", "system")
+        get() = str("theme_mode", Prefs.DEFAULT_THEME_MODE)
         set(v) = putStr("theme_mode", v)
     override var tokenBadge: String
-        get() = str("token_badge", "compact")
+        get() = str("token_badge", Prefs.DEFAULT_TOKEN_BADGE)
         set(v) = putStr("token_badge", v)
     override var cacheWarmTimer: Boolean
-        get() = bool("cache_warm_timer", true)
+        get() = bool("cache_warm_timer", Prefs.DEFAULT_CACHE_WARM_TIMER)
         set(v) = putBool("cache_warm_timer", v)
 
     override var warmCompress: Boolean
@@ -70,14 +70,14 @@ class WebPrefs : Prefs {
         set(v) = putBool("auto_compress", v)
 
     override var autoCompressThreshold: Int
-        get() = int("auto_compress_threshold", 100)
+        get() = int("auto_compress_threshold", Prefs.DEFAULT_AUTO_COMPRESS_THRESHOLD_K)
         set(v) = putInt("auto_compress_threshold", v)
 
     override var handsFree: Boolean
         get() = bool("hands_free", false)
         set(v) = putBool("hands_free", v)
     override var audioOutput: String
-        get() = str("audio_output", "earpiece")
+        get() = str("audio_output", Prefs.DEFAULT_AUDIO_OUTPUT)
         set(v) = putStr("audio_output", v)
     override var brief: Boolean
         get() = bool("brief", false)
@@ -86,23 +86,23 @@ class WebPrefs : Prefs {
         get() = bool("interactive", false)
         set(v) = putBool("interactive", v)
     override var endToken: String
-        get() = str("end_token", "beep").ifBlank { "beep" }
+        get() = str("end_token", Prefs.DEFAULT_END_TOKEN).ifBlank { Prefs.DEFAULT_END_TOKEN }
         set(v) = putStr("end_token", v)
     override var wakeToken: String
         get() = str("wake_token", "")
         set(v) = putStr("wake_token", v)
 
     override var sttMode: String
-        get() = str("stt_mode", "dynamic")
+        get() = str("stt_mode", Prefs.DEFAULT_STT_MODE)
         set(v) = putStr("stt_mode", v)
     override var sttModel: String
-        get() = str("stt_model", "small")
+        get() = str("stt_model", Prefs.DEFAULT_STT_MODEL)
         set(v) = putStr("stt_model", v)
     override var whisperUrl: String
         get() = str("whisper_url", Prefs.DEFAULT_WHISPER_URL)
         set(v) = putStr("whisper_url", v)
     override var whisperModel: String
-        get() = str("whisper_model", "medium.en")
+        get() = str("whisper_model", Prefs.DEFAULT_WHISPER_MODEL)
         set(v) = putStr("whisper_model", v)
 
     override var commandAliases: String
@@ -113,12 +113,12 @@ class WebPrefs : Prefs {
         get() = localStorage["silence_commit_sec"]?.toFloatOrNull() ?: 0f
         set(v) { localStorage["silence_commit_sec"] = v.toString() }
     override var vadThreshold: Int
-        get() = int("vad_threshold", 500)
+        get() = int("vad_threshold", Prefs.DEFAULT_VAD_THRESHOLD)
         set(v) = putInt("vad_threshold", v)
     override var vadOnsetMs: Int
-        get() = int("vad_onset_ms", 120)
+        get() = int("vad_onset_ms", Prefs.DEFAULT_VAD_ONSET_MS)
         set(v) = putInt("vad_onset_ms", v)
     override var vadSilenceMs: Int
-        get() = int("vad_silence_ms", 800)
+        get() = int("vad_silence_ms", Prefs.DEFAULT_VAD_SILENCE_MS)
         set(v) = putInt("vad_silence_ms", v)
 }

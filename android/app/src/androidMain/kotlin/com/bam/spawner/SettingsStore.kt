@@ -36,18 +36,18 @@ class SettingsStore(context: Context) : Prefs {
 
     /** Theme preference: "system" | "light" | "dark". */
     override var themeMode: String
-        get() = prefs.getString("theme_mode", "system") ?: "system"
+        get() = prefs.getString("theme_mode", Prefs.DEFAULT_THEME_MODE) ?: Prefs.DEFAULT_THEME_MODE
         set(v) = prefs.edit().putString("theme_mode", v).apply()
 
     /** Per-message token-usage badge detail: "off" | "compact" | "detailed".
      *  Compact shows in/out totals; detailed adds the cache-read/write split. */
     override var tokenBadge: String
-        get() = prefs.getString("token_badge", "compact") ?: "compact"
+        get() = prefs.getString("token_badge", Prefs.DEFAULT_TOKEN_BADGE) ?: Prefs.DEFAULT_TOKEN_BADGE
         set(v) = prefs.edit().putString("token_badge", v).apply()
 
     /** Show a status-bar indicator counting down the ~5-min warm prompt-cache window. */
     override var cacheWarmTimer: Boolean
-        get() = prefs.getBoolean("cache_warm_timer", true)
+        get() = prefs.getBoolean("cache_warm_timer", Prefs.DEFAULT_CACHE_WARM_TIMER)
         set(v) = prefs.edit().putBoolean("cache_warm_timer", v).apply()
 
     override var warmCompress: Boolean
@@ -59,7 +59,7 @@ class SettingsStore(context: Context) : Prefs {
         set(v) = prefs.edit().putBoolean("auto_compress", v).apply()
 
     override var autoCompressThreshold: Int
-        get() = prefs.getInt("auto_compress_threshold", 100)
+        get() = prefs.getInt("auto_compress_threshold", Prefs.DEFAULT_AUTO_COMPRESS_THRESHOLD_K)
         set(v) = prefs.edit().putInt("auto_compress_threshold", v).apply()
 
     /** Whether hands-free (always-listening) mode is enabled. */
@@ -69,7 +69,7 @@ class SettingsStore(context: Context) : Prefs {
 
     /** Preferred TTS audio output: "earpiece" | "speaker" | "bluetooth". */
     override var audioOutput: String
-        get() = prefs.getString("audio_output", "earpiece") ?: "earpiece"
+        get() = prefs.getString("audio_output", Prefs.DEFAULT_AUDIO_OUTPUT) ?: Prefs.DEFAULT_AUDIO_OUTPUT
         set(v) = prefs.edit().putString("audio_output", v).apply()
 
     /** Ask Claude for brief, TTS-friendly replies (appended as a prompt hint). */
@@ -84,7 +84,7 @@ class SettingsStore(context: Context) : Prefs {
 
     /** Spoken word that commits a hands-free message ("beep" by default). */
     override var endToken: String
-        get() = prefs.getString("end_token", "beep")?.ifBlank { "beep" } ?: "beep"
+        get() = prefs.getString("end_token", Prefs.DEFAULT_END_TOKEN)?.ifBlank { Prefs.DEFAULT_END_TOKEN } ?: Prefs.DEFAULT_END_TOKEN
         set(v) = prefs.edit().putString("end_token", v).apply()
 
     /** Custom wake word, accepted alongside built-in "hey buddy" (blank = built-in only). */
@@ -94,12 +94,12 @@ class SettingsStore(context: Context) : Prefs {
 
     /** Whisper model selection: "dynamic" (by clip length) or "fixed". */
     override var sttMode: String
-        get() = prefs.getString("stt_mode", "dynamic") ?: "dynamic"
+        get() = prefs.getString("stt_mode", Prefs.DEFAULT_STT_MODE) ?: Prefs.DEFAULT_STT_MODE
         set(v) = prefs.edit().putString("stt_mode", v).apply()
 
     /** Fixed-mode whisper model: "tiny" | "base" | "small". */
     override var sttModel: String
-        get() = prefs.getString("stt_model", "small") ?: "small"
+        get() = prefs.getString("stt_model", Prefs.DEFAULT_STT_MODEL) ?: Prefs.DEFAULT_STT_MODEL
         set(v) = prefs.edit().putString("stt_model", v).apply()
 
     /** Resident whisper server URL (resolved on the server host); blank = server default. */
@@ -109,7 +109,7 @@ class SettingsStore(context: Context) : Prefs {
 
     /** Resident whisper model to hot-load (ggml name, e.g. "medium.en"). */
     override var whisperModel: String
-        get() = prefs.getString("whisper_model", "medium.en") ?: "medium.en"
+        get() = prefs.getString("whisper_model", Prefs.DEFAULT_WHISPER_MODEL) ?: Prefs.DEFAULT_WHISPER_MODEL
         set(v) = prefs.edit().putString("whisper_model", v).apply()
 
     /** Command aliases as "misheard = command" lines (fixes whisper mistakes). */
@@ -124,17 +124,17 @@ class SettingsStore(context: Context) : Prefs {
 
     /** VAD energy bar: lower = more sensitive (catches quiet speech, more false triggers). */
     override var vadThreshold: Int
-        get() = prefs.getInt("vad_threshold", 500)
+        get() = prefs.getInt("vad_threshold", Prefs.DEFAULT_VAD_THRESHOLD)
         set(v) = prefs.edit().putInt("vad_threshold", v).apply()
 
     /** Sustained speech (ms) required before capture starts (rejects short noise blips). */
     override var vadOnsetMs: Int
-        get() = prefs.getInt("vad_onset_ms", 120)
+        get() = prefs.getInt("vad_onset_ms", Prefs.DEFAULT_VAD_ONSET_MS)
         set(v) = prefs.edit().putInt("vad_onset_ms", v).apply()
 
     /** Silence (ms) after speech that ends the utterance ("I'm done talking"). */
     override var vadSilenceMs: Int
-        get() = prefs.getInt("vad_silence_ms", 800)
+        get() = prefs.getInt("vad_silence_ms", Prefs.DEFAULT_VAD_SILENCE_MS)
         set(v) = prefs.edit().putInt("vad_silence_ms", v).apply()
 
 }
