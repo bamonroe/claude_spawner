@@ -100,6 +100,13 @@ each turn — which makes a long session progressively more expensive.
   dictation — so Claude keeps a compact recap instead of the full transcript. Costs one model turn.
   Use it to keep going on the same task while trimming cost.
 
+**Auto-compress** (Settings → Appearance) runs that compress for you. Turn it on and set a token
+limit (in thousands); the server then watches every session and, once its context grows past that
+limit, fires a compress in the last ~15 seconds of the session's ~5-minute warm prompt-cache window
+— so the summary turn reuses the still-warm cache instead of paying a cold context rebuild later.
+The trigger is server-side, so it fires even when the app is detached. The preference is global
+(one toggle + one limit for all sessions).
+
 ### Choosing the AI backend and its model
 
 The server drives more than one headless AI. Each **backend** is an entry in an AI registry that

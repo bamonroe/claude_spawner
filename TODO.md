@@ -734,6 +734,16 @@ _Robustness / ops (smaller, safe when we get to them):_
 
 ## Done
 
+- [x] 2026-07-10 — **Auto-compress near the warm-cache edge.** New Appearance toggle + token-limit
+      (thousands) setting; the app sends the global preference in `hello` and live via a new
+      `auto_compress` message. A server-owned monitor (`internal/gateway/autocompress.go`) scans every
+      started session each 5 s and fires `startCompress` once its context (input+cache) exceeds the
+      limit and it's within ~15 s of its 5-minute warm-cache window expiring — so the summary turn
+      reuses the still-warm cache instead of a cold rebuild. Fires even when detached. Docs: README
+      (clear-vs-compress), `docs/protocol.md` (`auto_compress` + hello fields). Both app targets build;
+      **live verification on the phone still pending** (needs a session to actually cross the threshold
+      near cache expiry).
+
 - [x] 2026-07-09 — **Sandbox sessions on the containerized (SSH-native) server.** A `target: sandbox`
       session (e.g. `email`) failed with `has no host set` on the containerized server: it has no
       container runtime, so the sandbox target wasn't registered and the turn fell back to the SSH
