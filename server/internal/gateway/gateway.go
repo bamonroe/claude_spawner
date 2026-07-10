@@ -446,6 +446,9 @@ func (c *conn) authenticate() bool {
 	// The whisper model is server-global: the app reads it here rather than pushing
 	// its own (so two clients don't bounce it), and changes it via set_whisper_model.
 	c.send(msgHelloOK("ws", c.srv.currentWhisperModel()))
+	// Advertise the AI backend registry so the app's new-session picker can offer a
+	// backend + model choice (and badge sessions by backend).
+	c.send(msgAgents(c.srv.driver.Registry()))
 	// Push the last-known plan session-limit so the app can show it immediately,
 	// rather than staying blank until the first turn of this connection.
 	if rl := c.srv.lastRateLimit(); rl.Type != "" {
@@ -534,7 +537,7 @@ var wireHandlers = map[string]func(c *conn, in inbound){
 	"browse":            func(c *conn, in inbound) { c.doBrowse(in.Path, in.HostName, in.Files) },
 	"upload":            func(c *conn, in inbound) { c.doUpload(in.Path, in.Name, in.HostName, in.Content) },
 	"download":          func(c *conn, in inbound) { c.doDownload(in.Path, in.HostName) },
-	"spawn_at":          func(c *conn, in inbound) { c.doSpawnAt(in.Path, session.Target(in.Target), in.Create, in.HostName) },
+	"spawn_at":          func(c *conn, in inbound) { c.doSpawnAt(in.Path, session.Target(in.Target), in.Create, in.HostName, in.Agent, in.Model) },
 	"cancel":            func(c *conn, in inbound) { c.cancelDialog() },
 	"abort":             func(c *conn, in inbound) { c.abortTurn() },
 	"set_whisper_model": func(c *conn, in inbound) { c.doSetWhisperModel(in.WhisperModel) },

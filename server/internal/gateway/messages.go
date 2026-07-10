@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"github.com/bam/claude_spawner/server/internal/agent"
 	"github.com/bam/claude_spawner/server/internal/session"
 	"github.com/bam/claude_spawner/server/internal/usage"
 )
@@ -23,6 +24,8 @@ type inbound struct {
 	Content      string            `json:"content"`       // on upload: the file's bytes, base64-encoded
 	Target       string            `json:"target"`        // on spawn_at: "host" (default) | "sandbox" execution target
 	Create       bool              `json:"create"`        // on spawn_at: mkdir the path (on the target host) first if it doesn't exist
+	Agent        string            `json:"agent"`         // on spawn_at: AI backend id ("codex"); "" = default backend
+	Model        string            `json:"model"`         // on spawn_at: model alias for the new session; "" = the backend's default
 	Codec        string            `json:"codec"`         // audio codec on wake: "ogg_opus" | "pcm16"
 	ClientID     string            `json:"client_id"`     // stable per-app id, for reconnect/resume
 	HandsFree    bool              `json:"hands_free"`    // set on `wake` when the clip is VAD-gated (hands-free)
@@ -46,6 +49,28 @@ type inbound struct {
 	Password     string            `json:"password"`      // on `identity_create`/`identity_import`: optional SSH password (server-only)
 	GenKey       *bool             `json:"gen_key"`       // on `identity_create`: generate a keypair (nil = yes, for older clients)
 	SetPassword  bool              `json:"set_password"`  // on `identity_update`: apply Password (else keep the current one)
+}
+
+// msgAgents advertises the AI backend registry to the app so the visual
+// new-session picker can offer a backend and model choice: each backend's id,
+// display name, default model alias, and its selectable models (alias + a
+// human label). `default` is the backend a spawn gets when none is chosen.
+func msgAgents(reg *agent.Registry) map[string]any {
+	agents := make([]map[string]any, 0)
+	for _, a := range reg.List() {
+		models := make([]map[string]any, 0, len(a.Models))
+		for _, m := range a.Models {
+			models = append(models, map[string]any{"alias": m.Alias})
+		}
+		agents = append(agents, map[string]any{
+			"id": a.ID, "name": a.Name, "default_model": a.DefaultModel, "models": models,
+		})
+	}
+	def := ""
+	if d := reg.Default(); d != nil {
+		def = d.ID
+	}
+	return map[string]any{"type": "agents", "agents": agents, "default": def}
 }
 
 func msgHelloOK(sessionID, whisperModel string) map[string]any {

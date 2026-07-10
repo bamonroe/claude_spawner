@@ -83,7 +83,7 @@ func (c *conn) listDir(host, dir string, files bool) ([]listingEntry, error) {
 // attaches to it — the visual equivalent of finishing the spawn dialog. The
 // directory (and its existence / creation) is resolved on the target host, so a
 // remote spawn checks and makes the folder on that remote box, not locally.
-func (c *conn) doSpawnAt(path string, target session.Target, create bool, host string) {
+func (c *conn) doSpawnAt(path string, target session.Target, create bool, host, agentID, model string) {
 	dir := filepath.Clean(path)
 	if !filepath.IsAbs(dir) {
 		c.fail("bad_path", "spawn path must be absolute")
@@ -133,10 +133,18 @@ func (c *conn) doSpawnAt(path string, target session.Target, create bool, host s
 		c.doAttach(existing.Name, false)
 		return
 	}
-	sess, err := c.newSession(sanitizeName(filepath.Base(dir)), dir, target, "") // visual picker: default backend
+	sess, err := c.newSession(sanitizeName(filepath.Base(dir)), dir, target, agentID)
 	if err != nil {
 		c.fail("internal", err.Error())
 		return
+	}
+	// An explicit model choice from the picker overrides the backend default that
+	// newSession stamped — but only if it's a real model for this session's agent
+	// (else keep the default rather than passing an unknown flag to the backend).
+	if model != "" {
+		if m, ok := c.srv.driver.AgentFor(sess).Model(model); ok {
+			sess.Model = m.Alias
+		}
 	}
 	// Pin the session to the resolved host. Sandbox sessions run in a local container,
 	// so they keep no host; a host-target session records its (possibly loopback) host.
@@ -153,7 +161,7 @@ func (c *conn) doSpawnAt(path string, target session.Target, create bool, host s
 	}
 	c.attached = sess
 	c.srv.bindJob(c, sess, true)                        // register for live turn fan-out (fresh session: no catch-up)
-	c.send(msgAttached(sess.Name, sess.SessionID, nil)) // freshly spawned: no transcript, no context size yet
+	c.send(msgAttached(sess, nil)) // freshly spawned: no transcript, no context size yet
 	c.sendSessionList()
 }
 
