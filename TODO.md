@@ -734,6 +734,19 @@ _Robustness / ops (smaller, safe when we get to them):_
 
 ## Done
 
+- [x] 2026-07-10 — **Offline transcript cache + digest-guarded history.** The app now persists each
+      session's chat log to disk (`TranscriptCache`, one JSON file per session) so history is available
+      offline and switching sessions doesn't re-download seen messages. New `digest` → `digests` wire
+      messages carry a per-session message count + content hash (`session.HistoryDigest`, sha256) with
+      no bodies; the app requests them on connect and compares against its cached digest. `history`
+      gained an optional `have_hash` (server replies `unchanged: true` with no bodies when it still
+      matches) and now returns the chain's `count`/`hash` on every page. An (re)attach skips the fetch
+      entirely when the cached digest equals the server's; a live user/claude line invalidates the
+      server digest so the next reattach refetches; a `clear`/`compress` rewrite changes the hash and
+      triggers a full refetch. Server (`serveDigests`, hash-guarded `serveHistory`) + Android (cache,
+      `ensureLoaded`/`persist`, attach/onHistory/HelloOk/Digests wiring) + `HistoryDigest` unit tests;
+      docs in `protocol.md` + `README.md`. Verified: server `go test`, APK build + emulator install;
+      live end-to-end pending the server deploy.
 - [x] 2026-07-10 — **Sidebar sessions as cards + details/edit dialog with agent switching.** Each
       session in the drawer is now a card showing name, AI backend/model, and a sandbox badge; tapping
       it opens a details sheet (path + Open/Edit/Delete). **Edit** renames and can switch the session's

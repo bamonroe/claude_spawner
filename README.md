@@ -105,6 +105,19 @@ Bytes travel base64-encoded in one message each way, capped at 64 MiB. Because t
 session's host over SSH, an upload lands on the very machine the session runs on (loopback for a local
 session), exactly where Claude will look for it.
 
+### Offline transcript cache
+
+The app keeps a **local, on-disk copy of each session's chat history**, so you can scroll back through
+big chunks of a conversation even with no connection — and switching between sessions doesn't re-download
+what you've already seen. Every time the app connects it asks the server for a lightweight **digest** of
+each session (a message count plus a content hash — no message bodies), and compares it against the cached
+copy. If the hash still matches, clicking into that session shows the cache and **transfers nothing**. If
+the hash changed, only that session is refetched (and if it merely grew, just the new tail). A `clear`/
+`compress` rewrites the transcript, which changes the hash — the app notices and pulls a fresh copy rather
+than stitching a stale one. The cache lives under the app's private storage and survives restarts; the
+hash is opaque to the app, so this stays correct without the phone and server having to agree on how it's
+computed.
+
 ### Clearing vs. compressing context
 
 Every dictated turn resumes the session with `--resume`, so Claude re-reads the whole conversation
