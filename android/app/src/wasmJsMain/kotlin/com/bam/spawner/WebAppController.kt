@@ -12,12 +12,23 @@ import com.bam.spawner.net.ServerMsg
 import com.bam.spawner.net.SpawnerClient
 import com.bam.spawner.net.UsageEstimateInfo
 import com.bam.spawner.net.UsageReport
+import com.bam.spawner.tts.Markdown
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlin.io.encoding.Base64
+import kotlin.io.encoding.ExperimentalEncodingApi
+import kotlin.js.JsAny
+import kotlin.js.JsString
 
 /**
  * The browser's [AppController]: it wires the shared [SpawnerClient]'s parsed [ServerMsg]s to
@@ -26,8 +37,10 @@ import kotlinx.coroutines.flow.asStateFlow
  * TTS, or hands-free), which is all a browser client needs. Audio hooks aren't on the interface;
  * the web shell stubs them.
  */
+@OptIn(ExperimentalEncodingApi::class)
 class WebAppController(private val prefs: Prefs) : AppController {
     private var client: SpawnerClient? = null
+    private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
     private val _connected = MutableStateFlow(false)
     override val connected: StateFlow<Boolean> = _connected.asStateFlow()
@@ -64,13 +77,20 @@ class WebAppController(private val prefs: Prefs) : AppController {
     private val _discoverError = MutableStateFlow("")
     override val discoverError: StateFlow<String> = _discoverError.asStateFlow()
 
-    // Audio-driven flows are stubs on the web until M5 wires Web Audio / SpeechSynthesis.
+    // Hands-free (VAD-gated always-listening) isn't wired in the browser yet, so voiceState
+    // stays OFF; push-to-talk + TTS below are live.
     private val _voiceState = MutableStateFlow(VoiceState.OFF)
     override val voiceState: StateFlow<VoiceState> = _voiceState.asStateFlow()
     private val _speaking = MutableStateFlow(false)
     override val speaking: StateFlow<Boolean> = _speaking.asStateFlow()
     private val _activity = MutableStateFlow("")
     override val activity: StateFlow<String> = _activity.asStateFlow()
+
+    // Push-to-talk mic status text for the shared input bar ("listening…" while capturing).
+    private val _micText = MutableStateFlow("")
+    val micText: StateFlow<String> = _micText.asStateFlow()
+    private var capturing = false
+    private var speakWatch: Job? = null
 
     private val _lastTurnUsage = MutableStateFlow<TurnUsageInfo?>(null)
     override val lastTurnUsage: StateFlow<TurnUsageInfo?> = _lastTurnUsage.asStateFlow()
@@ -145,17 +165,18 @@ class WebAppController(private val prefs: Prefs) : AppController {
                 }
             }
             is ServerMsg.WhisperModel -> if (msg.model.isNotBlank()) _whisperModel.value = msg.model
-            is ServerMsg.Say -> { _activity.value = ""; addChat(Role.SYSTEM, msg.text) }
+            is ServerMsg.Say -> { _activity.value = ""; addChat(Role.SYSTEM, msg.text); speak(msg.text) }
             is ServerMsg.Output -> {
                 _activity.value = ""
-                if (msg.chunk) { turnStreamed = true; addChat(Role.CLAUDE, msg.text) }
+                if (msg.chunk) { turnStreamed = true; addChat(Role.CLAUDE, msg.text); speak(msg.text) }
                 else {
-                    if (!turnStreamed) addChat(Role.CLAUDE, msg.text, msg.usage)
+                    if (!turnStreamed) { addChat(Role.CLAUDE, msg.text, msg.usage); speak(msg.text) }
                     else if (msg.usage != null) attachUsageToLastClaude(msg.usage)
                     turnStreamed = false
                     msg.usage?.let { _lastTurnUsage.value = TurnUsageInfo(it, nowMonotonicMs()) }
                 }
             }
+            is ServerMsg.StopSpeaking -> { cancelSpeech(); _speaking.value = false }
             is ServerMsg.ContextReset -> _lastTurnUsage.value = null
             is ServerMsg.Activity -> _activity.value = msg.text
             is ServerMsg.Files -> if (msg.files.isNotEmpty()) addChat(Role.SYSTEM, "📝 changed: " + msg.files.joinToString(", "))
@@ -213,7 +234,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
             }
             is ServerMsg.TurnInterrupted -> { _activity.value = ""; turnStreamed = false; addChat(Role.SYSTEM, "⚠️ turn interrupted (${msg.reason}) — say it again.") }
             is ServerMsg.TurnStopped -> { _activity.value = ""; turnStreamed = false; addChat(Role.SYSTEM, "⏹ stopped that turn.") }
-            else -> {} // Pending / Calibration / Say-audio / StopSpeaking / ReadLast / Dialog / Unknown
+            else -> {} // Pending / Calibration / ReadLast / Dialog / Unknown
         }
     }
 
@@ -306,4 +327,66 @@ class WebAppController(private val prefs: Prefs) : AppController {
     override fun setWhisperModel(model: String) { client?.send(Outbound.setWhisperModel(model)) }
     override fun setAutoCompress(warm: Boolean, auto: Boolean, thresholdK: Int) { client?.send(Outbound.autoCompress(warm, auto, thresholdK)) }
     override fun restartServer() { client?.send(Outbound.restart()) }
+
+    // --- Push-to-talk mic capture (concrete, off the interface like Android) -------
+    // Mirrors the phone: grab the mic on press, send the whole clip on release as
+    // `pcm16` (wake → binary audio → audio_end). getUserMedia may prompt on first use;
+    // if the button is released before permission resolves, stopMic returns "" and we
+    // simply send nothing.
+
+    /** Mic button pressed: barge-in over any speech, then start capturing. */
+    fun startTalking() {
+        if (capturing) return
+        cancelSpeech(); _speaking.value = false // barge-in
+        capturing = true
+        _micText.value = "listening…"
+        startMic().then<JsAny?> { res: JsString ->
+            val s = res.toString()
+            if (s.startsWith("err:") && capturing) {
+                capturing = false; _micText.value = ""
+                addChat(Role.SYSTEM, "⚠️ mic unavailable (${s.removePrefix("err:")})")
+            }
+            null
+        }
+    }
+
+    /** Mic button released: stop, and if we captured anything, ship the clip. */
+    fun stopTalking() {
+        if (!capturing) return
+        capturing = false
+        _micText.value = ""
+        val b64 = stopMic().toString()
+        if (b64.isEmpty()) return
+        val pcm = Base64.decode(b64)
+        client?.send(Outbound.wake("pcm16"))
+        client?.sendAudio(pcm)
+        client?.send(Outbound.audioEnd())
+    }
+
+    /** Swipe-cancel: drop the capture without sending. */
+    fun cancelTalking() {
+        if (!capturing) return
+        capturing = false
+        _micText.value = ""
+        cancelMic()
+    }
+
+    /** Stop-speaking button / "stop" barge-in: halt TTS now. */
+    fun stopSpeaking() { cancelSpeech(); _speaking.value = false }
+
+    // Speak a reply through the browser (markdown stripped, same as the phone). Utterances
+    // queue in the engine; a lightweight poll flips `speaking` off once the queue drains so
+    // the SpeakingBar and its stop button track real playback.
+    private fun speak(text: String) {
+        val spoken = Markdown.toSpeech(text)
+        if (spoken.isBlank()) return
+        speakText(spoken)
+        _speaking.value = true
+        if (speakWatch?.isActive != true) {
+            speakWatch = scope.launch {
+                while (speechActive()) delay(250)
+                _speaking.value = false
+            }
+        }
+    }
 }

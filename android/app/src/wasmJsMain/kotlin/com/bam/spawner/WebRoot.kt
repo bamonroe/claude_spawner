@@ -32,6 +32,7 @@ fun WebRoot() {
     var themeMode by remember { mutableStateOf(parseThemeMode(prefs.themeMode)) }
     var screen by remember { mutableStateOf("main") }
     val connected by controller.connected.collectAsState()
+    val mic by controller.micText.collectAsState()
 
     // Connect once on load using the saved server URL + token (edit them under Settings → Server).
     LaunchedEffect(Unit) { controller.connect(prefs.url, prefs.token) }
@@ -75,17 +76,18 @@ fun WebRoot() {
                     handsFreeInitial = false,
                     badgeMode = prefs.tokenBadge,
                     showCacheTimer = prefs.cacheWarmTimer,
-                    // Audio hardware isn't available in the browser yet (M5): stub it.
-                    mic = "",
+                    // Push-to-talk mic + SpeechSynthesis TTS are live (M5); hands-free VAD and
+                    // output routing aren't, so those stay stubbed.
+                    mic = mic,
                     audioOutput = AudioOutput.MUTE,
                     audioOutputs = listOf(AudioOutput.MUTE),
                     onToggleHandsFree = {},
                     onSelectAudioOutput = {},
                     onRefreshOutputs = {},
-                    onTalkStart = {},
-                    onTalkStop = {},
-                    onTalkCancel = {},
-                    onStopSpeaking = {},
+                    onTalkStart = controller::startTalking,
+                    onTalkStop = controller::stopTalking,
+                    onTalkCancel = controller::cancelTalking,
+                    onStopSpeaking = controller::stopSpeaking,
                     onOpenSettings = { screen = "settings" },
                     onNewSession = { screen = "browse" }, // shared BrowseScreen: pick backend/model/host + dir
                     // 📎 upload/download to the session's host, over the same socket.

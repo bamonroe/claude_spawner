@@ -243,7 +243,21 @@ Milestones:
         `spawnNewFolder`/`requestHosts` — was already on the interface). `WebRoot` routes
         `onNewSession` → a `"browse"` screen, so the web client gets the full New-session flow
         (target/host + backend/model chips + filesystem browse). Both targets compile green.
-  - [ ] `localStorage`-backed prefs — done earlier with `WebPrefs`.
+  - [x] 2026-07-10 — **Browser voice: push-to-talk mic + SpeechSynthesis TTS.** New
+        `wasmJsMain/WebAudio.kt` (`js(...)` helpers): `startMic`/`stopMic`/`cancelMic` capture the mic
+        via Web Audio (getUserMedia → ScriptProcessor), accumulate Float32, and on release downsample
+        to 16 kHz mono PCM16LE returned as base64; `speakText`/`cancelSpeech`/`speechActive` drive the
+        browser's `SpeechSynthesis`. `WebAppController` gained `startTalking`/`stopTalking`/
+        `cancelTalking` (send `wake("pcm16")` → `sendAudio(clip)` → `audio_end`, reusing the phone's
+        push-to-talk wire path — no Opus/ffmpeg) + a `micText` flow, and now speaks `say`/`output`
+        (markdown-stripped via the shared `Markdown`, moved to `commonMain`), cancels on `stop_speaking`
+        and barges-in on talk-start; a poll flips `speaking` off when the utterance queue drains.
+        `WebRoot` wires the four talk/stop callbacks + `mic` text. Needs a secure context + mic
+        permission. Both targets build; wasm bundle packages. **Still browser-TODO below.**
+  - [ ] **Hands-free (VAD-gated always-listening) in the browser** + audio-output routing — still
+        stubbed (`voiceState` stays OFF, output is MUTE). The push-to-talk path above is the browser
+        voice story for now; hands-free needs a browser VAD + end-token + echo handling (a separate lift).
+  - [x] `localStorage`-backed prefs — done earlier with `WebPrefs`.
 - [~] **M6 — Serve + document.** (in progress)
   - [x] 2026-07-09 — **Server hosts the web bundle.** New `SPAWNER_WEB_DIR` config: when set, the Go
         server serves that directory (the built Compose/Wasm bundle) as static files at `/` alongside

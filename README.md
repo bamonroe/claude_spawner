@@ -316,8 +316,15 @@ sessions** (the same New-session picker as the app — target/host + backend/mod
 sharing one `commonMain` `BrowseScreen`) all work. Because a mouse can't obviously "swipe", the
 browser client also shows **visible controls** for the touch gestures: a chevron handle above the
 message box opens the command tray, a **Refresh** button sits beside **New** in the sessions drawer,
-and **Enter sends** a message (Shift+Enter for a newline). Browser audio (mic/STT and spoken replies)
-is not wired yet.
+and **Enter sends** a message (Shift+Enter for a newline).
+
+**Voice works in the browser too**: hold the mic button to talk — the client captures the microphone
+via the Web Audio API, downsamples it to 16 kHz mono PCM16, and streams the clip to the server's
+Whisper over the same socket (the `pcm16` codec — no Opus/ffmpeg needed), exactly like the phone's
+push-to-talk. Replies are **read aloud** with the browser's built-in `SpeechSynthesis`, and the stop
+button (or the "stop" barge-in) halts playback. The mic needs a **secure context** (https or
+localhost) and microphone permission. Still browser-only-TODO: hands-free / always-listening (the
+VAD-gated mode) and audio-output routing — those stay stubbed; push-to-talk is the browser voice path.
 
 The layout is **responsive**: in a **wide** window (a desktop browser, a tablet, an unfolded phone —
 ≥840 px) the sessions sidebar is **pinned permanently** beside the chat instead of hiding in the
