@@ -493,6 +493,7 @@ fun CommandsSettings(
     var aliasMap by remember { mutableStateOf(settings.aliasMap()) }
     var wakeTok by rememberSaveable { mutableStateOf(settings.wakeToken) }
     var endTok by rememberSaveable { mutableStateOf(settings.endToken) }
+    var silence by remember { mutableStateOf(if (settings.silenceCommitSeconds <= 0f) "" else settings.silenceCommitSeconds.toString()) }
     SettingsScaffold("Commands", onBack) {
         Text("Say your wake word → a command → your end token.", style = MaterialTheme.typography.bodyMedium)
 
@@ -518,6 +519,18 @@ fun CommandsSettings(
         }
         OutlinedButton(onClick = { settings.endToken = endTok; onSttChanged() }) { Text("Apply end token") }
         Text("Say this to commit a hands-free message.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+
+        HorizontalDivider()
+        Text("Silence auto-commit", style = MaterialTheme.typography.titleMedium)
+        OutlinedTextField(
+            silence,
+            { silence = it; settings.silenceCommitSeconds = it.toFloatOrNull() ?: 0f },
+            label = { Text("Silence auto-commit (seconds, 0 = off)") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Text("Commits after this much quiet. Blank/0 = only the end token commits.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
 
         HorizontalDivider()
         Text(
@@ -699,9 +712,9 @@ fun ServerSettings(
 }
 
 /**
- * Audio settings: VAD thresholds, TTS/interaction toggles, silence auto-commit, and the
- * resident-whisper URL — all backed by [Prefs]. (The end token and wake token live on the
- * Commands page, since they're part of the command grammar.) [micMeter] is a platform slot
+ * Audio settings: VAD thresholds, TTS/interaction toggles, and the resident-whisper URL — all
+ * backed by [Prefs]. (The end token, wake token, and silence auto-commit live on the Commands
+ * page, since they're part of the command grammar.) [micMeter] is a platform slot
  * that draws the live mic-level bar (Android reads the recorder; web is empty until M5's Web
  * Audio); it receives the current threshold so it can mark it on the bar.
  */
@@ -714,7 +727,6 @@ fun AudioSettings(
     micMeter: @Composable (Double) -> Unit = {},
 ) {
     var threshold by remember { mutableStateOf(settings.vadThreshold.toFloat()) }
-    var silence by remember { mutableStateOf(if (settings.silenceCommitSeconds <= 0f) "" else settings.silenceCommitSeconds.toString()) }
     var whisperUrl by remember { mutableStateOf(settings.whisperUrl) }
 
     SettingsScaffold("Audio", onBack) {
@@ -751,18 +763,6 @@ fun AudioSettings(
             }
             Switch(checked = interactive, onCheckedChange = { interactive = it; settings.interactive = it; onSttChanged() })
         }
-
-        HorizontalDivider()
-        Text("Silence auto-commit", style = MaterialTheme.typography.titleMedium)
-        OutlinedTextField(
-            silence,
-            { silence = it; settings.silenceCommitSeconds = it.toFloatOrNull() ?: 0f },
-            label = { Text("Silence auto-commit (seconds, 0 = off)") },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Text("Commits after this much quiet. Blank/0 = only the end token commits.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
 
         HorizontalDivider()
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {

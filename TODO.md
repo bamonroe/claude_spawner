@@ -743,7 +743,8 @@ _Robustness / ops (smaller, safe when we get to them):_
       page** (both tokens are command grammar) and relabeled the remaining "Silence auto-commit" field.
       The Audio "Silence to end" VAD slider stays — it's the live hands-free end-of-utterance timer.
       Client pref added to all three source sets; command-package unit tests cover the custom-token
-      matching; docs updated (commands.md/protocol.md/README).
+      matching; docs updated (commands.md/protocol.md/README). Silence auto-commit was moved to the
+      Commands page too (it's client-local, no reconnect), leaving Audio to pure VAD/TTS/whisper dials.
 - [x] 2026-07-10 — **Persist server-global settings across restart (`settings.json`).** The
       hot-swappable resident whisper model was held only in memory, so a restart/rebuild reverted it to
       `SPAWNER_WHISPER_MODEL_NAME`. New `internal/session/settings.go` (`SettingsStore`, mirrors the
