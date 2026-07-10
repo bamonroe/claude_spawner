@@ -62,6 +62,13 @@ Anything spoken **while attached** that isn't a reserved command is dictated to 
 command fails (a bad path, a name that's taken, a session live in a terminal…), the server speaks a
 plain-language reason instead of failing silently.
 
+**Wake and end tokens (Settings → Commands).** The two spoken tokens that bracket a command live on
+the Commands settings page. The **end token** (default "beep") commits a hands-free message. The
+**wake token** field lets you add your own wake word — it's accepted *alongside* the built-in "hey
+buddy" (blank keeps "hey buddy" only). Pick a word Whisper transcribes cleanly: a custom word has no
+curated mis-hear alias list the way "hey buddy" does, though the server does bias transcription
+toward it.
+
 **Without your voice:** swipe up on the message box — or tap the **chevron handle** just above it —
 for a **command tray** of tap buttons, one per command that needs no argument (`detach`, `clear`,
 `compress`, `status`, `usage`, …). Open the **sessions drawer** with the ☰ menu or by swiping in from

@@ -734,6 +734,16 @@ _Robustness / ops (smaller, safe when we get to them):_
 
 ## Done
 
+- [x] 2026-07-10 — **Settable custom wake token + regrouped Commands settings.** The wake word was
+      hardcoded server-side (`command.wakePhrases`). Added an optional `wake_token` to the `hello`
+      handshake: the app's Commands settings page can now set a custom wake word, accepted *alongside*
+      the built-in "hey buddy" (blank = built-in only). Server folds it in via `command.WakePhrase` →
+      `StripWakeWith`/`SplitWakeWith` (new `extra`-phrase variants of the wake matchers) and biases
+      Whisper toward it in `vocabBias`. Also **moved the end token off the Audio page onto the Commands
+      page** (both tokens are command grammar) and relabeled the remaining "Silence auto-commit" field.
+      The Audio "Silence to end" VAD slider stays — it's the live hands-free end-of-utterance timer.
+      Client pref added to all three source sets; command-package unit tests cover the custom-token
+      matching; docs updated (commands.md/protocol.md/README).
 - [x] 2026-07-10 — **Persist server-global settings across restart (`settings.json`).** The
       hot-swappable resident whisper model was held only in memory, so a restart/rebuild reverted it to
       `SPAWNER_WHISPER_MODEL_NAME`. New `internal/session/settings.go` (`SettingsStore`, mirrors the

@@ -314,7 +314,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
         client?.close()
         _status.value = "connecting…"
         val hello = com.bam.spawner.net.HelloConfig(
-            settings.endToken, settings.sttMode, settings.sttModel, settings.aliasMap(),
+            settings.endToken, settings.wakeToken, settings.sttMode, settings.sttModel, settings.aliasMap(),
             settings.whisperUrl, settings.brief, settings.interactive,
             settings.autoCompress, settings.autoCompressThreshold,
         )

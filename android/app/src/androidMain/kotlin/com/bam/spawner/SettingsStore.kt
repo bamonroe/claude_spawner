@@ -83,6 +83,11 @@ class SettingsStore(context: Context) : Prefs {
         get() = prefs.getString("end_token", "beep")?.ifBlank { "beep" } ?: "beep"
         set(v) = prefs.edit().putString("end_token", v).apply()
 
+    /** Custom wake word, accepted alongside built-in "hey buddy" (blank = built-in only). */
+    override var wakeToken: String
+        get() = prefs.getString("wake_token", "") ?: ""
+        set(v) = prefs.edit().putString("wake_token", v).apply()
+
     /** Whisper model selection: "dynamic" (by clip length) or "fixed". */
     override var sttMode: String
         get() = prefs.getString("stt_mode", "dynamic") ?: "dynamic"

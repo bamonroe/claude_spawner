@@ -59,7 +59,7 @@ fun WebRoot() {
                     onAutoCompressChanged = { controller.setAutoCompress(prefs.autoCompress, prefs.autoCompressThreshold) },
                     onBack = { screen = "settings" },
                 )
-                "set_commands" -> CommandsSettings(prefs, onAliasesChanged = reconnect, onBack = { screen = "settings" })
+                "set_commands" -> CommandsSettings(prefs, onAliasesChanged = reconnect, onSttChanged = reconnect, onBack = { screen = "settings" })
                 "browse" -> BrowseScreen(
                     controller,
                     onStarted = { screen = "main" },

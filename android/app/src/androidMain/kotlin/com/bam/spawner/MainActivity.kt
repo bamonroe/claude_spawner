@@ -250,7 +250,19 @@ private fun AppRoot(
             onAutoCompressChanged = { controller.setAutoCompress(settings.autoCompress, settings.autoCompressThreshold) },
             onBack = { screen = "settings" },
         )
-        "set_commands" -> CommandsSettings(settings, onAliasesChanged = reconnect, onBack = { screen = "settings" })
+        "set_commands" -> CommandsSettings(
+            settings,
+            onAliasesChanged = reconnect,
+            onSttChanged = reconnect,
+            onBack = { screen = "settings" },
+            endTokenTest = { endTok ->
+                var calibrating by remember { mutableStateOf(false) }
+                OutlinedButton(onClick = {
+                    settings.endToken = endTok; calibrating = true; controller.startCalibration()
+                }) { Text("Test") }
+                if (calibrating) CalibrationDialog(controller, endTok) { controller.stopCalibration(); calibrating = false }
+            },
+        )
         "set_audio" -> AudioSettings(
             settings,
             onVadChanged = { controller.restartHandsFree() },
@@ -264,13 +276,6 @@ private fun AppRoot(
                 val level by controller.micLevel.collectAsStateWithLifecycle()
                 Text("Mic level", style = MaterialTheme.typography.titleMedium)
                 LevelMeterBar(level, threshold)
-            },
-            endTokenTest = { endTok ->
-                var calibrating by remember { mutableStateOf(false) }
-                OutlinedButton(onClick = {
-                    settings.endToken = endTok; calibrating = true; controller.startCalibration()
-                }) { Text("Test") }
-                if (calibrating) CalibrationDialog(controller, endTok) { controller.stopCalibration(); calibrating = false }
             },
         )
         "browse" -> BrowseScreen(

@@ -475,12 +475,51 @@ fun ThemeChoice(label: String, selected: Boolean, onClick: () -> Unit) {
 // source of truth is the server's command registry. Don't hand-maintain a list
 // here — add commands in the server registry so the app can never drift.
 
-/** Commands reference + per-command alias editor (fixes whisper mis-hears). */
+/**
+ * Commands reference + per-command alias editor (fixes whisper mis-hears), plus
+ * the two spoken tokens that bracket a command: the **wake token** that opens one
+ * and the **end token** that commits a hands-free message. Both ride the hello
+ * handshake, so applying either reconnects via [onSttChanged]. [endTokenTest] is
+ * the platform calibration "Test" slot (Android only; web passes the empty slot).
+ */
 @Composable
-fun CommandsSettings(settings: Prefs, onAliasesChanged: () -> Unit, onBack: () -> Unit) {
+fun CommandsSettings(
+    settings: Prefs,
+    onAliasesChanged: () -> Unit,
+    onSttChanged: () -> Unit,
+    onBack: () -> Unit,
+    endTokenTest: @Composable (String) -> Unit = {},
+) {
     var aliasMap by remember { mutableStateOf(settings.aliasMap()) }
+    var wakeTok by rememberSaveable { mutableStateOf(settings.wakeToken) }
+    var endTok by rememberSaveable { mutableStateOf(settings.endToken) }
     SettingsScaffold("Commands", onBack) {
-        Text("Say \"hey buddy\" → a command → your end token.", style = MaterialTheme.typography.bodyMedium)
+        Text("Say your wake word → a command → your end token.", style = MaterialTheme.typography.bodyMedium)
+
+        HorizontalDivider()
+        Text("Wake token", style = MaterialTheme.typography.titleMedium)
+        OutlinedTextField(
+            wakeTok, { wakeTok = it },
+            label = { Text("Custom wake word (blank = \"hey buddy\" only)") },
+            singleLine = true, modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedButton(onClick = { settings.wakeToken = wakeTok.trim(); onSttChanged() }) { Text("Apply wake token") }
+        Text(
+            "An extra phrase that also opens a command, alongside the built-in \"hey buddy\". "
+                + "Pick a word whisper hears cleanly — a custom one has no mis-hear aliases.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
+        )
+
+        HorizontalDivider()
+        Text("End token", style = MaterialTheme.typography.titleMedium)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(endTok, { endTok = it }, label = { Text("Commits a message") }, singleLine = true, modifier = Modifier.weight(1f))
+            endTokenTest(endTok)
+        }
+        OutlinedButton(onClick = { settings.endToken = endTok; onSttChanged() }) { Text("Apply end token") }
+        Text("Say this to commit a hands-free message.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+
+        HorizontalDivider()
         Text(
             "Add aliases for words whisper mis-hears. Tap an alias bubble to remove it.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
@@ -660,11 +699,11 @@ fun ServerSettings(
 }
 
 /**
- * Audio settings: VAD thresholds, TTS/interaction toggles, the end token, silence auto-commit,
- * and the resident-whisper URL — all backed by [Prefs]. The two audio-hardware pieces are
- * platform slots: [micMeter] draws the live mic-level bar (Android reads the recorder; web is
- * empty until M5's Web Audio), and [endTokenTest] is the calibration "Test" button + dialog
- * (Android only). [micMeter] receives the current threshold so it can mark it on the bar.
+ * Audio settings: VAD thresholds, TTS/interaction toggles, silence auto-commit, and the
+ * resident-whisper URL — all backed by [Prefs]. (The end token and wake token live on the
+ * Commands page, since they're part of the command grammar.) [micMeter] is a platform slot
+ * that draws the live mic-level bar (Android reads the recorder; web is empty until M5's Web
+ * Audio); it receives the current threshold so it can mark it on the bar.
  */
 @Composable
 fun AudioSettings(
@@ -673,10 +712,8 @@ fun AudioSettings(
     onSttChanged: () -> Unit,
     onBack: () -> Unit,
     micMeter: @Composable (Double) -> Unit = {},
-    endTokenTest: @Composable (String) -> Unit = {},
 ) {
     var threshold by remember { mutableStateOf(settings.vadThreshold.toFloat()) }
-    var endTok by rememberSaveable { mutableStateOf(settings.endToken) }
     var silence by remember { mutableStateOf(if (settings.silenceCommitSeconds <= 0f) "" else settings.silenceCommitSeconds.toString()) }
     var whisperUrl by remember { mutableStateOf(settings.whisperUrl) }
 
@@ -716,12 +753,7 @@ fun AudioSettings(
         }
 
         HorizontalDivider()
-        Text("End token", style = MaterialTheme.typography.titleMedium)
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(endTok, { endTok = it }, label = { Text("Commits a message") }, singleLine = true, modifier = Modifier.weight(1f))
-            endTokenTest(endTok)
-        }
-        OutlinedButton(onClick = { settings.endToken = endTok; onSttChanged() }) { Text("Apply end token") }
+        Text("Silence auto-commit", style = MaterialTheme.typography.titleMedium)
         OutlinedTextField(
             silence,
             { silence = it; settings.silenceCommitSeconds = it.toFloatOrNull() ?: 0f },

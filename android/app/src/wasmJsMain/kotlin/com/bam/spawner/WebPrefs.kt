@@ -84,6 +84,9 @@ class WebPrefs : Prefs {
     override var endToken: String
         get() = str("end_token", "beep").ifBlank { "beep" }
         set(v) = putStr("end_token", v)
+    override var wakeToken: String
+        get() = str("wake_token", "")
+        set(v) = putStr("wake_token", v)
 
     override var sttMode: String
         get() = str("stt_mode", "dynamic")

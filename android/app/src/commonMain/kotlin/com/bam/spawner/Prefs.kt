@@ -44,6 +44,8 @@ interface Prefs {
     var interactive: Boolean
     /** Spoken word that commits a hands-free message ("beep" by default). */
     var endToken: String
+    /** Custom wake word, accepted alongside the built-in "hey buddy" (blank = built-in only). */
+    var wakeToken: String
 
     /** Whisper model selection: "dynamic" (by clip length) or "fixed". */
     var sttMode: String
