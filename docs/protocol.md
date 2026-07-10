@@ -84,8 +84,10 @@ the clip is transcribed with the fast/tiny model and returned as a `calibration`
 user can hear how their chosen end token is being heard) instead of being dictated. The server assembles the bytes, decodes to WAV, transcribes (whisper.cpp), then:
 
 ```
-codec = "ogg_opus"   (default; app records Ogg/Opus, ~24 kbps mono 16 kHz)
-codec = "pcm16"      (raw PCM16LE / 16 kHz / mono — server wraps in a WAV header)
+codec = "ogg_opus"   (what the Android app sends; Ogg/Opus, ~24 kbps mono 16 kHz)
+codec = "pcm16"      (raw PCM16LE / 16 kHz / mono — server wraps in a WAV header;
+                      what the web client sends, and what an omitted codec means)
+any other codec      → rejected with a `bad_message` error; no capture starts
 hands_free = false   → immediate: emit `transcript`, dispatch as a typed `utterance`
 hands_free = true    → streaming: APPEND the transcript to the per-connection message buffer
                        (shown live as a `pending` draft); nothing is sent to Claude until the

@@ -29,6 +29,7 @@ import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlin.js.JsAny
 import kotlin.js.JsString
+import com.bam.spawner.net.Codecs
 
 /**
  * The browser's [AppController]: it wires the shared [SpawnerClient]'s parsed [ServerMsg]s to
@@ -358,7 +359,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
         val b64 = stopMic().toString()
         if (b64.isEmpty()) return
         val pcm = Base64.decode(b64)
-        client?.send(Outbound.wake("pcm16"))
+        client?.send(Outbound.wake(Codecs.PCM16))
         client?.sendAudio(pcm)
         client?.send(Outbound.audioEnd())
     }

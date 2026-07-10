@@ -1,11 +1,23 @@
 package gateway
 
-import "github.com/bam/claude_spawner/server/internal/transcribe"
+import (
+	"strconv"
+
+	"github.com/bam/claude_spawner/server/internal/transcribe"
+)
 
 // Audio contract for the voice path: the app sends `wake`, then binary PCM16LE
 // frames (16 kHz, mono), then `audio_end`. The server assembles one WAV per
 // utterance, transcribes it, echoes a `transcript`, and feeds the text through
 // the same path as a typed `utterance`.
+// The codec values a client may declare in `wake`. The same strings are
+// mirrored as `Codecs` in the Kotlin client (net/Protocol.kt); a docsync test
+// keeps the two sets (and docs/protocol.md) in agreement.
+const (
+	codecPCM16   = "pcm16"
+	codecOggOpus = "ogg_opus"
+)
+
 const (
 	audioSampleRate = 16000
 	audioChannels   = 1
@@ -23,6 +35,14 @@ const (
 // VAD-gated clip so the server can drop background speech (no wake word, outside
 // the follow-up window) instead of acting on it.
 func (c *conn) startAudio(codec string, handsFree, calibrate bool) {
+	switch codec {
+	case "":
+		codec = codecPCM16
+	case codecPCM16, codecOggOpus:
+	default:
+		c.fail("bad_message", "unsupported audio codec "+strconv.Quote(codec))
+		return
+	}
 	if c.transcriber() == nil {
 		c.fail("not_implemented", "audio transcription is disabled; send text as 'utterance'")
 		return
@@ -31,9 +51,6 @@ func (c *conn) startAudio(codec string, handsFree, calibrate bool) {
 	c.gated = handsFree
 	c.calibrate = calibrate
 	c.audio = c.audio[:0]
-	if codec == "" {
-		codec = "pcm16"
-	}
 	c.audioCodec = codec
 }
 
@@ -67,7 +84,7 @@ func (c *conn) endAudio() {
 
 	// Decode this clip to raw PCM16 (16 kHz mono).
 	var pcm []byte
-	if c.audioCodec == "ogg_opus" {
+	if c.audioCodec == codecOggOpus {
 		decoded, derr := transcribe.OggOpusToPCM(c.srv.cfg.FfmpegBin, c.audio)
 		if derr != nil {
 			c.fail("transcribe_failed", derr.Error())

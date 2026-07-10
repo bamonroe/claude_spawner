@@ -328,6 +328,18 @@ data class HelloConfig(
     val autoCompressThreshold: Int,
 )
 
+/**
+ * Audio codecs a `wake` message may declare. Mirrors the Go constants in
+ * server/internal/gateway/audio.go; the server rejects anything else with a
+ * `bad_message` error, and a docsync test keeps the two sets identical.
+ */
+object Codecs {
+    /** Ogg/Opus clip (MediaRecorder) — what the Android app records. */
+    const val OGG_OPUS = "ogg_opus"
+    /** Raw PCM16LE / 16 kHz / mono — what the web client's Web Audio path sends. */
+    const val PCM16 = "pcm16"
+}
+
 /** app -> server message builders. */
 object Outbound {
     fun hello(token: String, clientId: String, cfg: HelloConfig) = buildJsonObject {

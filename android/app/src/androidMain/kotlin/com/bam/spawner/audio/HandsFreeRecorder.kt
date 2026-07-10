@@ -10,6 +10,7 @@ import android.media.audiofx.NoiseSuppressor
 import android.util.Log
 import java.io.File
 import kotlin.concurrent.thread
+import com.bam.spawner.net.Codecs
 
 /**
  * Hands-free capture: one continuous AudioRecord loop segments speech into
@@ -40,7 +41,7 @@ class HandsFreeRecorder(
     private val onLevel: ((Double) -> Unit)? = null,
 ) {
     companion object {
-        const val CODEC = "ogg_opus"
+        const val CODEC = Codecs.OGG_OPUS
         private const val TAG = "SpawnerMic"
         private const val SAMPLE_RATE = OpusOggEncoder.SAMPLE_RATE
         private const val FRAME_MS = 20

@@ -8,6 +8,7 @@ import android.media.MediaRecorder
 import android.util.Log
 import java.io.File
 import kotlin.concurrent.thread
+import com.bam.spawner.net.Codecs
 
 /**
  * Push-to-talk recorder: captures one Ogg/Opus utterance while the button is
@@ -17,7 +18,7 @@ import kotlin.concurrent.thread
  */
 class OpusRecorder(private val context: Context) {
     companion object {
-        const val CODEC = "ogg_opus"
+        const val CODEC = Codecs.OGG_OPUS
         private const val TAG = "SpawnerMic"
         private const val SAMPLE_RATE = OpusOggEncoder.SAMPLE_RATE
     }
