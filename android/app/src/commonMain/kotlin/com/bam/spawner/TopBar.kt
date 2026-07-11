@@ -30,6 +30,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.bam.spawner.audio.AudioOutput
@@ -149,7 +150,8 @@ fun CacheWarmBar(info: TurnUsageInfo) {
     } else {
         "cache cold — next turn rebuilds context"
     }
-    val color = if (warm) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+    // Warm = orange (hot cache), cold = blue (chilled) — temperature cues, not the theme accent.
+    val color = if (warm) Color(0xFFF57C00) else Color(0xFF42A5F5)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
