@@ -20,8 +20,8 @@ You:   "yes"
 App:   (attached — now everything you say is dictated to Claude Code)
 ```
 
-- **Wake word** "hey buddy" is detected **on your phone** (Porcupine / Picovoice).
-- **Speech-to-text** runs on the **server** (Whisper).
+- **Speech-to-text** runs on the **server** (Whisper); the **wake word** "hey buddy" is matched
+  **in that transcript, server-side** — there is no on-device keyword engine.
 - The **server** drives Claude Code **headless** (`claude -p --output-format stream-json`, with
   `--dangerously-skip-permissions`). A session is a durable `session_id` on disk, reattached each
   turn with `--resume`, so replies come back as clean structured text — never scraped from a
@@ -36,9 +36,9 @@ App:   (attached — now everything you say is dictated to Claude Code)
 | Part        | Choice                                                              |
 |-------------|---------------------------------------------------------------------|
 | Server      | **Go** — WebSocket gateway, headless session manager, Whisper glue  |
-| Android app | **Kotlin** — Porcupine wake word, audio capture, TTS, WS client     |
-| Wake word   | **On-device** (Porcupine)                                           |
-| STT         | **Server-side Whisper** (hybrid: wake on-device, dictation on server)|
+| Android app | **Kotlin** — VAD-gated audio capture, TTS, WS client                |
+| Wake word   | **Server-side** — matched in the Whisper transcript (`command.StripWake`) |
+| STT         | **Server-side Whisper** (wake word + dictation both matched on the server) |
 | Sessions    | **headless `claude -p` (stream-json)**, durable via `session_id` on disk |
 | Conflict check| **tmux** inspected to detect a `claude` a human has open in a pane      |
 

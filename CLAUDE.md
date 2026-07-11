@@ -74,9 +74,10 @@ App:   (attaches; subsequent speech is dictated into the session)
 ```
 
 Reserved commands live server-side as a parseable grammar (see `docs/commands.md`).
-The wake word is detected **on-device** (Porcupine); everything after it is streamed to the
-server for transcription and parsing. Keep the wake word and the command vocabulary in **one
-authoritative place** so the app and server agree.
+The wake word is detected **server-side, in the transcript** (`command.StripWake`) — there is no
+on-device keyword engine. The app streams VAD-gated speech to the server, which transcribes it
+(Whisper) and matches the wake word and command vocabulary. Keep the wake word and the command
+vocabulary in **one authoritative place** so the app and server agree.
 
 ## Architecture — see `docs/architecture.md`
 

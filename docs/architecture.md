@@ -11,9 +11,9 @@ you don't need it for most turns. High-level "what it is" and the behavioral rul
 ```
 ┌─────────────────────────┐         WebSocket          ┌──────────────────────────────┐
 │   Android app (Kotlin)  │ ─── audio / control ─────> │        Server (Go)           │
-│  - Porcupine wake word  │                            │  - WebSocket gateway         │
-│    ("hey buddy")        │ <── transcript / output ── │  - Whisper transcription     │
-│  - audio capture        │                            │  - command parser/dialog FSM │
+│  - VAD-gated capture    │                            │  - WebSocket gateway         │
+│    (streams speech up)  │ <── transcript / output ── │  - Whisper transcription     │
+│  - audio capture        │                            │  - wake match + command FSM  │
 │  - TTS playback         │                            │  - session driver + store    │
 │  - session UI           │                            │                              │
 └─────────────────────────┘                            └──────────────┬───────────────┘
@@ -31,10 +31,12 @@ you don't need it for most turns. High-level "what it is" and the behavioral rul
                                   human already has open in a pane (conflict warning)
 ```
 
-- **Wake word**: on-device via Porcupine (Picovoice). Low latency, no audio leaves the phone
-  until the wake word fires.
+- **Wake word**: matched **server-side, in the transcript** (`command.StripWake`) — there is no
+  on-device keyword engine. The phone streams VAD-gated speech up; the server transcribes it and
+  looks for the wake phrase (plus its mishearing variants and any custom wake tokens).
 - **Transcription (STT)**: server-side Whisper (whisper.cpp or a local Whisper service). The app
-  streams captured audio after the wake word; the server returns a transcript.
+  streams captured (VAD-gated) audio; the server returns a transcript and applies the wake/command
+  grammar to it.
 - **Transport**: a single WebSocket per app session carries audio up and transcripts/session
   output down. Use REST only for stateless control actions if needed.
 - **Session control**: the server shells out to `claude` headless (see below). Input is the prompt

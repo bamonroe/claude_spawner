@@ -15,8 +15,9 @@ The client is one Gradle module (`android/app`) with three source sets:
   Ktor `SpawnerClient`, the `Prefs` settings interface (all defaults live in its companion —
   never inline a default in a platform backend), and `tts/Markdown.kt` (markdown → speech
   stripping). **Default here.** Code goes in a platform set only when it touches a platform API.
-- **`androidMain`** — Android-only: wake word (Porcupine), recorders (Opus/VAD), Android TTS,
-  `SettingsStore` (SharedPreferences backend), the Activity.
+- **`androidMain`** — Android-only: recorders (Opus/VAD), Android TTS,
+  `SettingsStore` (SharedPreferences backend), the Activity. (Wake-word matching is server-side,
+  in the transcript — no on-device engine here.)
 - **`wasmJsMain`** — browser-only: `WebAppController` (the browser `AppController`), `WebAudio.kt`
   (mic + SpeechSynthesis), `WebPrefs` (localStorage backend), `WebTransfer.kt` (file pick/save),
   `WebRoot.kt` (entry point).
