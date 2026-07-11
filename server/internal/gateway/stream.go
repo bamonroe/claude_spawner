@@ -44,8 +44,9 @@ func (c *conn) gatedChunk(pcm []byte) {
 }
 
 // commitMessage re-transcribes the whole buffered audio accurately, strips the
-// end token, then routes it: an active dialog answer, a mid-message buddy
-// command (processed first; "cancel" scraps it), else dictation.
+// end token, then routes it: an active dialog answer, a chain of "hey buddy"
+// commands run in sequence (any "cancel" in the chain scraps the whole message),
+// else dictation.
 func (c *conn) commitMessage() {
 	audio := c.audioPCM
 	c.buffer = nil
@@ -74,8 +75,8 @@ func (c *conn) commitMessage() {
 		c.handleDialog(msg)
 		return
 	}
-	before, after, hadWake := c.splitWake(msg)
-	if !hadWake {
+	before, cmds := c.splitWakeAll(msg)
+	if len(cmds) == 0 {
 		if c.attached == nil {
 			// Detached "safe mode": no session to dictate to, so the whole
 			// utterance is a command — no "hey buddy" needed, and nothing can
@@ -92,13 +93,25 @@ func (c *conn) commitMessage() {
 		c.dictate(msg) // attached: pure dictation
 		return
 	}
-	// "<dictation> hey buddy <command>": process the command first.
-	intent := command.Parse(command.ApplyAliases(after, c.aliases))
-	if intent.Kind == command.Cancel {
-		c.send(msgSay("scrapped it."))
-		return
+	// "<dictation> hey buddy <cmd> hey buddy <cmd> …": each wake starts a command.
+	// Parse them all in order first so a "cancel" anywhere in the chain scraps the
+	// whole utterance (dictation included) before anything runs.
+	intents := make([]command.Intent, len(cmds))
+	for i, seg := range cmds {
+		intents[i] = command.Parse(command.ApplyAliases(seg, c.aliases))
 	}
-	c.runCommand(intent) // unknown command is a no-op
+	for _, intent := range intents {
+		if intent.Kind == command.Cancel {
+			c.send(msgSay("scrapped it."))
+			return
+		}
+	}
+	// Run the commands in sequence; an unknown command is a no-op. Dictate the
+	// leading fragment last, so a command like "attach" takes effect first and the
+	// dictation lands in the just-attached session.
+	for _, intent := range intents {
+		c.runCommand(intent)
+	}
 	if before = strings.TrimSpace(before); before != "" && c.attached != nil {
 		c.dictate(before)
 	}

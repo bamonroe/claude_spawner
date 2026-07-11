@@ -1,6 +1,9 @@
 package command
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestStripWake(t *testing.T) {
 	cases := []struct {
@@ -47,6 +50,30 @@ func TestSplitWake(t *testing.T) {
 		b, a, f := SplitWake(c.in)
 		if b != c.before || a != c.after || f != c.found {
 			t.Errorf("SplitWake(%q) = (%q,%q,%v), want (%q,%q,%v)", c.in, b, a, f, c.before, c.after, c.found)
+		}
+	}
+}
+
+func TestSplitWakeAll(t *testing.T) {
+	cases := []struct {
+		in       string
+		before   string
+		commands []string
+	}{
+		{"refactor the login handler", "refactor the login handler", nil},
+		{"fix the bug hey buddy detach", "fix the bug", []string{"detach"}},
+		// Every wake starts a command, kept in order (unlike SplitWake's last-wins).
+		{"hey buddy list hey buddy detach", "", []string{"list", "detach"}},
+		{"fix the bug hey buddy detach hey buddy status", "fix the bug", []string{"detach", "status"}},
+		// Cancel anywhere in the chain is surfaced as its own segment.
+		{"hey buddy status hey buddy cancel", "", []string{"status", "cancel"}},
+		// Adjacent wakes with no words between are dropped (no empty segment).
+		{"hey buddy hey buddy attach to sfit", "", []string{"attach to sfit"}},
+	}
+	for _, c := range cases {
+		b, cmds := SplitWakeAll(c.in)
+		if b != c.before || !slices.Equal(cmds, c.commands) {
+			t.Errorf("SplitWakeAll(%q) = (%q,%v), want (%q,%v)", c.in, b, cmds, c.before, c.commands)
 		}
 	}
 }

@@ -715,6 +715,10 @@ func (c *conn) splitWake(text string) (before, after string, found bool) {
 	return command.SplitWakeWith(text, c.wakePhrase)
 }
 
+func (c *conn) splitWakeAll(text string) (before string, commands []string) {
+	return command.SplitWakeAllWith(text, c.wakePhrase)
+}
+
 // handleUtterance routes a transcribed utterance to the active dialog, to a
 // control command, or to dictation, depending on connection state.
 func (c *conn) handleUtterance(text string) {

@@ -156,6 +156,46 @@ func SplitWakeWith(text string, extra [][]string) (before, after string, found b
 	return strings.Join(words[:first], " "), strings.Join(words[last+lastN:], " "), true
 }
 
+// SplitWakeAll splits the text on EVERY wake occurrence: `before` is the leading
+// dictation (text preceding the FIRST wake) and `commands` is the ordered list of
+// command segments, one per wake phrase — each the words following that wake up to
+// the next wake (or end of text), empties dropped. This lets a user chain several
+// "hey buddy <command>" commands in a single utterance and have them run in order
+// (whereas SplitWake keeps only the last). No wake ⇒ nil commands, before = text.
+func SplitWakeAll(text string) (before string, commands []string) {
+	return SplitWakeAllWith(text, nil)
+}
+
+// SplitWakeAllWith is SplitWakeAll extended with `extra` wake phrases (a client's
+// custom wake token, from WakePhrase) tried alongside the built-in wakePhrases.
+func SplitWakeAllWith(text string, extra [][]string) (before string, commands []string) {
+	words := strings.Fields(strings.TrimSpace(text))
+	type span struct{ start, end int }
+	var wakes []span
+	for i := 0; i < len(words); {
+		if n := wakeAt(words, i, extra); n > 0 {
+			wakes = append(wakes, span{i, i + n})
+			i += n // skip the matched phrase so it isn't re-scanned
+			continue
+		}
+		i++
+	}
+	if len(wakes) == 0 {
+		return strings.TrimSpace(text), nil
+	}
+	before = strings.TrimSpace(strings.Join(words[:wakes[0].start], " "))
+	for k, w := range wakes {
+		end := len(words)
+		if k+1 < len(wakes) {
+			end = wakes[k+1].start
+		}
+		if seg := strings.TrimSpace(strings.Join(words[w.end:end], " ")); seg != "" {
+			commands = append(commands, seg)
+		}
+	}
+	return before, commands
+}
+
 // wakeAt reports how many words the wake phrase at words[i] consumes (0 if none),
 // tolerating surrounding punctuation and case. Both the built-in wakePhrases and
 // any `extra` phrases are considered; the longest matching phrase wins, so a

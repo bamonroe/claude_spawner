@@ -12,6 +12,13 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-10 — **Chained "hey buddy" commands in one utterance** — when the end token
+      misfires and clips keep accumulating, a committed message can hold several wake phrases. The
+      commit path now uses a new `command.SplitWakeAll` to split on **every** "hey buddy" and run
+      the commands **in order**; if any segment is `cancel` (built-in "cancel" / "cancel that"), the
+      whole committed message is scrapped and nothing runs — the voice escape hatch for a runaway
+      draft. Server-side only (`stream.go`, `command.go`, registry + `commands.json`); unit-tested
+      (`TestSplitWakeAll`); docs in `docs/commands.md`.
 - [x] 2026-07-10 — **Debug overlays (Settings → Debug)** — diagnose the fiddly hold-to-talk. New
       `debugOverlays` pref + Debug settings page; when on, `InputBar` draws the push-to-talk
       cancel (drag-left) and hands-free (drag-up) zones as translucent boxes with a live drift

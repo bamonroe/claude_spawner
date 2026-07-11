@@ -20,9 +20,10 @@
       "title": "cancel",
       "aliases": [
         "cancel",
+        "cancel that",
         "never mind"
       ],
-      "description": "Discard the message you're composing"
+      "description": "Discard the message you're composing (in a chain, scraps the whole utterance)"
     },
     {
       "title": "clear",

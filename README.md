@@ -70,6 +70,12 @@ buddy" (blank keeps "hey buddy" only). Pick a word Whisper transcribes cleanly: 
 curated mis-hear alias list the way "hey buddy" does, though the server does bias transcription
 toward it.
 
+**When the end token misfires.** If "beep" isn't caught and the clip keeps growing, whatever you
+say next still lands in the same message — so you can just keep issuing commands: the server splits
+a committed message on **every** "hey buddy" and runs them in order ("hey buddy list, hey buddy
+detach"). And if you'd rather throw the whole thing away, end with **"hey buddy, cancel"** (or
+"cancel that") — any `cancel` in the chain scraps the entire committed message and nothing runs.
+
 **The mic button (hold to talk).** With the box empty, **press and hold** the mic to record; release
 to send. The hold is *sticky* — it keeps recording even if your finger drifts off the small button —
 but two deliberate drags end it early: drag **up** past the track that appears (about 120 dp) to
