@@ -55,6 +55,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -75,6 +77,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
@@ -106,7 +109,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import kotlin.math.log10
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -372,7 +374,7 @@ private fun TransferButton(
                 .background(MaterialTheme.colorScheme.surfaceVariant)
                 .clickable(enabled = enabled) { menu = true },
             contentAlignment = Alignment.Center,
-        ) { Text("📎", fontSize = 20.sp) }
+        ) { Icon(Icons.Filled.AttachFile, contentDescription = "Transfer a file") }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
             DropdownMenuItem(text = { Text("Upload file") }, onClick = {
                 menu = false; pickFile.launch(arrayOf("*/*"))

@@ -19,9 +19,17 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.Compress
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -36,6 +44,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -87,6 +96,26 @@ fun SpeakingBar(onStop: () -> Unit) {
     }
 }
 
+/** The server tags each live-activity line with a leading emoji as a compact "kind"
+ *  marker (see gateway's `toolActivity`). We translate that marker to a Material vector
+ *  icon and strip it from the label, so the bubble reads as an icon + text, not an emoji. */
+private fun activityIcon(text: String): Pair<ImageVector, String> {
+    val icon = when {
+        text.startsWith("🤔") -> Icons.Filled.Psychology     // thinking / working
+        text.startsWith("✏️") -> Icons.Filled.Edit            // editing a file
+        text.startsWith("🗜️") -> Icons.Filled.Compress        // compressing context
+        text.startsWith("⚙️") -> Icons.Filled.Terminal        // running a command
+        text.startsWith("📖") -> Icons.Filled.MenuBook        // reading a file
+        text.startsWith("🔍") -> Icons.Filled.Search          // searching the code
+        text.startsWith("🌐") -> Icons.Filled.Public          // searching the web
+        text.startsWith("🤖") -> Icons.Filled.SmartToy        // running a subtask
+        else -> Icons.Filled.MoreHoriz                        // "· ToolName…" fallback
+    }
+    // Drop the leading marker token (emoji or "·") and the space after it.
+    val label = text.replaceFirst(Regex("^\\S+\\s+"), "")
+    return icon to label
+}
+
 /** Live "Claude is thinking / editing foo.go" indicator, like a typing bubble. */
 @Composable
 fun ActivityIndicator(text: String, onAbort: () -> Unit) {
@@ -99,11 +128,22 @@ fun ActivityIndicator(text: String, onAbort: () -> Unit) {
             color = MaterialTheme.colorScheme.surfaceVariant,
             shape = RoundedCornerShape(14.dp),
         ) {
-            Text(
-                text, Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                style = MaterialTheme.typography.bodyMedium,
-                fontStyle = FontStyle.Italic,
-            )
+            Row(
+                Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                val (icon, label) = activityIcon(text)
+                Icon(
+                    icon, contentDescription = null, modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    label,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontStyle = FontStyle.Italic,
+                )
+            }
         }
         TextButton(onClick = onAbort) {
             Icon(Icons.Filled.Stop, contentDescription = null, modifier = Modifier.size(16.dp))
