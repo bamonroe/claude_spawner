@@ -56,6 +56,26 @@ func (fs codexFS) findByID(sessionID string) string {
 	return ""
 }
 
+// deleteByIDs removes each Codex thread's rollout transcript. Codex keeps the
+// whole session in that one rollout .jsonl — no projects-style sidecar or
+// per-session state dirs like Claude — so removing it leaves nothing behind.
+// Overrides claudeFS.deleteByIDs (embedding gives no virtual dispatch, and the
+// Claude path glob wouldn't find a rollout under ~/.codex).
+func (fs codexFS) deleteByIDs(ids []string) (int, error) {
+	n := 0
+	for _, id := range ids {
+		p := fs.findByID(id)
+		if p == "" {
+			continue
+		}
+		if err := fs.remove(p); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
+}
+
 // readTranscriptChain concatenates the rollout transcripts for ids (oldest first)
 // into one re-indexed conversation, mirroring claudeFS.readTranscriptChain but
 // against Codex's rollout files and parser. (Embedding gives no virtual dispatch,

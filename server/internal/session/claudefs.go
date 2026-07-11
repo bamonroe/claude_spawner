@@ -264,23 +264,96 @@ func (fs claudeFS) discoverSessions() ([]Discovered, error) {
 	return deduped, nil
 }
 
-// deleteByIDs removes the transcript for each session_id, leaving dir-mates intact.
+// perSessionStateDirs are the ~/.claude subdirectories Claude fills with a
+// session's ancillary state keyed by its session_id — everything beyond the
+// transcript .jsonl: subagent logs and cached tool results (a sibling
+// projects/<dir>/<id>/ dir), the session's task list, its file-edit history, and
+// its per-session shell env. A full delete wipes all of them so nothing about
+// the session lingers on disk.
+var perSessionStateDirs = []string{"tasks", "file-history", "session-env"}
+
+// removeAll recursively deletes a path (file or directory), tolerating absence —
+// the recursive counterpart to remove, for the per-session state directories.
+func (fs claudeFS) removeAll(path string) error {
+	if fs.remote == nil {
+		return os.RemoveAll(path)
+	}
+	_, err := fs.remote.output(`rm -rf ` + shellQuote(path))
+	return err
+}
+
+// purgeSessionState removes the per-session state directories keyed by a bare
+// session_id (perSessionStateDirs), under ~/.claude. The transcript and its
+// projects/<dir>/<id>/ sidecar are handled by the caller (they hang off the
+// transcript path); this covers the state that lives outside projects/. id is
+// UUID-validated before it's interpolated into any path/shell command.
+func (fs claudeFS) purgeSessionState(id string) error {
+	if !looksLikeUUID(id) {
+		return nil // never build a path/command from an untrusted value
+	}
+	if fs.remote == nil {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return err
+		}
+		for _, sub := range perSessionStateDirs {
+			if err := os.RemoveAll(filepath.Join(home, ".claude", sub, id)); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	var b strings.Builder
+	for _, sub := range perSessionStateDirs {
+		// id is UUID-validated and sub is a constant, so $HOME can expand unquoted.
+		b.WriteString(` "$HOME/.claude/` + sub + `/` + id + `"`)
+	}
+	_, err := fs.remote.output("rm -rf" + b.String())
+	return err
+}
+
+// purgeByID removes every on-disk trace of one session_id: its transcript, the
+// projects/<dir>/<id>/ sidecar alongside it (subagents + tool results), and its
+// per-session state dirs. Missing paths are fine. Reports whether a transcript
+// existed, so callers can count real deletions.
+func (fs claudeFS) purgeByID(id string) (bool, error) {
+	had := false
+	if p := fs.findByID(id); p != "" {
+		// Transcript and sidecar share a stem: projects/<dir>/<id>.jsonl and
+		// projects/<dir>/<id>/. Deriving the sidecar from the found path hits the
+		// right (opaque) project-dir encoding without re-globbing.
+		sidecar := strings.TrimSuffix(p, ".jsonl")
+		if err := fs.remove(p); err != nil {
+			return false, err
+		}
+		if err := fs.removeAll(sidecar); err != nil {
+			return true, err
+		}
+		had = true
+	}
+	if err := fs.purgeSessionState(id); err != nil {
+		return had, err
+	}
+	return had, nil
+}
+
+// deleteByIDs fully purges each session_id (transcript + sidecar + per-session
+// state), leaving dir-mates intact. Returns how many transcripts existed.
 func (fs claudeFS) deleteByIDs(ids []string) (int, error) {
 	n := 0
 	for _, id := range ids {
-		p := fs.findByID(id)
-		if p == "" {
-			continue
-		}
-		if err := fs.remove(p); err != nil {
+		had, err := fs.purgeByID(id)
+		if err != nil {
 			return n, err
 		}
-		n++
+		if had {
+			n++
+		}
 	}
 	return n, nil
 }
 
-// deleteForDir removes EVERY transcript whose working directory is dir (legacy
+// deleteForDir fully purges EVERY session whose working directory is dir (legacy
 // whole-directory delete). anySessionID locates the project folder.
 func (fs claudeFS) deleteForDir(anySessionID, dir string) (int, error) {
 	path := fs.findByID(anySessionID)
@@ -292,7 +365,8 @@ func (fs claudeFS) deleteForDir(anySessionID, dir string) (int, error) {
 		if fs.transcriptCwd(f) != dir {
 			continue
 		}
-		if err := fs.remove(f); err != nil {
+		id := strings.TrimSuffix(filepath.Base(f), ".jsonl")
+		if _, err := fs.purgeByID(id); err != nil {
 			return n, err
 		}
 		n++

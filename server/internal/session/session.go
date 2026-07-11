@@ -282,20 +282,31 @@ func (d *Driver) MakeSpawnDir(ctx context.Context, dir string) error {
 	return os.MkdirAll(dir, 0o755)
 }
 
-// DeleteSessionByIDs removes exactly the given session_ids' transcripts (one
-// logical session) on the session's host (empty host = local), leaving its
-// dir-mates intact.
+// DeleteSessionByIDs fully purges exactly the given session_ids (one logical
+// session) on the session's host (empty host = local): each id's transcript, its
+// sidecar dir, and its per-session state, leaving dir-mates intact. Claude-format
+// only — use DeleteSession when the backend may be Codex.
 func (d *Driver) DeleteSessionByIDs(ctx context.Context, host string, ids []string) (int, error) {
 	return d.claudeFSFor(host).deleteByIDs(ids)
 }
 
+// DeleteSession fully purges a session's on-disk state for its backend: the
+// Claude transcript + sidecar + per-session state dirs, or a Codex session's
+// rollout files. ids is the session's transcript chain (current + rotated prior
+// ids). host empty = local machine.
+func (d *Driver) DeleteSession(agentID, host string, ids []string) (int, error) {
+	return d.transcriptReaderFor(agentID, host).deleteByIDs(ids)
+}
+
 // transcriptReader reads a session's past conversation and context snapshot from
-// on-disk state, for whichever backend + host the session runs on. claudeFS and
-// codexFS each implement it; transcriptReaderFor picks by the session's backend so
-// a Codex session's rollout replays on reattach just like a Claude transcript.
+// on-disk state, and purges it on delete, for whichever backend + host the
+// session runs on. claudeFS and codexFS each implement it; transcriptReaderFor
+// picks by the session's backend so a Codex session's rollout replays on reattach
+// (and is deleted) just like a Claude transcript.
 type transcriptReader interface {
 	readTranscriptChain(ids []string) ([]Message, error)
 	lastContextUsage(ids []string) *ContextSnapshot
+	deleteByIDs(ids []string) (int, error)
 }
 
 // transcriptReaderFor selects the on-disk reader for a session's backend (agent

@@ -12,6 +12,15 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-11 — **Backend-aware full delete: wipe every on-disk trace of a session** — deleting a
+      Claude session used to drop only its transcript `.jsonl`, leaving the `projects/<dir>/<id>/`
+      sidecar (subagent logs + cached tool results) and the per-session state dirs (`tasks`,
+      `file-history`, `session-env` under `~/.claude`) orphaned on disk. `claudeFS.deleteByIDs` now
+      routes through `purgeByID`, which removes the transcript, its sidecar, and those state dirs
+      (UUID-validated before any path/shell interpolation; works local and over SSH).
+      `deleteForDir` purges the same way per session. `codexFS` overrides `deleteByIDs` to just
+      remove the rollout `.jsonl` (Codex keeps the whole thread there — no sidecar/state). Test:
+      `claudefs_test.go`.
 - [x] 2026-07-11 — **Fix: phantom "/data" session keeps reappearing** — the account-global
       `/usage` probe (`Driver.Usage`) ran `claude` with `cwd = SpawnRoots[0]` (e.g. `/data`),
       leaving a transcript under `~/.claude/projects/-data/` on every run. Session discovery

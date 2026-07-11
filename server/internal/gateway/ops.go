@@ -434,8 +434,10 @@ func (c *conn) doDeleteDiscovered(sessionID string) {
 	// that dir — otherwise deleting one just re-surfaces the row on a dir-mate.
 	var err error
 	if rec != nil {
-		ids := append([]string{rec.SessionID}, rec.PriorIDs...)
-		_, err = c.srv.driver.DeleteSessionByIDs(c.ctx, rec.Host, ids)
+		// Backend-aware full purge of the whole chain (current + rotated prior ids):
+		// transcript, sidecar, and per-session state for Claude; rollout files for
+		// Codex. Leaves any dir-mates that have their own rows.
+		_, err = c.srv.driver.DeleteSession(rec.Agent, rec.Host, rec.TranscriptIDs())
 	} else {
 		// Unregistered rows come from the LOCAL on-disk scan (TranscriptPathByID
 		// above is local), so delete locally.
@@ -872,15 +874,28 @@ func (c *conn) removeSession(name string) bool {
 		c.fail("no_session", "no session named "+name)
 		return false
 	}
+	// A delete now wipes the session's transcript too, so refuse while an
+	// interactive claude is live in that directory — deleting a file it's writing
+	// would corrupt it (same guard as the app's delete_discovered path).
+	if c.srv.tmuxMgr.ClaudeDirs(c.ctx)[s.Dir] {
+		c.fail("session_active", "that session is live in a terminal — close it there first")
+		return false
+	}
+	if c.attached != nil && c.attached.Name == s.Name {
+		c.attached = nil
+		c.send(msgDetached())
+	}
+	// Purge every on-disk trace of the session (transcript, sidecar, per-session
+	// state) for its backend — not just the registry record — so nothing about it
+	// is left on disk. Best-effort: a purge error still drops the record below.
+	if _, err := c.srv.driver.DeleteSession(s.Agent, s.Host, s.TranscriptIDs()); err != nil {
+		log.Printf("delete session %s transcripts: %v", s.Name, err)
+	}
 	if err := c.srv.store.Delete(s.Name); err != nil {
 		c.fail("internal", err.Error())
 		return false
 	}
 	c.removeSandbox(s) // destroy the session's container, if any
-	if c.attached != nil && c.attached.Name == s.Name {
-		c.attached = nil
-		c.send(msgDetached())
-	}
 	c.srv.dropJob(s.SessionID)
 	c.sendSessionList()
 	return true
