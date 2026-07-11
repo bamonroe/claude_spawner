@@ -1,0 +1,29 @@
+# whisper.cpp server built with the CUDA backend for Nvidia GPUs. Same
+# /inference API as the CPU image.
+FROM nvidia/cuda:12.4.1-devel-ubuntu22.04 AS build
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git cmake g++ make ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+# Pinned to a release so a rebuild months from now is reproducible, not
+# whatever master looks like that day. Bump deliberately.
+RUN git clone --depth 1 -b v1.9.1 https://github.com/ggml-org/whisper.cpp /src
+RUN ln -sf /usr/local/cuda-12.4/targets/x86_64-linux/lib/stubs/libcuda.so /usr/local/cuda-12.4/targets/x86_64-linux/lib/stubs/libcuda.so.1 \
+    && export CUDA_STUBS=/usr/local/cuda-12.4/targets/x86_64-linux/lib/stubs \
+    && export LIBRARY_PATH=${CUDA_STUBS}:${LIBRARY_PATH} \
+    && cmake -S /src -B /src/build -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=1 -DCMAKE_CUDA_ARCHITECTURES=89-real -DCMAKE_EXE_LINKER_FLAGS="-Wl,-rpath-link,${CUDA_STUBS}" \
+    && cmake --build /src/build -j 4 --target whisper-server \
+    && mkdir -p /out/lib \
+    && cp /src/build/bin/whisper-server /out/ \
+    && find /src/build -name '*.so*' -exec cp -av {} /out/lib/ \;
+
+FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgomp1 libstdc++6 ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=build /out/whisper-server /usr/local/bin/whisper-server
+COPY --from=build /out/lib/ /usr/local/lib/
+RUN ldconfig
+
+EXPOSE 8571
+ENTRYPOINT ["whisper-server", "--host", "0.0.0.0", "--port", "8571", "-t", "4"]
+CMD ["-m", "/models/ggml-small.en.bin"]

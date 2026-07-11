@@ -261,7 +261,7 @@ The gateway depends only on the `Transcriber` interface; there are **two impleme
 either can back it:
 
 - **`RemoteWhisper`** (`remote.go`) — POSTs the WAV to a **resident whisper.cpp HTTP server**
-  (`/inference`). This is the preferred path on this host, which has an **AMD RX 550 GPU**: the
+  (`/inference`). This is the preferred path on this host, which has an **Nvidia GPU**: the
   `whisper`/`whisper-fast` compose services run whisper.cpp built with **Vulkan** and keep the
   model warm. Two servers run: an accurate model (`medium.en`, `:8571`) for real dictation, and a
   fast draft model (`base.en`, `:8572`) for the live hands-free draft + end-token detection, so

@@ -1,5 +1,5 @@
-# whisper.cpp server built with the Vulkan backend, so it runs on the AMD GPU
-# (RX 550 via Mesa RADV). Same /inference API as the CPU image.
+# whisper.cpp server built with the Vulkan backend. Same /inference API as the
+# CPU image; Docker Compose decides which GPU runtime exposes Vulkan.
 FROM debian:bookworm-slim AS build
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git cmake g++ make ca-certificates libvulkan-dev glslc glslang-tools spirv-headers spirv-tools \

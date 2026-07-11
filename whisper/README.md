@@ -10,12 +10,12 @@ Why this exists and how the server chooses between resident vs. CLI transcriptio
 
 | File               | Backend        | Use                                                            |
 |--------------------|----------------|---------------------------------------------------------------|
-| `Dockerfile.vulkan`| **Vulkan/GPU** | Preferred on this host — whisper.cpp built with `GGML_VULKAN=1`, runs on the AMD RX 550 via Mesa RADV. |
+| `Dockerfile.cuda`  | **CUDA/GPU**   | Preferred on this host — whisper.cpp built with `GGML_CUDA=1`; Docker Compose exposes the Nvidia GPU. |
+| `Dockerfile.vulkan`| **Vulkan/GPU** | Kept as a fallback for Vulkan-capable hosts. |
 | `Dockerfile`       | **CPU**        | Portable fallback when the GPU is unavailable. Same API, no GPU deps. |
 
-Both build the same `whisper-server` binary and expose the same HTTP API; they differ only in the
-compute backend. The Vulkan image also installs newer Khronos Vulkan-Headers (v1.3.290) because
-Debian's are too old for current whisper.cpp.
+All images build the same `whisper-server` binary and expose the same HTTP API; they differ only in
+the compute backend.
 
 ## Interface (contract with the spawner)
 
@@ -52,5 +52,4 @@ docker run --rm -p 8571:8571 -v ~/.local/share/whisper:/models:ro \
   whisper-cpu -m /models/ggml-small.en.bin
 ```
 
-Measured on the RX 550: `medium.en` ~4.8 s/clip, `small.en` ~2–3 s, `large-v3` ~10.5 s (≈3–4× the
-CPU build). Model `ggml-*.bin` files are expected under `~/.local/share/whisper` on the host.
+Model `ggml-*.bin` files are expected under `~/.local/share/whisper` on the host.

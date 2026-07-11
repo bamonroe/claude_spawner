@@ -2,33 +2,36 @@
 #
 # The server itself runs BARE METAL (a single Go binary — see deploy/), not in a
 # container. What stays containerized is the transcription backend: two resident
-# whisper.cpp servers on the AMD GPU. The bare-metal server points at them via
+# whisper.cpp servers on the Nvidia GPU. The bare-metal server points at them via
 # SPAWNER_WHISPER_URL / SPAWNER_WHISPER_FAST_URL (localhost:8571 / :8572).
 #
 #   docker compose up -d whisper whisper-fast   # start the transcription backend
 
 services:
-  # Resident whisper.cpp server on the AMD GPU (Vulkan/RX 550). The server + app
+  # Resident whisper.cpp server on the Nvidia GPU via CUDA. The server + app
   # point at http://localhost:8571. Run standalone with:
   #   docker compose up -d whisper
-  # Measured on the RX 550: medium.en ~4.8s/clip, large-v3 ~10.5s, small.en ~2-3s
-  # (vs CPU: ~18s / ~30s / ~5s). Swap the model by changing `command:` — options
-  # in /models: ggml-medium.en.bin, ggml-large-v3.bin, ggml-small.en.bin.
+  # Swap the model by changing `command:` — options in /models:
+  # ggml-medium.en.bin, ggml-large-v3.bin, ggml-small.en.bin.
   # (A CPU-only build lives in ./whisper/Dockerfile if the GPU is ever unavailable.)
   whisper:
     build:
       context: ./whisper
-      dockerfile: Dockerfile.vulkan
+      dockerfile: Dockerfile.cuda
     volumes:
       - ${HOME}/.local/share/whisper:/models:ro      # ggml model files (only mount)
-    devices:
-      - /dev/dri:/dev/dri                            # AMD GPU render nodes
-    group_add:
-      - "989"   # render
-      - "985"   # video
     environment:
-      # Force the AMD RADV driver (hide the Intel iGPU's ICD).
-      VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/radeon_icd.x86_64.json
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities:
+                - gpu
+                - compute
     command: ["-m", "/models/ggml-medium.en.bin"]
     ports:
       - "8571:8571"
@@ -39,16 +42,21 @@ services:
   whisper-fast:
     build:
       context: ./whisper
-      dockerfile: Dockerfile.vulkan
+      dockerfile: Dockerfile.cuda
     volumes:
       - ${HOME}/.local/share/whisper:/models:ro
-    devices:
-      - /dev/dri:/dev/dri
-    group_add:
-      - "989"   # render
-      - "985"   # video
     environment:
-      VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/radeon_icd.x86_64.json
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities:
+                - gpu
+                - compute
     command: ["-m", "/models/ggml-base.en.bin"]
     ports:
       - "8572:8571"
