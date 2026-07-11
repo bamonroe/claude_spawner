@@ -150,6 +150,14 @@ func msgActivity(text string) map[string]any {
 	return map[string]any{"type": "activity", "text": text}
 }
 
+// msgTranscribing signals that a committed hands-free clip is now being
+// re-transcribed accurately (the window between the draft clearing and the
+// transcript landing), so the app can show "transcribing…" instead of snapping
+// back to "listening". Payload-free; superseded by the transcript that follows.
+func msgTranscribing() map[string]any {
+	return map[string]any{"type": "transcribing"}
+}
+
 // msgFiles lists the files Claude changed during the turn (basenames).
 func msgFiles(files []string) map[string]any {
 	return map[string]any{"type": "files", "files": files}

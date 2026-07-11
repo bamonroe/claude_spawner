@@ -30,6 +30,7 @@ sealed interface ServerMsg {
     data class Pending(val text: String) : ServerMsg // live hands-free draft buffer
     data class Calibration(val text: String) : ServerMsg // what the detection model heard for a sample
     data class Activity(val text: String) : ServerMsg // live "Claude is thinking / editing X" indicator
+    data object Transcribing : ServerMsg // committed hands-free clip is being re-transcribed accurately
     data class Files(val files: List<String>) : ServerMsg // files changed this turn
     data class Dialog(val state: String, val prompt: String) : ServerMsg
     // usage/usageAt seed the context meter from the transcript's last turn on
@@ -73,6 +74,7 @@ sealed interface ServerMsg {
                 "pending" -> Pending(o.str("text"))
                 "calibration" -> Calibration(o.str("text"))
                 "activity" -> Activity(o.str("text"))
+                "transcribing" -> Transcribing
                 "files" -> Files(readStrings(o.arr("files")))
                 "dialog" -> Dialog(o.str("state"), o.str("prompt"))
                 "attached" -> Attached(o.str("name"), o.str("session_id"), readUsage(o.obj("usage")), o.long("usage_at"), o.str("agent"), o.str("model"))

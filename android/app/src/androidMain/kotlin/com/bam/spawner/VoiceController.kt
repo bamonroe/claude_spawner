@@ -862,6 +862,12 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                 lostTurnWatchdog?.cancel(); lostTurnWatchdog = null
                 _activity.value = msg.text
             }
+            is ServerMsg.Transcribing -> {
+                // A committed hands-free clip is being re-transcribed accurately.
+                // Show "transcribing…" instead of flashing back to "listening" until
+                // the transcript lands (which flips this to "thinking…").
+                if (hfOn) _voiceState.value = VoiceState.TRANSCRIBING
+            }
             is ServerMsg.Files -> if (msg.files.isNotEmpty()) addChat(Role.SYSTEM, "📝 changed: " + msg.files.joinToString(", "))
             is ServerMsg.Diff -> addChat(Role.SYSTEM, "📊 diff:\n${msg.text}") // review summary, not spoken
             is ServerMsg.RateLimit -> _rateLimit.value = msg.info // plan session-limit readout (sidebar)

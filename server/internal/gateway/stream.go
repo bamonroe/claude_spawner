@@ -56,6 +56,10 @@ func (c *conn) commitMessage() {
 		return
 	}
 
+	// The accurate re-transcribe below can take a beat; tell the app it's underway
+	// so hands-free shows "transcribing…" rather than flashing back to "listening".
+	c.send(msgTranscribing())
+
 	full, err := c.transcriber().Transcribe(c.ctx, transcribe.PCM16WAV(audio, audioSampleRate, audioChannels),
 		transcribe.Options{Mode: c.sttMode, Model: c.sttModel, Prompt: c.vocabBias()})
 	if err != nil {
@@ -65,6 +69,7 @@ func (c *conn) commitMessage() {
 	msg, _, _ := splitEndToken(full, c.endToken) // drop the end token (+ any trailing)
 	msg = strings.TrimSpace(msg)
 	if msg == "" {
+		c.send(msgPending("")) // nothing recognized — clear the "transcribing…" state
 		return
 	}
 	// Always echo the full recognized message as the user's bubble — so spoken

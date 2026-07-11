@@ -126,6 +126,7 @@ capped at ~120 s.
 | `pending`       | `{ "text": "..." }`                                  | hands-free live draft as the message buffer grows; empty `text` clears the draft |
 | `calibration`   | `{ "text": "..." }`                                  | end-token calibration probe result (response to a `wake` with `calibrate: true`); shown, not dictated |
 | `activity`      | `{ "text": "🤔 thinking…" }`                         | what Claude is doing right now during a turn (thinking / running a tool / editing a file); transient status line, not spoken |
+| `transcribing`  | `{}`                                                 | a committed hands-free clip is being re-transcribed accurately (between the draft clearing and the `transcript`); the app shows "transcribing…" instead of snapping back to "listening". Superseded by the `transcript` that follows (or a `pending` clear if nothing was recognized) |
 | `files`         | `{ "files": ["a.go", "b.md"] }`                      | basenames of files changed so far this turn; a persistent "edited: …" chip |
 | `stop_speaking` | `{}`                                                 | barge-in: the client should halt any in-progress TTS immediately (from "stop" / push-to-talk) |
 | `say`           | `{ "text": "ok bud, where do you want it?" }`        | app should speak this (TTS) + display    |

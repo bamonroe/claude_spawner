@@ -188,13 +188,14 @@ fun DraftLine(text: String) {
     }
 }
 
-/** Compact hands-free status pill: Listening / Capturing / Thinking / Speaking. */
+/** Compact hands-free status pill: Listening / Capturing / Transcribing / Thinking / Speaking. */
 @Composable
 fun VoiceStatePill(state: VoiceState) {
     val (label, dot) = when (state) {
         VoiceState.OFF -> return
         VoiceState.LISTENING -> "listening for \"hey buddy\"" to Color(0xFF4CAF50)
         VoiceState.CAPTURING -> "listening to you…" to Color(0xFF2196F3)
+        VoiceState.TRANSCRIBING -> "transcribing…" to Color(0xFF00ACC1)
         VoiceState.THINKING -> "thinking…" to Color(0xFFFFB300)
         VoiceState.SPEAKING -> "speaking… (talk to interrupt)" to Color(0xFF9C27B0)
     }

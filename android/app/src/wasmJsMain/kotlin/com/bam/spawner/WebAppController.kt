@@ -195,6 +195,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
             is ServerMsg.StopSpeaking -> { cancelSpeech(); _speaking.value = false }
             is ServerMsg.ContextReset -> _lastTurnUsage.value = null
             is ServerMsg.Activity -> _activity.value = msg.text
+            is ServerMsg.Transcribing -> _micText.value = "transcribing…" // committed clip being re-transcribed
             is ServerMsg.Files -> if (msg.files.isNotEmpty()) addChat(Role.SYSTEM, "📝 changed: " + msg.files.joinToString(", "))
             is ServerMsg.Diff -> addChat(Role.SYSTEM, "📊 diff:\n${msg.text}")
             is ServerMsg.RateLimit -> _rateLimit.value = msg.info

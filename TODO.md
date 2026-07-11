@@ -12,6 +12,13 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-11 — **Hands-free "transcribing…" state** — the commit path re-transcribes the
+      whole buffered clip accurately (a ~1-2 s window), during which the app used to snap the
+      hands-free pill back to "listening" before "thinking" appeared. The server now emits a
+      payload-free `transcribing` message right before that re-transcribe (cleared by the
+      `transcript` that follows, or a `pending` reset if nothing was recognized); the app maps it
+      to a new `VoiceState.TRANSCRIBING` pill. Server (`stream.go`, `messages.go`), protocol
+      (`docs/protocol.md`, `Protocol.kt`), UI (`ChatModels.kt`, `ChatStatus.kt`, both controllers).
 - [x] 2026-07-10 — **Chained "hey buddy" commands in one utterance** — when the end token
       misfires and clips keep accumulating, a committed message can hold several wake phrases. The
       commit path now uses a new `command.SplitWakeAll` to split on **every** "hey buddy" and run
