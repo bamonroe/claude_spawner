@@ -130,7 +130,13 @@ fun webBeep(): Unit = js(
         if (!window.__spawnerBeepCtx) window.__spawnerBeepCtx = new AC();
         var ctx = window.__spawnerBeepCtx;
         if (ctx.state === 'suspended') ctx.resume();
-        var t0 = ctx.currentTime, dur = 0.2;
+        var dur = 0.2, gap = 0.07;
+        // Schedule each beep after the previously-queued one instead of all at
+        // ctx.currentTime, so a burst of messages plays as distinct back-to-back
+        // tones rather than overlapping into a single blur.
+        var next = window.__spawnerBeepNext || 0;
+        var t0 = Math.max(ctx.currentTime, next);
+        window.__spawnerBeepNext = t0 + dur + gap;
         var osc = ctx.createOscillator();
         osc.type = 'sine'; osc.frequency.value = 420;
         var g = ctx.createGain();

@@ -8,6 +8,7 @@ import android.media.AudioTrack
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import java.util.Locale
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.PI
 import kotlin.math.cos
@@ -97,6 +98,7 @@ class Speaker(context: Context) {
     /** Interrupt any in-progress and queued speech (barge-in). */
     fun stop() {
         pending.clear()
+        clearBeeps()
         if (::tts.isInitialized) tts.stop()
         outstanding.set(0)
         speakingCb?.invoke(false)
@@ -108,44 +110,98 @@ class Speaker(context: Context) {
     // it reads as a round "still working…" cue rather than a sharp alert, and
     // stays distinct from Android notification chimes.
     private val beepPcm: ByteArray by lazy { buildBeep() }
-    @Volatile private var lastBeepNs = 0L
+    // Serialized beep pipeline: every beep() enqueues a tone that a single worker
+    // plays back-to-back, so a burst of streamed segments each gets its own audible
+    // cue instead of the loudest one swallowing the rest. The old design *dropped*
+    // any beep landing within a throttle window, which is exactly why messages that
+    // arrive close together (a subagent dumping several, or fast streamed chunks)
+    // went unbeeped. Bounded so a runaway burst can't beep for many seconds.
+    private val beepQueue = LinkedBlockingQueue<Unit>()
+    private val beepPending = AtomicInteger(0)
+    @Volatile private var beepWorker: Thread? = null
+    // The worker owns one long-lived AudioTrack and replays it, which keeps the
+    // audio route warm — a freshly-created track per beep let the platform swallow
+    // the first tone after an idle route (the "missing on the first message" symptom).
+    private var beepTrack: AudioTrack? = null
+    private var beepTrackUsage = -1
 
     /**
      * Play the soft warm beep in place of speaking an intermediate step (used by
-     * summary-only mode). No-op when muted. Throttled so a burst of streamed
-     * segments can't machine-gun it. Routed like TTS: echo-cancelled comms audio
-     * in hands-free (so the open mic cancels it), the media speaker otherwise.
+     * summary-only mode). No-op when muted. Serialized (not throttled) so every
+     * message gets a beep — a burst plays as distinct back-to-back tones. Routed
+     * like TTS: echo-cancelled comms audio in hands-free (so the open mic cancels
+     * it), the media speaker otherwise.
      */
     fun beep() {
         if (muted) return
-        val now = System.nanoTime()
-        if (now - lastBeepNs < BEEP_THROTTLE_MS * 1_000_000L) return
-        lastBeepNs = now
+        // Cap the backlog so a huge burst doesn't machine-gun for many seconds; past
+        // the cap the extra messages are already represented by the queued beeps.
+        if (beepPending.get() >= MAX_PENDING_BEEPS) return
+        beepPending.incrementAndGet()
+        ensureBeepWorker()
+        beepQueue.offer(Unit)
+    }
+
+    @Synchronized
+    private fun ensureBeepWorker() {
+        if (beepWorker?.isAlive == true) return
+        beepWorker = Thread {
+            while (true) {
+                try {
+                    beepQueue.take()
+                } catch (_: InterruptedException) {
+                    break
+                }
+                if (!muted) runCatching { playOneBeep() }
+                beepPending.updateAndGet { if (it > 0) it - 1 else 0 }
+                try {
+                    Thread.sleep(BEEP_GAP_MS) // brief gap so back-to-back tones stay distinct
+                } catch (_: InterruptedException) {
+                    break
+                }
+            }
+        }.apply { isDaemon = true; name = "warm-beep"; start() }
+    }
+
+    // Runs only on the single beep worker thread, so no locking is needed for the
+    // reused track. Recreates it if the audio route (media vs comms) changed.
+    private fun playOneBeep() {
         val usage = if (commMode) AudioAttributes.USAGE_VOICE_COMMUNICATION else AudioAttributes.USAGE_MEDIA
-        val track = try {
-            AudioTrack(
-                AudioAttributes.Builder()
-                    .setUsage(usage)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .build(),
-                AudioFormat.Builder()
-                    .setSampleRate(BEEP_RATE)
-                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                    .build(),
-                beepPcm.size, AudioTrack.MODE_STATIC, AudioManager.AUDIO_SESSION_ID_GENERATE,
-            )
-        } catch (_: Exception) {
-            return
+        var track = beepTrack
+        if (track == null || beepTrackUsage != usage) {
+            runCatching { track?.release() }
+            track = try {
+                AudioTrack(
+                    AudioAttributes.Builder()
+                        .setUsage(usage)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build(),
+                    AudioFormat.Builder()
+                        .setSampleRate(BEEP_RATE)
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                        .build(),
+                    beepPcm.size, AudioTrack.MODE_STATIC, AudioManager.AUDIO_SESSION_ID_GENERATE,
+                ).also { it.write(beepPcm, 0, beepPcm.size) }
+            } catch (_: Exception) {
+                null
+            }
+            beepTrack = track
+            beepTrackUsage = if (track != null) usage else -1
         }
-        track.write(beepPcm, 0, beepPcm.size)
-        track.play()
-        // Release after it has finished (short daemon; the tone is ~200ms).
-        Thread {
-            try { Thread.sleep(BEEP_MS + 120L) } catch (_: InterruptedException) {}
-            runCatching { track.stop() }
-            runCatching { track.release() }
-        }.apply { isDaemon = true }.start()
+        val t = track ?: return
+        runCatching {
+            t.stop() // static track must be stopped before it can be rewound + replayed
+            t.reloadStaticData() // rewind the static buffer to the start
+            t.play()
+        }
+        try { Thread.sleep(BEEP_MS + 40L) } catch (_: InterruptedException) {} // let the tone finish before the next
+    }
+
+    /** Drop any queued/pending beeps (used on barge-in and mute). */
+    private fun clearBeeps() {
+        beepQueue.clear()
+        beepPending.set(0)
     }
 
     private fun buildBeep(): ByteArray {
@@ -164,6 +220,10 @@ class Speaker(context: Context) {
     }
 
     fun shutdown() {
+        clearBeeps()
+        beepWorker?.interrupt()
+        runCatching { beepTrack?.release() }
+        beepTrack = null
         tts.stop()
         tts.shutdown()
     }
@@ -173,8 +233,5 @@ private const val BEEP_RATE = 44100
 private const val BEEP_MS = 200L
 private const val BEEP_FREQ = 420.0    // low and round — warm, not shrill
 private const val BEEP_AMP = 0.30      // soft
-// Just over the tone length: two distinct on-screen messages that land close
-// together (e.g. a subagent finishing dumps a few in a row) each still get their
-// own beep — the throttle only coalesces beeps that would physically overlap,
-// rather than silently eating messages a few hundred ms apart (the old 700ms did).
-private const val BEEP_THROTTLE_MS = 220L
+private const val BEEP_GAP_MS = 70L    // silence between queued back-to-back tones so they stay distinct
+private const val MAX_PENDING_BEEPS = 12 // backlog cap so a runaway burst can't beep for many seconds
