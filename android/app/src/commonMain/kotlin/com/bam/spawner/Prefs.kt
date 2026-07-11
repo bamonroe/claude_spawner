@@ -117,8 +117,10 @@ interface Prefs {
 
     companion object {
         // Server on the host, reached over Tailscale (works on wifi or cellular).
-        // For the Android emulator instead, use ws://10.0.2.2:<port>/ws.
-        const val DEFAULT_URL = "ws://100.64.0.2:8558/ws"
+        // A bare host is fine — normalizeWsUrl() fills in ws:// and /ws — so
+        // `cs.bam` connects to ws://cs.bam/ws (Caddy proxies it to the gateway).
+        // For the Android emulator instead, use 10.0.2.2:<port>.
+        const val DEFAULT_URL = "cs.bam"
         const val DEFAULT_TOKEN = "devsecret"
         const val DEFAULT_ALIASES = "attached = attach\ndetached = detach\nthe tach = detach\nkilo = kill\nlisted = list"
 

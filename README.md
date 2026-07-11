@@ -402,6 +402,14 @@ page is https), so a server-hosted client connects with no setup — you only ed
 **Settings → Server** if you're pointing elsewhere. The static assets are public; the privileged
 surface stays behind the token-authenticated `/ws` handshake (and mutual TLS if configured).
 
+**Server URL — a bare host is enough.** The **Settings → Server** URL field accepts just a
+hostname: the client fills in the scheme and gateway path for you, so `cs.bam` becomes
+`ws://cs.bam/ws`. A port (`cs.bam:8098`) or a pasted `http(s)://` URL work too (`http`→`ws`,
+`https`→`wss`); a fully-formed `ws://host:port/ws` is left untouched. This lets you put the server
+behind a memorable reverse-proxy hostname instead of an IP:port — e.g. a Caddy `cs.bam:80` site that
+reverse-proxies to the gateway, which transparently carries both the web client at `/` and the `/ws`
+WebSocket upgrade.
+
 Text chat, the session drawer, hosts/identities, usage, **file transfer** (the 📎 button — the same
 upload/download flow as the app, reading/writing the browser's own files), and **spawning new
 sessions** (the same New-session picker as the app — target/host + backend/model + filesystem browse,

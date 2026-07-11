@@ -15,6 +15,46 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
+ * Turn whatever the user typed in the "Server URL" field into a full WebSocket URL.
+ *
+ * The goal is that a memorable bare host — e.g. `cs.bam` — just works: the scheme
+ * (`ws://`) and the gateway path (`/ws`) are filled in for them. So `cs.bam`,
+ * `cs.bam:8098`, `http://cs.bam`, and `ws://cs.bam/ws` all resolve to the same
+ * endpoint. Rules:
+ *  - no `scheme://` → prepend `ws://`;
+ *  - `http`/`https` schemes are mapped to `ws`/`wss` (a pasted browser URL still works);
+ *  - `ws`/`wss` (or anything else) are kept as typed;
+ *  - an empty or bare `/` path → `/ws`; an explicit path is left untouched.
+ * A blank field is returned unchanged (the caller decides what to do with it).
+ */
+fun normalizeWsUrl(raw: String): String {
+    val trimmed = raw.trim()
+    if (trimmed.isEmpty()) return trimmed
+
+    val sep = trimmed.indexOf("://")
+    var s = if (sep >= 0) {
+        val ws = when (trimmed.substring(0, sep).lowercase()) {
+            "http" -> "ws"
+            "https" -> "wss"
+            else -> trimmed.substring(0, sep) // ws, wss, or leave as typed
+        }
+        "$ws://${trimmed.substring(sep + 3)}"
+    } else {
+        "ws://$trimmed"
+    }
+
+    // Ensure a gateway path. Look past the scheme for the authority's first '/'.
+    val authStart = s.indexOf("://") + 3
+    val pathStart = s.indexOf('/', authStart)
+    s = when {
+        pathStart < 0 -> "$s/ws"                       // host only, no path
+        s.substring(pathStart) == "/" -> s.substring(0, pathStart) + "/ws"
+        else -> s                                       // explicit path, keep it
+    }
+    return s
+}
+
+/**
  * WebSocket client to the spawner gateway, shared by the Android and web clients.
  * Sends the hello handshake (with a stable client_id for resume) on open, surfaces
  * parsed [ServerMsg]s, and automatically reconnects with backoff until [close] is
@@ -52,7 +92,7 @@ class SpawnerClient(
         var attempt = 0
         while (active && scope.isActive) {
             try {
-                client.webSocket(urlString = url) {
+                client.webSocket(urlString = normalizeWsUrl(url)) {
                     attempt = 0
                     send(Frame.Text(Outbound.hello(token, clientId, hello)))
                     val sender = launch { for (frame in outbox) send(frame) }
