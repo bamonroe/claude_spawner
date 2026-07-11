@@ -227,7 +227,13 @@ class WebAppController(private val prefs: Prefs) : AppController {
                 _attachedAgent.value = msg.agent; _attachedModel.value = msg.model
                 prefs.lastSession = msg.name; prefs.lastSessionId = msg.sessionId
                 _status.value = "attached: ${msg.name}"
-                if (msg.usage != null) _lastTurnUsage.value = TurnUsageInfo(msg.usage, nowMonotonicMs())
+                // Anchor the cache-warm countdown to the last turn's real age (from
+                // `usage_at`), not to now — otherwise a restart shows a fresh 5-min
+                // window for a session whose cache went cold while we were away.
+                if (msg.usage != null) {
+                    val ageMs = if (msg.usageAt > 0) (nowEpochSeconds() - msg.usageAt) * 1000 else Long.MAX_VALUE
+                    _lastTurnUsage.value = TurnUsageInfo(msg.usage, nowMonotonicMs() - ageMs.coerceIn(0, 6 * 60 * 1000L))
+                }
                 currentKey = msg.name
                 publish()
                 loadingOlder = false
