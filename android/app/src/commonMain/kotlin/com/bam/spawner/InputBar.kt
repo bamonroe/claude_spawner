@@ -147,6 +147,11 @@ fun InputBar(
             // the tray is already open). onFocusChanged covers a first-tap focus; this
             // covers a tap when the swipe-to-open already left the box focused.
             modifier = Modifier
+                // Fill the width of the slot the Layout hands us. The wrapping Box
+                // loosens minWidth to 0, so without this the field would size to its
+                // text content and the border would only creep out to the edge as you
+                // type — this pins the border to the full slot width in both states.
+                .fillMaxWidth()
                 // First stable measure is the empty single line; once the field grows
                 // past ~1.4× that height, switch to the expanded (full-width) layout.
                 .onSizeChanged { s ->

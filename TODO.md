@@ -311,6 +311,11 @@ Milestones:
         node is never re-parented and keeps its focus + the soft keyboard across the
         expand↔collapse transition. Verified on the emulator (both layouts, keyboard stays up)
         and installed on the phone.
+  - [x] 2026-07-11 — **Composer border fills its slot instead of creeping out with the text.** The
+        `Layout` measured the field slot edge-to-edge, but the wrapping `Box` loosened `minWidth` to
+        0, so the `OutlinedTextField` sized to its text content and the purple border only grew to
+        the edge as you typed. A `Modifier.fillMaxWidth()` on the field pins the border to the full
+        slot width in both the collapsed and expanded layouts. Built clean and installed on the phone.
 - [~] **M5 — Web-native platform bits.** Browser audio (Web Audio → server STT), `SpeechSynthesis` TTS,
       browser spawn UI.
   - [x] 2026-07-09 — **Web file transfer (the 📎 flow).** The web `MainScreen` now fills the
