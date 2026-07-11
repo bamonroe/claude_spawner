@@ -67,6 +67,11 @@ class SettingsStore(context: Context) : Prefs {
         get() = prefs.getBoolean("hands_free", false)
         set(v) = prefs.edit().putBoolean("hands_free", v).apply()
 
+    /** Debug overlays + verbose gesture logging (off by default). */
+    override var debugOverlays: Boolean
+        get() = prefs.getBoolean("debug_overlays", false)
+        set(v) = prefs.edit().putBoolean("debug_overlays", v).apply()
+
     /** Preferred TTS audio output: "earpiece" | "speaker" | "bluetooth". */
     override var audioOutput: String
         get() = prefs.getString("audio_output", Prefs.DEFAULT_AUDIO_OUTPUT) ?: Prefs.DEFAULT_AUDIO_OUTPUT

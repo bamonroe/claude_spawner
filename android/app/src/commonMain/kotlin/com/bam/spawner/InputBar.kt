@@ -44,6 +44,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isShiftPressed
@@ -53,6 +54,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 
 /**
  * The message composer: an optional swipe-up command tray, the 📎 transfer button
@@ -76,9 +78,13 @@ fun InputBar(
     onTalkCancel: () -> Unit,
     onSend: (String) -> Unit,
     transferButton: @Composable (onUploaded: (String) -> Unit) -> Unit = { },
+    debugOverlays: Boolean = false,
 ) {
     var draft by rememberSaveable { mutableStateOf("") }
     var talking by remember { mutableStateOf(false) }
+    // Debug: live push-to-talk drift, non-null only while a hold is in progress and
+    // [debugOverlays] is on. Feeds the on-screen readout above the mic button.
+    var pttDrift by remember { mutableStateOf<PttDrift?>(null) }
     // Swipe up on the text box to reveal the argument-free "hey buddy" commands
     // as tappable buttons; a command tap fires it and hides the tray again. The
     // open flag is hoisted so a tap outside the tray can dismiss it (see caller).
@@ -174,6 +180,41 @@ fun InputBar(
         val swipeUpDp = 120.dp
         val trackWidth = 36.dp // 75% of the 48dp button
         Box(contentAlignment = Alignment.BottomCenter) {
+            if (debugOverlays) {
+                // Ugly debug zones: where a hold gets reinterpreted. The real anchor is
+                // the touch-down point (within ~24dp of the button centre we draw from),
+                // so treat these as approximate. Drag past the red box (left) to discard
+                // the clip; past the amber box (up) to switch into hands-free. Both are
+                // swipeUpDp from the down point.
+                Box(
+                    Modifier
+                        .offset(x = -swipeUpDp, y = (-24).dp)
+                        .size(width = swipeUpDp, height = 48.dp)
+                        .background(Color(0x33FF0000)),
+                )
+                Box(
+                    Modifier
+                        .offset(y = -swipeUpDp - 24.dp)
+                        .size(width = 48.dp, height = swipeUpDp)
+                        .background(Color(0x33FFC107)),
+                )
+                // Live drift readout while holding: left/up drift vs the threshold, and
+                // how long the hold has lasted — so a spurious mid-hold cut is visible.
+                pttDrift?.let { d ->
+                    Box(
+                        Modifier
+                            .offset(y = -swipeUpDp - 64.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color(0xCC000000))
+                            .padding(horizontal = 6.dp, vertical = 3.dp),
+                    ) {
+                        Text(
+                            "L${d.dx.roundToInt()} U${d.dy.roundToInt()} / ${d.threshold.roundToInt()}px  ${d.heldMs}ms",
+                            color = Color.White, style = MaterialTheme.typography.labelSmall,
+                        )
+                    }
+                }
+            }
             // The drag track: only visible while the mic is held. It shows the
             // path (and how far) you must drag up to switch into hands-free, and
             // fills toward the headset target as you go.
@@ -235,31 +276,48 @@ fun InputBar(
                             swipeFraction = 0f // reveal the track
                             var toggled = false
                             var cancelled = false
+                            // Why the hold ended — surfaced to logcat when debugOverlays is on.
+                            // "lost-pointer" is the suspect for spurious cuts: the OS dropped
+                            // our pointer id mid-hold and we can no longer track it.
+                            var reason = "up"
+                            var dx = 0f; var dy = 0f; var heldMs = 0L
                             while (true) {
                                 val event = awaitPointerEvent()
-                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                val change = event.changes.firstOrNull { it.id == down.id }
+                                if (change == null) { reason = "lost-pointer"; break }
                                 // Own the gesture: consuming keeps a parent (scroll /
                                 // swipe-up tray) from stealing it when the finger drifts
                                 // off the small button, so we hold the recording until an
                                 // actual finger-lift no matter how far the finger wanders.
                                 change.consume()
-                                if (!change.pressed) break // released
+                                heldMs = change.uptimeMillis - down.uptimeMillis
+                                // Leftward / upward drift from the touch-down point (only
+                                // these two directions can end the hold early).
+                                dx = (startX - change.position.x).coerceAtLeast(0f)
+                                dy = (startY - change.position.y).coerceAtLeast(0f)
+                                if (debugOverlays) pttDrift = PttDrift(dx, dy, swipeUpPx, heldMs)
+                                if (!change.pressed) { reason = "up"; break } // released
                                 // Drift left the full track distance = throw the clip away.
-                                val dx = (startX - change.position.x).coerceAtLeast(0f)
                                 if (!cancelled && dx >= swipeUpPx) {
-                                    cancelled = true
+                                    cancelled = true; reason = "swipe-left-cancel"
                                     if (talking) { onTalkCancel(); talking = false }
                                     break // discarded; nothing is sent or transcribed
                                 }
-                                val dy = (startY - change.position.y).coerceAtLeast(0f)
                                 swipeFraction = (dy / swipeUpPx).coerceIn(0f, 1f)
                                 if (!toggled && dy >= swipeUpPx) {
-                                    toggled = true
+                                    toggled = true; reason = "swipe-up-handsfree"
                                     // Abandon the in-progress push-to-talk; this hold is a switch.
                                     if (talking) { onTalkCancel(); talking = false }
                                 }
                             }
                             swipeFraction = null // hide the track
+                            pttDrift = null
+                            if (debugOverlays) {
+                                println(
+                                    "PTT end reason=$reason dxPx=${dx.roundToInt()} " +
+                                        "dyPx=${dy.roundToInt()} thresholdPx=${swipeUpPx.roundToInt()} heldMs=$heldMs",
+                                )
+                            }
                             when {
                                 cancelled -> {} // discarded — nothing sent, nothing transcribed
                                 toggled -> onToggleHandsFree(true)
@@ -318,3 +376,8 @@ fun CommandTray(connected: Boolean, onCommand: (String) -> Unit) {
         }
     }
 }
+
+/** Live push-to-talk drift, surfaced to the debug overlay while a hold is in progress:
+ *  leftward/upward drift from the touch-down point, the cancel threshold, and hold time
+ *  (all in pixels / millis). */
+private data class PttDrift(val dx: Float, val dy: Float, val threshold: Float, val heldMs: Long)

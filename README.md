@@ -70,6 +70,19 @@ buddy" (blank keeps "hey buddy" only). Pick a word Whisper transcribes cleanly: 
 curated mis-hear alias list the way "hey buddy" does, though the server does bias transcription
 toward it.
 
+**The mic button (hold to talk).** With the box empty, **press and hold** the mic to record; release
+to send. The hold is *sticky* — it keeps recording even if your finger drifts off the small button —
+but two deliberate drags end it early: drag **up** past the track that appears (about 120 dp) to
+switch into **hands-free**, or drag **left** the same distance to **discard** the clip. If a long
+hold ever cuts on its own, turn on **Settings → Debug** (see below) to see the drag thresholds drawn
+as boxes and log why each hold ended.
+
+**Debug overlays (Settings → Debug).** A developer toggle, off by default. It draws translucent boxes
+over the normally-invisible push-to-talk zones — the red **discard** zone (drag left) and amber
+**hands-free** zone (drag up) — with a live readout of your finger's drift and hold time while you
+hold, and logs each hold's end reason and drift to logcat (tag `PTT`). Meant for diagnosing a fiddly
+hold-to-talk, not everyday use.
+
 **Without your voice:** swipe up on the message box — or tap the **chevron handle** just above it —
 for a **command tray** of tap buttons, one per command that needs no argument (`detach`, `clear`,
 `compress`, `status`, `usage`, …). Open the **sessions drawer** with the ☰ menu or by swiping in from

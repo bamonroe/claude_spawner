@@ -379,6 +379,26 @@ fun SettingsHub(onOpen: (String) -> Unit, onBack: () -> Unit) {
         SettingsRow("Audio", "Mic meter, thresholds, transcription, end token") { onOpen("set_audio") }
         SettingsRow("Hosts", "SSH targets sessions can run on") { onOpen("set_hosts") }
         SettingsRow("Identities", "SSH keypairs hosts authenticate with") { onOpen("set_identities") }
+        SettingsRow("Debug", "Hit-zone overlays & gesture logging") { onOpen("set_debug") }
+    }
+}
+
+/** Debug: developer overlays and verbose gesture logging, all off by default. */
+@Composable
+fun DebugSettings(settings: Prefs, onBack: () -> Unit) {
+    SettingsScaffold("Debug", onBack) {
+        var overlays by remember { mutableStateOf(settings.debugOverlays) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Hit-zone overlays & logging", style = MaterialTheme.typography.titleMedium)
+                Text("Draw translucent boxes over the normally-invisible push-to-talk zones — " +
+                    "drag left past the red box to discard a clip, drag up past the amber box to " +
+                    "switch into hands-free — with a live drift readout while you hold. Also logs " +
+                    "each hold's end reason and finger drift to logcat (tag PTT).",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            }
+            Switch(checked = overlays, onCheckedChange = { overlays = it; settings.debugOverlays = it })
+        }
     }
 }
 

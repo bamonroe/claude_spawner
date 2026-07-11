@@ -66,6 +66,7 @@ fun MainScreen(
     handsFreeInitial: Boolean,
     badgeMode: String,
     showCacheTimer: Boolean,
+    debugOverlays: Boolean = false,
     mic: String,
     audioOutput: AudioOutput,
     audioOutputs: List<AudioOutput>,
@@ -223,6 +224,7 @@ fun MainScreen(
                 onTalkCancel = onTalkCancel,
                 onSend = { controller.sendText(it) },
                 transferButton = transferButton,
+                debugOverlays = debugOverlays,
             )
         }
     }

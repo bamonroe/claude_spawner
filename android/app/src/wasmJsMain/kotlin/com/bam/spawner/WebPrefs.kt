@@ -76,6 +76,9 @@ class WebPrefs : Prefs {
     override var handsFree: Boolean
         get() = bool("hands_free", false)
         set(v) = putBool("hands_free", v)
+    override var debugOverlays: Boolean
+        get() = bool("debug_overlays", false)
+        set(v) = putBool("debug_overlays", v)
     override var audioOutput: String
         get() = str("audio_output", Prefs.DEFAULT_AUDIO_OUTPUT)
         set(v) = putStr("audio_output", v)

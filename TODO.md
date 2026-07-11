@@ -12,6 +12,16 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-10 — **Debug overlays (Settings → Debug)** — diagnose the fiddly hold-to-talk. New
+      `debugOverlays` pref + Debug settings page; when on, `InputBar` draws the push-to-talk
+      cancel (drag-left) and hands-free (drag-up) zones as translucent boxes with a live drift
+      readout, and logs each hold's end reason + drift to logcat (tag `PTT`). Instrumented the
+      gesture to record *why* a hold ended, including a `lost-pointer` case (OS dropped our pointer
+      id mid-hold) — the prime suspect for spurious cuts. Off by default; Android + web compile.
+- [ ] 2026-07-10 — **Follow-up: fix the spurious hold-to-talk cut** once the `PTT` logs pin the
+      cause. If it's `lost-pointer`, ride through a brief pointer loss (~200 ms grace) instead of
+      treating it as a release; if it's a small up/left drift tripping the 120 dp threshold,
+      reconsider the threshold/asymmetry.
 - [x] 2026-07-10 — **Per-server whisper model pair**: Settings → Audio → "Transcription models" —
       two free-text ggml model fields, **full** (accurate server, dictation) and **quick** (fast
       server: hands-free draft + end-token detection), each hot-loaded server-globally.

@@ -49,6 +49,10 @@ interface Prefs {
     /** Custom wake word, accepted alongside the built-in "hey buddy" (blank = built-in only). */
     var wakeToken: String
 
+    /** Debug: draw translucent overlays over normally-invisible hit zones (e.g. the
+     *  push-to-talk cancel / hands-free swipe thresholds) and log gesture end reasons. */
+    var debugOverlays: Boolean
+
     /** Whisper model selection: "dynamic" (by clip length) or "fixed". */
     var sttMode: String
     /** Fixed-mode whisper model: "tiny" | "base" | "small". */
