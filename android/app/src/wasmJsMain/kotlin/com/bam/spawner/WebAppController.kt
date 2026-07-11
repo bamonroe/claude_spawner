@@ -184,15 +184,23 @@ class WebAppController(private val prefs: Prefs) : AppController {
             is ServerMsg.Say -> { _activity.value = ""; addChat(Role.SYSTEM, msg.text); speak(msg.text) }
             is ServerMsg.Output -> {
                 _activity.value = ""
-                if (msg.chunk) { turnStreamed = true; addChat(Role.CLAUDE, msg.text); speak(msg.text) }
-                else {
+                // Summary-only: beep through intermediate steps, speak only the final result.
+                val summaryOnly = prefs.summaryOnlySpeech
+                if (msg.chunk) {
+                    turnStreamed = true; addChat(Role.CLAUDE, msg.text)
+                    if (summaryOnly) webBeep() else speak(msg.text)
+                } else {
                     if (!turnStreamed) { addChat(Role.CLAUDE, msg.text, msg.usage); speak(msg.text) }
-                    else if (msg.usage != null) attachUsageToLastClaude(msg.usage)
+                    else {
+                        if (msg.usage != null) attachUsageToLastClaude(msg.usage)
+                        if (summaryOnly) speak(msg.text) // chunks only beeped — speak the final now
+                    }
                     turnStreamed = false
                     msg.usage?.let { _lastTurnUsage.value = TurnUsageInfo(it, nowMonotonicMs()) }
                 }
             }
             is ServerMsg.StopSpeaking -> { cancelSpeech(); _speaking.value = false }
+            is ServerMsg.SpeechMode -> prefs.summaryOnlySpeech = msg.summaryOnly // voice toggle mirrors the audio-settings switch
             is ServerMsg.ContextReset -> _lastTurnUsage.value = null
             is ServerMsg.Activity -> _activity.value = msg.text
             is ServerMsg.Transcribing -> _micText.value = "transcribing…" // committed clip being re-transcribed

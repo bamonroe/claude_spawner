@@ -13,25 +13,26 @@ import (
 type Kind string
 
 const (
-	Spawn      Kind = "spawn"
-	Attach     Kind = "attach"
-	Detach     Kind = "detach"
-	List       Kind = "list"
-	Kill       Kind = "kill"
-	Status     Kind = "status"
-	Cancel     Kind = "cancel"
-	Stop       Kind = "stop"        // stop speaking (barge-in)
-	AbortTurn  Kind = "abort_turn"  // cancel the running Claude turn
-	Help       Kind = "help"        // list available commands
-	ReadLast   Kind = "read_last"   // re-read the last N Claude replies aloud
-	Clear      Kind = "clear"       // rotate the session's Claude context (keep history for display)
-	Compress   Kind = "compress"    // summarize the context, then rotate — carry a condensed summary forward
-	Usage      Kind = "usage"       // report the Claude plan's usage (session/week % left), via `/usage`
-	Rename     Kind = "rename"      // rename the currently-attached session
-	ListModels Kind = "list_models" // list the attached session's backend's models
-	UseModel   Kind = "use_model"   // switch the attached session's model by number
-	Scratch    Kind = "scratch"     // toggle scratch mode: detached, echo transcriptions back aloud
-	Unknown    Kind = "unknown"
+	Spawn       Kind = "spawn"
+	Attach      Kind = "attach"
+	Detach      Kind = "detach"
+	List        Kind = "list"
+	Kill        Kind = "kill"
+	Status      Kind = "status"
+	Cancel      Kind = "cancel"
+	Stop        Kind = "stop"         // stop speaking (barge-in)
+	AbortTurn   Kind = "abort_turn"   // cancel the running Claude turn
+	Help        Kind = "help"         // list available commands
+	ReadLast    Kind = "read_last"    // re-read the last N Claude replies aloud
+	Clear       Kind = "clear"        // rotate the session's Claude context (keep history for display)
+	Compress    Kind = "compress"     // summarize the context, then rotate — carry a condensed summary forward
+	Usage       Kind = "usage"        // report the Claude plan's usage (session/week % left), via `/usage`
+	Rename      Kind = "rename"       // rename the currently-attached session
+	ListModels  Kind = "list_models"  // list the attached session's backend's models
+	UseModel    Kind = "use_model"    // switch the attached session's model by number
+	Scratch     Kind = "scratch"      // toggle scratch mode: detached, echo transcriptions back aloud
+	SummaryOnly Kind = "summary_only" // speak only the final turn result; intermediate steps beep
+	Unknown     Kind = "unknown"
 )
 
 // Intent is a parsed control command. Arg holds a session name for attach/kill.
@@ -81,7 +82,7 @@ var commandVocab = []string{
 	"spawn", "attach", "detach", "list", "kill", "status", "cancel",
 	"stop", "abort", "help", "read last", "clear", "compress", "compact",
 	"usage", "rename", "session", "project", "model", "models", "codex",
-	"scratch",
+	"scratch", "summary",
 }
 
 // Vocabulary returns the control words worth biasing STT toward: the canonical
@@ -333,6 +334,21 @@ func Parse(text string) Intent {
 	// Detach: bare "detach"/"detach now", or an explicit phrase.
 	case first == "detach" && n <= 2, contains(t, "stop dictating", "stop listening"):
 		return Intent{Kind: Detach}
+
+	// SummaryOnly: speak only the final turn result, beeping through the
+	// intermediate streamed steps instead of reading each aloud. "summary
+	// only"/"summaries only"/"summary mode" turn it on; "speak everything"/
+	// "say everything"/"read everything" turn it off (a trailing "off" on a
+	// summary phrase also turns it off). The app's audio settings has the same
+	// toggle. Arg carries on/off.
+	case leadsWith(t, "summary only", "summaries only", "summary mode", "just the summary", "summarize only"):
+		arg := "on"
+		if words[n-1] == "off" {
+			arg = "off"
+		}
+		return Intent{Kind: SummaryOnly, Arg: arg}
+	case leadsWith(t, "speak everything", "say everything", "read everything", "speak it all", "read it all"):
+		return Intent{Kind: SummaryOnly, Arg: "off"}
 
 	// Scratch: toggle "scratch mode" — while detached, the server echoes each
 	// transcription back aloud so you can test STT quality. "scratch on"/"scratch

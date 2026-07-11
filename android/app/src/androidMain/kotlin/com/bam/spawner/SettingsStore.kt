@@ -87,6 +87,11 @@ class SettingsStore(context: Context) : Prefs {
         get() = prefs.getBoolean("interactive", false)
         set(v) = prefs.edit().putBoolean("interactive", v).apply()
 
+    /** Speak only a turn's final result; intermediate steps beep (see Speaker.beep). */
+    override var summaryOnlySpeech: Boolean
+        get() = prefs.getBoolean("summary_only_speech", false)
+        set(v) = prefs.edit().putBoolean("summary_only_speech", v).apply()
+
     /** Spoken word that commits a hands-free message ("beep" by default). */
     override var endToken: String
         get() = prefs.getString("end_token", Prefs.DEFAULT_END_TOKEN)?.ifBlank { Prefs.DEFAULT_END_TOKEN } ?: Prefs.DEFAULT_END_TOKEN

@@ -43,6 +43,16 @@ Dates are `YYYY-MM-DD`.
       the fast choice persists in `settings.json` and boots via `SPAWNER_WHISPER_FAST_MODEL_NAME`.
       Replaces the fixed three-pill picker in Settings → Server. ⚠ needs a server restart to go
       live.
+- [x] 2026-07-11 — **Summary-only speech** (`hey buddy summary only` / `speak everything`): on a
+      long multi-step turn, speak only the final result and play a soft warm beep in place of reading
+      each intermediate streamed step aloud (everything still shown on screen). New `summary_only`
+      command + `speech_mode` wire message relay the toggle to the client; the state lives client-side
+      (persisted `summary_only_speech` pref, mirrored by the **Summary only** switch on the Audio
+      settings page) so the server keeps none. Gating keys off the existing `chunk` flag (intermediate
+      streamed step vs final result). Beep is a synthesized low sine w/ raised-cosine envelope
+      (`Speaker.beep` on Android via AudioTrack; `webBeep` on web via WebAudio), routed through the
+      echo-cancelled voice path in hands-free. Registry + parse + vocab + protocol.md + commands.md +
+      README + tests. ⚠ needs a server restart to go live (client half ships in the APK).
 - [x] 2026-07-10 — **Scratch mode** (`hey buddy scratch on/off`): new `scratch` command toggles a
       per-connection flag; while detached, `dispatch`/`commitMessage` echo each non-command
       transcription back via `say` (reusing the existing wire) so you can test STT quality. Registry

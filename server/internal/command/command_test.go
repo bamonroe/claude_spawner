@@ -179,6 +179,24 @@ func TestParseAbortTurn(t *testing.T) {
 	}
 }
 
+func TestParseSummaryOnly(t *testing.T) {
+	// "summary only" phrasings turn it on; a trailing "off" turns it off.
+	for _, in := range []string{"summary only", "summaries only", "summary mode", "just the summary"} {
+		if got := Parse(in); got.Kind != SummaryOnly || got.Arg != "on" {
+			t.Errorf("Parse(%q) = {%s, %q}, want {summary_only, on}", in, got.Kind, got.Arg)
+		}
+	}
+	if got := Parse("summary only off"); got.Kind != SummaryOnly || got.Arg != "off" {
+		t.Errorf(`Parse("summary only off") = {%s, %q}, want {summary_only, off}`, got.Kind, got.Arg)
+	}
+	// "speak everything" family turns it off.
+	for _, in := range []string{"speak everything", "say everything", "read everything", "speak it all"} {
+		if got := Parse(in); got.Kind != SummaryOnly || got.Arg != "off" {
+			t.Errorf("Parse(%q) = {%s, %q}, want {summary_only, off}", in, got.Kind, got.Arg)
+		}
+	}
+}
+
 func TestParseClear(t *testing.T) {
 	for _, in := range []string{"clear", "clear context", "clear session", "clear the context",
 		"reset context", "start fresh", "wipe context"} {

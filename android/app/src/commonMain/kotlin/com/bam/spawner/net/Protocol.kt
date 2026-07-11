@@ -52,6 +52,7 @@ sealed interface ServerMsg {
     data class Diff(val text: String) : ServerMsg // post-turn `git diff --stat` review
     data class Ask(val name: String, val questions: List<AskQuestion>) : ServerMsg // interactive clarification
     data object StopSpeaking : ServerMsg
+    data class SpeechMode(val summaryOnly: Boolean) : ServerMsg // speak only the final result (intermediate steps beep) vs everything
     data class Listing(val path: String, val parent: String, val entries: List<BrowseEntry>) : ServerMsg
     data class FileSaved(val path: String) : ServerMsg // an upload landed on the target host
     data class FileData(val name: String, val path: String, val content: String) : ServerMsg // a download's base64 bytes
@@ -109,6 +110,7 @@ sealed interface ServerMsg {
                 "diff" -> Diff(o.str("text"))
                 "ask" -> Ask(o.str("name"), readAsk(o.arr("questions")))
                 "stop_speaking" -> StopSpeaking
+                "speech_mode" -> SpeechMode(o.bool("summary_only"))
                 "listing" -> Listing(o.str("path"), o.str("parent"), readEntries(o.arr("entries")))
                 "file_saved" -> FileSaved(o.str("path"))
                 "file_data" -> FileData(o.str("name"), o.str("path"), o.str("content"))

@@ -58,6 +58,7 @@ All prefixed with **"hey buddy"**:
 - `compress the context` — like `clear`, but carries a **summary** forward (see below)
 - `list models` / `use model <number>` — list the AI's models and switch by number (see below)
 - `scratch on` / `scratch off` — **scratch mode**: while detached, hear each transcription read back so you can test how well Whisper is hearing you (see below)
+- `summary only` / `speak everything` — **summary-only speech**: on a long, multi-step turn, read aloud only the **final result**; each intermediate step plays a soft beep instead of being spoken (see below)
 
 Anything spoken **while attached** that isn't a reserved command is dictated to the session. When a
 command fails (a bad path, a name that's taken, a session live in a terminal…), the server speaks a
@@ -175,6 +176,23 @@ full/quick picks. **"hey buddy, scratch off"** stops it; a bare "scratch" toggle
 while detached, so it never interferes with a live session — attach and your speech dictates as
 usual. Reserved commands still work in scratch mode (a detached utterance is parsed as a command
 first), so speak ordinary sentences to exercise the transcriber.
+
+### Summary-only speech: don't read every step of a long turn
+
+On a long, multi-step turn — a big investigation with many subagents — Claude streams each
+intermediate step as it happens, and normally the client **reads every one aloud**. When you're
+just waiting for the final answer, that's a lot of narration you don't need. **"hey buddy, summary
+only"** switches to summary-only speech: the client reads aloud **only the final result** of a
+turn, and plays a soft, warm **beep** in place of speaking each intermediate step — so you still
+hear that work is happening (you're not in the dark), without the play-by-play. Everything is still
+shown on screen as usual; only the *speaking* changes. **"hey buddy, speak everything"** turns it
+back off ("summary only off" works too).
+
+The same toggle is the **Summary only** switch on the **Audio** settings page. The setting lives on
+the client (persisted per device), so the voice command and the switch stay in lock-step and the
+server keeps no per-connection state. The beep is a low, round sine tone with a smooth envelope —
+deliberately unlike a sharp notification chime — and in hands-free mode it plays through the
+echo-cancelled voice path so the open mic doesn't hear it.
 
 ### Choosing the AI backend and its model
 

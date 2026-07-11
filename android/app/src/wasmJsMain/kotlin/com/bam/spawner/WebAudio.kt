@@ -114,3 +114,32 @@ fun cancelSpeech(): Unit = js("{ try { window.speechSynthesis.cancel(); } catch 
 
 /** Whether SpeechSynthesis is currently speaking or has utterances queued. */
 fun speechActive(): Boolean = js("(!!window.speechSynthesis && (window.speechSynthesis.speaking || window.speechSynthesis.pending))")
+
+/**
+ * A short, soft, warm beep — the web analogue of the app's summary-only "still
+ * working…" cue, played in place of speaking an intermediate step. A low sine
+ * with a smooth gain ramp (no sharp onset) so it reads as round, not shrill.
+ * Reuses one AudioContext on the window.
+ */
+fun webBeep(): Unit = js(
+    """
+    {
+      try {
+        var AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return;
+        if (!window.__spawnerBeepCtx) window.__spawnerBeepCtx = new AC();
+        var ctx = window.__spawnerBeepCtx;
+        if (ctx.state === 'suspended') ctx.resume();
+        var t0 = ctx.currentTime, dur = 0.2;
+        var osc = ctx.createOscillator();
+        osc.type = 'sine'; osc.frequency.value = 420;
+        var g = ctx.createGain();
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.exponentialRampToValueAtTime(0.28, t0 + dur * 0.4);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+        osc.connect(g); g.connect(ctx.destination);
+        osc.start(t0); osc.stop(t0 + dur);
+      } catch (e) {}
+    }
+    """,
+)

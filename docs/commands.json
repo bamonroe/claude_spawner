@@ -140,6 +140,15 @@
       "description": "Barge-in: stop the voice reading aloud"
     },
     {
+      "title": "summary only",
+      "aliases": [
+        "summary only",
+        "summaries only",
+        "speak everything"
+      ],
+      "description": "Speak only the final result of a turn; intermediate steps beep quietly instead"
+    },
+    {
       "title": "usage",
       "aliases": [
         "usage",

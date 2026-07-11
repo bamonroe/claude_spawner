@@ -830,24 +830,32 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                 addChat(Role.SYSTEM, msg.text); speaker.speak(Markdown.toSpeech(msg.text))
             }
             is ServerMsg.Output -> {
+                // Summary-only mode: don't read the intermediate streamed steps aloud —
+                // play a soft beep as a "still working…" cue and speak only the final
+                // result when the turn closes. Everything is still shown in the chat.
+                val summaryOnly = settings.summaryOnlySpeech
                 if (msg.chunk) {
-                    // A live segment of Claude's reply as it's produced. Show + speak it
-                    // now; a streamed chunk also proves the turn survived (like activity),
-                    // so keep it in flight and disarm the interruption watchdog.
+                    // A live segment of Claude's reply as it's produced. Show it now; a
+                    // streamed chunk also proves the turn survived (like activity), so
+                    // keep it in flight and disarm the interruption watchdog.
                     turnInFlight = true
                     lostTurnWatchdog?.cancel(); lostTurnWatchdog = null
                     turnStreamed = true
                     _activity.value = "" // prose is arriving — drop the "thinking" breadcrumb
-                    addChat(Role.CLAUDE, msg.text); speaker.speak(Markdown.toSpeech(msg.text))
+                    addChat(Role.CLAUDE, msg.text)
+                    if (summaryOnly) speaker.beep() else speaker.speak(Markdown.toSpeech(msg.text))
                 } else {
                     clearTurnInFlight()
                     _activity.value = "" // turn done — stop the thinking indicator
                     if (!turnStreamed) { // no live stream reached us (buffered reply on reconnect)
                         addChat(Role.CLAUDE, msg.text, msg.usage); speaker.speak(Markdown.toSpeech(msg.text))
-                    } else if (msg.usage != null) {
+                    } else {
                         // Streamed turn: the bubble already exists from chunks, so badge it
                         // in place — the closing message isn't re-rendered as a new bubble.
-                        attachUsageToLastClaude(msg.usage)
+                        if (msg.usage != null) attachUsageToLastClaude(msg.usage)
+                        // In summary-only mode the chunks only beeped, so speak the final
+                        // result now (the closing message carries the full reply text).
+                        if (summaryOnly) speaker.speak(Markdown.toSpeech(msg.text))
                     }
                     turnStreamed = false
                     msg.usage?.let { _lastTurnUsage.value = TurnUsageInfo(it, nowMonotonicMs()) }
@@ -895,6 +903,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
             }
             is ServerMsg.Calibration -> onCalibrationSample(msg.text)
             is ServerMsg.StopSpeaking -> speaker.stop()
+            is ServerMsg.SpeechMode -> settings.summaryOnlySpeech = msg.summaryOnly // "summary only" / "speak everything" voice toggle
             is ServerMsg.Dialog -> _status.value = "dialog: ${msg.state}"
             is ServerMsg.Attached -> {
                 // Fresh view of this session: drop any stale turn spinner/watchdog.

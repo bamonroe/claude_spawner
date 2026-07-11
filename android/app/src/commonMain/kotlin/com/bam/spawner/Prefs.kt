@@ -44,6 +44,10 @@ interface Prefs {
     var brief: Boolean
     /** Let Claude ask clarifying questions mid-task instead of guessing. */
     var interactive: Boolean
+    /** Speak only the final result of a turn; intermediate streamed steps play a
+     *  soft beep instead of being read aloud. Toggled by voice ("summary only" /
+     *  "speak everything") and by the audio-settings switch. */
+    var summaryOnlySpeech: Boolean
     /** Spoken word that commits a hands-free message ("beep" by default). */
     var endToken: String
     /** Custom wake word, accepted alongside the built-in "hey buddy" (blank = built-in only). */

@@ -335,6 +335,14 @@ func msgTurnStopped(name string) map[string]any {
 // msgStopSpeaking tells the app to stop any in-progress text-to-speech (barge-in).
 func msgStopSpeaking() map[string]any { return map[string]any{"type": "stop_speaking"} }
 
+// msgSpeechMode tells the app whether to speak only the final result of a turn
+// (summary_only true: intermediate streamed steps beep instead of being read
+// aloud) or everything (false). Sent by the "summary only" / "speak everything"
+// voice commands; the app's audio settings has the same switch.
+func msgSpeechMode(summaryOnly bool) map[string]any {
+	return map[string]any{"type": "speech_mode", "summary_only": summaryOnly}
+}
+
 // msgHistory returns a page of a session's past conversation (older-to-newer),
 // with `more` telling the app whether even-older messages remain to page in.
 // `count`/`hash` are the whole chain's digest (the app stores them alongside the

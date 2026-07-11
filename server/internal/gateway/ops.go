@@ -80,6 +80,8 @@ func (c *conn) runCommand(intent command.Intent) bool {
 		c.doUseModel(intent.Count)
 	case command.Scratch:
 		c.doScratch(intent.Arg)
+	case command.SummaryOnly:
+		c.doSummaryOnly(intent.Arg)
 	default:
 		return false
 	}
@@ -102,6 +104,20 @@ func (c *conn) doScratch(arg string) {
 		c.send(msgSay("scratch mode on — detach and speak, and I'll read back what I heard. say 'scratch off' to stop."))
 	} else {
 		c.send(msgSay("scratch mode off."))
+	}
+}
+
+// doSummaryOnly toggles summary-only speech. The state itself lives on the
+// client (a persisted audio setting mirrored by the audio-settings switch), so
+// the server holds none — it just relays the on/off as a speech_mode message
+// and speaks a confirmation. Arg "off" turns it off; anything else turns it on.
+func (c *conn) doSummaryOnly(arg string) {
+	on := arg != "off"
+	c.send(msgSpeechMode(on))
+	if on {
+		c.send(msgSay("summary only — I'll beep through the steps and speak just the final result. say 'speak everything' to hear it all."))
+	} else {
+		c.send(msgSay("okay, I'll speak everything again."))
 	}
 }
 

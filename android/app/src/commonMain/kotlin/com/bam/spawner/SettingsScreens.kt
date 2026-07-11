@@ -772,6 +772,15 @@ fun AudioSettings(
             }
             Switch(checked = interactive, onCheckedChange = { interactive = it; settings.interactive = it; onSttChanged() })
         }
+        var summaryOnly by remember { mutableStateOf(settings.summaryOnlySpeech) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Summary only", style = MaterialTheme.typography.titleMedium)
+                Text("Only speak a turn's final result; intermediate steps play a soft beep instead. Say \"hey buddy, summary only\" / \"speak everything\" to toggle by voice.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            }
+            Switch(checked = summaryOnly, onCheckedChange = { summaryOnly = it; settings.summaryOnlySpeech = it })
+        }
 
         HorizontalDivider()
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {

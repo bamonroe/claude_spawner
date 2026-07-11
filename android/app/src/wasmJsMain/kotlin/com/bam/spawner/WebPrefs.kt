@@ -88,6 +88,9 @@ class WebPrefs : Prefs {
     override var interactive: Boolean
         get() = bool("interactive", false)
         set(v) = putBool("interactive", v)
+    override var summaryOnlySpeech: Boolean
+        get() = bool("summary_only_speech", false)
+        set(v) = putBool("summary_only_speech", v)
     override var endToken: String
         get() = str("end_token", Prefs.DEFAULT_END_TOKEN).ifBlank { Prefs.DEFAULT_END_TOKEN }
         set(v) = putStr("end_token", v)
