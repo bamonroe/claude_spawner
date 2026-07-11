@@ -436,11 +436,12 @@ same authenticated socket (base64 in one message each way, 64 MiB cap).
       `SSHPool.ReadFile/WriteFile/ListAll` do the host-side I/O over the pooled SSH connection (loopback
       for local); local-FS fallback when SSH is disabled. Docs: `docs/protocol.md` (`upload`, `download`,
       `file_saved`, `file_data`, `file_too_large`), README. Errors: `file_too_large`, `bad_path`.
-- [ ] **Android half.** 📎 button left of the input bar → upload/download menu. Upload: SAF `OpenDocument`
-      to pick a local file, then the host-scoped browser (starting at the attached session's dir) to pick a
-      destination folder → send `upload`; on `file_saved`, prefill the draft with `look at the file at <path>`
-      (do **not** send). Download: files-mode browser to pick a file → `download`; on `file_data`, SAF
-      `CreateDocument` to save it. Then install on the Pixel 8a.
+- [x] 2026-07-11 — **Android half.** 📎 button left of the input bar → upload/download menu. Upload:
+      SAF `OpenDocument` picks a local file → the shared `TransferPickerDialog` (host-scoped browser)
+      picks a destination folder → `controller.uploadFile`; on `file_saved`, the draft prefills with
+      `look at the file at <path>`. Download: files-mode `TransferPickerDialog` picks a file →
+      `controller.downloadFile`; on `file_data`, SAF `CreateDocument` saves it. Fully wired in
+      `MainActivity.kt` (`TransferButton`) + `VoiceController.kt`; nothing stubbed.
 
 ### De-fragilize session identity (epic — make `session_id` the identity, not the name)
 
