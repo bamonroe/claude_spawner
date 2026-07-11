@@ -19,6 +19,10 @@ Dates are `YYYY-MM-DD`.
       the fast choice persists in `settings.json` and boots via `SPAWNER_WHISPER_FAST_MODEL_NAME`.
       Replaces the fixed three-pill picker in Settings → Server. ⚠ needs a server restart to go
       live.
+- [x] 2026-07-10 — **Scratch mode** (`hey buddy scratch on/off`): new `scratch` command toggles a
+      per-connection flag; while detached, `dispatch`/`commitMessage` echo each non-command
+      transcription back via `say` (reusing the existing wire) so you can test STT quality. Registry
+      + parse + vocab + docs (commands.md, README). ⚠ needs a server restart to go live.
 - [x] 2026-07-10 — **Model picker dropdown**: new `SPAWNER_WHISPER_MODELS_DIR` lets the gateway
       list the ggml models on disk (size-ordered, re-scanned per send); `hello_ok`/`whisper_model`
       carry them as `whisper_models`, and the app's Transcription models fields become dropdowns

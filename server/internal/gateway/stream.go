@@ -81,7 +81,11 @@ func (c *conn) commitMessage() {
 			// utterance is a command — no "hey buddy" needed, and nothing can
 			// leak into a Claude session.
 			if !c.runCommand(command.Parse(command.ApplyAliases(msg, c.aliases))) {
-				c.send(msgSay("not a command — try 'list sessions' or 'attach to a session'."))
+				if c.scratch {
+					c.send(msgSay(msg)) // scratch mode: read back exactly what was transcribed
+				} else {
+					c.send(msgSay("not a command — try 'list sessions' or 'attach to a session'."))
+				}
 			}
 			return
 		}

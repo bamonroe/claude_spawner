@@ -30,6 +30,7 @@ const (
 	Rename     Kind = "rename"      // rename the currently-attached session
 	ListModels Kind = "list_models" // list the attached session's backend's models
 	UseModel   Kind = "use_model"   // switch the attached session's model by number
+	Scratch    Kind = "scratch"     // toggle scratch mode: detached, echo transcriptions back aloud
 	Unknown    Kind = "unknown"
 )
 
@@ -80,6 +81,7 @@ var commandVocab = []string{
 	"spawn", "attach", "detach", "list", "kill", "status", "cancel",
 	"stop", "abort", "help", "read last", "clear", "compress", "compact",
 	"usage", "rename", "session", "project", "model", "models", "codex",
+	"scratch",
 }
 
 // Vocabulary returns the control words worth biasing STT toward: the canonical
@@ -291,6 +293,21 @@ func Parse(text string) Intent {
 	// Detach: bare "detach"/"detach now", or an explicit phrase.
 	case first == "detach" && n <= 2, contains(t, "stop dictating", "stop listening"):
 		return Intent{Kind: Detach}
+
+	// Scratch: toggle "scratch mode" — while detached, the server echoes each
+	// transcription back aloud so you can test STT quality. "scratch on"/"scratch
+	// off"/"scratch mode on/off"; bare "scratch" toggles. Arg carries on/off ("" =
+	// toggle).
+	case first == "scratch" && n <= 3, leadsWith(t, "scratch mode", "scratch on", "scratch off"):
+		arg := ""
+		last := words[n-1]
+		switch last {
+		case "on", "enable", "enabled", "start":
+			arg = "on"
+		case "off", "disable", "disabled", "stop", "end":
+			arg = "off"
+		}
+		return Intent{Kind: Scratch, Arg: arg}
 
 	// Kill: short "kill <name>", or an explicit "… session" phrase.
 	case first == "kill" && n <= 3, contains(t, "kill session", "stop session", "end session", "close session"):

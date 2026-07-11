@@ -104,6 +104,15 @@
       "description": "Rename the session you're attached to"
     },
     {
+      "title": "scratch",
+      "aliases": [
+        "scratch on",
+        "scratch off",
+        "scratch mode on"
+      ],
+      "description": "Toggle scratch mode: while detached, hear each transcription read back to test STT"
+    },
+    {
       "title": "spawn",
       "aliases": [
         "spawn a new session",

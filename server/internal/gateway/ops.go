@@ -32,6 +32,8 @@ func (c *conn) dispatch(text string) {
 	// attached, else nudge.
 	if c.attached != nil {
 		c.dictate(rest)
+	} else if c.scratch {
+		c.send(msgSay(rest)) // scratch mode: read back exactly what was transcribed
 	} else {
 		c.send(msgSay("didn't catch that. try 'spawn a new session'."))
 	}
@@ -76,10 +78,31 @@ func (c *conn) runCommand(intent command.Intent) bool {
 		c.doListModels()
 	case command.UseModel:
 		c.doUseModel(intent.Count)
+	case command.Scratch:
+		c.doScratch(intent.Arg)
 	default:
 		return false
 	}
 	return true
+}
+
+// doScratch toggles scratch mode. Arg "on"/"off" sets it explicitly; "" flips
+// it. Scratch mode only echoes while detached (see dispatch/commitMessage), so
+// it never interferes with an attached session.
+func (c *conn) doScratch(arg string) {
+	switch arg {
+	case "on":
+		c.scratch = true
+	case "off":
+		c.scratch = false
+	default:
+		c.scratch = !c.scratch
+	}
+	if c.scratch {
+		c.send(msgSay("scratch mode on — detach and speak, and I'll read back what I heard. say 'scratch off' to stop."))
+	} else {
+		c.send(msgSay("scratch mode off."))
+	}
 }
 
 // usageAction selects what a /usage read does to the drift estimate once the

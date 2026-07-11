@@ -65,6 +65,8 @@ var Registry = []Command{
 		"Cancel the running Claude turn", "stop the turn"},
 	{Help, "help", []string{"help", "what can you do"},
 		"Speak the list of commands", "help"},
+	{Scratch, "scratch", []string{"scratch on", "scratch off", "scratch mode on"},
+		"Toggle scratch mode: while detached, hear each transcription read back to test STT", "scratch on"},
 }
 
 // RegistryJSON returns the registry as indented JSON (an object with a

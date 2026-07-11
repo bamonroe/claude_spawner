@@ -57,6 +57,7 @@ All prefixed with **"hey buddy"**:
 - `clear the context` — start Claude fresh **without** losing your history (see below)
 - `compress the context` — like `clear`, but carries a **summary** forward (see below)
 - `list models` / `use model <number>` — list the AI's models and switch by number (see below)
+- `scratch on` / `scratch off` — **scratch mode**: while detached, hear each transcription read back so you can test how well Whisper is hearing you (see below)
 
 Anything spoken **while attached** that isn't a reserved command is dictated to the session. When a
 command fails (a bad path, a name that's taken, a session live in a terminal…), the server speaks a
@@ -144,6 +145,17 @@ fires even when the app is detached, and the preference is global (one limit for
 
 The compress summary keeps your **most recent messages in near-verbatim detail** and squeezes older
 history harder, so the active working context survives compaction.
+
+### Scratch mode: testing transcription
+
+**"hey buddy, scratch on"** turns on a transcription-quality test loop. While you're **detached**
+(no session attached), the server takes each utterance it recognizes and — instead of doing nothing
+with it — reads it straight back to you via TTS, so you hear exactly what Whisper heard. It's a fast
+way to gauge how well the current model is transcribing you, or to compare models after changing the
+full/quick picks. **"hey buddy, scratch off"** stops it; a bare "scratch" toggles. It only echoes
+while detached, so it never interferes with a live session — attach and your speech dictates as
+usual. Reserved commands still work in scratch mode (a detached utterance is parsed as a command
+first), so speak ordinary sentences to exercise the transcriber.
 
 ### Choosing the AI backend and its model
 

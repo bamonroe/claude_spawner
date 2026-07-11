@@ -473,6 +473,7 @@ type conn struct {
 	sttModel    string                 // fixed-mode model: "tiny" | "base" | "small"
 	aliases     map[string]string      // mis-transcription -> canonical command word
 	stt         transcribe.Transcriber // per-conn override (app-set whisper URL); nil = server default
+	scratch     bool                   // scratch mode: while detached, echo each transcription back aloud (STT test)
 }
 
 // transcriber returns this connection's STT — an app-set override if present,
