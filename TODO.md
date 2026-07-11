@@ -19,8 +19,12 @@ Dates are `YYYY-MM-DD`.
       `AudioDeviceCallback`. On the speaker it keeps the comm-audio + AEC barge-in path. New
       **Audio → Hands-free microphone** choice (`micSource` pref): **Phone mic** (default) vs
       **Headset mic**, which forces the Bluetooth hands-free (SCO) profile so a paired headset's mic
-      hears you across the room (call quality, ducks other apps — inherent BT trade). Client-only,
-      no protocol change. `AudioRouter.headphonesConnected/bluetoothMicAvailable/enable|disableHeadsetMic`,
+      hears you across the room (call quality, ducks other apps — inherent BT trade). Falls back to
+      the phone mic when no BT headset is present, and — after `verifyHeadsetMic` gives the SCO link
+      ~2.5s and finds it dead (`AudioRouter.headsetMicActive`) — auto-reverts to the built-in mic so
+      a headset that won't engage its hands-free profile never leaves the user unheard (latched per
+      session, cleared on setting change / fresh start). Client-only, no protocol change.
+      `AudioRouter.headphonesConnected/bluetoothMicAvailable/enable|disableHeadsetMic`,
       `HandsFreeRecorder` source+AEC now configurable, `VoiceController.resolveMicProfile`.
 - [x] 2026-07-11 — **Gated dictation ("speak token")** — in hands-free mode with ambient chatter
       (other people, radio, recordings), un-bracketed speech is no longer dictated. New per-client

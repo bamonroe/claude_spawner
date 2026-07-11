@@ -144,6 +144,21 @@ class AudioRouter(context: Context) {
         }
     }
 
+    /** Whether the Bluetooth hands-free (SCO) link is actually carrying audio right
+     *  now — not merely requested. [enableHeadsetMic] returns as soon as the request
+     *  is accepted, but the physical SCO link comes up (or fails) a beat later; when
+     *  it fails the platform reverts the communication device to A2DP (no mic), so a
+     *  short while after enabling, this tells the caller whether the headset mic is
+     *  really live or it should fall back to the built-in mic. */
+    fun headsetMicActive(): Boolean {
+        val am = am ?: return false
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            return am.communicationDevice?.isBluetoothMic() ?: false
+        }
+        @Suppress("DEPRECATION")
+        return am.isBluetoothScoOn
+    }
+
     /** Release the Bluetooth hands-free profile grabbed by [enableHeadsetMic]. */
     fun disableHeadsetMic() {
         val am = am ?: return

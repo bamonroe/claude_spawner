@@ -224,7 +224,11 @@ when you're across the room, the **Audio** settings page has a **Hands-free micr
 - **Headset mic** — forces the Bluetooth **hands-free profile** so a paired headset's own mic picks
   you up from anywhere in the room. This is call-mode audio by nature, so the headset drops to call
   quality and other apps duck while it's listening — the unavoidable Bluetooth trade for a roaming
-  mic. Ignored (falls back to the phone mic) when no Bluetooth headset is connected.
+  mic. Ignored (falls back to the phone mic) when no Bluetooth headset is connected, and if the
+  headset's hands-free link **fails to engage** — some earbuds refuse it on demand and the phone
+  silently reverts to the mic-less music link — the app detects the dead link within a couple of
+  seconds and **falls back to the built-in mic** so you're never left unheard (the mic status line
+  says so). Re-selecting **Headset mic** retries it.
 
 ### Choosing the AI backend and its model
 

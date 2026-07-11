@@ -531,6 +531,13 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     // Whether we currently hold a Bluetooth headset's hands-free (SCO) profile, so
     // we only grab/release it on an actual transition (releasing resets routing).
     @Volatile private var headsetMicOn = false
+    // Latched when the headset's SCO link failed to come up (some earbuds' hands-free
+    // profile won't engage on demand): capture falls back to the built-in mic and
+    // stops re-attempting SCO for the rest of the session. Cleared whenever the user
+    // changes the mic-source setting (so re-selecting "headset" retries) or on a fresh
+    // hands-free start — see [lastMicSource].
+    @Volatile private var headsetMicFailed = false
+    @Volatile private var lastMicSource = ""
 
     private fun vadConfig() = com.bam.spawner.audio.VadConfig(
         rmsThreshold = settings.vadThreshold.toDouble(),
@@ -550,7 +557,11 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
      *    (nothing to echo-cancel) and staying out of call mode stops Android from
      *    ducking other apps' audio (e.g. a movie) to a whisper. */
     private fun resolveMicProfile(): MicProfile {
-        val useHeadset = settings.micSource == "headset" && audioRouter.bluetoothMicAvailable()
+        // Any change to the mic-source setting clears a prior SCO-failure latch, so
+        // explicitly re-selecting "headset" retries it; an unchanged value (e.g. a
+        // route-change restart) keeps the latch so we don't loop on a dead link.
+        if (settings.micSource != lastMicSource) { headsetMicFailed = false; lastMicSource = settings.micSource }
+        val useHeadset = settings.micSource == "headset" && !headsetMicFailed && audioRouter.bluetoothMicAvailable()
         if (useHeadset && !headsetMicOn) { headsetMicOn = audioRouter.enableHeadsetMic() }
         else if (!useHeadset && headsetMicOn) { audioRouter.disableHeadsetMic(); headsetMicOn = false }
         headphonesRoute = audioRouter.headphonesConnected()
@@ -571,6 +582,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
         if (hfOn) return true
         if (recording) return false // don't fight push-to-talk for the mic
         stopMeter() // free the mic if the level meter was running
+        headsetMicFailed = false // a fresh enable gets one clean SCO attempt
         val profile = resolveMicProfile()
         val hf = newHandsFree(profile)
         if (!hf.start()) {
@@ -582,6 +594,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
         speaker.setCommMode(profile.commMode)
         _voiceState.value = VoiceState.LISTENING
         _mic.value = "🟢 listening for \"hey buddy\"…"
+        if (headsetMicOn) scope.launch { verifyHeadsetMic() }
         return true
     }
 
@@ -596,9 +609,23 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
             handsFree = hf
             speaker.setCommMode(profile.commMode)
             _voiceState.value = VoiceState.LISTENING
+            if (headsetMicOn) scope.launch { verifyHeadsetMic() }
         } else {
             handsFree = null; hfOn = false; _voiceState.value = VoiceState.OFF
         }
+    }
+
+    /** After grabbing a Bluetooth headset's hands-free profile, give the SCO link a
+     *  moment to actually come up. If it didn't (some earbuds refuse it on demand and
+     *  the platform silently reverts to the mic-less A2DP link), latch the failure and
+     *  restart on the built-in mic so the user is never left unheard. */
+    private suspend fun verifyHeadsetMic() {
+        delay(2500)
+        if (!hfOn || !headsetMicOn) return
+        if (audioRouter.headsetMicActive()) return
+        headsetMicFailed = true // don't re-attempt SCO until the setting changes
+        _mic.value = "🟢 listening (headset mic unavailable — using built-in)…"
+        restartHandsFree()
     }
 
     /** Headphones plugged/unplugged (or Bluetooth connected/dropped): if the route
