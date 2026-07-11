@@ -566,9 +566,12 @@ type DirEntry struct {
 func (p *SSHPool) ListDir(ctx context.Context, host, dir string) ([]DirEntry, error) {
 	// The */ glob lists only subdirectories and skips dotfiles; for each, print
 	// "<repo> <name>" where <repo> is 1 when it has a .git entry. A cd failure (dir
-	// gone) yields an empty listing rather than an error.
+	// gone) yields an empty listing rather than an error. Run under sh -c: the login
+	// shell may be zsh, whose NOMATCH aborts the whole command with exit 1 when */
+	// matches nothing (a dir with only files/dotfiles), which POSIX sh leaves literal
+	// (and the [ -d ] guard then skips) — otherwise such a folder fails to browse.
 	script := "cd " + shellQuote(dir) + ` 2>/dev/null || exit 0; for d in */; do [ -d "$d" ] || continue; n=${d%/}; if [ -e "$n/.git" ]; then printf '1 %s\n' "$n"; else printf '0 %s\n' "$n"; fi; done`
-	out, err := p.Run(ctx, host, script)
+	out, err := p.Run(ctx, host, "sh -c "+shellQuote(script))
 	if err != nil {
 		return nil, err
 	}
@@ -594,9 +597,10 @@ func (p *SSHPool) ListDir(ctx context.Context, host, dir string) ([]DirEntry, er
 func (p *SSHPool) ListAll(ctx context.Context, host, dir string) ([]DirEntry, error) {
 	// For each non-hidden entry print a 2-char tag then the name: "d1"/"d0" for a
 	// directory (1 = holds a .git), "f0" for a regular file. A cd failure yields an
-	// empty listing rather than an error.
+	// empty listing rather than an error. Run under sh -c so a zsh login shell's
+	// NOMATCH can't abort an empty directory's listing with exit 1 (see ListDir).
 	script := "cd " + shellQuote(dir) + ` 2>/dev/null || exit 0; for e in *; do if [ -d "$e" ]; then if [ -e "$e/.git" ]; then printf 'd1 %s\n' "$e"; else printf 'd0 %s\n' "$e"; fi; elif [ -f "$e" ]; then printf 'f0 %s\n' "$e"; fi; done`
-	out, err := p.Run(ctx, host, script)
+	out, err := p.Run(ctx, host, "sh -c "+shellQuote(script))
 	if err != nil {
 		return nil, err
 	}

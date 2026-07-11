@@ -12,6 +12,13 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-11 — **Fix: SSH browse/spawn fails for a folder with no visible subdirs** — the
+      visual New-session browser's `ListDir`/`ListAll` probes glob `*/` and `*` over SSH, but the
+      remote login shell is zsh, whose NOMATCH aborts the command with exit 1 when the glob matches
+      nothing (a directory holding only files and/or dotfiles, e.g. `/data/android`). That surfaced
+      as `bad_path: Process exited with status 1` and made such folders un-browsable/un-spawnable.
+      Now the probes run under `sh -c` (POSIX leaves an unmatched glob literal, and the `[ -d ]`
+      guard skips it). Follow-up: a live-SSH regression test over a files-only temp dir.
 - [x] 2026-07-11 — **Headphone-aware hands-free audio + Bluetooth mic toggle** — hands-free no
       longer forces call-mode audio (which ducked other apps, e.g. a movie) when it doesn't need to:
       while headphones are connected (wired/USB/BT), capture runs in plain media mode with no echo
