@@ -790,7 +790,9 @@ fun AudioSettings(
 /**
  * One server-global whisper model editor: a free-text ggml model name, prefilled from the
  * server-reported [current] (re-synced on any change, even from another device), with an Apply
- * that pushes it via [onApply] only when it differs.
+ * that pushes it via [onApply]. Re-applying the unchanged name is a deliberate pin: the server
+ * skips the redundant hot-load but persists the choice to settings.json, so a model that only
+ * came from an env default survives restarts.
  */
 @Composable
 private fun WhisperModelField(label: String, current: StateFlow<String>, onApply: (String) -> Unit) {
@@ -805,7 +807,7 @@ private fun WhisperModelField(label: String, current: StateFlow<String>, onApply
         )
         OutlinedButton(
             onClick = { onApply(picked.trim()) },
-            enabled = picked.trim().isNotBlank() && picked.trim() != cur,
+            enabled = picked.trim().isNotBlank(),
         ) { Text("Apply") }
     }
     Text(

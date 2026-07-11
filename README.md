@@ -258,7 +258,9 @@ for every device at once): the **full** field is the accurate server (dictation)
 field the fast one (live hands-free draft + end-token detection), and each free-text field takes
 any ggml model name in the server's `/models` dir (`tiny.en` … `large-v3`). Both choices are
 **persisted to `settings.json`** next to the session state, so a restart or rebuild keeps them
-instead of reverting to `SPAWNER_WHISPER_MODEL_NAME` / `SPAWNER_WHISPER_FAST_MODEL_NAME`.
+instead of reverting to `SPAWNER_WHISPER_MODEL_NAME` / `SPAWNER_WHISPER_FAST_MODEL_NAME`. Applying
+a field's unchanged value is a deliberate **pin**: no reload happens, but a model that so far only
+came from the env default gets written to `settings.json`.
 (Settings the app owns — the per-device voice prefs — ride along in each `hello` and don't need
 server-side storage.)
 
