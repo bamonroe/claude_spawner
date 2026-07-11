@@ -196,7 +196,12 @@ class WebAppController(private val prefs: Prefs) : AppController {
                         if (summaryOnly) speak(msg.text) // chunks only beeped — speak the final now
                     }
                     turnStreamed = false
-                    msg.usage?.let { _lastTurnUsage.value = TurnUsageInfo(it, nowMonotonicMs()) }
+                    // Anchor the cache-warm countdown to the turn's real completion
+                    // time (usage_at), not to when a buffered reply reached us.
+                    msg.usage?.let { u ->
+                        val ageMs = if (msg.usageAt > 0) (nowEpochSeconds() - msg.usageAt) * 1000 else 0L
+                        _lastTurnUsage.value = TurnUsageInfo(u, nowMonotonicMs() - ageMs.coerceIn(0, 6 * 60 * 1000L))
+                    }
                 }
             }
             is ServerMsg.StopSpeaking -> { cancelSpeech(); _speaking.value = false }

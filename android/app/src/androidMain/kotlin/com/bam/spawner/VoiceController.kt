@@ -858,7 +858,13 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                         if (summaryOnly) speaker.speak(Markdown.toSpeech(msg.text))
                     }
                     turnStreamed = false
-                    msg.usage?.let { _lastTurnUsage.value = TurnUsageInfo(it, nowMonotonicMs()) }
+                    // Anchor the cache-warm countdown to the turn's real completion
+                    // time (usage_at), so a reply delivered buffered on reconnect
+                    // counts down from its true age, not from when it arrived.
+                    msg.usage?.let { u ->
+                        val ageMs = if (msg.usageAt > 0) System.currentTimeMillis() - msg.usageAt * 1000 else 0L
+                        _lastTurnUsage.value = TurnUsageInfo(u, nowMonotonicMs() - ageMs.coerceIn(0, 6 * 60 * 1000L))
+                    }
                     if (!appForeground) notifier.turnDone(msg.name, msg.text) // surface it from the pocket
                 }
             }
