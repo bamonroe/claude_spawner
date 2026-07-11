@@ -110,34 +110,39 @@ class Speaker(context: Context) {
     // it reads as a round "still working…" cue rather than a sharp alert, and
     // stays distinct from Android notification chimes.
     private val beepPcm: ByteArray by lazy { buildBeep() }
-    // Serialized beep pipeline: every beep() enqueues a tone that a single worker
-    // plays back-to-back, so a burst of streamed segments each gets its own audible
-    // cue instead of the loudest one swallowing the rest. The old design *dropped*
-    // any beep landing within a throttle window, which is exactly why messages that
-    // arrive close together (a subagent dumping several, or fast streamed chunks)
-    // went unbeeped. Bounded so a runaway burst can't beep for many seconds.
+    // Coalescing "still working…" cue: a beep is swallowed while one is already
+    // playing, so a burst of messages doesn't machine-gun — it's an indicator that
+    // things are happening, not a per-message count. But a beep that arrives once
+    // the current tone has finished always plays, so sustained activity gives a
+    // steady stream of tones rather than long silent gaps.
+    //
+    // The tone plays on one long-lived, reused AudioTrack driven by a single worker
+    // thread. That's the actual fix for the reported 20-second silent gaps: the old
+    // code built (and released) a fresh AudioTrack for every beep, and the platform
+    // routinely swallowed those cold-route plays — so beeps were requested but never
+    // sounded. Keeping the track warm makes each replay reliably audible.
     private val beepQueue = LinkedBlockingQueue<Unit>()
-    private val beepPending = AtomicInteger(0)
     @Volatile private var beepWorker: Thread? = null
-    // The worker owns one long-lived AudioTrack and replays it, which keeps the
-    // audio route warm — a freshly-created track per beep let the platform swallow
-    // the first tone after an idle route (the "missing on the first message" symptom).
+    @Volatile private var lastBeepNs = 0L
     private var beepTrack: AudioTrack? = null
     private var beepTrackUsage = -1
 
     /**
      * Play the soft warm beep in place of speaking an intermediate step (used by
-     * summary-only mode). No-op when muted. Serialized (not throttled) so every
-     * message gets a beep — a burst plays as distinct back-to-back tones. Routed
-     * like TTS: echo-cancelled comms audio in hands-free (so the open mic cancels
-     * it), the media speaker otherwise.
+     * summary-only mode). No-op when muted. Coalesced: swallowed while a tone is
+     * already playing, so bursts read as "activity" rather than a beep per message.
+     * Routed like TTS: echo-cancelled comms audio in hands-free (so the open mic
+     * cancels it), the media speaker otherwise.
      */
     fun beep() {
         if (muted) return
-        // Cap the backlog so a huge burst doesn't machine-gun for many seconds; past
-        // the cap the extra messages are already represented by the queued beeps.
-        if (beepPending.get() >= MAX_PENDING_BEEPS) return
-        beepPending.incrementAndGet()
+        // Swallow a beep that lands while the previous tone is still sounding; the
+        // window is the tone length plus a short gap, so the worker never backs up
+        // (at most one tone is ever queued) and back-to-back activity still beeps
+        // steadily as each window elapses.
+        val now = System.nanoTime()
+        if (now - lastBeepNs < BEEP_COALESCE_MS * 1_000_000L) return
+        lastBeepNs = now
         ensureBeepWorker()
         beepQueue.offer(Unit)
     }
@@ -153,12 +158,6 @@ class Speaker(context: Context) {
                     break
                 }
                 if (!muted) runCatching { playOneBeep() }
-                beepPending.updateAndGet { if (it > 0) it - 1 else 0 }
-                try {
-                    Thread.sleep(BEEP_GAP_MS) // brief gap so back-to-back tones stay distinct
-                } catch (_: InterruptedException) {
-                    break
-                }
             }
         }.apply { isDaemon = true; name = "warm-beep"; start() }
     }
@@ -198,10 +197,10 @@ class Speaker(context: Context) {
         try { Thread.sleep(BEEP_MS + 40L) } catch (_: InterruptedException) {} // let the tone finish before the next
     }
 
-    /** Drop any queued/pending beeps (used on barge-in and mute). */
+    /** Drop any queued beeps (used on barge-in and mute). */
     private fun clearBeeps() {
         beepQueue.clear()
-        beepPending.set(0)
+        lastBeepNs = 0L
     }
 
     private fun buildBeep(): ByteArray {
@@ -233,5 +232,7 @@ private const val BEEP_RATE = 44100
 private const val BEEP_MS = 200L
 private const val BEEP_FREQ = 420.0    // low and round — warm, not shrill
 private const val BEEP_AMP = 0.30      // soft
-private const val BEEP_GAP_MS = 70L    // silence between queued back-to-back tones so they stay distinct
-private const val MAX_PENDING_BEEPS = 12 // backlog cap so a runaway burst can't beep for many seconds
+// A beep is swallowed while another is within this window of starting — the tone
+// length plus a short gap. So a burst coalesces to one "activity" tone, but once a
+// tone finishes the next message beeps again (steady stream under sustained work).
+private const val BEEP_COALESCE_MS = 260L
