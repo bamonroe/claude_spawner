@@ -12,8 +12,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -54,7 +52,9 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.layoutId
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
@@ -130,10 +130,11 @@ fun InputBar(
               tint = MaterialTheme.colorScheme.onSurfaceVariant,
           )
       }
-      // The composer restructures when the draft grows past one line: the field jumps
-      // to its own full-width row above the transfer/send buttons (the common phone
-      // messenger behaviour) instead of staying a skinny column wedged between them.
-      val messageField: @Composable (Modifier) -> Unit = { fieldModifier ->
+      // The field, transfer (📎) and send buttons are the three children of the custom
+      // Layout below. Keeping them in one Layout — rather than swapping a Row for a
+      // Column when the draft grows — means the field's node is never re-parented, so it
+      // keeps focus and the soft keyboard through the collapse↔expand transition.
+      val messageField: @Composable () -> Unit = {
         OutlinedTextField(
             value = draft,
             onValueChange = { draft = it; if (it.isEmpty()) expanded = false },
@@ -145,7 +146,7 @@ fun InputBar(
             // cursor and the swipe-open still works (that handler is armed only when
             // the tray is already open). onFocusChanged covers a first-tap focus; this
             // covers a tap when the swipe-to-open already left the box focused.
-            modifier = fieldModifier
+            modifier = Modifier
                 // First stable measure is the empty single line; once the field grows
                 // past ~1.4× that height, switch to the expanded (full-width) layout.
                 .onSizeChanged { s ->
@@ -372,33 +373,51 @@ fun InputBar(
             }
         }
       }
-      if (expanded) {
-        // Multi-line: the field owns a full-width row; the buttons drop to a row below
-        // (transfer left, send right), so the text is never squeezed into a skinny column.
-        Column(Modifier.fillMaxWidth().padding(8.dp)) {
-            messageField(Modifier.fillMaxWidth())
-            Row(
-                Modifier.fillMaxWidth().padding(top = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                transferButton { path -> draft = "look at the file at $path" }
-                Spacer(Modifier.weight(1f))
-                sendButton()
-            }
-        }
-      } else {
-        // Single line: the compact side-by-side row — transfer, field, send.
-        Row(
-            Modifier.fillMaxWidth().padding(8.dp),
-            verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            // File transfer (📎): upload a phone file to — or download one from — the
-            // session's host, prefilling the box with "look at the file at <path>".
-            transferButton { path -> draft = "look at the file at $path" }
-            messageField(Modifier.weight(1f))
-            sendButton()
-        }
+      // Custom Layout so the field's node is stable across the collapse↔expand swap
+      // (see the messageField comment). Collapsed: a bottom-aligned row — transfer, the
+      // field filling the gap, send. Expanded (draft past one line): the field on its
+      // own full-width row with the transfer/send buttons dropped to a row beneath it,
+      // so the text is never squeezed into a skinny column. `expanded` is read in the
+      // measure pass, so flipping it just re-measures — the children are never recomposed.
+      Layout(
+          modifier = Modifier.fillMaxWidth().padding(8.dp),
+          content = {
+              // 📎: upload a phone file to — or download one from — the session's host,
+              // prefilling the box with "look at the file at <path>".
+              Box(Modifier.layoutId("transfer")) {
+                  transferButton { path -> draft = "look at the file at $path" }
+              }
+              Box(Modifier.layoutId("field")) { messageField() }
+              Box(Modifier.layoutId("send")) { sendButton() }
+          },
+      ) { measurables, constraints ->
+          val transfer = measurables.first { it.layoutId == "transfer" }
+          val field = measurables.first { it.layoutId == "field" }
+          val send = measurables.first { it.layoutId == "send" }
+          val gap = 8.dp.roundToPx()
+          val loose = constraints.copy(minWidth = 0, minHeight = 0)
+          val transferP = transfer.measure(loose)
+          val sendP = send.measure(loose)
+          val fullW = constraints.maxWidth
+          if (expanded) {
+              val fieldP = field.measure(constraints.copy(minWidth = fullW, maxWidth = fullW, minHeight = 0))
+              val btnH = maxOf(transferP.height, sendP.height)
+              layout(fullW, fieldP.height + gap + btnH) {
+                  fieldP.placeRelative(0, 0)
+                  val rowY = fieldP.height + gap
+                  transferP.placeRelative(0, rowY + (btnH - transferP.height) / 2)
+                  sendP.placeRelative(fullW - sendP.width, rowY + (btnH - sendP.height) / 2)
+              }
+          } else {
+              val fieldW = (fullW - transferP.width - sendP.width - gap * 2).coerceAtLeast(0)
+              val fieldP = field.measure(constraints.copy(minWidth = fieldW, maxWidth = fieldW, minHeight = 0))
+              val h = maxOf(transferP.height, fieldP.height, sendP.height)
+              layout(fullW, h) {
+                  transferP.placeRelative(0, h - transferP.height)
+                  fieldP.placeRelative(transferP.width + gap, h - fieldP.height)
+                  sendP.placeRelative(fullW - sendP.width, h - sendP.height)
+              }
+          }
       }
     }
 }
