@@ -37,7 +37,11 @@ func (c *conn) gatedChunk(pcm []byte) {
 		}
 	}
 	if _, _, found := splitEndToken(joined, c.endToken); !found {
-		c.send(msgPending(joined))
+		// Draft only what would actually be dictated: with the dictation gate on,
+		// suppress pre-speak-token ambient speech so the note stays empty until the
+		// gate opens (and can't grow unbounded from background chatter). Gate off:
+		// gateDictation returns the text unchanged, so the draft is the full buffer.
+		c.send(msgPending(c.gateDictation(joined)))
 		return
 	}
 	c.commitMessage()
