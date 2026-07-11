@@ -105,9 +105,6 @@ fun InputBar(
     // While hands-free owns the mic, push-to-talk is disabled.
     val pushToTalkEnabled = !handsFree
     val micLive = connected && pushToTalkEnabled
-    // On the browser/desktop client a physical Enter sends (Shift+Enter = newline) —
-    // the on-screen mobile clients keep Enter as newline and rely on the send button.
-    val enterSends = platformName() == "Web"
     Column(Modifier.fillMaxWidth()) {
       AnimatedVisibility(visible = trayOpen) {
         CommandTray(
@@ -158,11 +155,13 @@ fun InputBar(
                     if (singleLineHeightPx == 0) singleLineHeightPx = s.height
                     else if (s.height > singleLineHeightPx * 1.4f) expanded = true
                 }
-                // Desktop/web: Enter sends, Shift+Enter inserts a newline. Consumed so
-                // the newline isn't also typed. No-op on mobile (enterSends is false).
+                // A physical keyboard (the web client, or a Bluetooth keyboard paired to
+                // the phone) sends with Shift+Enter; plain Enter stays a newline. Consumed
+                // so the chord isn't also typed. On-screen keyboards never emit a shifted
+                // Enter, so this is a no-op for touch typing.
                 .onPreviewKeyEvent { e ->
-                    if (enterSends && e.type == KeyEventType.KeyDown &&
-                        e.key == Key.Enter && !e.isShiftPressed
+                    if (e.type == KeyEventType.KeyDown &&
+                        e.key == Key.Enter && e.isShiftPressed
                     ) {
                         if (connected && draft.isNotBlank()) { onSend(draft); draft = ""; expanded = false }
                         true

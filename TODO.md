@@ -316,6 +316,14 @@ Milestones:
         0, so the `OutlinedTextField` sized to its text content and the purple border only grew to
         the edge as you typed. A `Modifier.fillMaxWidth()` on the field pins the border to the full
         slot width in both the collapsed and expanded layouts. Built clean and installed on the phone.
+  - [x] 2026-07-11 — **Chat bubbles cap at 80% of the window width, not a fixed 320dp.** The old
+        hard cap looked right on a phone but left a skinny column on a tablet; a `BoxWithConstraints`
+        now sets `widthIn(max = maxWidth * 0.8f)` so bubbles grow with the window while short
+        messages still hug their text. Built clean and installed on the phone.
+  - [x] 2026-07-11 — **Shift+Enter sends from any physical keyboard.** Replaces the web-only
+        "plain Enter sends"; now Shift+Enter sends and plain Enter is a newline on both the web
+        client and a Bluetooth keyboard paired to the Android app (on-screen keyboards never emit
+        the chord, so touch typing is unaffected). Built clean and installed on the phone.
 - [~] **M5 — Web-native platform bits.** Browser audio (Web Audio → server STT), `SpeechSynthesis` TTS,
       browser spawn UI.
   - [x] 2026-07-09 — **Web file transfer (the 📎 flow).** The web `MainScreen` now fills the
