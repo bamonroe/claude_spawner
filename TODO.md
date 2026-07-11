@@ -12,6 +12,15 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-11 — **Curatable command tray: pick which commands the swipe-up shows** — the tray was
+      hard-wired to every argument-free command. Now it's user-curated. In **Settings › Commands**
+      each command is a **collapsible card** (tap the header to expand); an expanded card shows the
+      spoken aliases, the alias editor, and an **Add to / Remove from tray** toggle (with a ★ marker
+      on the header when it's in the tray). Argument-taking commands (`attach`/`kill`/`spawn`) show a
+      note instead — a tap button can't supply a `<name>`. Selection persists in a new `trayCommands`
+      pref (`Prefs` + both backends), seeded to the previous all-argument-free set, and the swipe-up
+      `CommandTray` renders just those (empty tray → a hint pointing back at settings). `Prefs.kt`,
+      `SettingsScreens.kt`, `InputBar.kt`, `MainScreen.kt` + both call sites.
 - [x] 2026-07-11 — **Backend-aware full delete: wipe every on-disk trace of a session** — deleting a
       Claude session used to drop only its transcript `.jsonl`, leaving the `projects/<dir>/<id>/`
       sidecar (subagent logs + cached tool results) and the per-session state dirs (`tasks`,

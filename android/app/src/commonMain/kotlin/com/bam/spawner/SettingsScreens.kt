@@ -1,6 +1,7 @@
 package com.bam.spawner
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -8,11 +9,14 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -20,6 +24,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -484,6 +492,7 @@ fun CommandsSettings(
     endTokenTest: @Composable (String) -> Unit = {},
 ) {
     var aliasMap by remember { mutableStateOf(settings.aliasMap()) }
+    var trayNames by remember { mutableStateOf(settings.trayCommandNames().toSet()) }
     var wakeTok by rememberSaveable { mutableStateOf(settings.wakeToken) }
     var endTok by rememberSaveable { mutableStateOf(settings.endToken) }
     var speakTok by rememberSaveable { mutableStateOf(settings.speakToken) }
@@ -553,13 +562,18 @@ fun CommandsSettings(
 
         HorizontalDivider()
         Text(
-            "Add aliases for words whisper mis-hears. Tap an alias bubble to remove it.",
+            "Tap a command to expand it — add aliases for words whisper mis-hears, or "
+                + "add it to the swipe-up tray. Tap an alias bubble to remove it.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
         )
         COMMANDS.forEach { cmd ->
             CommandAliasGroup(
                 cmd = cmd,
                 aliases = aliasMap.filterValues { it == cmd.name }.keys.sorted(),
+                inTray = cmd.name in trayNames,
+                onToggleTray = { on ->
+                    settings.setTrayCommand(cmd.name, on); trayNames = settings.trayCommandNames().toSet()
+                },
                 onAdd = { misheard ->
                     settings.addAlias(misheard, cmd.name); aliasMap = settings.aliasMap(); onAliasesChanged()
                 },
@@ -571,30 +585,83 @@ fun CommandsSettings(
     }
 }
 
+/**
+ * One command as a collapsible card. Collapsed it shows just the name, its
+ * description, and a tray marker; tapping the header expands it to reveal the
+ * spoken aliases, the alias editor (add/remove whisper mis-hears), and the
+ * "add to tray" toggle. Only argument-free commands can join the swipe-up tray —
+ * a tray button can't supply a `<name>`/`<dir>` — so those show a note instead.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun CommandAliasGroup(cmd: Command, aliases: List<String>, onAdd: (String) -> Unit, onRemove: (String) -> Unit) {
+private fun CommandAliasGroup(
+    cmd: Command,
+    aliases: List<String>,
+    inTray: Boolean,
+    onToggleTray: (Boolean) -> Unit,
+    onAdd: (String) -> Unit,
+    onRemove: (String) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
     var adding by remember { mutableStateOf(false) }
+    val trayable = cmd.aliases.none { it.contains("<") }
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
         shape = RoundedCornerShape(12.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            // Header — tap anywhere on it to expand/collapse.
+            Row(
+                Modifier.fillMaxWidth().clickable { expanded = !expanded },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Column(Modifier.weight(1f)) {
                     Text(cmd.name, style = MaterialTheme.typography.titleMedium)
                     Text(cmd.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                }
+                if (inTray) {
+                    Icon(
+                        Icons.Filled.Star, contentDescription = "In tray",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+                Icon(
+                    if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                    contentDescription = if (expanded) "Collapse" else "Expand",
+                )
+            }
+            if (expanded) {
+                Text(
+                    "say: " + cmd.aliases.joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
+                )
+                // Add-to-tray toggle (argument-free commands only).
+                if (trayable) {
+                    OutlinedButton(onClick = { onToggleTray(!inTray) }) {
+                        Icon(
+                            if (inTray) Icons.Filled.Star else Icons.Filled.StarBorder,
+                            contentDescription = null, modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (inTray) "Remove from tray" else "Add to tray")
+                    }
+                } else {
                     Text(
-                        "say: " + cmd.aliases.joinToString(" · "),
+                        "Takes a spoken argument, so it can't be a one-tap tray button.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
                     )
                 }
-                OutlinedButton(onClick = { adding = true }) { Icon(Icons.Filled.Add, contentDescription = "Add") }
-            }
-            if (aliases.isNotEmpty()) {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    aliases.forEach { AliasChip(it) { onRemove(it) } }
+                // Alias editor.
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Aliases", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
+                    OutlinedButton(onClick = { adding = true }) { Icon(Icons.Filled.Add, contentDescription = "Add alias") }
+                }
+                if (aliases.isNotEmpty()) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        aliases.forEach { AliasChip(it) { onRemove(it) } }
+                    }
                 }
             }
         }

@@ -86,6 +86,11 @@ interface Prefs {
     /** Command aliases as "misheard = command" lines (fixes whisper mistakes). */
     var commandAliases: String
 
+    /** Command names shown in the swipe-up tray, comma-separated (order is
+     *  irrelevant — the tray renders them in [COMMANDS] order). Only argument-free
+     *  commands can live here, since a tray button can't supply a `<name>`/`<dir>`. */
+    var trayCommands: String
+
     /** Hands-free: auto-commit after this many seconds of silence (0 = never; end token only). */
     var silenceCommitSeconds: Float
     /** VAD energy bar: lower = more sensitive (catches quiet speech, more false triggers). */
@@ -115,6 +120,24 @@ interface Prefs {
         commandAliases = (aliasMap() - from.trim().lowercase()).entries.joinToString("\n") { "${it.key} = ${it.value}" }
     }
 
+    /** The command names currently in the swipe-up tray. */
+    fun trayCommandNames(): List<String> =
+        trayCommands.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+
+    /** Add or remove a command from the tray by name (no-op if already in the
+     *  desired state). Persists an explicit list, so removing the last one leaves
+     *  an empty tray rather than snapping back to the default. */
+    fun setTrayCommand(name: String, inTray: Boolean) {
+        val cur = trayCommandNames().toMutableList()
+        val has = cur.contains(name)
+        when {
+            inTray && !has -> cur.add(name)
+            !inTray && has -> cur.removeAll { it == name }
+            else -> return
+        }
+        trayCommands = cur.joinToString(",")
+    }
+
     companion object {
         // Server on the host, reached over Tailscale (works on wifi or cellular).
         // A bare host is fine — normalizeWsUrl() fills in ws:// and /ws — so
@@ -123,6 +146,12 @@ interface Prefs {
         const val DEFAULT_URL = "cs.bam"
         const val DEFAULT_TOKEN = "devsecret"
         const val DEFAULT_ALIASES = "attached = attach\ndetached = detach\nthe tach = detach\nkilo = kill\nlisted = list"
+
+        // The tray's initial contents: every argument-free command, matching the
+        // pre-curation behaviour. Users add/remove from Settings › Commands, and the
+        // stored list becomes authoritative (an empty list = a deliberately empty tray).
+        const val DEFAULT_TRAY_COMMANDS =
+            "abort,cancel,clear,compress,detach,help,list,list models,read last,scratch,status,stop,summary only,usage"
 
         // Resolved on the SERVER host — the resident whisper container's published port.
         const val DEFAULT_WHISPER_URL = "http://localhost:8571"

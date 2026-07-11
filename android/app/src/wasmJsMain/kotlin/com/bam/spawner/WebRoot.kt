@@ -77,6 +77,7 @@ fun WebRoot() {
                     handsFreeInitial = false,
                     badgeMode = prefs.tokenBadge,
                     showCacheTimer = prefs.cacheWarmTimer,
+                    trayCommandNames = prefs.trayCommandNames().toSet(),
                     // Push-to-talk mic + SpeechSynthesis TTS are live (M5); hands-free VAD and
                     // output routing aren't, so those stay stubbed.
                     mic = mic,

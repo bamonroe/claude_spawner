@@ -291,6 +291,7 @@ private fun AppRoot(
             handsFreeInitial = settings.handsFree,
             badgeMode = settings.tokenBadge,
             showCacheTimer = settings.cacheWarmTimer,
+            trayCommandNames = settings.trayCommandNames().toSet(),
             debugOverlays = settings.debugOverlays,
             mic = mic,
             audioOutput = audioOutput,

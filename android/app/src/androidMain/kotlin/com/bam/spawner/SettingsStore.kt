@@ -147,6 +147,11 @@ class SettingsStore(context: Context) : Prefs {
         get() = prefs.getString("cmd_aliases", Prefs.DEFAULT_ALIASES) ?: Prefs.DEFAULT_ALIASES
         set(v) = prefs.edit().putString("cmd_aliases", v).apply()
 
+    /** Command names shown in the swipe-up tray, comma-separated. */
+    override var trayCommands: String
+        get() = prefs.getString("tray_commands", Prefs.DEFAULT_TRAY_COMMANDS) ?: Prefs.DEFAULT_TRAY_COMMANDS
+        set(v) = prefs.edit().putString("tray_commands", v).apply()
+
     /** Hands-free: auto-commit after this many seconds of silence (0 = never; end token only). */
     override var silenceCommitSeconds: Float
         get() = prefs.getFloat("silence_commit_sec", 0f)

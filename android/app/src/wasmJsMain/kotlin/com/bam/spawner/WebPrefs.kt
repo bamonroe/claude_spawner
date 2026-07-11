@@ -127,6 +127,10 @@ class WebPrefs : Prefs {
         get() = str("cmd_aliases", Prefs.DEFAULT_ALIASES)
         set(v) = putStr("cmd_aliases", v)
 
+    override var trayCommands: String
+        get() = str("tray_commands", Prefs.DEFAULT_TRAY_COMMANDS)
+        set(v) = putStr("tray_commands", v)
+
     override var silenceCommitSeconds: Float
         get() = localStorage["silence_commit_sec"]?.toFloatOrNull() ?: 0f
         set(v) { localStorage["silence_commit_sec"] = v.toString() }

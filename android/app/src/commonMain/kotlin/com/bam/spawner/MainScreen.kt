@@ -66,6 +66,7 @@ fun MainScreen(
     handsFreeInitial: Boolean,
     badgeMode: String,
     showCacheTimer: Boolean,
+    trayCommandNames: Set<String>,
     debugOverlays: Boolean = false,
     mic: String,
     audioOutput: AudioOutput,
@@ -215,6 +216,7 @@ fun MainScreen(
                 connected = connected,
                 trayOpen = trayOpen,
                 onTrayOpenChange = { trayOpen = it },
+                trayCommandNames = trayCommandNames,
                 // While hands-free owns the mic, push-to-talk is disabled — but the
                 // button still accepts a swipe-up to toggle hands-free back off.
                 handsFree = handsFree,

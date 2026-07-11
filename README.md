@@ -100,8 +100,12 @@ hold, and logs each hold's end reason and drift to logcat (tag `PTT`). Meant for
 hold-to-talk, not everyday use.
 
 **Without your voice:** swipe up on the message box — or tap the **chevron handle** just above it —
-for a **command tray** of tap buttons, one per command that needs no argument (`detach`, `clear`,
-`compress`, `status`, `usage`, …). Open the **sessions drawer** with the ☰ menu or by swiping in from
+for a **command tray** of tap buttons, one per command you've chosen. The tray is **curated in
+Settings › Commands**: each command is a **card you tap to expand**, and an expanded card lets you
+**add it to (or remove it from) the tray** as well as add spoken aliases. It starts seeded with every
+argument-free command (`detach`, `clear`, `compress`, `status`, `usage`, …); prune it to just the
+ones you reach for, or empty it entirely. (Commands that take a spoken argument — `attach`, `kill`,
+`spawn` — can't be one-tap tray buttons.) Open the **sessions drawer** with the ☰ menu or by swiping in from
 the left edge (just inside the edge — the very edge is Android's back gesture). The session list
 **auto-refreshes each time the drawer opens**, and you can **pull down on the list** (or tap
 **Refresh**) to re-scan at any time. See [`docs/commands.md`](docs/commands.md).

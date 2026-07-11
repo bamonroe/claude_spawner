@@ -74,6 +74,7 @@ fun InputBar(
     connected: Boolean,
     trayOpen: Boolean,
     onTrayOpenChange: (Boolean) -> Unit,
+    trayCommandNames: Set<String>,
     handsFree: Boolean,
     onToggleHandsFree: (Boolean) -> Unit,
     onTalkStart: () -> Unit,
@@ -106,8 +107,14 @@ fun InputBar(
     val pushToTalkEnabled = !handsFree
     val micLive = connected && pushToTalkEnabled
     Column(Modifier.fillMaxWidth()) {
+      // Only argument-free commands can be a one-tap button, so intersect the
+      // user's tray selection with those. Kept in COMMANDS order for a stable layout.
+      val trayCommands = remember(trayCommandNames) {
+          COMMANDS.filter { c -> c.name in trayCommandNames && c.aliases.none { it.contains("<") } }
+      }
       AnimatedVisibility(visible = trayOpen) {
         CommandTray(
+            commands = trayCommands,
             connected = connected,
             onCommand = { phrase -> onSend(phrase); onTrayOpenChange(false) },
         )
@@ -426,30 +433,39 @@ fun InputBar(
     }
 }
 
-/** The command tray: the argument-free "hey buddy" commands as tap buttons,
+/** The command tray: the user's chosen "hey buddy" commands as tap buttons,
  * revealed by swiping up on the message box. Each tap fires the command (with
  * the wake prefix, so the server treats it as a control command even while
- * attached) and the caller hides the tray. Derived from COMMANDS, so it never
- * drifts from the server grammar — commands whose aliases take an argument
- * (a <name>/<dir> placeholder) are excluded since a button can't supply one. */
+ * attached) and the caller hides the tray. The contents are curated in
+ * Settings › Commands ("add to tray") and passed in as [commands] — already
+ * filtered to argument-free commands, since a button can't supply a
+ * <name>/<dir>. An empty tray shows a hint pointing at the settings screen. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun CommandTray(connected: Boolean, onCommand: (String) -> Unit) {
-    val trayCommands = remember { COMMANDS.filter { c -> c.aliases.none { it.contains("<") } } }
+fun CommandTray(commands: List<Command>, connected: Boolean, onCommand: (String) -> Unit) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        FlowRow(
-            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            trayCommands.forEach { cmd ->
-                OutlinedButton(
-                    enabled = connected,
-                    onClick = { onCommand("hey buddy " + cmd.aliases.first()) },
-                ) { Text(cmd.name) }
+        if (commands.isEmpty()) {
+            Text(
+                "No tray commands yet — add some in Settings › Commands.",
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            FlowRow(
+                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                commands.forEach { cmd ->
+                    OutlinedButton(
+                        enabled = connected,
+                        onClick = { onCommand("hey buddy " + cmd.aliases.first()) },
+                    ) { Text(cmd.name) }
+                }
             }
         }
     }
