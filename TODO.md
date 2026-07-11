@@ -301,6 +301,12 @@ Milestones:
         beside **New** in the sessions drawer (the pull-to-refresh); and **Enter sends / Shift+Enter
         newlines** on the web client (gated by `platformName() == "Web"`, so mobile keeps Enter as a
         newline). Both targets compile green.
+  - [x] 2026-07-11 — **Composer expands to full width when multi-line.** Once the draft grows past
+        one line, `InputBar` moves the text field to its own full-width row above the transfer/send
+        buttons (they drop to a row beneath) instead of leaving it a skinny column wedged between
+        them — the common phone-messenger behaviour. Height-measured via `onSizeChanged` against the
+        empty single-line baseline; stays expanded until the box is cleared so it can't oscillate at
+        the boundary. Verified on the emulator (both layouts) and installed on the phone.
 - [~] **M5 — Web-native platform bits.** Browser audio (Web Audio → server STT), `SpeechSynthesis` TTS,
       browser spawn UI.
   - [x] 2026-07-09 — **Web file transfer (the 📎 flow).** The web `MainScreen` now fills the
