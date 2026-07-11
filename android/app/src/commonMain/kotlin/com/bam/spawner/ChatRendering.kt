@@ -3,6 +3,7 @@ package com.bam.spawner
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -180,11 +181,17 @@ fun Bubble(msg: ChatMessage, badgeMode: String = "off") {
         Role.CLAUDE -> MaterialTheme.colorScheme.onSurfaceVariant
         Role.SYSTEM -> if (dark) Color.White else Color(0xFF7A4A00)
     }
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 3.dp),
-        horizontalArrangement = if (user) Arrangement.End else Arrangement.Start,
-    ) {
-        Surface(color = bg, contentColor = fg, shape = RoundedCornerShape(14.dp), modifier = Modifier.widthIn(max = 320.dp)) {
+    // Cap each bubble at 80% of the available width so it stays a chat bubble (not a
+    // full-bleed block) but grows with the window — on a phone that's ~the old fixed
+    // 320dp, on a tablet it's far wider instead of a skinny column. widthIn(max), not
+    // a hard width, so short messages still hug their text.
+    BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 3.dp)) {
+        val maxBubble = maxWidth * 0.8f
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = if (user) Arrangement.End else Arrangement.Start,
+        ) {
+        Surface(color = bg, contentColor = fg, shape = RoundedCornerShape(14.dp), modifier = Modifier.widthIn(max = maxBubble)) {
             Column {
                 // Per-bubble selection so the text is long-press copyable, without a
                 // list-wide SelectionContainer (which distorted the Column layout).
@@ -208,6 +215,7 @@ fun Bubble(msg: ChatMessage, badgeMode: String = "off") {
                         .padding(start = 12.dp, end = 12.dp, bottom = 6.dp),
                 )
             }
+        }
         }
     }
 }
