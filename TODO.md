@@ -98,10 +98,15 @@ Dates are `YYYY-MM-DD`.
       readout, and logs each hold's end reason + drift to logcat (tag `PTT`). Instrumented the
       gesture to record *why* a hold ended, including a `lost-pointer` case (OS dropped our pointer
       id mid-hold) — the prime suspect for spurious cuts. Off by default; Android + web compile.
-- [ ] 2026-07-10 — **Follow-up: fix the spurious hold-to-talk cut** once the `PTT` logs pin the
-      cause. If it's `lost-pointer`, ride through a brief pointer loss (~200 ms grace) instead of
-      treating it as a release; if it's a small up/left drift tripping the 120 dp threshold,
-      reconsider the threshold/asymmetry.
+- [x] 2026-07-11 — **Fix: spurious hold-to-talk cut = system edge gestures stealing the touch.**
+      Cause confirmed as `lost-pointer`: when the thumb drifts toward the right screen edge (the
+      back-swipe zone) or down into the navigation-bar/home zone, Android's own gestures claim the
+      in-progress touch and deliver our mic button a CANCEL — the pointer id vanishes, the gesture
+      loop breaks, and `talking` still true → `onTalkStop()` commits the truncated clip mid-sentence.
+      Fixed by reserving the mic button's rect (grown down into the nav-bar zone + left along the
+      cancel track) from the platform gestures via a new `Modifier.pttGestureExclusion` seam
+      (Android `systemGestureExclusion`; web no-op), active only while the button is a live mic.
+      `PttExclusion.kt` (+ android/wasmJs actuals), applied in `InputBar`.
 - [x] 2026-07-10 — **Per-server whisper model pair**: Settings → Audio → "Transcription models" —
       two free-text ggml model fields, **full** (accurate server, dictation) and **quick** (fast
       server: hands-free draft + end-token detection), each hot-loaded server-globally.

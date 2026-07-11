@@ -53,6 +53,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.layoutId
 import androidx.compose.ui.layout.onSizeChanged
@@ -106,6 +107,12 @@ fun InputBar(
     // While hands-free owns the mic, push-to-talk is disabled.
     val pushToTalkEnabled = !handsFree
     val micLive = connected && pushToTalkEnabled
+    // While the button is a live mic, reserve its rect (grown down into the nav-bar
+    // zone and a little left) from the platform's edge gestures, so a hold that drifts
+    // toward the right/bottom screen edges isn't hijacked by the system back/home
+    // gesture and cut short as a "lost-pointer" (Android only; no-op on web).
+    val exclLeftPx = with(LocalDensity.current) { 40.dp.roundToPx() }
+    val exclBottomPx = with(LocalDensity.current) { 120.dp.roundToPx() }
     Column(Modifier.fillMaxWidth()) {
       // Only argument-free commands can be a one-tap button, so intersect the
       // user's tray selection with those. Kept in COMMANDS order for a stable layout.
@@ -292,7 +299,9 @@ fun InputBar(
                 },
                 shape = CircleShape,
                 // Re-arm the gesture whenever the role changes.
-                modifier = Modifier.size(48.dp).pointerInput(hasText, handsFree, connected) {
+                modifier = Modifier.size(48.dp)
+                    .pttGestureExclusion(active = micLive, leftPx = exclLeftPx, bottomPx = exclBottomPx)
+                    .pointerInput(hasText, handsFree, connected) {
                     // Distance the finger must travel upward for a hold to be
                     // reinterpreted as switching into hands-free instead of push-to-talk.
                     // Deliberately long so a small drift never trips it.
