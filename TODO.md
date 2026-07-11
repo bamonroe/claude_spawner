@@ -12,6 +12,13 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-11 — **Fix: phantom "/data" session keeps reappearing** — the account-global
+      `/usage` probe (`Driver.Usage`) ran `claude` with `cwd = SpawnRoots[0]` (e.g. `/data`),
+      leaving a transcript under `~/.claude/projects/-data/` on every run. Session discovery
+      surfaced that transcript as a session; the normal delete only drops the store record, so the
+      next probe re-created it. Fixed by giving the probe an explicit `--session-id` and reaping its
+      transcript (`DeleteSessionByIDs`) after each run. Cleaned up the two leftover `/data`
+      transcripts.
 - [x] 2026-07-11 — **Fix: SSH browse/spawn fails for a folder with no visible subdirs** — the
       visual New-session browser's `ListDir`/`ListAll` probes glob `*/` and `*` over SSH, but the
       remote login shell is zsh, whose NOMATCH aborts the command with exit 1 when the glob matches

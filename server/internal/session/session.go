@@ -673,7 +673,17 @@ func parseCodexStream(r io.Reader, onTool func(ToolUse), onText func(string)) (s
 // a temp dir. This is a real, if lightweight, claude invocation, so callers should
 // treat it as on-demand rather than per-turn.
 func (d *Driver) Usage(ctx context.Context) (string, error) {
-	args := []string{"-p", "/usage", "--output-format", "stream-json", "--verbose"}
+	// Give the probe an explicit session_id so we can delete its transcript once
+	// it's done. Without this, every /usage run leaves a stray transcript under
+	// ~/.claude/projects that session discovery surfaces as a phantom session
+	// rooted at UsageDir (the first spawn root, e.g. a "/data" session that
+	// reappears after the user deletes it, since deleting the store record leaves
+	// the transcript on disk for the next probe to re-surface).
+	id, err := NewSessionID()
+	if err != nil {
+		return "", err
+	}
+	args := []string{"-p", "/usage", "--session-id", id, "--output-format", "stream-json", "--verbose"}
 	if d.Bypass {
 		args = append(args, "--dangerously-skip-permissions")
 	}
@@ -684,6 +694,15 @@ func (d *Driver) Usage(ctx context.Context) (string, error) {
 	if dir == "" {
 		dir = os.TempDir()
 	}
+	// Reap the probe's own transcript regardless of how the run turns out, so it
+	// never lingers in discovery. Only this exact session_id is removed — a real
+	// session sharing UsageDir keeps its own transcript. WithoutCancel so cleanup
+	// still runs when the request context is already done.
+	defer func() {
+		if _, derr := d.DeleteSessionByIDs(context.WithoutCancel(ctx), LocalHost, []string{id}); derr != nil {
+			log.Printf("usage: delete probe transcript %s: %v", id, derr)
+		}
+	}()
 	// Account-global probe: run it on the loopback host explicitly (the SSH executor
 	// no longer defaults a hostless session). A purely remote deployment with no
 	// reachable local box can't run /usage; that's an accepted limitation.
