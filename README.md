@@ -184,9 +184,11 @@ intermediate step as it happens, and normally the client **reads every one aloud
 just waiting for the final answer, that's a lot of narration you don't need. **"hey buddy, summary
 only"** switches to summary-only speech: the client reads aloud **only the final result** of a
 turn, and plays a soft, warm **beep** in place of speaking each intermediate step — so you still
-hear that work is happening (you're not in the dark), without the play-by-play. Everything is still
-shown on screen as usual; only the *speaking* changes. **"hey buddy, speak everything"** turns it
-back off ("summary only off" works too).
+hear that work is happening (you're not in the dark), without the play-by-play. Every intermediate
+message that lands in the chat gets its own beep — streamed prose, changed-files and diff notes, a
+subagent finishing — so the audible count matches what you see; only the turn's final spoken result
+doesn't beep. Everything is still shown on screen as usual; only the *speaking* changes. **"hey
+buddy, speak everything"** turns it back off ("summary only off" works too).
 
 The same toggle is the **Summary only** switch on the **Audio** settings page. The setting lives on
 the client (persisted per device), so the voice command and the switch stay in lock-step and the

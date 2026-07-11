@@ -876,8 +876,16 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                 // the transcript lands (which flips this to "thinking…").
                 if (hfOn) _voiceState.value = VoiceState.TRANSCRIBING
             }
-            is ServerMsg.Files -> if (msg.files.isNotEmpty()) addChat(Role.SYSTEM, "📝 changed: " + msg.files.joinToString(", "))
-            is ServerMsg.Diff -> addChat(Role.SYSTEM, "📊 diff:\n${msg.text}") // review summary, not spoken
+            is ServerMsg.Files -> if (msg.files.isNotEmpty()) {
+                // A changed-files note hits the chat like any intermediate step, so in
+                // summary-only mode it beeps too — otherwise these slip by silently.
+                addChat(Role.SYSTEM, "📝 changed: " + msg.files.joinToString(", "))
+                if (settings.summaryOnlySpeech) speaker.beep()
+            }
+            is ServerMsg.Diff -> {
+                addChat(Role.SYSTEM, "📊 diff:\n${msg.text}") // review summary, not spoken
+                if (settings.summaryOnlySpeech) speaker.beep()
+            }
             is ServerMsg.RateLimit -> _rateLimit.value = msg.info // plan session-limit readout (sidebar)
             is ServerMsg.Usage -> { _usageLoading.value = false; _usageReport.value = msg.report } // opens the usage sheet
             is ServerMsg.UsageEstimate -> _usageEstimate.value = msg.est // drift-live footer/sheet estimate

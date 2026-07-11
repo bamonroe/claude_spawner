@@ -204,8 +204,14 @@ class WebAppController(private val prefs: Prefs) : AppController {
             is ServerMsg.ContextReset -> _lastTurnUsage.value = null
             is ServerMsg.Activity -> _activity.value = msg.text
             is ServerMsg.Transcribing -> _micText.value = "transcribing…" // committed clip being re-transcribed
-            is ServerMsg.Files -> if (msg.files.isNotEmpty()) addChat(Role.SYSTEM, "📝 changed: " + msg.files.joinToString(", "))
-            is ServerMsg.Diff -> addChat(Role.SYSTEM, "📊 diff:\n${msg.text}")
+            is ServerMsg.Files -> if (msg.files.isNotEmpty()) {
+                addChat(Role.SYSTEM, "📝 changed: " + msg.files.joinToString(", "))
+                if (prefs.summaryOnlySpeech) webBeep() // intermediate step → beep like the rest
+            }
+            is ServerMsg.Diff -> {
+                addChat(Role.SYSTEM, "📊 diff:\n${msg.text}")
+                if (prefs.summaryOnlySpeech) webBeep()
+            }
             is ServerMsg.RateLimit -> _rateLimit.value = msg.info
             is ServerMsg.Usage -> { _usageLoading.value = false; _usageReport.value = msg.report }
             is ServerMsg.UsageEstimate -> _usageEstimate.value = msg.est

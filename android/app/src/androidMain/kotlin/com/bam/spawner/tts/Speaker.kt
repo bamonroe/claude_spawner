@@ -173,4 +173,8 @@ private const val BEEP_RATE = 44100
 private const val BEEP_MS = 200L
 private const val BEEP_FREQ = 420.0    // low and round — warm, not shrill
 private const val BEEP_AMP = 0.30      // soft
-private const val BEEP_THROTTLE_MS = 700L
+// Just over the tone length: two distinct on-screen messages that land close
+// together (e.g. a subagent finishing dumps a few in a row) each still get their
+// own beep — the throttle only coalesces beeps that would physically overlap,
+// rather than silently eating messages a few hundred ms apart (the old 700ms did).
+private const val BEEP_THROTTLE_MS = 220L
