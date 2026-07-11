@@ -96,21 +96,42 @@ func Vocabulary() []string {
 	return append(out, commandVocab...)
 }
 
-// WakePhrase tokenizes a client's custom wake token into the phrase form the
-// matchers below accept (lowercased, punctuation-trimmed words). It returns nil
-// for a blank token so callers can pass the result straight through as the
-// `extra` argument (nil = built-in wakePhrases only).
+// WakePhrase tokenizes a client's custom wake token(s) into the phrase form the
+// matchers below accept (lowercased, punctuation-trimmed words). The token is a
+// COMMA-SEPARATED list, so several variants ("hey buddy, hey bud, ok buddy") can
+// be configured — misheard forms all still trigger. It returns nil for a blank
+// token so callers can pass the result straight through as the `extra` argument
+// (nil = built-in wakePhrases only). Also used for the dictation-gate speak
+// token, which is likewise a comma-separated variant list.
 func WakePhrase(token string) [][]string {
-	var phrase []string
-	for _, w := range strings.Fields(strings.ToLower(token)) {
-		if w = strings.Trim(w, ",.!?"); w != "" {
-			phrase = append(phrase, w)
+	var phrases [][]string
+	for _, variant := range strings.Split(token, ",") {
+		var phrase []string
+		for _, w := range strings.Fields(strings.ToLower(variant)) {
+			if w = strings.Trim(w, ",.!?"); w != "" {
+				phrase = append(phrase, w)
+			}
+		}
+		if len(phrase) > 0 {
+			phrases = append(phrases, phrase)
 		}
 	}
-	if len(phrase) == 0 {
-		return nil
+	return phrases
+}
+
+// SplitOn splits text on the FIRST occurrence of any phrase in `phrases` — and
+// ONLY those (the built-in "hey buddy" wake set is NOT considered): before = the
+// words up to the first match, after = the words following it. It backs the
+// dictation gate's speak token, which is a start marker independent of the
+// command wake word. No match ⇒ found=false, before = the whole text.
+func SplitOn(text string, phrases [][]string) (before, after string, found bool) {
+	words := strings.Fields(strings.TrimSpace(text))
+	for i := 0; i < len(words); i++ {
+		if n := phrasesAt(words, i, phrases); n > 0 {
+			return strings.Join(words[:i], " "), strings.Join(words[i+n:], " "), true
+		}
 	}
-	return [][]string{phrase}
+	return strings.TrimSpace(text), "", false
 }
 
 // StripWake removes an optional leading wake phrase (any wakePhrases entry, with
@@ -202,15 +223,24 @@ func SplitWakeAllWith(text string, extra [][]string) (before string, commands []
 // any `extra` phrases are considered; the longest matching phrase wins, so a
 // one-word alias can't shadow the canonical two-word form.
 func wakeAt(words []string, i int, extra [][]string) (consumed int) {
-	match := func(phrases [][]string) {
-		for _, phrase := range phrases {
-			if len(phrase) > consumed && phraseAt(words, i, phrase) {
-				consumed = len(phrase)
-			}
+	if n := phrasesAt(words, i, wakePhrases); n > consumed {
+		consumed = n
+	}
+	if n := phrasesAt(words, i, extra); n > consumed {
+		consumed = n
+	}
+	return consumed
+}
+
+// phrasesAt reports how many words the longest phrase in `phrases` matching at
+// words[i] consumes (0 if none) — the phrase-set primitive shared by wakeAt (for
+// the wake word) and SplitOn (for the dictation-gate speak token).
+func phrasesAt(words []string, i int, phrases [][]string) (consumed int) {
+	for _, phrase := range phrases {
+		if len(phrase) > consumed && phraseAt(words, i, phrase) {
+			consumed = len(phrase)
 		}
 	}
-	match(wakePhrases)
-	match(extra)
 	return consumed
 }
 

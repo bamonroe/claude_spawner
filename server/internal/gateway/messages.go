@@ -32,7 +32,9 @@ type inbound struct {
 	ClientID              string            `json:"client_id"`               // stable per-app id, for reconnect/resume
 	HandsFree             bool              `json:"hands_free"`              // set on `wake` when the clip is VAD-gated (hands-free)
 	EndToken              string            `json:"end_token"`               // on `hello`: the spoken word that commits a message
-	WakeToken             string            `json:"wake_token"`              // on `hello`: a custom wake word, accepted alongside built-in "hey buddy" ("" = built-in only)
+	WakeToken             string            `json:"wake_token"`              // on `hello`: custom wake word(s), comma-separated, accepted alongside built-in "hey buddy" ("" = built-in only)
+	SpeakToken            string            `json:"speak_token"`             // on `hello`: dictation-gate start marker(s), comma-separated; only speech after it (up to the end token) is dictated ("" = no gate token)
+	DictationGate         bool              `json:"dictation_gate"`          // on `hello`: when true (and a speak token is set), un-bracketed speech is discarded instead of dictated — ambient-chatter immunity
 	SttMode               string            `json:"stt_mode"`                // on `hello`: "dynamic" | "fixed"
 	SttModel              string            `json:"stt_model"`               // on `hello`: fixed model "tiny" | "base" | "small"
 	Calibrate             bool              `json:"calibrate"`               // on `wake`: transcribe (fast model) and return, don't dispatch

@@ -86,7 +86,11 @@ func TestWakePhrase(t *testing.T) {
 		{"", nil},
 		{"   ", nil},
 		{"computer", [][]string{{"computer"}}},
-		{"Hey, Computer!", [][]string{{"hey", "computer"}}},
+		{"Hey Computer!", [][]string{{"hey", "computer"}}},
+		// Commas separate variants: several misheard wake forms in one field.
+		{"hey computer, ok computer, a computer", [][]string{{"hey", "computer"}, {"ok", "computer"}, {"a", "computer"}}},
+		// Empty variants (stray/leading/trailing commas) are dropped.
+		{"hey buddy, , hey bud,", [][]string{{"hey", "buddy"}, {"hey", "bud"}}},
 	}
 	for _, c := range cases {
 		got := WakePhrase(c.token)
@@ -125,6 +129,36 @@ func TestStripWakeWith(t *testing.T) {
 	// SplitWake honors the custom token mid-utterance too.
 	if b, a, f := SplitWakeWith("fix the bug hey computer detach", extra); b != "fix the bug" || a != "detach" || !f {
 		t.Errorf("custom split: got (%q,%q,%v), want (%q,%q,%v)", b, a, f, "fix the bug", "detach", true)
+	}
+}
+
+func TestWakePhraseMultiVariant(t *testing.T) {
+	// Any configured variant strips like a wake word.
+	extra := WakePhrase("hey computer, ok computer")
+	for _, in := range []string{"hey computer status", "ok computer status"} {
+		if rest, had := StripWakeWith(in, extra); rest != "status" || !had {
+			t.Errorf("multi-variant wake %q: got (%q,%v), want (%q,%v)", in, rest, had, "status", true)
+		}
+	}
+}
+
+func TestSplitOn(t *testing.T) {
+	speak := WakePhrase("take a note, dictate")
+	// Everything before the speak token is discarded; after it is the payload.
+	if b, a, f := SplitOn("radio chatter take a note fix the parser", speak); !f || a != "fix the parser" || b != "radio chatter" {
+		t.Errorf("SplitOn hit: got (%q,%q,%v), want after=%q found=true", b, a, f, "fix the parser")
+	}
+	// A second configured variant also opens the window.
+	if _, a, f := SplitOn("blah dictate hello world", speak); !f || a != "hello world" {
+		t.Errorf("SplitOn variant: got after=%q found=%v, want (%q,true)", a, f, "hello world")
+	}
+	// No speak token ⇒ not found, so the caller drops the whole thing.
+	if _, _, f := SplitOn("just ambient talking here", speak); f {
+		t.Errorf("SplitOn miss: found=true, want false")
+	}
+	// SplitOn does NOT match the built-in "hey buddy" wake — only its phrases.
+	if _, _, f := SplitOn("hey buddy do the thing", speak); f {
+		t.Errorf("SplitOn matched built-in wake, want no match")
 	}
 }
 

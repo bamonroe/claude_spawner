@@ -97,8 +97,13 @@ hands_free = true    → streaming: APPEND the transcript to the per-connection 
 ```
 
 `hello` also carries optional flags: `end_token` (the word that commits a hands-free message),
-`wake_token` (a custom wake word accepted alongside the built-in "hey buddy"; empty = built-in only),
-`stt_mode`/`stt_model`/`whisper_url`/`whisper_model` (transcription), `aliases` (misheard→command
+`wake_token` (custom wake word(s), **comma-separated** for several misheard variants, accepted
+alongside the built-in "hey buddy"; empty = built-in only), `speak_token` + `dictation_gate` (the
+**dictation gate**: when `dictation_gate` is true and `speak_token` is set, hands-free speech is
+only dictated to Claude when it follows the speak token — a comma-separated start marker — up to the
+end token; un-bracketed speech is discarded, so ambient chatter/radio never reaches the session.
+Commands ("hey buddy …") are never gated. Empty `speak_token`, or `dictation_gate` false, disables
+the gate), `stt_mode`/`stt_model`/`whisper_url`/`whisper_model` (transcription), `aliases` (misheard→command
 fixups), `brief` (append a "reply briefly for TTS" hint to dictation), `interactive` (let Claude
 ask clarifying questions mid-task, delivered as `ask`), and `warm_compress`/`auto_compress`/`auto_compress_threshold`
 (the initial value of the server-global context-compression preference — see the `auto_compress` message for

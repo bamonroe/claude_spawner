@@ -95,7 +95,9 @@ func (c *conn) commitMessage() {
 			}
 			return
 		}
-		c.dictate(msg) // attached: pure dictation
+		if dict := c.gateDictation(msg); dict != "" { // attached: pure dictation (gated if enabled)
+			c.dictate(dict)
+		}
 		return
 	}
 	// "<dictation> hey buddy <cmd> hey buddy <cmd> …": each wake starts a command.
@@ -118,7 +120,9 @@ func (c *conn) commitMessage() {
 		c.runCommand(intent)
 	}
 	if before = strings.TrimSpace(before); before != "" && c.attached != nil {
-		c.dictate(before)
+		if dict := c.gateDictation(before); dict != "" {
+			c.dictate(dict)
+		}
 	}
 }
 
@@ -128,9 +132,13 @@ func (c *conn) commitMessage() {
 // words come first (always present); session names are appended when any exist.
 func (c *conn) vocabBias() string {
 	vocab := command.Vocabulary()
-	// Bias STT toward the client's custom wake token too, so a non-"hey buddy"
-	// wake word survives transcription and can actually match.
+	// Bias STT toward the client's custom wake token(s) and dictation-gate speak
+	// token(s) too, so a non-"hey buddy" wake word and the speak marker survive
+	// transcription and can actually match.
 	for _, phrase := range c.wakePhrase {
+		vocab = append(vocab, strings.Join(phrase, " "))
+	}
+	for _, phrase := range c.speakPhrase {
 		vocab = append(vocab, strings.Join(phrase, " "))
 	}
 	parts := []string{"Commands: " + strings.Join(vocab, ", ") + "."}

@@ -463,17 +463,19 @@ type conn struct {
 	gated      bool   // current utterance is hands-free (VAD-gated → accumulate)
 	calibrate  bool   // current utterance is an end-token calibration sample
 
-	buffer      []string               // hands-free rough draft (per-chunk fast transcripts, for detection)
-	audioPCM    []byte                 // hands-free raw PCM of all chunks, re-transcribed as one on commit
-	brief       bool                   // append a "reply briefly for TTS" hint to dictation
-	interactive bool                   // let Claude ask clarifying questions mid-task
-	endToken    string                 // spoken word that commits the buffer (default "beep")
-	wakePhrase  [][]string             // client's custom wake token (nil = built-in "hey buddy" only)
-	sttMode     string                 // "dynamic" | "fixed" whisper model selection
-	sttModel    string                 // fixed-mode model: "tiny" | "base" | "small"
-	aliases     map[string]string      // mis-transcription -> canonical command word
-	stt         transcribe.Transcriber // per-conn override (app-set whisper URL); nil = server default
-	scratch     bool                   // scratch mode: while detached, echo each transcription back aloud (STT test)
+	buffer        []string               // hands-free rough draft (per-chunk fast transcripts, for detection)
+	audioPCM      []byte                 // hands-free raw PCM of all chunks, re-transcribed as one on commit
+	brief         bool                   // append a "reply briefly for TTS" hint to dictation
+	interactive   bool                   // let Claude ask clarifying questions mid-task
+	endToken      string                 // spoken word that commits the buffer (default "beep")
+	wakePhrase    [][]string             // client's custom wake token(s) (nil = built-in "hey buddy" only)
+	speakPhrase   [][]string             // dictation-gate speak token(s) (nil = none); with dictationGate, only speech after it is dictated
+	dictationGate bool                   // discard un-bracketed speech instead of dictating it (needs speakPhrase set)
+	sttMode       string                 // "dynamic" | "fixed" whisper model selection
+	sttModel      string                 // fixed-mode model: "tiny" | "base" | "small"
+	aliases       map[string]string      // mis-transcription -> canonical command word
+	stt           transcribe.Transcriber // per-conn override (app-set whisper URL); nil = server default
+	scratch       bool                   // scratch mode: while detached, echo each transcription back aloud (STT test)
 }
 
 // transcriber returns this connection's STT — an app-set override if present,
@@ -539,6 +541,8 @@ func (c *conn) authenticate() bool {
 		c.endToken = "beep"
 	}
 	c.wakePhrase = command.WakePhrase(in.WakeToken)
+	c.speakPhrase = command.WakePhrase(in.SpeakToken)
+	c.dictationGate = in.DictationGate
 	c.sttMode = in.SttMode
 	c.sttModel = in.SttModel
 	c.aliases = in.Aliases
@@ -717,6 +721,22 @@ func (c *conn) splitWake(text string) (before, after string, found bool) {
 
 func (c *conn) splitWakeAll(text string) (before string, commands []string) {
 	return command.SplitWakeAllWith(text, c.wakePhrase)
+}
+
+// gateDictation applies the dictation gate to a would-be dictation string. When
+// the gate is on (and a speak token is configured), only the text following the
+// speak token is dictated (the token stripped); text with no speak token returns
+// "" so the caller drops it as ambient chatter. Gate off — or no speak token —
+// passes text through unchanged, preserving the ungated behavior. Commands are
+// never routed through here, so "hey buddy stop" always works regardless.
+func (c *conn) gateDictation(text string) string {
+	if !c.dictationGate || len(c.speakPhrase) == 0 {
+		return text
+	}
+	if _, after, found := command.SplitOn(text, c.speakPhrase); found {
+		return strings.TrimSpace(after)
+	}
+	return ""
 }
 
 // handleUtterance routes a transcribed utterance to the active dialog, to a
