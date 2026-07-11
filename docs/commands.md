@@ -12,12 +12,22 @@ Go server reference this. When you change a command, change it here first.
   together — notably **"everybody"** (and "heybuddy"). Add a new mishearing by extending that list.
   (One-word aliases are ordinary English words, so they wake more eagerly — e.g. "everybody knows"
   strips a wake; the set is kept small on purpose.)
-- **Custom wake token (per client):** the app's Commands settings can set an extra wake word (the
-  `wake_token` field of the `hello` handshake). It's accepted **alongside** the built-in "hey buddy"
-  family, not instead of it — the server folds it in via `command.WakePhrase` → `StripWakeWith` /
-  `SplitWakeWith`, and biases whisper toward it (`vocabBias`) so a non-"hey buddy" word transcribes
-  reliably. Blank = built-in only. A custom word has no curated mishearing aliases, so pick one
-  whisper hears cleanly.
+- **Custom wake words (per client):** the app's Commands settings can set extra wake word(s) (the
+  `wake_token` field of the `hello` handshake). They're accepted **alongside** the built-in "hey buddy"
+  family, not instead of it — the server folds them in via `command.WakePhrase` → `StripWakeWith` /
+  `SplitWakeWith`, and biases whisper toward them (`vocabBias`) so a non-"hey buddy" word transcribes
+  reliably. The field is **comma-separated**, so you can configure several variants ("hey buddy, hey
+  bud, ok buddy") — handy because whisper mis-hears the wake phrase in noise; any variant fires.
+  Blank = built-in only. A custom word has no curated mishearing aliases, so pick ones whisper hears
+  cleanly.
+- **Dictation gate ("speak token"):** for hands-free use in noisy rooms, Commands settings has a
+  **dictation gate** — a `speak_token` (comma-separated start marker, e.g. "take a note") plus a
+  `dictation_gate` switch. When the gate is on, un-command speech is dictated **only** when it
+  follows the speak token, up to the end token; everything else (background chatter, radio, other
+  people) is discarded instead of forwarded to the session. Commands ("hey buddy …") are **never**
+  gated, so barge-in still works. Server-side the speak token matches via `command.SplitOn` (its own
+  phrase set, independent of the wake word) and is biased into `vocabBias`. Blank speak token, or the
+  switch off, keeps the ungated behavior (all non-command speech dictates). See `docs/protocol.md`.
 - The wake word is detected **server-side, in the transcript** (`command.StripWake`) — there is no
   on-device wake engine. The app streams speech (VAD-gated) to the server, which transcribes it and
   applies this grammar.

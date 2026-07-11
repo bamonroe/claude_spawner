@@ -135,7 +135,8 @@ class WebAppController(private val prefs: Prefs) : AppController {
         client?.close()
         _status.value = "connecting…"
         val hello = HelloConfig(
-            prefs.endToken, prefs.wakeToken, prefs.sttMode, prefs.sttModel, prefs.aliasMap(),
+            prefs.endToken, prefs.wakeToken, prefs.speakToken, prefs.dictationGate,
+            prefs.sttMode, prefs.sttModel, prefs.aliasMap(),
             prefs.whisperUrl, prefs.brief, prefs.interactive,
             prefs.warmCompress, prefs.autoCompress, prefs.autoCompressThreshold,
         )

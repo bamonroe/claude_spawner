@@ -66,10 +66,19 @@ plain-language reason instead of failing silently.
 
 **Wake and end tokens (Settings → Commands).** The two spoken tokens that bracket a command live on
 the Commands settings page. The **end token** (default "beep") commits a hands-free message. The
-**wake token** field lets you add your own wake word — it's accepted *alongside* the built-in "hey
-buddy" (blank keeps "hey buddy" only). Pick a word Whisper transcribes cleanly: a custom word has no
-curated mis-hear alias list the way "hey buddy" does, though the server does bias transcription
-toward it.
+**wake token** field lets you add your own wake word(s) — accepted *alongside* the built-in "hey
+buddy" (blank keeps "hey buddy" only). It's **comma-separated**, so you can list several variants
+("hey buddy, hey bud, ok buddy") and have any of them fire — useful because Whisper mis-hears the
+wake phrase in a noisy room. Pick words Whisper transcribes cleanly: a custom word has no curated
+mis-hear alias list the way "hey buddy" does, though the server does bias transcription toward it.
+
+**Dictation gate for noisy rooms (Settings → Commands).** In hands-free mode with a lot of ambient
+chatter — other people, a radio, a recording — you don't want all of it dictated into your session.
+Turn on **Require a speak token** and set a **speak token** (e.g. "take a note"). Then only speech
+that *follows* the speak token, up to your end token, is sent to Claude ("take a note, fix the parser
+bug, beep"); everything else is discarded. Commands still work with no speak token needed, so "hey
+buddy, stop" always interrupts. Leave the switch off (or the speak token blank) to dictate everything
+as before. The speak token is comma-separated too, so you can give it a couple of variants.
 
 **When the end token misfires.** If "beep" isn't caught and the clip keeps growing, whatever you
 say next still lands in the same message — so you can just keep issuing commands: the server splits

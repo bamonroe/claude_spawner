@@ -12,50 +12,25 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
-- [ ] 2026-07-11 — **Gated dictation ("speak token")** — proposed. In hands-free mode with lots of
-      ambient chatter (other people, radio, recordings), *un-bracketed* speech should NOT be dictated
-      into the attached session. Add a **dictation gate**: only speech between a configurable
-      **speak token** (start) and the existing **end token** is forwarded to Claude; everything else
-      is discarded. This is distinct from the "hey buddy" command token — it opens a *dictation*
-      window, not a command.
-      - **Design.** Reuse the existing wake/end-token machinery. The speak token joins the wake
-        vocabulary so Whisper hears it reliably (`vocabBias`, `stream.go:125`). When the gate is
-        **on** and attached, `commitMessage` (`stream.go:46`) forwards only the segment that begins
-        with the speak token (token stripped, run to the end token); segments with no speak token are
-        dropped instead of dictated. "hey buddy …" command segments still work as today (commands are
-        never gated — you can always say "hey buddy stop"). When the gate is **off**, behaviour is
-        exactly as now (all un-command speech dictates).
-      - **Server.** `command.go`: parse speak-token phrase(s) like wake phrases (mishearing-tolerant,
-        normalized match) + a `SplitSpeak`/gate helper. `stream.go` `commitMessage`: honor a
-        per-connection `gatedDictation` bool + speak phrases; `vocabBias` injects the speak token.
-        `gateway.go`: hold the parsed speak phrases + gate flag on the conn. `messages.go`
-        `HelloConfig`: new `speakToken` (string, comma-separated variants like aliases) + `dictationGate`
-        (bool). Unit tests for the gate split (bracketed / un-bracketed / mixed-with-command).
-      - **Client (commonMain, shared with web).** `Prefs.kt`: `speakToken` + `dictationGate` (default
-        off / empty). `CommandsSettings` (`SettingsScreens.kt:479`): a **"Dictation gate"** switch +
-        a **speak token** field (comma-separated variants) right beside the existing wake/end-token
-        fields. `Protocol.kt` `HelloConfig` + `Outbound.hello`: carry the two fields. Backends:
-        `SettingsStore.kt` (SharedPreferences) + `WebPrefs.kt` (localStorage). Applied on reconnect
-        (same path as wakeToken/endToken).
-      - **Docs.** `docs/protocol.md` (new `hello` fields), `docs/commands.md` (the gate concept + the
-        speak token), `README.md` (hands-free chatter-immunity), `docsync` exemption/field entries so
-        the drift test passes. ⚠ server-side half needs a restart to go live.
-- [ ] 2026-07-11 — **Multiple configurable wake words** — proposed. Today the built-in wake list
-      (`command.go:64` `wakePhrases`: hey buddy / hey bud / hey body / hey buddie / hey budy /
-      everybody / heybuddy) is fixed, and the user can add exactly **one** supplementary `wakeToken`.
-      Because Whisper mishears the wake phrase in noise, let the user configure **several** wake-word
-      variants, all of which trigger commands.
-      - **Server.** `command.WakePhrase` (`command.go:99`) already turns the single custom token into
-        phrases appended to the match set — generalize it to accept a **list** (comma-separated),
-        parsing each into a normalized phrase and appending all. `vocabBias` biases every variant.
-        No change to the built-in list. Unit test: multiple custom variants all strip/split.
-      - **Client (commonMain).** `Prefs.wakeToken` becomes a **multi-value** field (comma-separated,
-        parsed like aliases already are). `CommandsSettings` label updated to "Custom wake words
-        (comma-separated; blank = built-ins only)". `HelloConfig.wakeToken` stays one string on the
-        wire (comma-joined) → minimal protocol churn; the server splits it. Backends + reconnect
-        unchanged.
-      - **Docs.** `docs/commands.md` (custom wake words are a list), `README.md`, `docs/protocol.md`
-        note on the `wakeToken` field if its meaning widens. ⚠ server-side half needs a restart.
+- [x] 2026-07-11 — **Gated dictation ("speak token")** — in hands-free mode with ambient chatter
+      (other people, radio, recordings), un-bracketed speech is no longer dictated. New per-client
+      **dictation gate**: `hello.speak_token` (comma-separated start marker) + `hello.dictation_gate`
+      switch. When on, only speech following the speak token (up to the end token) reaches Claude;
+      everything else is discarded. Distinct from the "hey buddy" command token — commands are never
+      gated, so barge-in ("hey buddy stop") always works. Server: `command.SplitOn` (matches only the
+      speak phrases, not the built-in wake) + `conn.gateDictation`, applied at both dictation sinks in
+      `commitMessage`; speak token biased into `vocabBias`. Client (commonMain + both backends):
+      `Prefs.speakToken`/`dictationGate`, a **Dictation gate** switch + speak-token field in
+      `CommandsSettings`, `HelloConfig`/`Outbound.hello`. Unit-tested (`TestSplitOn`,
+      `TestGateDictation`); docs in `docs/protocol.md`, `docs/commands.md`, `README.md`. ⚠ needs a
+      server restart to go live (client half ships in the APK).
+- [x] 2026-07-11 — **Multiple configurable wake words** — `command.WakePhrase` now parses a
+      **comma-separated** list, so the app's `wake_token` can hold several misheard variants
+      ("hey buddy, hey bud, ok buddy") that all trigger commands (Whisper mis-hears the wake phrase in
+      noise). Wire field stays one string; the server splits it. Refactored `wakeAt` to share a
+      `phrasesAt` primitive. `CommandsSettings` label + help updated to reflect the list.
+      Unit-tested (`TestWakePhrase`, `TestWakePhraseMultiVariant`); docs in `docs/commands.md`,
+      `README.md`. ⚠ needs a server restart to go live.
 
 - [x] 2026-07-11 — **Hands-free "transcribing…" state** — the commit path re-transcribes the
       whole buffered clip accurately (a ~1-2 s window), during which the app used to snap the

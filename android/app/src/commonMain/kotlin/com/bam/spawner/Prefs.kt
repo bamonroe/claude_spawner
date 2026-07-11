@@ -50,8 +50,17 @@ interface Prefs {
     var summaryOnlySpeech: Boolean
     /** Spoken word that commits a hands-free message ("beep" by default). */
     var endToken: String
-    /** Custom wake word, accepted alongside the built-in "hey buddy" (blank = built-in only). */
+    /** Custom wake word(s), comma-separated for several misheard variants,
+     *  accepted alongside the built-in "hey buddy" (blank = built-in only). */
     var wakeToken: String
+    /** Dictation-gate start marker(s), comma-separated. When [dictationGate] is
+     *  on and this is set, hands-free speech is only dictated to Claude when it
+     *  follows the speak token (up to the end token); everything else is dropped. */
+    var speakToken: String
+    /** Require the [speakToken] to gate dictation: un-bracketed speech (ambient
+     *  chatter, radio, other people) is discarded instead of sent to Claude.
+     *  Off by default; needs a speak token set to take effect. */
+    var dictationGate: Boolean
 
     /** Debug: draw translucent overlays over normally-invisible hit zones (e.g. the
      *  push-to-talk cancel / hands-free swipe thresholds) and log gesture end reasons. */

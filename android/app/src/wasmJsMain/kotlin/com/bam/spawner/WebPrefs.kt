@@ -97,6 +97,12 @@ class WebPrefs : Prefs {
     override var wakeToken: String
         get() = str("wake_token", "")
         set(v) = putStr("wake_token", v)
+    override var speakToken: String
+        get() = str("speak_token", "")
+        set(v) = putStr("speak_token", v)
+    override var dictationGate: Boolean
+        get() = bool("dictation_gate", false)
+        set(v) = putBool("dictation_gate", v)
 
     override var sttMode: String
         get() = str("stt_mode", Prefs.DEFAULT_STT_MODE)

@@ -326,6 +326,8 @@ data class AskQuestion(val q: String, val options: List<String>)
 data class HelloConfig(
     val endToken: String,
     val wakeToken: String,
+    val speakToken: String,
+    val dictationGate: Boolean,
     val sttMode: String,
     val sttModel: String,
     val aliases: Map<String, String>,
@@ -354,6 +356,7 @@ object Outbound {
     fun hello(token: String, clientId: String, cfg: HelloConfig) = buildJsonObject {
         put("type", "hello"); put("token", token); put("client_id", clientId)
         put("end_token", cfg.endToken); put("wake_token", cfg.wakeToken)
+        put("speak_token", cfg.speakToken); put("dictation_gate", cfg.dictationGate)
         put("stt_mode", cfg.sttMode); put("stt_model", cfg.sttModel)
         putJsonObject("aliases") { for ((k, v) in cfg.aliases) put(k, v) }
         put("whisper_url", cfg.whisperUrl); put("brief", cfg.brief); put("interactive", cfg.interactive)

@@ -486,6 +486,8 @@ fun CommandsSettings(
     var aliasMap by remember { mutableStateOf(settings.aliasMap()) }
     var wakeTok by rememberSaveable { mutableStateOf(settings.wakeToken) }
     var endTok by rememberSaveable { mutableStateOf(settings.endToken) }
+    var speakTok by rememberSaveable { mutableStateOf(settings.speakToken) }
+    var gate by remember { mutableStateOf(settings.dictationGate) }
     var silence by remember { mutableStateOf(if (settings.silenceCommitSeconds <= 0f) "" else settings.silenceCommitSeconds.toString()) }
     SettingsScaffold("Commands", onBack) {
         Text("Say your wake word → a command → your end token.", style = MaterialTheme.typography.bodyMedium)
@@ -494,13 +496,14 @@ fun CommandsSettings(
         Text("Wake token", style = MaterialTheme.typography.titleMedium)
         OutlinedTextField(
             wakeTok, { wakeTok = it },
-            label = { Text("Custom wake word (blank = \"hey buddy\" only)") },
+            label = { Text("Custom wake words (blank = \"hey buddy\" only)") },
             singleLine = true, modifier = Modifier.fillMaxWidth(),
         )
         OutlinedButton(onClick = { settings.wakeToken = wakeTok.trim(); onSttChanged() }) { Text("Apply wake token") }
         Text(
-            "An extra phrase that also opens a command, alongside the built-in \"hey buddy\". "
-                + "Pick a word whisper hears cleanly — a custom one has no mis-hear aliases.",
+            "Extra phrase(s) that also open a command, alongside the built-in \"hey buddy\". "
+                + "Separate several with commas — handy when whisper mis-hears one. "
+                + "Pick words whisper hears cleanly.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
         )
 
@@ -512,6 +515,29 @@ fun CommandsSettings(
         }
         OutlinedButton(onClick = { settings.endToken = endTok; onSttChanged() }) { Text("Apply end token") }
         Text("Say this to commit a hands-free message.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+
+        HorizontalDivider()
+        Text("Dictation gate", style = MaterialTheme.typography.titleMedium)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Require a speak token", style = MaterialTheme.typography.bodyLarge)
+                Text("Only send speech that follows the speak token (up to the end token). "
+                    + "Everything else — background chatter, radio, other people — is discarded.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            }
+            Switch(checked = gate, onCheckedChange = { gate = it; settings.dictationGate = it; onSttChanged() })
+        }
+        OutlinedTextField(
+            speakTok, { speakTok = it },
+            label = { Text("Speak token(s), comma-separated") },
+            singleLine = true, modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedButton(onClick = { settings.speakToken = speakTok.trim(); onSttChanged() }) { Text("Apply speak token") }
+        Text(
+            "Say this to start dictating, then your end token to send — e.g. \"take a note … beep\". "
+                + "Commands (\"hey buddy …\") always work, gate or no gate.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
+        )
 
         HorizontalDivider()
         Text("Silence auto-commit", style = MaterialTheme.typography.titleMedium)

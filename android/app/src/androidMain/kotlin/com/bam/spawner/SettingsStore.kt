@@ -97,10 +97,20 @@ class SettingsStore(context: Context) : Prefs {
         get() = prefs.getString("end_token", Prefs.DEFAULT_END_TOKEN)?.ifBlank { Prefs.DEFAULT_END_TOKEN } ?: Prefs.DEFAULT_END_TOKEN
         set(v) = prefs.edit().putString("end_token", v).apply()
 
-    /** Custom wake word, accepted alongside built-in "hey buddy" (blank = built-in only). */
+    /** Custom wake word(s), comma-separated, alongside built-in "hey buddy" (blank = built-in only). */
     override var wakeToken: String
         get() = prefs.getString("wake_token", "") ?: ""
         set(v) = prefs.edit().putString("wake_token", v).apply()
+
+    /** Dictation-gate start marker(s), comma-separated (blank = no gate token). */
+    override var speakToken: String
+        get() = prefs.getString("speak_token", "") ?: ""
+        set(v) = prefs.edit().putString("speak_token", v).apply()
+
+    /** Discard un-bracketed hands-free speech unless it follows the speak token. */
+    override var dictationGate: Boolean
+        get() = prefs.getBoolean("dictation_gate", false)
+        set(v) = prefs.edit().putBoolean("dictation_gate", v).apply()
 
     /** Whisper model selection: "dynamic" (by clip length) or "fixed". */
     override var sttMode: String
