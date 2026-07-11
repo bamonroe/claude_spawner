@@ -336,6 +336,9 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
         val target = if (saved in available) saved else AudioOutput.EARPIECE
         applyAudioOutput(target)
         _audioOutput.value = target
+        // Follow headphone plug/unplug live: hand off to the background scope since
+        // restarting capture joins the worker thread (the callback is on main).
+        audioRouter.registerRouteCallback { scope.launch { onAudioRouteChanged() } }
     }
 
     // Apply an output: MUTE suppresses TTS (no device routing); anything else
@@ -522,7 +525,12 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     // --- Hands-free (always-listening VAD; only speech is sent) ---
     private var handsFree: HandsFreeRecorder? = null
     @Volatile private var hfOn = false
-
+    // Headphone state the running recorder was configured for, so a route change
+    // only restarts capture when it actually flips speaker↔headphones.
+    @Volatile private var headphonesRoute = false
+    // Whether we currently hold a Bluetooth headset's hands-free (SCO) profile, so
+    // we only grab/release it on an actual transition (releasing resets routing).
+    @Volatile private var headsetMicOn = false
 
     private fun vadConfig() = com.bam.spawner.audio.VadConfig(
         rmsThreshold = settings.vadThreshold.toDouble(),
@@ -530,35 +538,77 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
         silenceMs = settings.vadSilenceMs,
     )
 
+    // How to capture + play during hands-free, resolved from the current output route.
+    private data class MicProfile(val commMode: Boolean, val source: Int, val aec: Boolean)
+
+    /** Resolve how to capture + play for hands-free:
+     *  - "headset" mic + a Bluetooth headset present → grab its hands-free (SCO)
+     *    profile: comm audio + AEC, headset mic, from across the room (call quality).
+     *  - Speaker out → comm audio + echo canceller so voice barge-in works over the
+     *    speaker.
+     *  - Headphones out → plain media capture, no AEC: our TTS is in the user's ears
+     *    (nothing to echo-cancel) and staying out of call mode stops Android from
+     *    ducking other apps' audio (e.g. a movie) to a whisper. */
+    private fun resolveMicProfile(): MicProfile {
+        val useHeadset = settings.micSource == "headset" && audioRouter.bluetoothMicAvailable()
+        if (useHeadset && !headsetMicOn) { headsetMicOn = audioRouter.enableHeadsetMic() }
+        else if (!useHeadset && headsetMicOn) { audioRouter.disableHeadsetMic(); headsetMicOn = false }
+        headphonesRoute = audioRouter.headphonesConnected()
+        return when {
+            headsetMicOn -> MicProfile(true, android.media.MediaRecorder.AudioSource.VOICE_COMMUNICATION, true)
+            headphonesRoute -> MicProfile(false, android.media.MediaRecorder.AudioSource.VOICE_RECOGNITION, false)
+            else -> MicProfile(true, android.media.MediaRecorder.AudioSource.VOICE_COMMUNICATION, true)
+        }
+    }
+
+    private fun newHandsFree(profile: MicProfile) = HandsFreeRecorder(
+        app, vadConfig(), ::onHandsFreeSpeechStart, ::onHandsFreeUtterance,
+        { _micLevel.value = it }, profile.source, profile.aec,
+    )
+
     /** Starts the always-listening pipeline. Returns false if the mic is unavailable. */
     fun startHandsFree(): Boolean {
         if (hfOn) return true
         if (recording) return false // don't fight push-to-talk for the mic
         stopMeter() // free the mic if the level meter was running
-        val hf = HandsFreeRecorder(app, vadConfig(), ::onHandsFreeSpeechStart, ::onHandsFreeUtterance) { _micLevel.value = it }
+        val profile = resolveMicProfile()
+        val hf = newHandsFree(profile)
         if (!hf.start()) {
             _mic.value = "⚠️ mic unavailable"
             return false
         }
         handsFree = hf
         hfOn = true
-        speaker.setCommMode(true) // echo-cancelled comm audio so voice barge-in works
+        speaker.setCommMode(profile.commMode)
         _voiceState.value = VoiceState.LISTENING
         _mic.value = "🟢 listening for \"hey buddy\"…"
         return true
     }
 
-    /** Re-apply VAD settings live (restart the recorder) if hands-free is running. */
+    /** Re-apply VAD settings / audio route live (restart the recorder) if hands-free
+     *  is running. */
     fun restartHandsFree() {
         if (!hfOn) return
         handsFree?.stop()
-        val hf = HandsFreeRecorder(app, vadConfig(), ::onHandsFreeSpeechStart, ::onHandsFreeUtterance) { _micLevel.value = it }
+        val profile = resolveMicProfile()
+        val hf = newHandsFree(profile)
         if (hf.start()) {
             handsFree = hf
+            speaker.setCommMode(profile.commMode)
             _voiceState.value = VoiceState.LISTENING
         } else {
             handsFree = null; hfOn = false; _voiceState.value = VoiceState.OFF
         }
+    }
+
+    /** Headphones plugged/unplugged (or Bluetooth connected/dropped): if the route
+     *  actually flipped speaker↔headphones while listening, restart capture so the
+     *  comm-mode/echo-canceller choice follows it. Runs off the main thread because
+     *  restarting joins the capture worker. */
+    private fun onAudioRouteChanged() {
+        if (!hfOn) return
+        if (audioRouter.headphonesConnected() == headphonesRoute) return
+        restartHandsFree()
     }
 
     fun stopHandsFree() {
@@ -566,6 +616,10 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
         speaker.setCommMode(false) // back to the regular media speaker
         handsFree?.stop()
         handsFree = null
+        if (headsetMicOn) { // release the Bluetooth hands-free profile we grabbed
+            audioRouter.disableHeadsetMic(); headsetMicOn = false
+            applyAudioOutput(_audioOutput.value) // restore the user's chosen TTS output
+        }
         cancelSilenceCommit()
         _micLevel.value = 0.0
         _voiceState.value = VoiceState.OFF

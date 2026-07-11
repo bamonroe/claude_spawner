@@ -77,6 +77,11 @@ class SettingsStore(context: Context) : Prefs {
         get() = prefs.getString("audio_output", Prefs.DEFAULT_AUDIO_OUTPUT) ?: Prefs.DEFAULT_AUDIO_OUTPUT
         set(v) = prefs.edit().putString("audio_output", v).apply()
 
+    /** Hands-free mic source: "phone" | "headset" (Bluetooth hands-free profile). */
+    override var micSource: String
+        get() = prefs.getString("mic_source", Prefs.DEFAULT_MIC_SOURCE) ?: Prefs.DEFAULT_MIC_SOURCE
+        set(v) = prefs.edit().putString("mic_source", v).apply()
+
     /** Ask Claude for brief, TTS-friendly replies (appended as a prompt hint). */
     override var brief: Boolean
         get() = prefs.getBoolean("brief", false)

@@ -1,6 +1,7 @@
 package com.bam.spawner.audio
 
 import android.content.Context
+import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.os.Build
@@ -77,6 +78,97 @@ class AudioRouter(context: Context) {
         } catch (e: Exception) {
             false
         }
+    }
+
+    /**
+     * Notify [onChange] whenever an output device is added or removed (headphones
+     * plugged/unplugged, Bluetooth connected/dropped) so the caller can re-resolve
+     * the hands-free audio mode live. The platform delivers the callback on the main
+     * thread, so [onChange] should hand off any blocking work to a background scope.
+     */
+    fun registerRouteCallback(onChange: () -> Unit) {
+        val am = am ?: return
+        val cb = object : AudioDeviceCallback() {
+            override fun onAudioDevicesAdded(added: Array<out AudioDeviceInfo>?) = onChange()
+            override fun onAudioDevicesRemoved(removed: Array<out AudioDeviceInfo>?) = onChange()
+        }
+        am.registerAudioDeviceCallback(cb, null)
+    }
+
+    /**
+     * True when spoken audio is currently going to headphones (wired, USB, or a
+     * Bluetooth/BLE headset) rather than the built-in speaker/earpiece. When it is,
+     * our TTS is in the user's ears with negligible leakage into the mic, so
+     * hands-free can run in plain media mode (no call-mode ducking of other apps'
+     * audio, no echo canceller) instead of the barge-in comm-audio setup.
+     */
+    fun headphonesConnected(): Boolean {
+        val am = am ?: return false
+        return am.getDevices(AudioManager.GET_DEVICES_OUTPUTS).any { it.isHeadphone() }
+    }
+
+    /** True when a paired Bluetooth headset with a microphone (its hands-free/SCO or
+     *  BLE profile) is available to capture from. */
+    fun bluetoothMicAvailable(): Boolean {
+        val am = am ?: return false
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            return am.availableCommunicationDevices.any { it.isBluetoothMic() }
+        }
+        @Suppress("DEPRECATION")
+        return am.isBluetoothScoAvailableOffCall
+    }
+
+    /** Route capture (and playback) through a Bluetooth headset's own mic via its
+     *  hands-free profile. This is call-mode audio — it ducks other apps and drops
+     *  the headset to call quality — but it lets the user be heard from across the
+     *  room. Returns true if it engaged; pair with [disableHeadsetMic] to release it. */
+    fun enableHeadsetMic(): Boolean {
+        val am = am ?: return false
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val dev = am.availableCommunicationDevices.firstOrNull { it.isBluetoothMic() } ?: return false
+            return try {
+                am.setCommunicationDevice(dev)
+            } catch (e: SecurityException) {
+                false // needs BLUETOOTH_CONNECT
+            }
+        }
+        return try {
+            am.mode = AudioManager.MODE_IN_COMMUNICATION
+            @Suppress("DEPRECATION")
+            am.startBluetoothSco()
+            @Suppress("DEPRECATION")
+            am.isBluetoothScoOn = true
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /** Release the Bluetooth hands-free profile grabbed by [enableHeadsetMic]. */
+    fun disableHeadsetMic() {
+        val am = am ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            runCatching { am.clearCommunicationDevice() }
+        } else {
+            @Suppress("DEPRECATION")
+            runCatching { am.isBluetoothScoOn = false; am.stopBluetoothSco() }
+        }
+    }
+
+    private fun AudioDeviceInfo.isBluetoothMic() =
+        type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO || type == AudioDeviceInfo.TYPE_BLE_HEADSET
+
+    private fun AudioDeviceInfo.isHeadphone() = when (type) {
+        AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+        AudioDeviceInfo.TYPE_WIRED_HEADSET,
+        AudioDeviceInfo.TYPE_USB_HEADSET,
+        AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+        AudioDeviceInfo.TYPE_BLE_HEADSET,
+        AudioDeviceInfo.TYPE_BLE_SPEAKER,
+        AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+        AudioDeviceInfo.TYPE_HEARING_AID,
+        -> true
+        else -> false
     }
 
     private fun AudioDeviceInfo.isBluetooth() =

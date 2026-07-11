@@ -205,6 +205,27 @@ server keeps no per-connection state. The beep is a low, round sine tone with a 
 deliberately unlike a sharp notification chime — and in hands-free mode it plays through the
 echo-cancelled voice path so the open mic doesn't hear it.
 
+### Headphones and the hands-free microphone
+
+Hands-free listening normally runs as **communication audio** (like a call) with the platform echo
+canceller on, so you can barge in and interrupt Claude's spoken reply through the phone's speaker.
+The side effect of call-mode audio is that Android **ducks other apps** — a movie playing alongside
+drops to a whisper. To avoid that when you don't need it, the app watches the output route: **while
+headphones are connected** (wired, USB, or Bluetooth) it runs capture in plain **media mode** with
+no echo canceller instead — your TTS is already in your ears, so there's nothing to cancel, and
+staying out of call mode leaves the movie at full volume. It switches live the moment you plug in or
+unplug; no toggle needed.
+
+That media-mode path uses the **phone's own mic**, so you have to be near the phone to be heard. For
+when you're across the room, the **Audio** settings page has a **Hands-free microphone** choice:
+
+- **Phone mic** (default) — the behaviour above: full-volume movies on headphones, but stay near the
+  phone.
+- **Headset mic** — forces the Bluetooth **hands-free profile** so a paired headset's own mic picks
+  you up from anywhere in the room. This is call-mode audio by nature, so the headset drops to call
+  quality and other apps duck while it's listening — the unavoidable Bluetooth trade for a roaming
+  mic. Ignored (falls back to the phone mic) when no Bluetooth headset is connected.
+
 ### Choosing the AI backend and its model
 
 The server drives more than one headless AI. Each **backend** is an entry in an AI registry that

@@ -40,6 +40,12 @@ interface Prefs {
     var handsFree: Boolean
     /** Preferred TTS audio output: "earpiece" | "speaker" | "bluetooth". */
     var audioOutput: String
+    /** Hands-free capture source: "phone" (built-in mic) | "headset" (force the
+     *  Bluetooth hands-free profile so a paired headset's own mic is used). Phone
+     *  keeps other apps at full volume on headphones but needs you near the device;
+     *  headset lets you roam across the room at the cost of the movie-quality A2DP
+     *  link (call-mode audio ducks other apps while listening). Android-only. */
+    var micSource: String
     /** Ask Claude for brief, TTS-friendly replies (appended as a prompt hint). */
     var brief: Boolean
     /** Let Claude ask clarifying questions mid-task instead of guessing. */
@@ -127,6 +133,7 @@ interface Prefs {
         const val DEFAULT_CACHE_WARM_TIMER = true
         const val DEFAULT_AUTO_COMPRESS_THRESHOLD_K = 100
         const val DEFAULT_AUDIO_OUTPUT = "earpiece"
+        const val DEFAULT_MIC_SOURCE = "phone"
         const val DEFAULT_END_TOKEN = "beep"
         const val DEFAULT_STT_MODE = "dynamic"
         const val DEFAULT_STT_MODEL = "small"

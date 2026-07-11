@@ -39,6 +39,13 @@ class HandsFreeRecorder(
     private val onSpeechStart: () -> Unit,
     private val onUtterance: (ByteArray) -> Unit,
     private val onLevel: ((Double) -> Unit)? = null,
+    // Capture source + echo cancellation. Defaults suit speaker output (comm audio
+    // so the platform AEC can cancel our own TTS for barge-in). With headphones the
+    // controller passes VOICE_RECOGNITION + aec=false, which keeps the system out of
+    // call mode so other apps' media isn't ducked (our TTS is in the user's ears, so
+    // there's nothing to echo-cancel).
+    private val audioSource: Int = MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+    private val enableAec: Boolean = true,
 ) {
     companion object {
         const val CODEC = Codecs.OGG_OPUS
@@ -70,7 +77,7 @@ class HandsFreeRecorder(
         }
         val record = try {
             AudioRecord(
-                MediaRecorder.AudioSource.VOICE_COMMUNICATION, SAMPLE_RATE,
+                audioSource, SAMPLE_RATE,
                 AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(minBuf, FRAME_BYTES * PREROLL_FRAMES),
             )
         } catch (e: Exception) {
@@ -96,7 +103,7 @@ class HandsFreeRecorder(
 
     private fun enableEffects(sessionId: Int) {
         runCatching {
-            if (AcousticEchoCanceler.isAvailable()) {
+            if (enableAec && AcousticEchoCanceler.isAvailable()) {
                 aec = AcousticEchoCanceler.create(sessionId)?.also { it.enabled = true }
             }
             if (NoiseSuppressor.isAvailable()) {

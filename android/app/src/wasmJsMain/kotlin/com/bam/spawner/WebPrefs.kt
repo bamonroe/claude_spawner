@@ -82,6 +82,9 @@ class WebPrefs : Prefs {
     override var audioOutput: String
         get() = str("audio_output", Prefs.DEFAULT_AUDIO_OUTPUT)
         set(v) = putStr("audio_output", v)
+    override var micSource: String
+        get() = str("mic_source", Prefs.DEFAULT_MIC_SOURCE)
+        set(v) = putStr("mic_source", v)
     override var brief: Boolean
         get() = bool("brief", false)
         set(v) = putBool("brief", v)
