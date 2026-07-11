@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -54,6 +55,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
@@ -94,6 +96,12 @@ fun InputBar(
     // is left. Null hides the track.
     var swipeFraction by remember { mutableStateOf<Float?>(null) }
     val hasText = draft.isNotBlank()
+    // Layout expansion: once the draft grows past one line the field moves to its own
+    // full-width row above the buttons; it stays expanded until the box is cleared, so
+    // it never oscillates at the one-line boundary.
+    var expanded by remember { mutableStateOf(false) }
+    // Baseline pixel height of the empty single-line field, captured on first measure.
+    var singleLineHeightPx by remember { mutableStateOf(0) }
     // While hands-free owns the mic, push-to-talk is disabled.
     val pushToTalkEnabled = !handsFree
     val micLive = connected && pushToTalkEnabled
@@ -122,16 +130,13 @@ fun InputBar(
               tint = MaterialTheme.colorScheme.onSurfaceVariant,
           )
       }
-      Row(
-        Modifier.fillMaxWidth().padding(8.dp),
-        verticalAlignment = Alignment.Bottom,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        // File transfer (📎): upload a phone file to — or download one from — the
-        // session's host, prefilling the box with "look at the file at <path>".
-        transferButton { path -> draft = "look at the file at $path" }
+      // The composer restructures when the draft grows past one line: the field jumps
+      // to its own full-width row above the transfer/send buttons (the common phone
+      // messenger behaviour) instead of staying a skinny column wedged between them.
+      val messageField: @Composable (Modifier) -> Unit = { fieldModifier ->
         OutlinedTextField(
-            value = draft, onValueChange = { draft = it },
+            value = draft,
+            onValueChange = { draft = it; if (it.isEmpty()) expanded = false },
             placeholder = { Text("Message…") }, singleLine = false, maxLines = 6,
             // Swipe up to open the command tray, swipe down to close it. Taps still
             // fall through to focus the field (a tap never crosses the drag slop).
@@ -140,14 +145,20 @@ fun InputBar(
             // cursor and the swipe-open still works (that handler is armed only when
             // the tray is already open). onFocusChanged covers a first-tap focus; this
             // covers a tap when the swipe-to-open already left the box focused.
-            modifier = Modifier.weight(1f)
+            modifier = fieldModifier
+                // First stable measure is the empty single line; once the field grows
+                // past ~1.4× that height, switch to the expanded (full-width) layout.
+                .onSizeChanged { s ->
+                    if (singleLineHeightPx == 0) singleLineHeightPx = s.height
+                    else if (s.height > singleLineHeightPx * 1.4f) expanded = true
+                }
                 // Desktop/web: Enter sends, Shift+Enter inserts a newline. Consumed so
                 // the newline isn't also typed. No-op on mobile (enterSends is false).
                 .onPreviewKeyEvent { e ->
                     if (enterSends && e.type == KeyEventType.KeyDown &&
                         e.key == Key.Enter && !e.isShiftPressed
                     ) {
-                        if (connected && draft.isNotBlank()) { onSend(draft); draft = "" }
+                        if (connected && draft.isNotBlank()) { onSend(draft); draft = ""; expanded = false }
                         true
                     } else {
                         false
@@ -173,9 +184,11 @@ fun InputBar(
                     )
                 },
         )
-        // One button, WhatsApp-style: SEND when there's text (tap to send, hold to
-        // clear); MIC when the box is empty (hold to talk; drag up the track to
-        // switch to hands-free); HEADSET when hands-free is on (tap to turn off).
+      }
+      // One button, WhatsApp-style: SEND when there's text (tap to send, hold to
+      // clear); MIC when the box is empty (hold to talk; drag up the track to
+      // switch to hands-free); HEADSET when hands-free is on (tap to turn off).
+      val sendButton: @Composable () -> Unit = {
         // The upward drag distance to switch into hands-free — shared so the visual
         // track is exactly as long as the finger must actually travel.
         val swipeUpDp = 120.dp
@@ -274,8 +287,8 @@ fun InputBar(
                     val swipeUpPx = swipeUpDp.toPx()
                     when {
                         hasText -> detectTapGestures(
-                            onTap = { if (connected) { onSend(draft); draft = "" } },
-                            onLongPress = { draft = "" }, // hold clears the box
+                            onTap = { if (connected) { onSend(draft); draft = ""; expanded = false } },
+                            onLongPress = { draft = ""; expanded = false }, // hold clears the box
                         )
                         // Hands-free on: a single tap on the headset turns it off.
                         handsFree -> detectTapGestures(onTap = { onToggleHandsFree(false) })
@@ -357,6 +370,34 @@ fun InputBar(
                     )
                 }
             }
+        }
+      }
+      if (expanded) {
+        // Multi-line: the field owns a full-width row; the buttons drop to a row below
+        // (transfer left, send right), so the text is never squeezed into a skinny column.
+        Column(Modifier.fillMaxWidth().padding(8.dp)) {
+            messageField(Modifier.fillMaxWidth())
+            Row(
+                Modifier.fillMaxWidth().padding(top = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                transferButton { path -> draft = "look at the file at $path" }
+                Spacer(Modifier.weight(1f))
+                sendButton()
+            }
+        }
+      } else {
+        // Single line: the compact side-by-side row — transfer, field, send.
+        Row(
+            Modifier.fillMaxWidth().padding(8.dp),
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            // File transfer (📎): upload a phone file to — or download one from — the
+            // session's host, prefilling the box with "look at the file at <path>".
+            transferButton { path -> draft = "look at the file at $path" }
+            messageField(Modifier.weight(1f))
+            sendButton()
         }
       }
     }
