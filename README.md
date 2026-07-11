@@ -428,8 +428,17 @@ via the Web Audio API, downsamples it to 16 kHz mono PCM16, and streams the clip
 Whisper over the same socket (the `pcm16` codec — no Opus/ffmpeg needed), exactly like the phone's
 push-to-talk. Replies are **read aloud** with the browser's built-in `SpeechSynthesis`, and the stop
 button (or the "stop" barge-in) halts playback. The mic needs a **secure context** (https or
-localhost) and microphone permission. Still browser-only-TODO: hands-free / always-listening (the
-VAD-gated mode) and audio-output routing — those stay stubbed; push-to-talk is the browser voice path.
+localhost) and microphone permission.
+
+**Hands-free (always-listening) works in the browser too**: swipe the mic button up to switch it on
+and the client keeps the mic open, running a Web-Audio voice-activity detector that mirrors the
+phone's — it starts an utterance after a moment of sustained speech and ends it on a pause (tuned by
+the same **Audio → threshold / VAD** dials the phone uses), then ships each utterance the same way a
+push-to-talk clip goes, so the server accumulates your speech until the **end token** ("beep")
+commits it. It rejects its own text-to-speech from re-triggering the mic while it's speaking. Because
+the browser needs a user gesture to open the mic, hands-free is a **per-session** toggle (it isn't
+restored automatically on load). Still browser-only-TODO: audio-output routing — the browser speaks
+to the default output sink.
 
 The layout is **responsive**: in a **wide** window (a desktop browser, a tablet, an unfolded phone —
 ≥840 px) the sessions sidebar is **pinned permanently** beside the chat instead of hiding in the

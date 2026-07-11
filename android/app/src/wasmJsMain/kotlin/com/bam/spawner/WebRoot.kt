@@ -74,16 +74,19 @@ fun WebRoot() {
                 )
                 else -> MainScreen(
                     controller,
+                    // Browser hands-free is a per-session toggle, not auto-started on load:
+                    // getUserMedia needs a user gesture, so entering it prompts for the mic.
                     handsFreeInitial = false,
                     badgeMode = prefs.tokenBadge,
                     showCacheTimer = prefs.cacheWarmTimer,
                     trayCommandNames = prefs.trayCommandNames().toSet(),
-                    // Push-to-talk mic + SpeechSynthesis TTS are live (M5); hands-free VAD and
-                    // output routing aren't, so those stay stubbed.
+                    // Push-to-talk, SpeechSynthesis TTS, and VAD-gated hands-free are all live
+                    // (M5); only audio-output routing stays stubbed (browsers speak to the
+                    // default sink).
                     mic = mic,
                     audioOutput = AudioOutput.MUTE,
                     audioOutputs = listOf(AudioOutput.MUTE),
-                    onToggleHandsFree = {},
+                    onToggleHandsFree = { on -> if (on) controller.startHandsFree() else controller.stopHandsFree() },
                     onSelectAudioOutput = {},
                     onRefreshOutputs = {},
                     onTalkStart = controller::startTalking,

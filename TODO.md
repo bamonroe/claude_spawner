@@ -400,9 +400,19 @@ Milestones:
         and barges-in on talk-start; a poll flips `speaking` off when the utterance queue drains.
         `WebRoot` wires the four talk/stop callbacks + `mic` text. Needs a secure context + mic
         permission. Both targets build; wasm bundle packages. **Still browser-TODO below.**
-  - [ ] **Hands-free (VAD-gated always-listening) in the browser** + audio-output routing — still
-        stubbed (`voiceState` stays OFF, output is MUTE). The push-to-talk path above is the browser
-        voice story for now; hands-free needs a browser VAD + end-token + echo handling (a separate lift).
+  - [x] 2026-07-11 — **Hands-free (VAD-gated always-listening) in the browser.** New
+        `WebAudio.startHandsFreeMic/pollHandsFreeClip/handsFreeCapturing/stopHandsFreeMic`: one open
+        mic (getUserMedia + ScriptProcessor) with a JS energy VAD that mirrors the phone's
+        `Endpointer` — RMS scaled to int16 so the shared `Prefs.vadThreshold`/`vadOnsetMs`/
+        `vadSilenceMs` mean the same thing; onset starts an utterance (keeping a pre-roll so the
+        first word isn't clipped), silence (or the 15 s cap) ends it. Each finished clip is
+        downsampled to 16 kHz pcm16 and queued on a `window` global; `WebAppController` drains it in
+        a poll loop and ships it via `wake(pcm16, hands_free=true)` → audio → `audio_end` (same wire
+        as the phone; server streaming-appends until the end token). Echo rejected by tripling the
+        VAD bar while `speechSynthesis.speaking` (plus getUserMedia's own echoCancellation).
+        `voiceState` now tracks LISTENING/CAPTURING/SPEAKING. Per-session toggle (not auto-started —
+        getUserMedia needs a user gesture). ⚠ live browser test pending. Remaining M5: audio-output
+        routing (output stays MUTE — browsers speak to the default sink).
   - [x] `localStorage`-backed prefs — done earlier with `WebPrefs`.
 - [~] **M6 — Serve + document.** (in progress)
   - [x] 2026-07-09 — **Server hosts the web bundle.** New `SPAWNER_WEB_DIR` config: when set, the Go

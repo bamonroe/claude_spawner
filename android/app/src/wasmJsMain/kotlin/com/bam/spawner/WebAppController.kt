@@ -31,12 +31,16 @@ import kotlin.js.JsAny
 import kotlin.js.JsString
 import com.bam.spawner.net.Codecs
 
+// Hard cap on one hands-free utterance (matches the phone's Endpointer 15 s cap): a clip
+// that never hits the silence gate is shipped anyway rather than growing without bound.
+private const val HANDS_FREE_MAX_MS = 15000
+
 /**
  * The browser's [AppController]: it wires the shared [SpawnerClient]'s parsed [ServerMsg]s to
- * state flows and maps the UI's method calls to `Outbound` sends. It replicates the *non-audio*
- * message handling of the Android `VoiceController` (a lighter chat/history model — no watchdog,
- * TTS, or hands-free), which is all a browser client needs. Audio hooks aren't on the interface;
- * the web shell stubs them.
+ * state flows and maps the UI's method calls to `Outbound` sends. It replicates the Android
+ * `VoiceController`'s message handling in a lighter chat/history model (no watchdog), and drives
+ * browser audio itself: push-to-talk, SpeechSynthesis TTS, and VAD-gated hands-free. The audio
+ * hooks aren't on the interface (like Android); the web shell calls them directly.
  */
 @OptIn(ExperimentalEncodingApi::class)
 class WebAppController(private val prefs: Prefs) : AppController {
@@ -78,8 +82,8 @@ class WebAppController(private val prefs: Prefs) : AppController {
     private val _discoverError = MutableStateFlow("")
     override val discoverError: StateFlow<String> = _discoverError.asStateFlow()
 
-    // Hands-free (VAD-gated always-listening) isn't wired in the browser yet, so voiceState
-    // stays OFF; push-to-talk + TTS below are live.
+    // Voice pill: OFF until hands-free is on, then LISTENING/CAPTURING/SPEAKING driven by
+    // the VAD + TTS (see the hands-free section); push-to-talk leaves it OFF.
     private val _voiceState = MutableStateFlow(VoiceState.OFF)
     override val voiceState: StateFlow<VoiceState> = _voiceState.asStateFlow()
     private val _speaking = MutableStateFlow(false)
@@ -416,6 +420,56 @@ class WebAppController(private val prefs: Prefs) : AppController {
 
     /** Stop-speaking button / "stop" barge-in: halt TTS now. */
     fun stopSpeaking() { cancelSpeech(); _speaking.value = false }
+
+    // --- Hands-free (VAD-gated always-listening) --------------------------------
+    // The browser analogue of the phone: one open mic, a JS-side energy VAD that
+    // segments each utterance, and one clip per utterance shipped the same way a
+    // push-to-talk clip is — but with hands_free=true, so the server streaming-appends
+    // until the end token commits. A poll loop drains finished clips and tracks the
+    // LISTENING/CAPTURING/SPEAKING pill. VAD dials + the mic toggle persist in prefs.
+    private var handsFreeJob: Job? = null
+
+    /** Toggle always-listening on: open the mic under the shared VAD dials, then loop. */
+    fun startHandsFree() {
+        if (handsFreeJob != null) return
+        startHandsFreeMic(prefs.vadThreshold, prefs.vadOnsetMs, prefs.vadSilenceMs, HANDS_FREE_MAX_MS)
+            .then<JsAny?> { res: JsString ->
+                val s = res.toString()
+                if (s.startsWith("err:")) {
+                    _voiceState.value = VoiceState.OFF
+                    addChat(Role.SYSTEM, "⚠️ mic unavailable (${s.removePrefix("err:")})")
+                } else {
+                    _voiceState.value = VoiceState.LISTENING
+                    handsFreeJob = scope.launch {
+                        while (true) {
+                            // Reflect what the mic is doing; SPEAKING (our own TTS) wins so the
+                            // pill doesn't flicker to CAPTURING on echo the VAD didn't fully reject.
+                            _voiceState.value = when {
+                                speechActive() -> VoiceState.SPEAKING
+                                handsFreeCapturing() -> VoiceState.CAPTURING
+                                else -> VoiceState.LISTENING
+                            }
+                            val clip = pollHandsFreeClip().toString()
+                            if (clip.isNotEmpty()) {
+                                val pcm = Base64.decode(clip)
+                                client?.send(Outbound.wake(Codecs.PCM16, handsFree = true))
+                                client?.sendAudio(pcm)
+                                client?.send(Outbound.audioEnd())
+                            }
+                            delay(120)
+                        }
+                    }
+                }
+                null
+            }
+    }
+
+    /** Toggle always-listening off: stop the loop and tear the mic down. */
+    fun stopHandsFree() {
+        handsFreeJob?.cancel(); handsFreeJob = null
+        stopHandsFreeMic()
+        _voiceState.value = VoiceState.OFF
+    }
 
     // Speak a reply through the browser (markdown stripped, same as the phone). Utterances
     // queue in the engine; a lightweight poll flips `speaking` off once the queue drains so
