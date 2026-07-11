@@ -306,7 +306,11 @@ Milestones:
         buttons (they drop to a row beneath) instead of leaving it a skinny column wedged between
         them — the common phone-messenger behaviour. Height-measured via `onSizeChanged` against the
         empty single-line baseline; stays expanded until the box is cleared so it can't oscillate at
-        the boundary. Verified on the emulator (both layouts) and installed on the phone.
+        the boundary. Built as one custom `Layout` that re-arranges the transfer/field/send
+        children in the measure pass (rather than swapping a Row for a Column), so the field's
+        node is never re-parented and keeps its focus + the soft keyboard across the
+        expand↔collapse transition. Verified on the emulator (both layouts, keyboard stays up)
+        and installed on the phone.
 - [~] **M5 — Web-native platform bits.** Browser audio (Web Audio → server STT), `SpeechSynthesis` TTS,
       browser spawn UI.
   - [x] 2026-07-09 — **Web file transfer (the 📎 flow).** The web `MainScreen` now fills the
