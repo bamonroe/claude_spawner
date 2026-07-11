@@ -278,6 +278,10 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     private val _whisperFastModel = MutableStateFlow(settings.whisperFastModel)
     override val whisperFastModel: StateFlow<String> = _whisperFastModel.asStateFlow()
 
+    // Models available on the server's disk; not persisted — re-sent on connect.
+    private val _whisperModels = MutableStateFlow<List<String>>(emptyList())
+    override val whisperModels: StateFlow<List<String>> = _whisperModels.asStateFlow()
+
     // Pending clarification questions (interactive mode); null when none.
     private val _ask = MutableStateFlow<List<com.bam.spawner.net.AskQuestion>?>(null)
     override val ask: StateFlow<List<com.bam.spawner.net.AskQuestion>?> = _ask.asStateFlow()
@@ -799,6 +803,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                 // Unconditional: "" is meaningful (no fast server configured there).
                 _whisperFastModel.value = msg.whisperModelFast
                 settings.whisperFastModel = msg.whisperModelFast
+                _whisperModels.value = msg.whisperModels
                 discover() // the drawer lists ALL machine sessions (discovery is the source)
                 client?.send(Outbound.digest()) // validate the offline transcript cache (bodies-free)
                 settings.lastSession.takeIf { it.isNotEmpty() }?.let {
@@ -811,6 +816,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                 if (msg.model.isNotBlank()) { _whisperModel.value = msg.model; settings.whisperModel = msg.model }
                 _whisperFastModel.value = msg.fastModel
                 settings.whisperFastModel = msg.fastModel
+                if (msg.models.isNotEmpty()) _whisperModels.value = msg.models
             }
             is ServerMsg.Say -> {
                 // A `say` is also the terminal event for a background turn that has no

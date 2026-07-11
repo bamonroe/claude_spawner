@@ -13,7 +13,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -99,6 +101,44 @@ func (s *Server) currentWhisperModels() (model, fastModel string) {
 	return s.currentModel, s.currentFast
 }
 
+// availableWhisperModels lists the ggml model names in cfg.WhisperModelsDir —
+// the host directory the resident whisper servers mount at /models — sorted by
+// file size (tiny → large), so clients can offer a picker instead of free text.
+// Returns nil when the dir isn't configured (or can't be read); re-scanned on
+// every call so dropping a new model file in needs no restart.
+func (s *Server) availableWhisperModels() []string {
+	if s.cfg.WhisperModelsDir == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(s.cfg.WhisperModelsDir)
+	if err != nil {
+		log.Printf("whisper: list models in %s: %v", s.cfg.WhisperModelsDir, err)
+		return nil
+	}
+	type m struct {
+		name string
+		size int64
+	}
+	var models []m
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasPrefix(name, "ggml-") || !strings.HasSuffix(name, ".bin") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		models = append(models, m{strings.TrimSuffix(strings.TrimPrefix(name, "ggml-"), ".bin"), info.Size()})
+	}
+	sort.Slice(models, func(i, j int) bool { return models[i].size < models[j].size })
+	names := make([]string, len(models))
+	for i, mo := range models {
+		names[i] = mo.name
+	}
+	return names
+}
+
 // setWhisperModel hot-loads `name` onto a resident whisper server — the fast
 // (draft/detection) one when fast is set, else the accurate one — and records
 // it as that server's current model. Blocks on the /load; call it from a
@@ -147,6 +187,7 @@ func (s *Server) setWhisperModel(name string, fast bool) error {
 // (accurate + fast), so a change made by one client updates all of them.
 func (s *Server) broadcastWhisperModel() {
 	model, fastModel := s.currentWhisperModels()
+	models := s.availableWhisperModels()
 	s.connsMu.Lock()
 	cs := make([]*conn, 0, len(s.conns))
 	for c := range s.conns {
@@ -154,7 +195,7 @@ func (s *Server) broadcastWhisperModel() {
 	}
 	s.connsMu.Unlock()
 	for _, c := range cs {
-		c.send(msgWhisperModel(model, fastModel))
+		c.send(msgWhisperModel(model, fastModel, models))
 	}
 }
 
@@ -506,7 +547,7 @@ func (c *conn) authenticate() bool {
 	// The whisper model is server-global: the app reads it here rather than pushing
 	// its own (so two clients don't bounce it), and changes it via set_whisper_model.
 	model, fastModel := c.srv.currentWhisperModels()
-	c.send(msgHelloOK("ws", model, fastModel))
+	c.send(msgHelloOK("ws", model, fastModel, c.srv.availableWhisperModels()))
 	// Advertise the AI backend registry so the app's new-session picker can offer a
 	// backend + model choice (and badge sessions by backend).
 	c.send(msgAgents(c.srv.driver.Registry()))

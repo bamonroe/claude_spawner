@@ -67,6 +67,9 @@ interface AppController : HostsIdentitiesController {
     // The fast (draft/detection, "quick" transcribe) server's model; "" when the
     // server has no fast whisper server configured.
     val whisperFastModel: StateFlow<String>
+    // The ggml models available on the server's disk (size-ordered), for the
+    // settings picker; empty when the server doesn't advertise them → free text.
+    val whisperModels: StateFlow<List<String>>
     val ask: StateFlow<List<AskQuestion>?>
     // AI backend registry (from the `agents` message): the backends + models the
     // new-session picker offers. Empty until the server advertises it on connect.

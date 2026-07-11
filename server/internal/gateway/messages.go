@@ -79,18 +79,26 @@ func msgAgents(reg *agent.Registry) map[string]any {
 	return map[string]any{"type": "agents", "agents": agents, "default": def}
 }
 
-func msgHelloOK(sessionID, whisperModel, whisperFastModel string) map[string]any {
+func msgHelloOK(sessionID, whisperModel, whisperFastModel string, whisperModels []string) map[string]any {
+	if whisperModels == nil {
+		whisperModels = []string{}
+	}
 	return map[string]any{
 		"type": "hello_ok", "server_version": serverVersion, "session_id": sessionID,
 		"whisper_model": whisperModel, "whisper_model_fast": whisperFastModel,
+		"whisper_models": whisperModels,
 	}
 }
 
 // msgWhisperModel reports the resident whisper servers' current models (server-
 // global): the accurate one and the fast draft/detection one (fast_model is ""
-// when no fast server is configured). Broadcast to all clients on any change.
-func msgWhisperModel(name, fastName string) map[string]any {
-	return map[string]any{"type": "whisper_model", "model": name, "fast_model": fastName}
+// when no fast server is configured), plus the ggml models available on disk
+// (empty when SPAWNER_WHISPER_MODELS_DIR isn't set). Broadcast on any change.
+func msgWhisperModel(name, fastName string, models []string) map[string]any {
+	if models == nil {
+		models = []string{}
+	}
+	return map[string]any{"type": "whisper_model", "model": name, "fast_model": fastName, "whisper_models": models}
 }
 
 func msgSay(text string) map[string]any {

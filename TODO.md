@@ -19,6 +19,12 @@ Dates are `YYYY-MM-DD`.
       the fast choice persists in `settings.json` and boots via `SPAWNER_WHISPER_FAST_MODEL_NAME`.
       Replaces the fixed three-pill picker in Settings → Server. ⚠ needs a server restart to go
       live.
+- [x] 2026-07-10 — **Model picker dropdown**: new `SPAWNER_WHISPER_MODELS_DIR` lets the gateway
+      list the ggml models on disk (size-ordered, re-scanned per send); `hello_ok`/`whisper_model`
+      carry them as `whisper_models`, and the app's Transcription models fields become dropdowns
+      when the list is non-empty (free text stays the fallback). Apply also works on an unchanged
+      name to pin an env-default model into `settings.json`. ⚠ needs a container rebuild (new env
+      var + binary) to go live.
 
 ### Multi-backend AI registry + per-session model selection (epic — proposed 2026-07-09)
 

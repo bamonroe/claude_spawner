@@ -2,6 +2,7 @@ package com.bam.spawner
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -22,6 +23,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -773,10 +776,10 @@ fun AudioSettings(
                 + "small.en, medium.en, large-v3, …",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
         )
-        WhisperModelField("Full transcribe model", controller.whisperModel) {
+        WhisperModelField("Full transcribe model", controller.whisperModel, controller.whisperModels) {
             controller.setWhisperModel(it)
         }
-        WhisperModelField("Quick transcribe model", controller.whisperFastModel) {
+        WhisperModelField("Quick transcribe model", controller.whisperFastModel, controller.whisperModels) {
             controller.setWhisperModel(it, fast = true)
         }
         Text(
@@ -788,23 +791,44 @@ fun AudioSettings(
 }
 
 /**
- * One server-global whisper model editor: a free-text ggml model name, prefilled from the
- * server-reported [current] (re-synced on any change, even from another device), with an Apply
- * that pushes it via [onApply]. Re-applying the unchanged name is a deliberate pin: the server
- * skips the redundant hot-load but persists the choice to settings.json, so a model that only
- * came from an env default survives restarts.
+ * One server-global whisper model editor, prefilled from the server-reported [current]
+ * (re-synced on any change, even from another device), with an Apply that pushes it via
+ * [onApply]. When the server advertises its on-disk models ([options] non-empty) the editor
+ * is a dropdown of them; otherwise it falls back to a free-text ggml model name. Re-applying
+ * the unchanged name is a deliberate pin: the server skips the redundant hot-load but persists
+ * the choice to settings.json, so a model that only came from an env default survives restarts.
  */
 @Composable
-private fun WhisperModelField(label: String, current: StateFlow<String>, onApply: (String) -> Unit) {
+private fun WhisperModelField(
+    label: String,
+    current: StateFlow<String>,
+    options: StateFlow<List<String>>,
+    onApply: (String) -> Unit,
+) {
     val cur by current.collectAsState()
+    val models by options.collectAsState()
     var picked by remember { mutableStateOf(cur) }
     LaunchedEffect(cur) { picked = cur }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(
-            picked, { picked = it },
-            label = { Text(label) }, singleLine = true, modifier = Modifier.weight(1f),
-            placeholder = { Text(cur.ifBlank { "none" }) },
-        )
+        if (models.isNotEmpty()) {
+            var open by remember { mutableStateOf(false) }
+            Box(Modifier.weight(1f)) {
+                OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text("$label: ${picked.ifBlank { "none" }} ▾")
+                }
+                DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                    models.forEach { m ->
+                        DropdownMenuItem(text = { Text(m) }, onClick = { picked = m; open = false })
+                    }
+                }
+            }
+        } else {
+            OutlinedTextField(
+                picked, { picked = it },
+                label = { Text(label) }, singleLine = true, modifier = Modifier.weight(1f),
+                placeholder = { Text(cur.ifBlank { "none" }) },
+            )
+        }
         OutlinedButton(
             onClick = { onApply(picked.trim()) },
             enabled = picked.trim().isNotBlank(),

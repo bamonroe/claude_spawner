@@ -140,6 +140,9 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
 - Resident-server STT: `SPAWNER_WHISPER_URL` (accurate server), `SPAWNER_WHISPER_FAST_URL` (fast
   draft/detection server), `SPAWNER_WHISPER_MODEL_NAME` (`medium.en`; reported to clients),
   `SPAWNER_WHISPER_FAST_MODEL_NAME` (`base.en`; the fast server's boot model, same lifecycle),
+  `SPAWNER_WHISPER_MODELS_DIR` (the host directory of ggml model files the whisper containers
+  mount at `/models`; when set, its model names are sent to clients as a settings picker —
+  empty = free-text entry only),
   `SPAWNER_WHISPER_FAST_MAX_SEC` (`2.5`; clips shorter than this use the fast server).
 - Sandbox sessions (per-session `target: sandbox` execution): `SPAWNER_SANDBOX_IMAGE` (container
   image; **empty disables** the sandbox target), `SPAWNER_SANDBOX_RUNTIME` (`podman`; the container

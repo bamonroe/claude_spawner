@@ -109,6 +109,9 @@ class WebAppController(private val prefs: Prefs) : AppController {
     // The fast (draft/detection, "quick") server's model; "" = none configured.
     private val _whisperFastModel = MutableStateFlow(prefs.whisperFastModel)
     override val whisperFastModel: StateFlow<String> = _whisperFastModel.asStateFlow()
+    // Models available on the server's disk; not persisted — re-sent on connect.
+    private val _whisperModels = MutableStateFlow<List<String>>(emptyList())
+    override val whisperModels: StateFlow<List<String>> = _whisperModels.asStateFlow()
     private val _ask = MutableStateFlow<List<AskQuestion>?>(null)
     override val ask: StateFlow<List<AskQuestion>?> = _ask.asStateFlow()
 
@@ -166,6 +169,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
                 // Unconditional: "" is meaningful (no fast server configured there).
                 _whisperFastModel.value = msg.whisperModelFast
                 prefs.whisperFastModel = msg.whisperModelFast
+                _whisperModels.value = msg.whisperModels
                 discover()
                 if (prefs.lastSession.isNotBlank()) {
                     client?.send(Outbound.attach(prefs.lastSession, prefs.lastSessionId, silent = true))
@@ -175,6 +179,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
                 if (msg.model.isNotBlank()) _whisperModel.value = msg.model
                 _whisperFastModel.value = msg.fastModel
                 prefs.whisperFastModel = msg.fastModel
+                if (msg.models.isNotEmpty()) _whisperModels.value = msg.models
             }
             is ServerMsg.Say -> { _activity.value = ""; addChat(Role.SYSTEM, msg.text); speak(msg.text) }
             is ServerMsg.Output -> {

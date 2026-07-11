@@ -59,6 +59,10 @@ type Config struct {
 	// NAME, same semantics and lifecycle as WhisperModelName. Only meaningful
 	// when WhisperFastURL is set.
 	WhisperFastModelName string
+	// WhisperModelsDir is the host directory holding the ggml model files the
+	// resident whisper servers mount at /models. When set, the gateway lists
+	// its ggml-*.bin files so clients can offer a model picker; empty = no list.
+	WhisperModelsDir string
 	// WhisperModel is the path to a ggml model file. Empty disables transcription
 	// (the audio path returns not_implemented; text utterances still work).
 	WhisperModel string
@@ -156,6 +160,7 @@ func Load() (*Config, error) {
 		WhisperFastURL:       os.Getenv("SPAWNER_WHISPER_FAST_URL"),
 		WhisperModelName:     env("SPAWNER_WHISPER_MODEL_NAME", "medium.en"),
 		WhisperFastModelName: env("SPAWNER_WHISPER_FAST_MODEL_NAME", "base.en"),
+		WhisperModelsDir:     os.Getenv("SPAWNER_WHISPER_MODELS_DIR"),
 		WhisperModel:         os.Getenv("SPAWNER_WHISPER_MODEL"),
 		WhisperModelFast:     os.Getenv("SPAWNER_WHISPER_MODEL_FAST"),
 		WhisperModelBase:     os.Getenv("SPAWNER_WHISPER_MODEL_BASE"),

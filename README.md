@@ -255,8 +255,9 @@ containerized is **transcription** — two resident whisper.cpp HTTP servers ([`
 an accurate model on `:8571` and a fast draft/detection model on `:8572`. Both models are
 server-global and can be hot-swapped from **Settings → Audio → Transcription models** (they load
 for every device at once): the **full** field is the accurate server (dictation), the **quick**
-field the fast one (live hands-free draft + end-token detection), and each free-text field takes
-any ggml model name in the server's `/models` dir (`tiny.en` … `large-v3`). Both choices are
+field the fast one (live hands-free draft + end-token detection). When `SPAWNER_WHISPER_MODELS_DIR`
+points at the host's ggml model directory, each field is a dropdown of the models actually on disk
+(size-ordered); without it, each is a free-text ggml model name (`tiny.en` … `large-v3`). Both choices are
 **persisted to `settings.json`** next to the session state, so a restart or rebuild keeps them
 instead of reverting to `SPAWNER_WHISPER_MODEL_NAME` / `SPAWNER_WHISPER_FAST_MODEL_NAME`. Applying
 a field's unchanged value is a deliberate **pin**: no reload happens, but a model that so far only
