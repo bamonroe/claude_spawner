@@ -1,6 +1,8 @@
 package gateway
 
 import (
+	"time"
+
 	"github.com/bam/claude_spawner/server/internal/agent"
 	"github.com/bam/claude_spawner/server/internal/session"
 	"github.com/bam/claude_spawner/server/internal/usage"
@@ -220,10 +222,14 @@ func msgRenamed(old, name, sessionID string) map[string]any {
 // chunk=true messages; the final chunk=false message closes the turn and (only
 // then) carries the turn's token `usage`, which the app renders as a per-message
 // badge. usage is nil for streaming chunks (no per-chunk accounting exists).
+// The final message is stamped with `usage_at` (this turn's completion time) so
+// a client that receives it buffered on reconnect anchors its cache-warm
+// countdown to the turn's real age, not to when the message finally arrived.
 func msgOutput(name, text string, chunk bool, usage *session.Usage) map[string]any {
 	m := map[string]any{"type": "output", "name": name, "text": text, "chunk": chunk}
 	if usage != nil {
 		m["usage"] = usage
+		m["usage_at"] = time.Now().Unix()
 	}
 	return m
 }

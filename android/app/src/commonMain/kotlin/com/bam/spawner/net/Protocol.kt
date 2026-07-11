@@ -39,7 +39,9 @@ sealed interface ServerMsg {
     data object Detached : ServerMsg
     data class ContextReset(val name: String) : ServerMsg // Claude context cleared → drop token accounting
     data class Renamed(val old: String, val name: String, val sessionId: String = "") : ServerMsg // attached session renamed → update title in place (matched by id)
-    data class Output(val name: String, val text: String, val chunk: Boolean, val usage: TokenUsage? = null) : ServerMsg
+    // usageAt (final message only) is the turn's completion unix seconds — anchors
+    // the cache-warm countdown to the turn's real age even when delivered buffered.
+    data class Output(val name: String, val text: String, val chunk: Boolean, val usage: TokenUsage? = null, val usageAt: Long = 0) : ServerMsg
     data class History(val name: String, val messages: List<HistMsg>, val more: Boolean, val count: Int = 0, val hash: String = "", val unchanged: Boolean = false) : ServerMsg
     data class ReadLast(val count: Int) : ServerMsg
     data class Discovered(val sessions: List<DiscoveredInfo>) : ServerMsg
@@ -82,7 +84,7 @@ sealed interface ServerMsg {
                 "detached" -> Detached
                 "context_reset" -> ContextReset(o.str("name"))
                 "renamed" -> Renamed(o.str("old"), o.str("name"), o.str("session_id"))
-                "output" -> Output(o.str("name"), o.str("text"), o.bool("chunk", false), readUsage(o.obj("usage")))
+                "output" -> Output(o.str("name"), o.str("text"), o.bool("chunk", false), readUsage(o.obj("usage")), o.long("usage_at"))
                 "history" -> History(o.str("name"), readHist(o.arr("messages")), o.bool("more"), o.int("count", 0), o.str("hash"), o.bool("unchanged", false))
                 "read_last" -> ReadLast(o.int("count", 1))
                 "discovered" -> Discovered(readDiscovered(o.arr("sessions")))
