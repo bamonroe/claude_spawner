@@ -53,6 +53,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
@@ -221,7 +222,20 @@ fun InputBar(
             swipeFraction?.let { frac ->
                 Box(
                     Modifier
-                        .offset(y = (-54).dp) // float just above the mic button
+                        // Draw the track floating just above the mic without letting it
+                        // take up layout space: report zero size to the parent Box (so the
+                        // InputBar height doesn't grow and shove the chat list up) while
+                        // still placing the full track centred over the mic and overhanging
+                        // upward, overlaying the conversation.
+                        .layout { measurable, constraints ->
+                            val placeable = measurable.measure(constraints)
+                            layout(0, 0) {
+                                placeable.place(
+                                    x = -placeable.width / 2,
+                                    y = -placeable.height - 54.dp.roundToPx(),
+                                )
+                            }
+                        }
                         .size(width = trackWidth, height = swipeUpDp)
                         .clip(RoundedCornerShape(trackWidth / 2))
                         .background(MaterialTheme.colorScheme.surfaceVariant),
