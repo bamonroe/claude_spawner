@@ -12,6 +12,15 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- **Collapse spawner-server host mounts.** With SSH-native turns, most host FS access already
+      goes over SSH; trim the broad `${HOME}`/`/data`/`passwd` bind mounts down to essentials.
+  - [x] 2026-07-12 — **Whisper models → `/data/storage/whisper`**, mounted directly (rw into the
+        gateway for on-demand downloads, ro into the whisper service at `/models`) instead of via the
+        broad `${HOME}` mount. Severs whisper from `${HOME}`.
+  - [ ] Restart via the in-process Go SSH pool instead of shelling to `openssh` → drops the
+        `/etc/passwd:ro` mount (only the openssh client needed a passwd entry).
+  - [ ] Bake the web bundle into the image (served over host networking) → drops the `/data`-for-web
+        mount. Then the only host mount left is a narrow one for sandbox-target transcripts.
 - [x] 2026-07-12 — **Restart button: optional rebuild.** The restart dialog has a *Rebuild from
       source* checkbox (default on). The `restart` message carries a `rebuild` flag (nil/absent =
       rebuild, back-compat); the server substitutes the `%REBUILD%` token in `SPAWNER_RESTART_CMD`

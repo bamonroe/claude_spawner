@@ -38,6 +38,10 @@ services:
       # "new project folder" spawn can mkdir. `claude` itself runs on the host over SSH.
       - "${HOME}:${HOME}"
       - "/data:/data"
+      # Whisper ggml models, mounted directly (rw) so the gateway can download
+      # catalogue models on demand; the whisper service mounts the same dir ro at
+      # /models. A dedicated mount so it survives the ${HOME}/`/data` mounts going away.
+      - "/data/storage/whisper:/data/storage/whisper"
       # Durable server state (sessions.json, hosts.json) kept out of the image.
       - "./deploy/state:/state"
       # So the container's bare uid resolves to a real user: the openssh CLIENT the restart
@@ -55,7 +59,7 @@ services:
       context: ./whisper
       dockerfile: Dockerfile.cuda
     volumes:
-      - ${HOME}/.local/share/whisper:/models:ro      # ggml model files (only mount)
+      - /data/storage/whisper:/models:ro             # ggml model files (only mount)
     environment:
       NVIDIA_VISIBLE_DEVICES: all
       NVIDIA_DRIVER_CAPABILITIES: compute,utility

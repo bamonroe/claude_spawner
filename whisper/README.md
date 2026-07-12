@@ -20,7 +20,7 @@ the compute backend.
 ## Interface (contract with the spawner)
 
 - Listens on container port **`8571`** (`--host 0.0.0.0`, `-t 4`). The model is **mounted, not
-  baked** — `-v ~/.local/share/whisper:/models:ro` — and selected by the `command:` (`-m
+  baked** — `-v /data/storage/whisper:/models:ro` — and selected by the `command:` (`-m
   /models/ggml-<model>.bin`).
 - `POST /inference` — multipart `file` (WAV) + `response_format=json`, `temperature=0.0`, optional
   `prompt` (whisper.cpp initial-prompt vocab bias). Returns the transcript as JSON. This is the
@@ -48,11 +48,11 @@ docker compose up -d --build whisper whisper-fast
 
 # or a single CPU server by hand
 docker build -f whisper/Dockerfile -t whisper-cpu whisper/
-docker run --rm -p 8571:8571 -v ~/.local/share/whisper:/models:ro \
+docker run --rm -p 8571:8571 -v /data/storage/whisper:/models:ro \
   whisper-cpu -m /models/ggml-small.en.bin
 ```
 
-Model `ggml-*.bin` files live under `~/.local/share/whisper` on the host. You don't have to place
+Model `ggml-*.bin` files live under `/data/storage/whisper` on the host. You don't have to place
 them by hand: when `SPAWNER_WHISPER_MODELS_DIR` points here, the gateway **downloads catalogue models
 on demand** (picked in Settings → Audio, or the boot model on a fresh start) into this directory, and
 this container reads them read-only. Pre-placing a `ggml-*.bin` still works and skips the download.
