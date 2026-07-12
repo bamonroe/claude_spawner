@@ -1,0 +1,205 @@
+package gateway
+
+import (
+	"context"
+	"log"
+	"strings"
+	"time"
+
+	"github.com/bam/claude_spawner/server/internal/session"
+	"github.com/bam/claude_spawner/server/internal/session/bgjob"
+)
+
+// jobNoteMaxRunes bounds one injected completion note (its log tail included) so a
+// runaway job can't blow the turn's token budget — mirrors logField's ~500-rune cap
+// on the tail portion. jobTailMaxLines caps the tail line count like diffSummary.
+const (
+	jobNoteMaxRunes = 500
+	jobTailMaxLines = 12
+)
+
+// reconcileJobs polls the session's on-target background-job registry (via the same
+// transport its turns use), and for every job that has newly finished since the last
+// look it appends a bounded completion note to sess.PendingNotes (injected into the
+// next turn so Claude learns the job it started earlier is done), marks it Notified,
+// reaps it on the target, and persists. A live device gets a breadcrumb.
+//
+// Concurrency: this MUST be called only from the turn goroutine's flow, never
+// alongside an in-flight turn's own store.Put — the one-writer invariant. Safe call
+// sites are the top of dictate (before the prompt is built) and bindJob (attach).
+// Every error is swallowed: reconcile can NEVER block or fail a turn.
+func (s *Server) reconcileJobs(sess *session.Session) {
+	if sess == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	home := session.HostHome()
+	script := session.JobScriptPath(home)
+	// Stage lazily so the script is present before Claude (or this list) needs it. A
+	// staging failure is logged and ignored — it must not block the turn.
+	if err := s.srvStageJobScript(ctx, sess, home); err != nil {
+		log.Printf("bgjobs[%s]: stage: %v", sess.Name, err)
+		// keep going: list will just come back empty if the script truly isn't there
+	}
+
+	out, err := s.driver.RunOnTarget(ctx, sess, shellQuoteArg(script)+" list --json")
+	if err != nil {
+		return // swallow — target unreachable / no jobs
+	}
+	recs, err := bgjob.ParseList(trimToJSONArray(out))
+	if err != nil {
+		return // swallow — malformed output
+	}
+
+	// Index the server's current view so we can tell newly-finished jobs from ones
+	// already announced, and adopt jobs Claude started that we haven't recorded yet.
+	known := map[string]*session.BackgroundJob{}
+	for i := range sess.Jobs {
+		known[sess.Jobs[i].ID] = &sess.Jobs[i]
+	}
+
+	changed := false
+	var breadcrumbs []string
+	for _, r := range recs {
+		bj := known[r.ID]
+		if bj == nil {
+			// A job we hadn't recorded (Claude launched it this or a prior turn) — adopt it.
+			sess.Jobs = append(sess.Jobs, session.BackgroundJob{
+				ID: r.ID, Cmd: r.Cmd, Started: r.Started, Done: r.Done, ExitCode: r.Exit,
+			})
+			known[r.ID] = &sess.Jobs[len(sess.Jobs)-1]
+			bj = known[r.ID]
+			changed = true
+		}
+		if !r.Done || bj.Notified {
+			continue // still running, or already announced
+		}
+		// Newly finished: grab a bounded log tail and frame a note.
+		tail := ""
+		if t, terr := s.driver.RunOnTarget(ctx, sess, shellQuoteArg(script)+" tail "+shellQuoteArg(r.ID)); terr == nil {
+			tail = capTail(string(t))
+		}
+		sess.PendingNotes = append(sess.PendingNotes, jobNote(r.Cmd, tail))
+		bj.Done = true
+		bj.Notified = true
+		bj.ExitCode = r.Exit
+		changed = true
+		breadcrumbs = append(breadcrumbs, r.Cmd)
+		// Reap so logs don't accumulate on the target.
+		if _, rerr := s.driver.RunOnTarget(ctx, sess, shellQuoteArg(script)+" reap "+shellQuoteArg(r.ID)); rerr == nil {
+			// Drop the reaped job from our view — its work is done and announced.
+			sess.Jobs = dropJobByID(sess.Jobs, r.ID)
+		}
+	}
+
+	if changed {
+		if err := s.store.Put(sess); err != nil {
+			log.Printf("bgjobs[%s]: persist: %v", sess.Name, err)
+		}
+	}
+	if len(breadcrumbs) > 0 {
+		j := s.jobFor(sess.SessionID)
+		for _, cmd := range breadcrumbs {
+			j.emit(msgActivity("✅ background job finished: " + logField(cmd)))
+		}
+	}
+}
+
+// srvStageJobScript stages the wrapper onto the session's target. Split out so the
+// call site reads cleanly; errors flow up to be logged, never fatal.
+func (s *Server) srvStageJobScript(ctx context.Context, sess *session.Session, home string) error {
+	return s.driver.StageJobScript(ctx, sess, home)
+}
+
+// jobNote frames a finished job's command + bounded log tail as a note Claude reads
+// on the next turn. Kept compact and clearly server-authored.
+func jobNote(cmd, tail string) string {
+	var b strings.Builder
+	b.WriteString("• `")
+	b.WriteString(logField(cmd))
+	b.WriteString("` finished.")
+	if tail != "" {
+		b.WriteString(" Last output:\n")
+		b.WriteString(tail)
+	}
+	return b.String()
+}
+
+// capTail bounds a job log tail to jobTailMaxLines lines and jobNoteMaxRunes runes so
+// one note can't dominate the turn — mirrors diffSummary's line cap and logField's
+// rune cap.
+func capTail(s string) string {
+	s = strings.TrimRight(s, "\n")
+	if s == "" {
+		return ""
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) > jobTailMaxLines {
+		lines = append([]string{"… (earlier output trimmed)"}, lines[len(lines)-jobTailMaxLines:]...)
+		s = strings.Join(lines, "\n")
+	} else {
+		s = strings.Join(lines, "\n")
+	}
+	r := []rune(s)
+	if len(r) > jobNoteMaxRunes {
+		return "…" + string(r[len(r)-jobNoteMaxRunes:])
+	}
+	return s
+}
+
+// dropJobByID returns jobs without the entry whose ID is id.
+func dropJobByID(jobs []session.BackgroundJob, id string) []session.BackgroundJob {
+	out := jobs[:0]
+	for _, j := range jobs {
+		if j.ID != id {
+			out = append(out, j)
+		}
+	}
+	return out
+}
+
+// trimToJSONArray isolates the JSON array in a command's combined output (the
+// sandbox/SSH paths fold stderr into stdout, so a stray warning line could precede
+// the array). Returns the original bytes if no array is found.
+func trimToJSONArray(b []byte) []byte {
+	i := strings.IndexByte(string(b), '[')
+	j := strings.LastIndexByte(string(b), ']')
+	if i >= 0 && j >= i {
+		return b[i : j+1]
+	}
+	return b
+}
+
+// shellQuoteArg single-quotes a token for a POSIX-sh command line the server builds
+// for RunOnTarget (paths, job ids). Mirrors the session package's shellQuote (not
+// exported); kept local so the gateway needn't reach into session internals.
+func shellQuoteArg(s string) string {
+	if s == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// jobNotesPreamble frames pending background-job completion notes as leading context
+// ahead of the user's dictation, so Claude treats them as status updates (a job it
+// started earlier finished) rather than as new instructions. Parallels seedPreamble.
+const (
+	jobNotesOpen  = "[Background jobs you started earlier have finished:]\n\n"
+	jobNotesClose = "\n\n[End of background-job updates. The user's message follows.]\n\n"
+)
+
+func jobNotesPreamble(notes []string) string {
+	return jobNotesOpen + strings.Join(notes, "\n") + jobNotesClose
+}
+
+// jobsInstruction primes Claude (once per context) to route long-running commands
+// through the spawner-job wrapper instead of run_in_background, which can't span
+// turns. scriptPath is the exact staged path so Claude calls it directly (no PATH).
+func jobsInstruction(scriptPath string) string {
+	return "\n\n[Background jobs] For any command that should keep running after this turn ends " +
+		"(long builds, servers, watches), start it with `" + scriptPath + " start '<cmd>'` instead of " +
+		"run_in_background; it survives turns and you'll be told when it finishes. Check status with `" +
+		scriptPath + " list`."
+}

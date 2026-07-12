@@ -144,8 +144,9 @@ func (s *Server) jobFor(sessID string) *sessionJob {
 // Returns false if a turn is already running for that session.
 // primeAsk is true when this turn's text carries the interactive ask instruction
 // (the first interactive turn of a context); on success the session is marked
-// AskPrimed so later turns omit it.
-func (s *Server) startTurn(sess *session.Session, text string, primeAsk bool) bool {
+// AskPrimed so later turns omit it. primeJobs is the same for the background-job
+// instruction (marks JobsPrimed).
+func (s *Server) startTurn(sess *session.Session, text string, primeAsk, primeJobs bool) bool {
 	j := s.jobFor(sess.SessionID)
 	j.mu.Lock()
 	if j.running {
@@ -239,6 +240,10 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk bool) bo
 		changedRec := !wasStarted
 		if primeAsk && !sess.AskPrimed {
 			sess.AskPrimed = true
+			changedRec = true
+		}
+		if primeJobs && !sess.JobsPrimed {
+			sess.JobsPrimed = true
 			changedRec = true
 		}
 		// A compress-carried seed was prepended to this turn (see dictate); the fresh
@@ -360,7 +365,8 @@ func (s *Server) startCompress(sess *session.Session) bool {
 		sess.PriorIDs = append(sess.PriorIDs, sess.SessionID)
 		sess.SessionID = newID
 		sess.Started = false
-		sess.AskPrimed = false // fresh context: re-prime the ask instruction on the next turn
+		sess.AskPrimed = false  // fresh context: re-prime the ask instruction on the next turn
+		sess.JobsPrimed = false // ditto for the background-job instruction (Jobs/PendingNotes survive a compress)
 		sess.PendingSeed = strings.TrimSpace(summary)
 		if err := s.store.Put(sess); err != nil {
 			j.finish(msgError("internal", err.Error()))
@@ -446,6 +452,13 @@ func sortedKeys(m map[string]bool) []string {
 // undelivered job hands it the buffered result.
 func (s *Server) bindJob(c *conn, sess *session.Session, silent bool) {
 	j := s.jobFor(sess.SessionID)
+	// On attach, reconcile detached background jobs so a device that reconnects
+	// after a job finished gets the completion breadcrumb and the note is staged for
+	// the next dictation. Skip while a turn is running — the reconciler must not race
+	// the running turn's store.Put (one-writer); dictate reconciles at the next turn.
+	if !j.isRunning() {
+		s.reconcileJobs(sess)
+	}
 	sink := c.jobSink()
 	// A turn that was running when the server last restarted is dead; tell the app
 	// once so it doesn't wait on it (its result, if any, is in the transcript the

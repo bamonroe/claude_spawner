@@ -8,13 +8,21 @@ import "testing"
 // turn and the hidden instructions leak into the chat view.
 func TestStripInjected(t *testing.T) {
 	const spoken = "what was the last thing you were working on"
+	jobs := jobsInstruction("/home/bam/.spawner-jobs/spawner-job")
+	notes := jobNotesPreamble([]string{"• `go build ./...` finished. Last output:\nok"})
 	cases := map[string]string{
-		"plain":          spoken,
-		"brief":          spoken + briefSuffix,
-		"ask":            spoken + askInstruction,
-		"brief+ask":      spoken + briefSuffix + askInstruction,
-		"seed":           seedPreamble("recap of the prior chat") + spoken,
-		"seed+brief+ask": seedPreamble("recap") + spoken + briefSuffix + askInstruction,
+		"plain":            spoken,
+		"brief":            spoken + briefSuffix,
+		"ask":              spoken + askInstruction,
+		"brief+ask":        spoken + briefSuffix + askInstruction,
+		"seed":             seedPreamble("recap of the prior chat") + spoken,
+		"seed+brief+ask":   seedPreamble("recap") + spoken + briefSuffix + askInstruction,
+		"jobsInstr":        spoken + jobs,
+		"ask+jobsInstr":    spoken + askInstruction + jobs,
+		"jobNotes":         notes + spoken,
+		"jobNotes+ask":     notes + spoken + askInstruction,
+		"seedInsideNotes":  notes + seedPreamble("recap") + spoken,
+		"notes+brief+jobs": notes + spoken + briefSuffix + jobs,
 	}
 	for name, augmented := range cases {
 		if got := stripInjected(augmented); got != spoken {

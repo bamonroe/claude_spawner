@@ -351,7 +351,8 @@ func (c *conn) doSetAgent(sessionID, dir, agentID, modelAlias string) {
 		rec.SessionID = newID
 		rec.Started = false
 		rec.AskPrimed = false
-		rec.PriorIDs = nil // don't chain the old backend's transcripts into the new one
+		rec.JobsPrimed = false // re-prime the background-job instruction on the new backend
+		rec.PriorIDs = nil     // don't chain the old backend's transcripts into the new one
 		rec.PendingSeed = ""
 	}
 	rec.Agent = ag.ID
@@ -763,8 +764,9 @@ func (c *conn) doClear() {
 	s.PriorIDs = append(s.PriorIDs, s.SessionID)
 	s.SessionID = newID
 	s.Started = false
-	s.AskPrimed = false // fresh context: re-prime the ask instruction on the next turn
-	s.PendingSeed = ""  // a clear means truly empty context — drop any compress seed
+	s.AskPrimed = false  // fresh context: re-prime the ask instruction on the next turn
+	s.JobsPrimed = false // ditto for the background-job instruction (Jobs/PendingNotes survive: a bg job outlives a clear)
+	s.PendingSeed = ""   // a clear means truly empty context — drop any compress seed
 	if err := c.srv.store.Put(s); err != nil {
 		c.fail("internal", err.Error())
 		return
@@ -985,12 +987,28 @@ func (c *conn) dictate(text string) {
 		c.send(msgSay("attach to a session first."))
 		return
 	}
+	// Reconcile detached background jobs at the turn boundary (before the prompt is
+	// built) so a job that finished since the last turn gets its completion note
+	// staged into PendingNotes now. Safe here: no turn is in flight yet, so this
+	// doesn't race the running turn's own store.Put (the one-writer invariant).
+	c.srv.reconcileJobs(c.attached)
 	prompt := text
 	// A prior "compress" left a compacted summary of the old context to carry into
 	// this fresh session_id; prepend it to the FIRST dictation so Claude continues
 	// with that condensed context. startTurn clears PendingSeed once the turn lands.
 	if c.attached.PendingSeed != "" && !c.attached.Started {
 		prompt = seedPreamble(c.attached.PendingSeed) + prompt
+	}
+	// Prepend any framed background-job completion notes so Claude learns a job it
+	// started earlier has finished, then clear them (unconditionally — unlike the
+	// compress seed, which is gated on !Started). stripInjected strips this back off
+	// stored history so the echoed view stays clean.
+	if len(c.attached.PendingNotes) > 0 {
+		prompt = jobNotesPreamble(c.attached.PendingNotes) + prompt
+		c.attached.PendingNotes = nil
+		if err := c.srv.store.Put(c.attached); err != nil {
+			log.Printf("dictate[%s]: persist cleared notes: %v", c.attached.Name, err)
+		}
 	}
 	if c.brief {
 		// Opt-in: nudge Claude toward short, TTS-friendly replies. Only the prompt
@@ -1004,7 +1022,15 @@ func (c *conn) dictate(text string) {
 	if primeAsk {
 		prompt += askInstruction // let Claude ask instead of guessing (parsed back on reply)
 	}
-	if !c.srv.startTurn(c.attached, prompt, primeAsk) {
+	// Prime the background-job instruction once per context (like AskPrimed): tell
+	// Claude to route long-running commands through spawner-job instead of
+	// run_in_background, so they survive turns. Claude retains it via --resume;
+	// clear/compress reset JobsPrimed to re-prime after a rotation (harmless).
+	primeJobs := !c.attached.JobsPrimed
+	if primeJobs {
+		prompt += jobsInstruction(session.JobScriptPath(session.HostHome()))
+	}
+	if !c.srv.startTurn(c.attached, prompt, primeAsk, primeJobs) {
 		c.send(msgSay("still working on the last one."))
 		return
 	}
@@ -1036,8 +1062,21 @@ func seedPreamble(seed string) string {
 // This keeps the history view consistent with the live echo (which never carried
 // the scaffolding) and lets the app dedupe a replayed turn against its live copy.
 func stripInjected(text string) string {
+	// The background-job instruction is a suffix like askInstruction but carries a
+	// dynamic script path, so strip from its marker to the end rather than by exact
+	// match. Do this before the fixed-suffix trims (it may sit after them).
+	if i := strings.Index(text, jobsInstructionMark); i >= 0 {
+		text = text[:i]
+	}
 	text = strings.TrimSuffix(text, askInstruction)
 	text = strings.TrimSuffix(text, briefSuffix)
+	// Job-completion notes are prepended (parallel to the seed recap); strip that
+	// framed block back off stored history.
+	if strings.HasPrefix(text, jobNotesOpen) {
+		if i := strings.Index(text, jobNotesClose); i >= 0 {
+			text = text[i+len(jobNotesClose):]
+		}
+	}
 	if strings.HasPrefix(text, seedRecapOpen) {
 		if i := strings.Index(text, seedRecapClose); i >= 0 {
 			text = text[i+len(seedRecapClose):]
@@ -1045,6 +1084,10 @@ func stripInjected(text string) string {
 	}
 	return text
 }
+
+// jobsInstructionMark is the leading, path-free marker of jobsInstruction, used by
+// stripInjected to remove the whole (dynamic-path) instruction from stored history.
+const jobsInstructionMark = "\n\n[Background jobs] For any command that should keep running"
 
 // affirmative / negative recognize yes/no style dialog replies. `extra` carries
 // the connection's custom wake token so "<wake> yes" strips like "hey buddy yes".
