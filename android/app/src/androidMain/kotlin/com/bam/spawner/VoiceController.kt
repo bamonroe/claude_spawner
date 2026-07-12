@@ -578,7 +578,12 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
             headphonesRoute = audioRouter.headphonesConnected()
             return MicProfile(false, android.media.MediaRecorder.AudioSource.VOICE_RECOGNITION, false)
         }
-        val useHeadset = settings.micSource == "headset" && !headsetMicFailed && audioRouter.bluetoothMicAvailable()
+        // The headset's own mic (its hands-free/SCO link, call quality) is wanted when
+        // either the mic-source setting asks for it, or the user routed output to
+        // Bluetooth — that picker choice means "use the whole headset," mic included,
+        // not just reroute playback.
+        val wantHeadsetMic = settings.micSource == "headset" || _audioOutput.value == AudioOutput.BLUETOOTH
+        val useHeadset = wantHeadsetMic && !headsetMicFailed && audioRouter.bluetoothMicAvailable()
         if (useHeadset && !headsetMicOn) { headsetMicOn = audioRouter.enableHeadsetMic() }
         else if (!useHeadset && headsetMicOn) { audioRouter.disableHeadsetMic(); headsetMicOn = false }
         headphonesRoute = audioRouter.headphonesConnected()
