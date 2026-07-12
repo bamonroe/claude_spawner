@@ -548,11 +548,18 @@ var numWords = map[string]int{
 // readCount extracts the count for a ReadLast command: the number after "last"
 // (digit or word), else 1.
 func readCount(words []string) int {
+	// Prefer a number right after "last" ("read last three"), but for a read/replay
+	// utterance any number word is the count — so bare "replay three" works too.
 	for i, w := range words {
 		if strings.Trim(strings.ToLower(w), ",.!?") == "last" && i+1 < len(words) {
 			if n := wordToNum(words[i+1]); n > 0 {
 				return n
 			}
+		}
+	}
+	for _, w := range words {
+		if n := wordToNum(w); n > 0 {
+			return n
 		}
 	}
 	return 1
