@@ -15,6 +15,16 @@ import kotlinx.coroutines.flow.StateFlow
 data class TurnUsageInfo(val usage: TokenUsage, val atElapsedMs: Long)
 
 /**
+ * Live progress of an on-demand whisper model download (the server fetches a catalogue model
+ * the operator hasn't placed on disk when a client selects it). [total] 0 = unknown size;
+ * [done] with a non-blank [error] means it failed. Null when no download is in flight.
+ */
+data class WhisperDownloadInfo(
+    val model: String, val fast: Boolean, val received: Long, val total: Long,
+    val done: Boolean, val error: String,
+)
+
+/**
  * The slice of the app the shared, pure-Compose UI reads and drives. The Android
  * [VoiceController] implements it, and a future web controller will too, so the chat,
  * sidebar, browse, and settings screens can live in `commonMain` and render identically
@@ -67,9 +77,14 @@ interface AppController : HostsIdentitiesController {
     // The fast (draft/detection, "quick" transcribe) server's model; "" when the
     // server has no fast whisper server configured.
     val whisperFastModel: StateFlow<String>
-    // The ggml models available on the server's disk (size-ordered), for the
-    // settings picker; empty when the server doesn't advertise them → free text.
+    // The English-model catalogue the settings picker offers (plus any extra
+    // on-disk ggml file); empty when the server doesn't advertise it → free text.
     val whisperModels: StateFlow<List<String>>
+    // The subset of whisperModels already downloaded on the server; a catalogue
+    // entry not in this list is fetched on select.
+    val whisperModelsLocal: StateFlow<List<String>>
+    // Live progress of an on-demand model download; null when none is in flight.
+    val whisperDownload: StateFlow<WhisperDownloadInfo?>
     val ask: StateFlow<List<AskQuestion>?>
     // AI backend registry (from the `agents` message): the backends + models the
     // new-session picker offers. Empty until the server advertises it on connect.

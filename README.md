@@ -417,8 +417,13 @@ model. The model(s) are
 server-global and can be hot-swapped from **Settings → Audio → Transcription models** (they load
 for every device at once): the **full** field is the accurate server (dictation), the **quick**
 field the fast one (live hands-free draft + end-token detection). When `SPAWNER_WHISPER_MODELS_DIR`
-points at the host's ggml model directory, each field is a dropdown of the models actually on disk
-(size-ordered); without it, each is a free-text ggml model name (`tiny.en` … `large-v3`). Both choices are
+points at the host's ggml model directory, each field is a dropdown of the **curated English-model
+catalogue** — `tiny.en`, `base.en`, `small.en`, `medium.en`, `large-v3-turbo`, `large-v3` (plus any
+extra ggml file you dropped in). A model that isn't on disk yet is marked with a **⤓**; applying it
+makes the **server download it on demand** from Hugging Face into `SPAWNER_WHISPER_MODELS_DIR`, shows
+a live progress bar in the picker, and then hot-loads it — so you never have to fetch model files by
+hand, and a **fresh deploy with an empty models dir auto-downloads the boot model** on first start.
+Without the dir set, each field falls back to a free-text ggml model name. Both choices are
 **persisted to `settings.json`** next to the session state, so a restart or rebuild keeps them
 instead of reverting to `SPAWNER_WHISPER_MODEL_NAME` / `SPAWNER_WHISPER_FAST_MODEL_NAME`. Applying
 a field's unchanged value is a deliberate **pin**: no reload happens, but a model that so far only

@@ -37,6 +37,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -897,16 +898,19 @@ fun AudioSettings(
         Text("Transcription models", style = MaterialTheme.typography.titleMedium)
         Text(
             "Server-global — shared by every device, hot-loaded on the whisper containers (a few "
-                + "seconds). Any ggml model in the server's /models dir works: tiny.en, base.en, "
-                + "small.en, medium.en, large-v3, …",
+                + "seconds). Pick any English model; one marked ⤓ isn't on the server yet and downloads "
+                + "on apply (a big model is a slow first fetch, then it's cached).",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
         )
-        WhisperModelField("Full transcribe model", controller.whisperModel, controller.whisperModels) {
-            controller.setWhisperModel(it)
-        }
-        WhisperModelField("Quick transcribe model", controller.whisperFastModel, controller.whisperModels) {
-            controller.setWhisperModel(it, fast = true)
-        }
+        WhisperModelField(
+            "Full transcribe model", controller.whisperModel,
+            controller.whisperModels, controller.whisperModelsLocal,
+        ) { controller.setWhisperModel(it) }
+        WhisperModelField(
+            "Quick transcribe model", controller.whisperFastModel,
+            controller.whisperModels, controller.whisperModelsLocal,
+        ) { controller.setWhisperModel(it, fast = true) }
+        WhisperDownloadBanner(controller.whisperDownload)
         Text(
             "Full handles dictation; quick handles the live hands-free draft and end-token "
                 + "detection. Quick shows \"none\" when the server has no fast whisper server.",
@@ -928,22 +932,28 @@ private fun WhisperModelField(
     label: String,
     current: StateFlow<String>,
     options: StateFlow<List<String>>,
+    localOptions: StateFlow<List<String>>,
     onApply: (String) -> Unit,
 ) {
     val cur by current.collectAsState()
     val models by options.collectAsState()
+    val local by localOptions.collectAsState()
     var picked by remember { mutableStateOf(cur) }
     LaunchedEffect(cur) { picked = cur }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         if (models.isNotEmpty()) {
             var open by remember { mutableStateOf(false) }
+            // A catalogue model not yet on the server's disk shows a ⤓ so the user knows
+            // applying it triggers a download rather than an instant hot-load.
+            val needsDownload = picked.isNotBlank() && picked !in local
             Box(Modifier.weight(1f)) {
                 OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) {
-                    Text("$label: ${picked.ifBlank { "none" }} ▾")
+                    Text("$label: ${picked.ifBlank { "none" }}${if (needsDownload) " ⤓" else ""} ▾")
                 }
                 DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
                     models.forEach { m ->
-                        DropdownMenuItem(text = { Text(m) }, onClick = { picked = m; open = false })
+                        val label = if (m in local) m else "$m  ⤓ download"
+                        DropdownMenuItem(text = { Text(label) }, onClick = { picked = m; open = false })
                     }
                 }
             }
@@ -963,6 +973,46 @@ private fun WhisperModelField(
         "current: ${cur.ifBlank { "none" }}",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
     )
+}
+
+/**
+ * Live banner for an on-demand model download the server runs when a client picks a model that
+ * isn't on disk yet. Shows a determinate bar when the size is known, an indeterminate one
+ * otherwise, and the error (kept visible) on failure. Renders nothing when no download is active.
+ */
+@Composable
+private fun WhisperDownloadBanner(download: StateFlow<WhisperDownloadInfo?>) {
+    val d by download.collectAsState()
+    val dl = d ?: return
+    Column(Modifier.fillMaxWidth()) {
+        if (dl.error.isNotBlank()) {
+            Text(
+                "Download of ${dl.model} failed: ${dl.error}",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error,
+            )
+            return
+        }
+        val detail = if (dl.total > 0) "${mbTenths(dl.received)} / ${mbTenths(dl.total)} MB"
+        else "${mbTenths(dl.received)} MB"
+        Text(
+            "Downloading ${dl.model} — $detail",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
+        )
+        if (dl.total > 0) {
+            LinearProgressIndicator(
+                progress = { (dl.received.toFloat() / dl.total.toFloat()).coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+            )
+        } else {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
+        }
+    }
+}
+
+/** Formats a byte count as megabytes with one decimal, without String.format (KMP-safe). */
+private fun mbTenths(bytes: Long): String {
+    val tenths = bytes * 10 / 1_000_000
+    return "${tenths / 10}.${tenths % 10}"
 }
 
 /** A labeled slider for an integer VAD dial; persists on release via [onChange]. */

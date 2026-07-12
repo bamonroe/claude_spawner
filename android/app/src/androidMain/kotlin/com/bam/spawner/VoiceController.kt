@@ -282,9 +282,17 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     private val _whisperFastModel = MutableStateFlow(settings.whisperFastModel)
     override val whisperFastModel: StateFlow<String> = _whisperFastModel.asStateFlow()
 
-    // Models available on the server's disk; not persisted — re-sent on connect.
+    // Catalogue offered by the picker; not persisted — re-sent on connect.
     private val _whisperModels = MutableStateFlow<List<String>>(emptyList())
     override val whisperModels: StateFlow<List<String>> = _whisperModels.asStateFlow()
+
+    // Which catalogue models are already downloaded on the server.
+    private val _whisperModelsLocal = MutableStateFlow<List<String>>(emptyList())
+    override val whisperModelsLocal: StateFlow<List<String>> = _whisperModelsLocal.asStateFlow()
+
+    // Live model-download progress; null when no fetch is in flight.
+    private val _whisperDownload = MutableStateFlow<WhisperDownloadInfo?>(null)
+    override val whisperDownload: StateFlow<WhisperDownloadInfo?> = _whisperDownload.asStateFlow()
 
     // Pending clarification questions (interactive mode); null when none.
     private val _ask = MutableStateFlow<List<com.bam.spawner.net.AskQuestion>?>(null)
@@ -952,6 +960,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                 _whisperFastModel.value = msg.whisperModelFast
                 settings.whisperFastModel = msg.whisperModelFast
                 _whisperModels.value = msg.whisperModels
+                _whisperModelsLocal.value = msg.whisperModelsLocal
                 discover() // the drawer lists ALL machine sessions (discovery is the source)
                 client?.send(Outbound.digest()) // validate the offline transcript cache (bodies-free)
                 settings.lastSession.takeIf { it.isNotEmpty() }?.let {
@@ -965,6 +974,14 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                 _whisperFastModel.value = msg.fastModel
                 settings.whisperFastModel = msg.fastModel
                 if (msg.models.isNotEmpty()) _whisperModels.value = msg.models
+                _whisperModelsLocal.value = msg.local
+            }
+            is ServerMsg.WhisperDownload -> {
+                // Clear the banner once a download completes cleanly; keep it on error so
+                // the failure is visible, and while in flight to drive the progress bar.
+                _whisperDownload.value =
+                    if (msg.done && msg.error.isBlank()) null
+                    else WhisperDownloadInfo(msg.model, msg.fast, msg.received, msg.total, msg.done, msg.error)
             }
             is ServerMsg.Say -> {
                 // A `say` is also the terminal event for a background turn that has no

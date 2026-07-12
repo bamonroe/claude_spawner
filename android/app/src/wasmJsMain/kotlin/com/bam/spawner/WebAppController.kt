@@ -136,9 +136,15 @@ class WebAppController(private val prefs: Prefs) : AppController {
     // The fast (draft/detection, "quick") server's model; "" = none configured.
     private val _whisperFastModel = MutableStateFlow(prefs.whisperFastModel)
     override val whisperFastModel: StateFlow<String> = _whisperFastModel.asStateFlow()
-    // Models available on the server's disk; not persisted — re-sent on connect.
+    // Catalogue offered by the picker; not persisted — re-sent on connect.
     private val _whisperModels = MutableStateFlow<List<String>>(emptyList())
     override val whisperModels: StateFlow<List<String>> = _whisperModels.asStateFlow()
+    // Which catalogue models are already downloaded on the server.
+    private val _whisperModelsLocal = MutableStateFlow<List<String>>(emptyList())
+    override val whisperModelsLocal: StateFlow<List<String>> = _whisperModelsLocal.asStateFlow()
+    // Live model-download progress; null when no fetch is in flight.
+    private val _whisperDownload = MutableStateFlow<WhisperDownloadInfo?>(null)
+    override val whisperDownload: StateFlow<WhisperDownloadInfo?> = _whisperDownload.asStateFlow()
     private val _ask = MutableStateFlow<List<AskQuestion>?>(null)
     override val ask: StateFlow<List<AskQuestion>?> = _ask.asStateFlow()
 
@@ -198,6 +204,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
                 _whisperFastModel.value = msg.whisperModelFast
                 prefs.whisperFastModel = msg.whisperModelFast
                 _whisperModels.value = msg.whisperModels
+                _whisperModelsLocal.value = msg.whisperModelsLocal
                 discover()
                 if (prefs.lastSession.isNotBlank()) {
                     client?.send(Outbound.attach(prefs.lastSession, prefs.lastSessionId, silent = true))
@@ -208,6 +215,12 @@ class WebAppController(private val prefs: Prefs) : AppController {
                 _whisperFastModel.value = msg.fastModel
                 prefs.whisperFastModel = msg.fastModel
                 if (msg.models.isNotEmpty()) _whisperModels.value = msg.models
+                _whisperModelsLocal.value = msg.local
+            }
+            is ServerMsg.WhisperDownload -> {
+                _whisperDownload.value =
+                    if (msg.done && msg.error.isBlank()) null
+                    else WhisperDownloadInfo(msg.model, msg.fast, msg.received, msg.total, msg.done, msg.error)
             }
             is ServerMsg.Say -> { _activity.value = ""; addChat(Role.SYSTEM, msg.text); speak(msg.text) }
             is ServerMsg.Output -> {
