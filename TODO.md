@@ -17,7 +17,8 @@ Dates are `YYYY-MM-DD`.
       fell to alphabetical, so a just-active session landed wherever its name sorted (often far from
       the top). Now `thenByDescending { lastActive }` orders every tier newest-first (attached still
       pinned top, orange still next), with name only as a tiebreak — the most recently active session
-      is always highest in its group.
+      is always highest in its group. Verified on the emulator against the live server (claude_spawner
+      "just now" → trashbot 2m → life 1d → email 2d, top to bottom) and installed to the phone + tablet.
 
 - [x] 2026-07-12 — **Fix: adopting a stale cached session mints a phantom `<dir>-2` duplicate.**
       On a fresh offline open the app shows the *previous* run's cached discovered row for a folder;
