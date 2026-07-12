@@ -33,6 +33,16 @@ echo "==> rebuild image + recreate the server container (whisper left as-is)"
 # nothing. A full no-cache build is slower but guarantees the running server is the
 # current code, which is the whole point of the button.
 docker compose build --no-cache spawner-server
+
+# Force-remove any container already holding the fixed name `spawner-server` before the
+# recreate. A container left over from a DIFFERENT compose project name (e.g. one brought
+# up from the deploy/ dir → project `deploy`, vs. this repo-root project `claude_spawner`)
+# collides on the fixed container_name: `up` then fails with a name conflict and silently
+# leaves the STALE container running — which is exactly why the restart button once looked
+# like a no-op. Removing it first makes the recreate deterministic and re-homes the
+# container under this project so future restarts recreate normally. Safe: this script is
+# setsid-detached on the host, so killing the container doesn't kill the rebuild.
+docker rm -f spawner-server 2>/dev/null || true
 docker compose up -d spawner-server
 
 echo "==> done."
