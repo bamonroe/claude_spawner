@@ -479,8 +479,9 @@ the same **Audio → threshold / VAD** dials the phone uses), then ships each ut
 push-to-talk clip goes, so the server accumulates your speech until the **end token** ("beep")
 commits it. It rejects its own text-to-speech from re-triggering the mic while it's speaking. Because
 the browser needs a user gesture to open the mic, hands-free is a **per-session** toggle (it isn't
-restored automatically on load). Still browser-only-TODO: audio-output routing — the browser speaks
-to the default output sink.
+restored automatically on load). The browser speaks to the OS default output sink and can't route
+between devices, so the audio-output button offers the two states that matter: **Speaker** (voice
+on) or **Mute** (voice off, which also stops any reply already being spoken); the choice is saved.
 
 The layout is **responsive**: in a **wide** window (a desktop browser, a tablet, an unfolded phone —
 ≥840 px) the sessions sidebar is **pinned permanently** beside the chat instead of hiding in the
