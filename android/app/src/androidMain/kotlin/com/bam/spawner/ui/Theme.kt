@@ -1,25 +1,16 @@
+@file:JvmName("ThemeAndroidKt")
+
 package com.bam.spawner.ui
 
 import android.app.Activity
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
-/** Material3 theme that follows the system, or is forced light/dark, per [mode]. */
+/** Android: tint the system status/navigation bars via the window insets controller. */
 @Composable
-fun SpawnerTheme(mode: ThemeMode, content: @Composable () -> Unit) {
-    val dark = when (mode) {
-        ThemeMode.SYSTEM -> isSystemInDarkTheme()
-        ThemeMode.LIGHT -> false
-        ThemeMode.DARK -> true
-    }
-    val colors = if (dark) darkColorScheme() else lightColorScheme()
-
+actual fun ApplySystemBarAppearance(dark: Boolean) {
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
@@ -29,5 +20,4 @@ fun SpawnerTheme(mode: ThemeMode, content: @Composable () -> Unit) {
             controller.isAppearanceLightNavigationBars = !dark
         }
     }
-    MaterialTheme(colorScheme = colors, content = content)
 }
