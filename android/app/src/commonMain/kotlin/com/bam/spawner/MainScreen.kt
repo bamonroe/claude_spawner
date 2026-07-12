@@ -46,6 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
+import com.bam.spawner.audio.AudioInput
 import com.bam.spawner.audio.AudioOutput
 import com.bam.spawner.net.DiscoveredInfo
 import kotlinx.coroutines.flow.drop
@@ -72,8 +73,11 @@ fun MainScreen(
     mic: String,
     audioOutput: AudioOutput,
     audioOutputs: List<AudioOutput>,
+    audioInput: AudioInput,
+    audioInputs: List<AudioInput>,
     onToggleHandsFree: (Boolean) -> Unit,
     onSelectAudioOutput: (AudioOutput) -> Unit,
+    onSelectAudioInput: (AudioInput) -> Unit,
     onRefreshOutputs: () -> Unit,
     onTalkStart: () -> Unit,
     onTalkStop: () -> Unit,
@@ -212,6 +216,9 @@ fun MainScreen(
                 audioOutput = audioOutput,
                 audioOutputs = audioOutputs,
                 onSelectOutput = onSelectAudioOutput,
+                audioInput = audioInput,
+                audioInputs = audioInputs,
+                onSelectInput = onSelectAudioInput,
                 onOutputMenuOpened = onRefreshOutputs,
             )
             if (attached == null) DetachedBanner()

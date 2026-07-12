@@ -113,6 +113,7 @@ import androidx.core.view.WindowCompat
 import kotlin.math.log10
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.mutableStateListOf
+import com.bam.spawner.audio.AudioInput
 import com.bam.spawner.audio.AudioOutput
 import com.bam.spawner.net.AskQuestion
 import com.bam.spawner.net.DiscoveredInfo
@@ -139,19 +140,22 @@ class MainActivity : ComponentActivity() {
     }
     private val notifPermission = registerForActivityResult(RequestPermission()) {}
     private val btPermission = registerForActivityResult(RequestPermission()) { granted ->
-        if (granted) controller.setAudioOutput(AudioOutput.BLUETOOTH)
+        if (granted) controller.setAudioInput(AudioInput.HEADSET)
     }
 
-    /** Route the spoken audio, requesting BLUETOOTH_CONNECT first if Bluetooth is
-     *  chosen and not yet granted (needed to route to a Bluetooth headset). */
-    private fun selectAudioOutput(out: AudioOutput) {
-        if (out == AudioOutput.BLUETOOTH &&
+    /** Route the spoken audio. */
+    private fun selectAudioOutput(out: AudioOutput) = controller.setAudioOutput(out)
+
+    /** Choose the capture mic, requesting BLUETOOTH_CONNECT first when the headset mic
+     *  is chosen and not yet granted (needed to grab a Bluetooth headset's mic). */
+    private fun selectAudioInput(inp: AudioInput) {
+        if (inp == AudioInput.HEADSET &&
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
         ) {
             btPermission.launch(Manifest.permission.BLUETOOTH_CONNECT)
         } else {
-            controller.setAudioOutput(out)
+            controller.setAudioInput(inp)
         }
     }
 
@@ -175,6 +179,7 @@ class MainActivity : ComponentActivity() {
                         controller, settings, mode,
                         onToggleHandsFree = ::setHandsFree,
                         onSelectAudioOutput = ::selectAudioOutput,
+                        onSelectAudioInput = ::selectAudioInput,
                     ) { newMode ->
                         settings.themeMode = newMode.name.lowercase()
                         mode = newMode
@@ -223,6 +228,7 @@ private fun AppRoot(
     themeMode: ThemeMode,
     onToggleHandsFree: (Boolean) -> Unit,
     onSelectAudioOutput: (AudioOutput) -> Unit,
+    onSelectAudioInput: (AudioInput) -> Unit,
     onThemeChange: (ThemeMode) -> Unit,
 ) {
     var screen by rememberSaveable { mutableStateOf("main") }
@@ -234,6 +240,8 @@ private fun AppRoot(
     val mic by controller.mic.collectAsStateWithLifecycle()
     val audioOutput by controller.audioOutput.collectAsStateWithLifecycle()
     val audioOutputs by controller.audioOutputs.collectAsStateWithLifecycle()
+    val audioInput by controller.audioInput.collectAsStateWithLifecycle()
+    val audioInputs by controller.audioInputs.collectAsStateWithLifecycle()
     // System back: settings sub-pages pop to the hub; hub/browse pop to main.
     BackHandler(enabled = screen != "main") {
         screen = if (screen.startsWith("set_")) "settings" else "main"
@@ -296,8 +304,11 @@ private fun AppRoot(
             mic = mic,
             audioOutput = audioOutput,
             audioOutputs = audioOutputs,
+            audioInput = audioInput,
+            audioInputs = audioInputs,
             onToggleHandsFree = onToggleHandsFree,
             onSelectAudioOutput = onSelectAudioOutput,
+            onSelectAudioInput = onSelectAudioInput,
             onRefreshOutputs = controller::refreshAudioOutputs,
             onTalkStart = controller::startTalking,
             onTalkStop = controller::stopTalking,

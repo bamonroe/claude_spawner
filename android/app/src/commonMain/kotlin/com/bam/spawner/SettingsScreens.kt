@@ -846,20 +846,8 @@ fun AudioSettings(
             settings.vadSilenceMs = it; onVadChanged()
         }
 
-        HorizontalDivider()
-        var micSource by remember { mutableStateOf(settings.micSource) }
-        Text("Hands-free microphone", style = MaterialTheme.typography.titleMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ThemeChoice("Phone mic", micSource == "phone") { micSource = "phone"; settings.micSource = "phone"; onVadChanged() }
-            ThemeChoice("Headset mic", micSource == "headset") { micSource = "headset"; settings.micSource = "headset"; onVadChanged() }
-        }
-        Text(
-            "Phone mic keeps other apps (a movie) at full volume when you're on headphones — but you "
-                + "have to stay near the phone to be heard. Headset mic forces the Bluetooth hands-free "
-                + "profile so a paired headset picks you up across the room; that's call-mode audio, so the "
-                + "movie drops to call quality while it's listening. Ignored when no Bluetooth headset is connected.",
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
-        )
+        // The hands-free mic source (device vs headset) now lives in the top-bar audio
+        // picker's Input section, alongside the output route, so it isn't set here.
 
         HorizontalDivider()
         var brief by remember { mutableStateOf(settings.brief) }

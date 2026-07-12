@@ -266,37 +266,41 @@ falls back to **blocking** the call with a redirect message (enforcement still h
 wrapper failed to stage at all the hook is simply absent and behaviour falls back to the priming
 instruction.
 
-### Headphones and the hands-free microphone
+### The audio picker: output and input
 
-Hands-free listening normally runs as **communication audio** (like a call) with the platform echo
-canceller on, so you can barge in and interrupt Claude's spoken reply through the phone's speaker.
-The side effect of call-mode audio is that Android **ducks other apps** — a movie playing alongside
-drops to a whisper, and its far-field gain control clamps a voice a couple of feet away (the mic
-meter sits near the floor). To avoid that when you don't need it, the app watches the output route:
-**while headphones are connected** (wired, USB, or Bluetooth) it offers a **Headset** entry in the
-top-bar output picker that runs capture in plain **media mode** — full-quality media (A2DP) to your
-headphones, the **phone's own mic** with no echo canceller or noise suppressor, and no call-mode
-ducking or gain clamp. It's the **preferred default** the moment a headset connects, so you get
-high-quality playback plus a clean far-field mic without touching anything.
+The top-bar audio button opens a picker with **two sections you set independently** — **Output**
+(where Claude's voice plays) and **Input** (which mic listens). Making both explicit means the app
+never has to *guess* the capture setup from the output alone: your two picks fully determine the
+route and echo-cancellation with no ambiguity. Picking an item doesn't close the menu, so you can
+set both in one visit.
 
-The output picker stays in charge, though: **Headset** sits alongside Earpiece, Speaker, Bluetooth,
-and Mute, and picking any of them sticks. Whatever you choose, capture now **follows the output** —
-switching output while listening restarts the mic to match, so it can't get stranded in the wrong
-mode (previously, selecting Speaker with a headset connected left the mic near-silent).
+- **Output** — **Earpiece**, **Speaker**, **Headset** (only while a headset is connected), and
+  **Mute** (suppresses the voice entirely). Headset plays at full-quality media (A2DP).
+- **Input** — **Device** (the phone's own built-in mic) and **Headset** (a paired Bluetooth
+  headset's own mic; only while one is connected).
 
-That media-mode path uses the **phone's own mic**, so you have to be near the phone to be heard. For
-when you're across the room, the **Audio** settings page has a **Hands-free microphone** choice:
+Why call-mode matters: hands-free listening normally runs as **communication audio** (like a call)
+with the platform echo canceller on, so you can barge in over the phone's speaker. The side effect
+is that Android **ducks other apps** — a movie drops to a whisper and the far-field gain clamps a
+voice a couple of feet away. The two picks steer around that automatically:
 
-- **Phone mic** (default) — the behaviour above: full-volume movies on headphones, but stay near the
-  phone.
-- **Headset mic** — forces the Bluetooth **hands-free profile** so a paired headset's own mic picks
-  you up from anywhere in the room. This is call-mode audio by nature, so the headset drops to call
-  quality and other apps duck while it's listening — the unavoidable Bluetooth trade for a roaming
-  mic. Ignored (falls back to the phone mic) when no Bluetooth headset is connected, and if the
-  headset's hands-free link **fails to engage** — some earbuds refuse it on demand and the phone
-  silently reverts to the mic-less music link — the app detects the dead link within a couple of
+- **Device mic + Earpiece/Speaker** — call-mode capture with the echo canceller, so barge-in works
+  over the speaker.
+- **Device mic + Headset output** — plain **media mode**: full-quality A2DP in your ears, the phone
+  mic with no echo canceller and **no** ducking or gain clamp. It's the **preferred default** the
+  moment a headset connects, so you get clean playback plus a clean far-field mic automatically. You
+  still have to be near the phone to be heard.
+- **Headset mic** — forces the Bluetooth **hands-free profile** so the headset's own mic picks you
+  up from across the room. This is call-mode audio by nature, so the headset drops to call quality
+  and other apps duck while it's listening (the SCO link also carries playback, so it takes over the
+  output). If the hands-free link **fails to engage** — some earbuds refuse it on demand and the
+  phone reverts to the mic-less music link — the app detects the dead link within a couple of
   seconds and **falls back to the built-in mic** so you're never left unheard (the mic status line
-  says so). Re-selecting **Headset mic** retries it.
+  says so). Re-selecting **Headset** retries it.
+
+Whatever you choose, capture **restarts live** to match — switching output or input while listening
+re-resolves the mic, so it can't get stranded in the wrong mode. If a headset disconnects, the
+picker drops its entries and any headset selection falls back (Output → Earpiece, Input → Device).
 
 ### Choosing the AI backend and its model
 

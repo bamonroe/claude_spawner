@@ -12,6 +12,18 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-12 — **Audio picker redesign: independent Output + Input sections.** The top-bar
+      audio button now opens a two-section picker — **Output** (Earpiece / Speaker / Headset /
+      Mute — where the voice plays) and **Input** (Device / Headset — which mic listens) — chosen
+      independently; picks keep the menu open so both set in one visit. The two explicit choices
+      fully determine the capture route with no inference: `VoiceController.resolveMicProfile` now
+      keys off `AudioInput` × `AudioOutput` instead of guessing the mic from the output. New shared
+      **`AudioInput`** enum; retired **`AudioOutput.BLUETOOTH`** (its "use the whole headset" meaning
+      is now Output=Headset + Input=Headset — migrated on load from the legacy `audioOutput=bluetooth`
+      pref). The old Settings → **Hands-free microphone** toggle is removed (the picker's Input
+      section replaces it). BT-permission prompt moved from output→input selection. Web hides the
+      Input section (empty `audioInputs`). Touches `AudioInput`/`AudioOutput`, `AudioRouter`,
+      `VoiceController`, `TopBar`, `MainScreen`, `MainActivity`, `WebRoot`, `SettingsScreens`, docs.
 - [x] 2026-07-12 — **Fix: sidebar recency sort only applied to the orange tier.** The drawer sort
       ordered *only* busy/unread ("orange") sessions by most-recent activity; the neutral majority
       fell to alphabetical, so a just-active session landed wherever its name sorted (often far from

@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -31,8 +32,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.bam.spawner.audio.AudioInput
 import com.bam.spawner.audio.AudioOutput
 import kotlinx.coroutines.delay
 
@@ -48,6 +51,9 @@ fun TopBar(
     audioOutput: AudioOutput,
     audioOutputs: List<AudioOutput>,
     onSelectOutput: (AudioOutput) -> Unit,
+    audioInput: AudioInput,
+    audioInputs: List<AudioInput>,
+    onSelectInput: (AudioInput) -> Unit,
     onOutputMenuOpened: () -> Unit,
 ) {
     Surface(tonalElevation = 2.dp) {
@@ -88,45 +94,84 @@ fun TopBar(
                     color = MaterialTheme.colorScheme.outline,
                 )
             }
-            AudioOutputButton(audioOutput, audioOutputs, onSelectOutput, onOutputMenuOpened)
+            AudioRouteButton(
+                audioOutput, audioOutputs, onSelectOutput,
+                audioInput, audioInputs, onSelectInput, onOutputMenuOpened,
+            )
             IconButton(onClick = onSettings) { Icon(Icons.Filled.Settings, contentDescription = "Settings") }
         }
     }
 }
 
-/** Top-bar button showing the current spoken-audio output; tap to pick another
- *  (Bluetooth appears only while a headset is connected). */
+/** Top-bar button showing the current spoken-audio output; tap for a two-section
+ *  picker — Output (where the voice plays) and Input (which mic captures) — so the
+ *  two are chosen explicitly and independently. Headset entries appear only while a
+ *  headset is connected. Picks don't dismiss the menu, so both can be set in one
+ *  visit. The Input section is hidden when [inputs] is empty (clients that don't
+ *  capture audio, e.g. the browser), leaving a plain output menu. */
 @Composable
-fun AudioOutputButton(
-    current: AudioOutput,
+fun AudioRouteButton(
+    output: AudioOutput,
     outputs: List<AudioOutput>,
-    onSelect: (AudioOutput) -> Unit,
+    onSelectOutput: (AudioOutput) -> Unit,
+    input: AudioInput,
+    inputs: List<AudioInput>,
+    onSelectInput: (AudioInput) -> Unit,
     onOpened: () -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
+    val showInput = inputs.isNotEmpty()
     Box {
         IconButton(onClick = { onOpened(); open = true }) {
-            Icon(current.icon, contentDescription = "Audio output: ${current.label}")
+            val desc = if (showInput) "Audio: output ${output.label}, input ${input.label}"
+                else "Audio output: ${output.label}"
+            Icon(output.icon, contentDescription = desc)
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            if (showInput) RouteSectionHeader("Output")
             outputs.forEach { out ->
-                DropdownMenuItem(
-                    text = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(out.icon, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text(out.label)
-                            if (out == current) {
-                                Spacer(Modifier.width(6.dp))
-                                Icon(Icons.Filled.Check, contentDescription = "selected", modifier = Modifier.size(16.dp))
-                            }
-                        }
-                    },
-                    onClick = { onSelect(out); open = false },
-                )
+                RouteItem(out.icon, out.label, out == output) { onSelectOutput(out) }
+            }
+            if (showInput) {
+                HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                RouteSectionHeader("Input")
+                inputs.forEach { inp ->
+                    RouteItem(inp.icon, inp.label, inp == input) { onSelectInput(inp) }
+                }
             }
         }
     }
+}
+
+/** A caption labeling one section of the audio-route picker. */
+@Composable
+private fun RouteSectionHeader(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.outline,
+        modifier = Modifier.padding(start = 12.dp, top = 6.dp, bottom = 2.dp),
+    )
+}
+
+/** One selectable route in the picker: icon + label, with a check when active.
+ *  Selecting keeps the menu open so the other section can also be set. */
+@Composable
+private fun RouteItem(icon: ImageVector, label: String, selected: Boolean, onClick: () -> Unit) {
+    DropdownMenuItem(
+        text = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(label)
+                if (selected) {
+                    Spacer(Modifier.width(6.dp))
+                    Icon(Icons.Filled.Check, contentDescription = "selected", modifier = Modifier.size(16.dp))
+                }
+            }
+        },
+        onClick = onClick,
+    )
 }
 
 // CacheWarmBar counts down the ~5-minute window in which the next turn reuses the

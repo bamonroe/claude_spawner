@@ -5,6 +5,7 @@ import com.bam.spawner.net.TokenUsage
 import com.bam.spawner.net.RateLimitInfo
 import com.bam.spawner.net.UsageReport
 import com.bam.spawner.net.UsageEstimateInfo
+import com.bam.spawner.audio.AudioInput
 import com.bam.spawner.audio.AudioOutput
 import com.bam.spawner.audio.AudioRouter
 import com.bam.spawner.net.AskQuestion
@@ -301,6 +302,13 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     val audioOutputs: StateFlow<List<AudioOutput>> = _audioOutputs.asStateFlow()
     private val _audioOutput = MutableStateFlow(AudioOutput.EARPIECE)
     val audioOutput: StateFlow<AudioOutput> = _audioOutput.asStateFlow()
+    // Capture (mic) source, picked independently of the output: `audioInputs` is
+    // what's currently selectable (headset mic only when a Bluetooth headset is
+    // paired); `audioInput` is the active one.
+    private val _audioInputs = MutableStateFlow(listOf(AudioInput.DEVICE))
+    val audioInputs: StateFlow<List<AudioInput>> = _audioInputs.asStateFlow()
+    private val _audioInput = MutableStateFlow(AudioInput.DEVICE)
+    val audioInput: StateFlow<AudioInput> = _audioInput.asStateFlow()
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var meter: LevelMeter? = null
@@ -330,11 +338,19 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
         }
         // Media speaker by default; hands-free switches to echo-cancelled comm audio.
         speaker.setCommMode(settings.handsFree)
+        // Migrate the retired "bluetooth" output: it meant "use the whole headset,"
+        // which is now the headset output + the headset mic input, picked separately.
+        if (settings.audioOutput.equals("bluetooth", ignoreCase = true)) {
+            settings.audioOutput = "headset"; settings.micSource = "headset"
+        }
         // Restore the saved output (falling back to earpiece if it's no longer
         // available, e.g. the Bluetooth headset is off).
         val saved = runCatching { AudioOutput.valueOf(settings.audioOutput.uppercase()) }.getOrNull()
         val available = audioRouter.available()
         _audioOutputs.value = available
+        // Restore the saved capture source alongside it.
+        _audioInputs.value = audioRouter.availableInputs()
+        _audioInput.value = AudioInput.fromPref(settings.micSource)
         // Restore an explicit saved pick; otherwise (first run / saved device gone)
         // prefer headset-media whenever a headset is already connected at launch.
         val target = when {
@@ -360,10 +376,24 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     fun refreshAudioOutputs() {
         val avail = audioRouter.available()
         _audioOutputs.value = avail
+        _audioInputs.value = audioRouter.availableInputs()
         // If the selected device vanished (e.g. the Bluetooth headset disconnected),
         // fall back to earpiece. MUTE is always available.
         val cur = _audioOutput.value
         if (cur != AudioOutput.MUTE && cur !in avail) setAudioOutput(AudioOutput.EARPIECE)
+        // Likewise, if the headset mic went away, fall back to the device mic.
+        if (_audioInput.value == AudioInput.HEADSET && AudioInput.HEADSET !in _audioInputs.value) {
+            setAudioInput(AudioInput.DEVICE)
+        }
+    }
+
+    /** Choose the capture (mic) source and remember it. Capture is route-dependent,
+     *  so re-resolve the mic profile live while listening. */
+    fun setAudioInput(inp: AudioInput) {
+        _audioInput.value = inp
+        settings.micSource = inp.pref
+        if (hfOn) restartHandsFree()
+        _audioInputs.value = audioRouter.availableInputs()
     }
 
     /** Route the spoken audio to [out] (or mute) and remember the choice. */
@@ -559,40 +589,34 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     // How to capture + play during hands-free, resolved from the current output route.
     private data class MicProfile(val commMode: Boolean, val source: Int, val aec: Boolean)
 
-    /** Resolve how to capture + play for hands-free:
-     *  - "headset" mic + a Bluetooth headset present → grab its hands-free (SCO)
+    /** Resolve how to capture + play for hands-free straight from the two explicit
+     *  picks — the [AudioInput] mic source and the [AudioOutput] route — with no
+     *  inference:
+     *  - Headset input + a Bluetooth headset present → grab its hands-free (SCO)
      *    profile: comm audio + AEC, headset mic, from across the room (call quality).
-     *  - Speaker out → comm audio + echo canceller so voice barge-in works over the
-     *    speaker.
-     *  - Headphones out → plain media capture, no AEC: our TTS is in the user's ears
-     *    (nothing to echo-cancel) and staying out of call mode stops Android from
-     *    ducking other apps' audio (e.g. a movie) to a whisper. */
+     *    The SCO link carries playback too, so it overrides the output route.
+     *  - Device input + headset output → plain media capture, no AEC: our TTS is in
+     *    the user's ears (nothing to echo-cancel) and staying out of call mode stops
+     *    Android from ducking other apps' audio (e.g. a movie) to a whisper.
+     *  - Device input + earpiece/speaker/mute → comm audio + echo canceller so voice
+     *    barge-in works over the speaker. */
     private fun resolveMicProfile(): MicProfile {
-        // Any change to the mic-source setting clears a prior SCO-failure latch, so
-        // explicitly re-selecting "headset" retries it; an unchanged value (e.g. a
-        // route-change restart) keeps the latch so we don't loop on a dead link.
-        if (settings.micSource != lastMicSource) { headsetMicFailed = false; lastMicSource = settings.micSource }
-        // Headset-media output: full-quality media (A2DP) to the headphones + built-in
-        // mic, no call mode. Release any Bluetooth hands-free (SCO) profile so routing
-        // stays on plain media, and capture with VOICE_RECOGNITION (clean far-field,
-        // like push-to-talk) with no echo canceller — our TTS is in the user's ears.
-        if (_audioOutput.value == AudioOutput.HEADSET) {
-            if (headsetMicOn) { audioRouter.disableHeadsetMic(); headsetMicOn = false }
-            headphonesRoute = audioRouter.headphonesConnected()
-            return MicProfile(false, android.media.MediaRecorder.AudioSource.VOICE_RECOGNITION, false)
-        }
-        // The headset's own mic (its hands-free/SCO link, call quality) is wanted when
-        // either the mic-source setting asks for it, or the user routed output to
-        // Bluetooth — that picker choice means "use the whole headset," mic included,
-        // not just reroute playback.
-        val wantHeadsetMic = settings.micSource == "headset" || _audioOutput.value == AudioOutput.BLUETOOTH
-        val useHeadset = wantHeadsetMic && !headsetMicFailed && audioRouter.bluetoothMicAvailable()
+        // Any change to the input pick clears a prior SCO-failure latch, so explicitly
+        // re-selecting the headset retries it; an unchanged value (e.g. a route-change
+        // restart) keeps the latch so we don't loop on a dead link.
+        val inputPref = _audioInput.value.pref
+        if (inputPref != lastMicSource) { headsetMicFailed = false; lastMicSource = inputPref }
+        val useHeadset =
+            _audioInput.value == AudioInput.HEADSET && !headsetMicFailed && audioRouter.bluetoothMicAvailable()
         if (useHeadset && !headsetMicOn) { headsetMicOn = audioRouter.enableHeadsetMic() }
         else if (!useHeadset && headsetMicOn) { audioRouter.disableHeadsetMic(); headsetMicOn = false }
         headphonesRoute = audioRouter.headphonesConnected()
+        // Headset mic (SCO) → call-mode capture. Otherwise the device mic, whose
+        // profile follows the output route.
         return when {
             headsetMicOn -> MicProfile(true, android.media.MediaRecorder.AudioSource.VOICE_COMMUNICATION, true)
-            headphonesRoute -> MicProfile(false, android.media.MediaRecorder.AudioSource.VOICE_RECOGNITION, false)
+            _audioOutput.value == AudioOutput.HEADSET ->
+                MicProfile(false, android.media.MediaRecorder.AudioSource.VOICE_RECOGNITION, false)
             else -> MicProfile(true, android.media.MediaRecorder.AudioSource.VOICE_COMMUNICATION, true)
         }
     }
@@ -660,6 +684,12 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     private fun onAudioRouteChanged() {
         val nowHeadphones = audioRouter.headphonesConnected()
         _audioOutputs.value = audioRouter.available()
+        _audioInputs.value = audioRouter.availableInputs()
+        // If the headset mic was selected but its headset is gone, fall back to the
+        // device mic (setAudioInput restarts capture).
+        if (_audioInput.value == AudioInput.HEADSET && AudioInput.HEADSET !in _audioInputs.value) {
+            setAudioInput(AudioInput.DEVICE); return
+        }
         // Auto-prefer the headset-media output when a headset appears — but only if the
         // user is still on the default earpiece, so an explicit pick is left untouched;
         // fall back off it when the headset goes away. setAudioOutput restarts capture.

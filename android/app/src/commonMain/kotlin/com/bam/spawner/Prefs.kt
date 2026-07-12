@@ -38,13 +38,15 @@ interface Prefs {
 
     /** Whether hands-free (always-listening) mode is enabled. */
     var handsFree: Boolean
-    /** Preferred TTS audio output: "earpiece" | "speaker" | "bluetooth". */
+    /** Preferred TTS audio output (where the voice plays): "earpiece" | "speaker" |
+     *  "headset". The retired "headset mic" case (legacy "bluetooth") is now [micSource]. */
     var audioOutput: String
-    /** Hands-free capture source: "phone" (built-in mic) | "headset" (force the
-     *  Bluetooth hands-free profile so a paired headset's own mic is used). Phone
-     *  keeps other apps at full volume on headphones but needs you near the device;
-     *  headset lets you roam across the room at the cost of the movie-quality A2DP
-     *  link (call-mode audio ducks other apps while listening). Android-only. */
+    /** Hands-free capture source (which mic listens): "phone" (the device's built-in
+     *  mic) | "headset" (force the Bluetooth hands-free profile so a paired headset's
+     *  own mic is used). Device keeps other apps at full volume on headphones but needs
+     *  you near the device; headset lets you roam across the room at the cost of the
+     *  movie-quality A2DP link (call-mode audio ducks other apps while listening).
+     *  Chosen independently of [audioOutput] in the top-bar picker. Android-only. */
     var micSource: String
     /** Ask Claude for brief, TTS-friendly replies (appended as a prompt hint). */
     var brief: Boolean

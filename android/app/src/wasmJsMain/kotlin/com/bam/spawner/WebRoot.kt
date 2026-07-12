@@ -10,6 +10,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.fillMaxSize
+import com.bam.spawner.audio.AudioInput
 import com.bam.spawner.audio.AudioOutput
 import com.bam.spawner.ui.SpawnerTheme
 import com.bam.spawner.ui.parseThemeMode
@@ -78,8 +79,13 @@ fun WebRoot() {
                     mic = mic,
                     audioOutput = audioOutput,
                     audioOutputs = listOf(AudioOutput.SPEAKER, AudioOutput.MUTE),
+                    // No mic routing in the browser: an empty input list hides the picker's
+                    // input section, leaving a plain speaker/mute output menu.
+                    audioInput = AudioInput.DEVICE,
+                    audioInputs = emptyList(),
                     onToggleHandsFree = { on -> if (on) controller.startHandsFree() else controller.stopHandsFree() },
                     onSelectAudioOutput = controller::setAudioOutput,
+                    onSelectAudioInput = {},
                     onRefreshOutputs = {},
                     onTalkStart = controller::startTalking,
                     onTalkStop = controller::stopTalking,

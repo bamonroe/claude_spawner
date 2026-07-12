@@ -27,13 +27,16 @@ class AudioRouter(context: Context) {
     fun available(): List<AudioOutput> {
         val outs = mutableListOf(AudioOutput.EARPIECE, AudioOutput.SPEAKER)
         if (headphonesConnected()) outs.add(AudioOutput.HEADSET)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && am != null) {
-            if (am.availableCommunicationDevices.any { it.isBluetooth() }) {
-                outs.add(AudioOutput.BLUETOOTH)
-            }
-        }
         outs.add(AudioOutput.MUTE) // always offer mute
         return outs
+    }
+
+    /** Capture sources currently available: the device's own mic is always present;
+     *  the headset mic appears only while a Bluetooth headset with a mic is paired. */
+    fun availableInputs(): List<AudioInput> {
+        val ins = mutableListOf(AudioInput.DEVICE)
+        if (bluetoothMicAvailable()) ins.add(AudioInput.HEADSET)
+        return ins
     }
 
     /** The output currently in effect (best-effort; EARPIECE if unknown). */
@@ -41,7 +44,9 @@ class AudioRouter(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && am != null) {
             val dev = am.communicationDevice ?: return AudioOutput.EARPIECE
             return when {
-                dev.isBluetooth() -> AudioOutput.BLUETOOTH
+                // A grabbed Bluetooth comm device means the headset link is in use for
+                // playback (the headset-mic case), which we surface as the headset output.
+                dev.isBluetooth() -> AudioOutput.HEADSET
                 dev.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> AudioOutput.SPEAKER
                 else -> AudioOutput.EARPIECE
             }
@@ -73,14 +78,13 @@ class AudioRouter(context: Context) {
                 when (out) {
                     AudioOutput.EARPIECE -> it.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
                     AudioOutput.SPEAKER -> it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
-                    AudioOutput.BLUETOOTH -> it.isBluetooth()
                     AudioOutput.HEADSET, AudioOutput.MUTE -> false // unreachable (guarded above)
                 }
             } ?: return false
             return try {
                 am.setCommunicationDevice(dev)
             } catch (e: SecurityException) {
-                false // routing to a Bluetooth device can need BLUETOOTH_CONNECT
+                false
             }
         }
         // Legacy (< API 31): only earpiece/speaker, via the speakerphone toggle.
@@ -88,7 +92,7 @@ class AudioRouter(context: Context) {
             am.mode = AudioManager.MODE_IN_COMMUNICATION
             @Suppress("DEPRECATION")
             am.isSpeakerphoneOn = (out == AudioOutput.SPEAKER)
-            out != AudioOutput.BLUETOOTH
+            true
         } catch (e: Exception) {
             false
         }
