@@ -1023,6 +1023,10 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                 _ask.value = null // a spoken/typed reply answers any pending questions
                 turnStreamed = false // a new user turn begins; nothing streamed yet
                 addChat(Role.USER, msg.text); _mic.value = ""
+                // Chirp the "heard you" acknowledgment: the server has recognized the
+                // utterance and is dispatching it to the session, so confirm receipt
+                // now — before Claude replies (and distinct from its activity beep).
+                if (msg.final) speaker.chirp()
                 if (hfOn) _voiceState.value = VoiceState.THINKING
             }
             is ServerMsg.Pending -> {

@@ -110,6 +110,13 @@ class Speaker(context: Context) {
     // it reads as a round "still working…" cue rather than a sharp alert, and
     // stays distinct from Android notification chimes.
     private val beepPcm: ByteArray by lazy { buildBeep() }
+    // The acknowledgment chirp: a short two-note rising figure ("ba-dip"), played
+    // once when the server echoes back a recognized utterance — the cue that your
+    // dictation was heard and dispatched to the session. Deliberately distinct from
+    // the warm beep (a single low tone for Claude's activity) so "you were heard"
+    // never sounds like "here's the reply". Plays on the same warm-track worker.
+    private val chirpPcm: ByteArray by lazy { buildChirp() }
+    private enum class Tone { BEEP, CHIRP }
     // Coalescing "still working…" cue: a beep is swallowed while one is already
     // playing, so a burst of messages doesn't machine-gun — it's an indicator that
     // things are happening, not a per-message count. But a beep that arrives once
@@ -121,11 +128,14 @@ class Speaker(context: Context) {
     // code built (and released) a fresh AudioTrack for every beep, and the platform
     // routinely swallowed those cold-route plays — so beeps were requested but never
     // sounded. Keeping the track warm makes each replay reliably audible.
-    private val beepQueue = LinkedBlockingQueue<Unit>()
+    private val beepQueue = LinkedBlockingQueue<Tone>()
     @Volatile private var beepWorker: Thread? = null
     @Volatile private var lastBeepNs = 0L
     private var beepTrack: AudioTrack? = null
     private var beepTrackUsage = -1
+    // The chirp gets its own warm static track so its buffer never clobbers the beep's.
+    private var chirpTrack: AudioTrack? = null
+    private var chirpTrackUsage = -1
 
     /**
      * Play the soft warm beep in place of speaking an intermediate step (used by
@@ -144,7 +154,19 @@ class Speaker(context: Context) {
         if (now - lastBeepNs < BEEP_COALESCE_MS * 1_000_000L) return
         lastBeepNs = now
         ensureBeepWorker()
-        beepQueue.offer(Unit)
+        beepQueue.offer(Tone.BEEP)
+    }
+
+    /**
+     * Play the acknowledgment chirp: fired once when the server echoes a recognized
+     * utterance, so you hear that your dictation was heard and dispatched even though
+     * Claude hasn't replied yet. No-op when muted. Not coalesced — it's one event per
+     * turn, and it rides the same warm-track worker as [beep] for reliable playback.
+     */
+    fun chirp() {
+        if (muted) return
+        ensureBeepWorker()
+        beepQueue.offer(Tone.CHIRP)
     }
 
     @Synchronized
@@ -152,22 +174,25 @@ class Speaker(context: Context) {
         if (beepWorker?.isAlive == true) return
         beepWorker = Thread {
             while (true) {
-                try {
+                val tone = try {
                     beepQueue.take()
                 } catch (_: InterruptedException) {
                     break
                 }
-                if (!muted) runCatching { playOneBeep() }
+                if (!muted) runCatching { playTone(tone) }
             }
         }.apply { isDaemon = true; name = "warm-beep"; start() }
     }
 
     // Runs only on the single beep worker thread, so no locking is needed for the
-    // reused track. Recreates it if the audio route (media vs comms) changed.
-    private fun playOneBeep() {
+    // reused tracks. Recreates a track if the audio route (media vs comms) changed.
+    // Beep and chirp keep separate warm tracks so their static buffers don't clash.
+    private fun playTone(tone: Tone) {
         val usage = if (commMode) AudioAttributes.USAGE_VOICE_COMMUNICATION else AudioAttributes.USAGE_MEDIA
-        var track = beepTrack
-        if (track == null || beepTrackUsage != usage) {
+        val pcm = if (tone == Tone.CHIRP) chirpPcm else beepPcm
+        var track = if (tone == Tone.CHIRP) chirpTrack else beepTrack
+        val trackUsage = if (tone == Tone.CHIRP) chirpTrackUsage else beepTrackUsage
+        if (track == null || trackUsage != usage) {
             runCatching { track?.release() }
             track = try {
                 AudioTrack(
@@ -180,13 +205,18 @@ class Speaker(context: Context) {
                         .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                         .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                         .build(),
-                    beepPcm.size, AudioTrack.MODE_STATIC, AudioManager.AUDIO_SESSION_ID_GENERATE,
-                ).also { it.write(beepPcm, 0, beepPcm.size) }
+                    pcm.size, AudioTrack.MODE_STATIC, AudioManager.AUDIO_SESSION_ID_GENERATE,
+                ).also { it.write(pcm, 0, pcm.size) }
             } catch (_: Exception) {
                 null
             }
-            beepTrack = track
-            beepTrackUsage = if (track != null) usage else -1
+            if (tone == Tone.CHIRP) {
+                chirpTrack = track
+                chirpTrackUsage = if (track != null) usage else -1
+            } else {
+                beepTrack = track
+                beepTrackUsage = if (track != null) usage else -1
+            }
         }
         val t = track ?: return
         runCatching {
@@ -194,7 +224,8 @@ class Speaker(context: Context) {
             t.reloadStaticData() // rewind the static buffer to the start
             t.play()
         }
-        try { Thread.sleep(BEEP_MS + 40L) } catch (_: InterruptedException) {} // let the tone finish before the next
+        val ms = if (tone == Tone.CHIRP) CHIRP_TOTAL_MS else BEEP_MS
+        try { Thread.sleep(ms + 40L) } catch (_: InterruptedException) {} // let the tone finish before the next
     }
 
     /** Drop any queued beeps (used on barge-in and mute). */
@@ -218,11 +249,43 @@ class Speaker(context: Context) {
         return buf
     }
 
+    // Two short rising notes with a brief gap between them — a "ba-dip" that reads as
+    // "got it". Each note has a raised-cosine envelope (no click); the gap is silence.
+    // Rising pitch and the two-note shape keep it clearly apart from the single low beep.
+    private fun buildChirp(): ByteArray {
+        val segments = listOf(
+            Triple(CHIRP_FREQ_LO, CHIRP_NOTE_MS, true),  // low note
+            Triple(0.0, CHIRP_GAP_MS, false),            // silent gap
+            Triple(CHIRP_FREQ_HI, CHIRP_NOTE_MS, true),  // higher note
+        )
+        val total = segments.sumOf { (BEEP_RATE * it.second / 1000L).toInt() }
+        val buf = ByteArray(total * 2)
+        var idx = 0
+        for ((freq, ms, sound) in segments) {
+            val n = (BEEP_RATE * ms / 1000L).toInt()
+            val w = 2.0 * PI * freq / BEEP_RATE
+            for (i in 0 until n) {
+                var v = 0
+                if (sound) {
+                    val env = 0.5 * (1.0 - cos(2.0 * PI * i / (n - 1))) // smooth in/out
+                    v = (sin(w * i) * env * CHIRP_AMP * Short.MAX_VALUE).toInt()
+                        .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
+                }
+                buf[idx * 2] = (v and 0xff).toByte()
+                buf[idx * 2 + 1] = ((v shr 8) and 0xff).toByte()
+                idx++
+            }
+        }
+        return buf
+    }
+
     fun shutdown() {
         clearBeeps()
         beepWorker?.interrupt()
         runCatching { beepTrack?.release() }
+        runCatching { chirpTrack?.release() }
         beepTrack = null
+        chirpTrack = null
         tts.stop()
         tts.shutdown()
     }
@@ -236,3 +299,10 @@ private const val BEEP_AMP = 0.30      // soft
 // length plus a short gap. So a burst coalesces to one "activity" tone, but once a
 // tone finishes the next message beeps again (steady stream under sustained work).
 private const val BEEP_COALESCE_MS = 260L
+// The acknowledgment chirp: two short rising notes with a silent gap between them.
+private const val CHIRP_NOTE_MS = 75L
+private const val CHIRP_GAP_MS = 30L
+private const val CHIRP_TOTAL_MS = CHIRP_NOTE_MS * 2 + CHIRP_GAP_MS
+private const val CHIRP_FREQ_LO = 660.0 // brighter than the beep, clearly a different cue
+private const val CHIRP_FREQ_HI = 880.0 // a rising step up — reads as "got it"
+private const val CHIRP_AMP = 0.25      // a touch softer than the beep
