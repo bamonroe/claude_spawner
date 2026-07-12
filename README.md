@@ -256,11 +256,18 @@ instruction.
 Hands-free listening normally runs as **communication audio** (like a call) with the platform echo
 canceller on, so you can barge in and interrupt Claude's spoken reply through the phone's speaker.
 The side effect of call-mode audio is that Android **ducks other apps** — a movie playing alongside
-drops to a whisper. To avoid that when you don't need it, the app watches the output route: **while
-headphones are connected** (wired, USB, or Bluetooth) it runs capture in plain **media mode** with
-no echo canceller instead — your TTS is already in your ears, so there's nothing to cancel, and
-staying out of call mode leaves the movie at full volume. It switches live the moment you plug in or
-unplug; no toggle needed.
+drops to a whisper, and its far-field gain control clamps a voice a couple of feet away (the mic
+meter sits near the floor). To avoid that when you don't need it, the app watches the output route:
+**while headphones are connected** (wired, USB, or Bluetooth) it offers a **Headset** entry in the
+top-bar output picker that runs capture in plain **media mode** — full-quality media (A2DP) to your
+headphones, the **phone's own mic** with no echo canceller or noise suppressor, and no call-mode
+ducking or gain clamp. It's the **preferred default** the moment a headset connects, so you get
+high-quality playback plus a clean far-field mic without touching anything.
+
+The output picker stays in charge, though: **Headset** sits alongside Earpiece, Speaker, Bluetooth,
+and Mute, and picking any of them sticks. Whatever you choose, capture now **follows the output** —
+switching output while listening restarts the mic to match, so it can't get stranded in the wrong
+mode (previously, selecting Speaker with a headset connected left the mic near-silent).
 
 That media-mode path uses the **phone's own mic**, so you have to be near the phone to be heard. For
 when you're across the room, the **Audio** settings page has a **Hands-free microphone** choice:

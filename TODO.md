@@ -12,6 +12,21 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-12 — **Headset-media output + capture-follows-output fix** — the hands-free mic sat
+      near the noise floor (~−60 dB, VAD never tripped) whenever the platform ran call-mode capture:
+      `VOICE_COMMUNICATION` + AEC/AGC clamps a far-field voice, unlike push-to-talk's
+      `VOICE_RECOGNITION`. Root cause was two coupled seams: (1) the output picker
+      (`setCommunicationDevice`) and `resolveMicProfile` were decoupled — changing output didn't
+      re-resolve/restart capture, so the mic got stranded in the wrong mode; (2) no explicit "media
+      to headphones + built-in mic" output, so users tapped **Speaker** (forces comm routing, clamps
+      the mic) trying to get high-quality playback. Fixes: new **`AudioOutput.HEADSET`** (shared
+      enum) — full-quality media (A2DP) to headphones, built-in mic, `VOICE_RECOGNITION`, no
+      AEC/NoiseSuppressor, no call mode (`AudioRouter.setOutput` clears the comm device); offered
+      when headphones are connected and **auto-preferred** as the default (`onAudioRouteChanged`,
+      init restore), still fully overridable via the picker; `setAudioOutput` now **restarts
+      hands-free** so capture follows the pick; `NoiseSuppressor` gated behind the same flag as AEC
+      so the media path captures raw far-field. Touches `AudioOutput`, `AudioRouter`,
+      `VoiceController.resolveMicProfile/setAudioOutput/onAudioRouteChanged`, `HandsFreeRecorder`.
 - [x] 2026-07-11 — **Detached background jobs that survive turns** — Claude's native
   `run_in_background` can't span the headless-resume turn boundary (the bg process shares the
   turn's process-group/pipes and dies at teardown; bg shells are tracked in-memory per claude

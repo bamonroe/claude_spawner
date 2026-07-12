@@ -329,11 +329,16 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
         speaker.setCommMode(settings.handsFree)
         // Restore the saved output (falling back to earpiece if it's no longer
         // available, e.g. the Bluetooth headset is off).
-        val saved = runCatching { AudioOutput.valueOf(settings.audioOutput.uppercase()) }
-            .getOrDefault(AudioOutput.EARPIECE)
+        val saved = runCatching { AudioOutput.valueOf(settings.audioOutput.uppercase()) }.getOrNull()
         val available = audioRouter.available()
         _audioOutputs.value = available
-        val target = if (saved in available) saved else AudioOutput.EARPIECE
+        // Restore an explicit saved pick; otherwise (first run / saved device gone)
+        // prefer headset-media whenever a headset is already connected at launch.
+        val target = when {
+            saved != null && saved in available -> saved
+            AudioOutput.HEADSET in available -> AudioOutput.HEADSET
+            else -> AudioOutput.EARPIECE
+        }
         applyAudioOutput(target)
         _audioOutput.value = target
         // Follow headphone plug/unplug live: hand off to the background scope since
@@ -363,6 +368,9 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
         if (applyAudioOutput(out)) {
             _audioOutput.value = out
             settings.audioOutput = out.name.lowercase()
+            // Capture is route-dependent (comm-audio vs media, headset vs built-in mic),
+            // so re-resolve the mic profile against the new output while listening.
+            if (hfOn) restartHandsFree()
         }
         _audioOutputs.value = audioRouter.available()
     }
@@ -561,6 +569,15 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
         // explicitly re-selecting "headset" retries it; an unchanged value (e.g. a
         // route-change restart) keeps the latch so we don't loop on a dead link.
         if (settings.micSource != lastMicSource) { headsetMicFailed = false; lastMicSource = settings.micSource }
+        // Headset-media output: full-quality media (A2DP) to the headphones + built-in
+        // mic, no call mode. Release any Bluetooth hands-free (SCO) profile so routing
+        // stays on plain media, and capture with VOICE_RECOGNITION (clean far-field,
+        // like push-to-talk) with no echo canceller — our TTS is in the user's ears.
+        if (_audioOutput.value == AudioOutput.HEADSET) {
+            if (headsetMicOn) { audioRouter.disableHeadsetMic(); headsetMicOn = false }
+            headphonesRoute = audioRouter.headphonesConnected()
+            return MicProfile(false, android.media.MediaRecorder.AudioSource.VOICE_RECOGNITION, false)
+        }
         val useHeadset = settings.micSource == "headset" && !headsetMicFailed && audioRouter.bluetoothMicAvailable()
         if (useHeadset && !headsetMicOn) { headsetMicOn = audioRouter.enableHeadsetMic() }
         else if (!useHeadset && headsetMicOn) { audioRouter.disableHeadsetMic(); headsetMicOn = false }
@@ -633,8 +650,19 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
      *  comm-mode/echo-canceller choice follows it. Runs off the main thread because
      *  restarting joins the capture worker. */
     private fun onAudioRouteChanged() {
-        if (!hfOn) return
-        if (audioRouter.headphonesConnected() == headphonesRoute) return
+        val nowHeadphones = audioRouter.headphonesConnected()
+        _audioOutputs.value = audioRouter.available()
+        // Auto-prefer the headset-media output when a headset appears — but only if the
+        // user is still on the default earpiece, so an explicit pick is left untouched;
+        // fall back off it when the headset goes away. setAudioOutput restarts capture.
+        if (nowHeadphones && _audioOutput.value == AudioOutput.EARPIECE) {
+            setAudioOutput(AudioOutput.HEADSET); return
+        }
+        if (!nowHeadphones && _audioOutput.value == AudioOutput.HEADSET) {
+            setAudioOutput(AudioOutput.EARPIECE); return
+        }
+        if (!hfOn) { headphonesRoute = nowHeadphones; return }
+        if (nowHeadphones == headphonesRoute) return
         restartHandsFree()
     }
 

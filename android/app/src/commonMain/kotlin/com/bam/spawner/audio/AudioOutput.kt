@@ -4,6 +4,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Bluetooth
+import androidx.compose.material.icons.filled.Headset
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.ui.graphics.vector.ImageVector
 
@@ -15,6 +16,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 enum class AudioOutput(val label: String, val icon: ImageVector) {
     EARPIECE("Earpiece", Icons.Filled.Phone),
     SPEAKER("Speaker", Icons.AutoMirrored.Filled.VolumeUp),
+    // Full-quality media (A2DP) to connected headphones while capturing from the
+    // built-in mic — no call-mode SCO downgrade, no far-field gain clamp. Offered
+    // only while a headset is connected; the preferred default when one is.
+    HEADSET("Headset", Icons.Filled.Headset),
     BLUETOOTH("Bluetooth", Icons.Filled.Bluetooth),
     MUTE("Mute", Icons.AutoMirrored.Filled.VolumeOff),
 }

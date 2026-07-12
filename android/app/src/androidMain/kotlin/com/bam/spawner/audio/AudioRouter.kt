@@ -26,6 +26,7 @@ class AudioRouter(context: Context) {
      */
     fun available(): List<AudioOutput> {
         val outs = mutableListOf(AudioOutput.EARPIECE, AudioOutput.SPEAKER)
+        if (headphonesConnected()) outs.add(AudioOutput.HEADSET)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && am != null) {
             if (am.availableCommunicationDevices.any { it.isBluetooth() }) {
                 outs.add(AudioOutput.BLUETOOTH)
@@ -54,13 +55,26 @@ class AudioRouter(context: Context) {
     fun setOutput(out: AudioOutput): Boolean {
         if (out == AudioOutput.MUTE) return true
         val am = am ?: return false
+        // Headset-media: leave the communication stream unrouted so TTS plays as plain
+        // media over the connected headphones (full A2DP quality); capture then uses
+        // the built-in mic with no call mode. Releasing any grabbed comm device is what
+        // keeps us out of the SCO downgrade / far-field gain clamp.
+        if (out == AudioOutput.HEADSET) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                runCatching { am.clearCommunicationDevice() }
+            } else {
+                @Suppress("DEPRECATION")
+                runCatching { am.isSpeakerphoneOn = false; am.mode = AudioManager.MODE_NORMAL }
+            }
+            return true
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val dev = am.availableCommunicationDevices.firstOrNull {
                 when (out) {
                     AudioOutput.EARPIECE -> it.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
                     AudioOutput.SPEAKER -> it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
                     AudioOutput.BLUETOOTH -> it.isBluetooth()
-                    AudioOutput.MUTE -> false // unreachable (guarded above)
+                    AudioOutput.HEADSET, AudioOutput.MUTE -> false // unreachable (guarded above)
                 }
             } ?: return false
             return try {

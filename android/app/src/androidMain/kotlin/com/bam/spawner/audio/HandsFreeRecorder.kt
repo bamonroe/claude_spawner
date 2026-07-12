@@ -106,7 +106,10 @@ class HandsFreeRecorder(
             if (enableAec && AcousticEchoCanceler.isAvailable()) {
                 aec = AcousticEchoCanceler.create(sessionId)?.also { it.enabled = true }
             }
-            if (NoiseSuppressor.isAvailable()) {
+            // Tie noise suppression to the same flag as echo cancellation: the media
+            // (headset) path wants raw far-field capture, where the suppressor would
+            // treat a voice a couple feet away as noise and attenuate it.
+            if (enableAec && NoiseSuppressor.isAvailable()) {
                 ns = NoiseSuppressor.create(sessionId)?.also { it.enabled = true }
             }
         }
