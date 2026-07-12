@@ -78,6 +78,37 @@ type Session struct {
 	// "fable"). Empty means the backend's own configured default (no --model flag);
 	// spawn stamps the agent's DefaultModel here, and a voice command can change it.
 	Model string `json:"model,omitempty"`
+	// Jobs mirrors the detached background jobs Claude launched for this session via
+	// the spawner-job wrapper (see internal/session/bgjob). The reconciler diffs the
+	// on-target registry against this list at turn boundaries; a job that just
+	// finished has its log tail injected into the next turn and is marked Notified.
+	// Because the on-target registry is keyed by Dir (not session_id), Jobs ride the
+	// struct through clear/compress session_id rotation and MUST NOT be wiped by a
+	// context clear — a background job outlives a context reset.
+	Jobs []BackgroundJob `json:"jobs,omitempty"`
+	// PendingNotes are framed completion notes for finished background jobs, waiting
+	// to be prepended to the next dictation so Claude learns a job it started earlier
+	// has finished (with a bounded log tail). Cleared once injected. Like Jobs, this
+	// survives a context clear.
+	PendingNotes []string `json:"pending_notes,omitempty"`
+	// JobsPrimed records that the background-job instruction (use spawner-job for
+	// long-running commands) has been sent to Claude for the current context, so it
+	// isn't re-appended every turn. Reset by clear/compress like AskPrimed
+	// (re-priming after a context rotation is harmless).
+	JobsPrimed bool `json:"jobs_primed,omitempty"`
+}
+
+// BackgroundJob is one detached job Claude launched via the spawner-job wrapper,
+// as tracked by the server across turns. The authoritative live state is the
+// on-target registry (keyed by Dir); this is the server's view of which jobs it has
+// already told Claude about, so a finished job is announced exactly once.
+type BackgroundJob struct {
+	ID       string `json:"id"`                  // spawner-job registry id (epoch_pid_rand)
+	Cmd      string `json:"cmd"`                 // the shell command it runs
+	Started  int64  `json:"started"`             // epoch seconds it was launched
+	Done     bool   `json:"done"`                // observed finished by the reconciler
+	ExitCode int    `json:"exit_code,omitempty"` // best-effort (detached jobs report 0)
+	Notified bool   `json:"notified"`            // its completion note was injected already
 }
 
 // TranscriptIDs returns every session_id whose transcript belongs to this
