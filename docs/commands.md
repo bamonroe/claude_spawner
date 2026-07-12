@@ -53,6 +53,12 @@ Go server reference this. When you change a command, change it here first.
   detach" → only detach). The **last** cancel wins, and a trailing cancel with nothing after it
   scraps the whole committed message — handy when the end token misfired and you kept talking.
   (`SplitWake` keeps only the last command; `SplitWakeAll` is what the commit path uses.)
+- **Attach-then-dictate is two utterances, by design.** You **cannot** attach and dictate into the
+  *newly* attached session in one breath: leading dictation goes to whatever is attached *at that
+  moment* (the old session, per spoken order), and words after "hey buddy attach …" are consumed by
+  the command. To speak into a session you just attached, use a **second utterance** after the
+  attach lands. This is a deliberate simplicity choice — the wake word stays the single divider
+  between server commands and session dictation; don't re-litigate interleaving them.
 
 ## Spoken-path conversions
 
