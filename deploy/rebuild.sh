@@ -32,8 +32,8 @@ cd "$REPO"
 # shell or the minimal systemd-user environment.
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 
-echo "==> [1/2] resident whisper servers (accurate :8571 + fast :8572)"
-docker compose up -d whisper whisper-fast
+echo "==> [1/2] resident whisper server (:8571)"
+docker compose up -d whisper
 
 echo "==> [2/2] server binary + user service"
 # Build FIRST, while the old server is still serving; only swap it in (via

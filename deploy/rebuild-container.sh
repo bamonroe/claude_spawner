@@ -27,8 +27,8 @@ cd "$REPO"
 # host user so it can read/write the mounted home, state, and roots.
 export SPAWNER_UID="$(id -u)" SPAWNER_GID="$(id -g)"
 
-echo "==> [1/2] resident whisper servers (accurate :8571 + fast :8572)"
-docker compose up -d whisper whisper-fast
+echo "==> [1/2] resident whisper server (:8571)"
+docker compose up -d whisper
 
 echo "==> [2/2] rebuild image + recreate the server container"
 docker compose -f deploy/spawner-container.yml up -d --build

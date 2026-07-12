@@ -382,8 +382,12 @@ ordinary user (never root). It forks `claude` for host sessions and drives rootl
 sandbox sessions itself, enforcing the `SPAWNER_ROOT` jail — so no component runs as root. There is
 no separate broker: that indirection existed only to let a containerized server reach the host, and
 the server never needed root, so it was folded back into this binary. The only thing still
-containerized is **transcription** — two resident whisper.cpp HTTP servers ([`whisper/`](./whisper/README.md)),
-an accurate model on `:8571` and a fast draft/detection model on `:8572`. Both models are
+containerized is **transcription** — a resident whisper.cpp HTTP server ([`whisper/`](./whisper/README.md))
+on `:8571`. One model handles both dictation and the live hands-free draft; on fast enough hardware
+there's no need to split the load. An optional second **fast** draft/detection model on `:8572`
+(`whisper-fast`) can offload the live draft — start that container and set `SPAWNER_WHISPER_FAST_URL`
+to enable it; with it unset, the **quick** field simply reads "none" and everything routes to the one
+model. The model(s) are
 server-global and can be hot-swapped from **Settings → Audio → Transcription models** (they load
 for every device at once): the **full** field is the accurate server (dictation), the **quick**
 field the fast one (live hands-free draft + end-token detection). When `SPAWNER_WHISPER_MODELS_DIR`
@@ -397,8 +401,7 @@ came from the env default gets written to `settings.json`.
 server-side storage.)
 
 Bring-up lives in [`deploy/`](./deploy/README.md): build the binary, drop the env file, enable the
-lingering user service, and start the whisper servers with `docker compose up -d whisper
-whisper-fast`. The app's **restart** button fires `SPAWNER_RESTART_CMD` (set it to
+lingering user service, and start the whisper server with `docker compose up -d whisper`. The app's **restart** button fires `SPAWNER_RESTART_CMD` (set it to
 [`deploy/rebuild.sh`](./deploy/rebuild.sh)), which rebuilds the binary and restarts the unit on
 current code. Full design in [`docs/architecture.md`](./docs/architecture.md).
 
@@ -421,8 +424,8 @@ go run -C server ./cmd/wsclient -url ws://localhost:8080/ws
 
 - `claude` authenticates via your host creds in `~/.claude` + `~/.claude.json` (or set
   `ANTHROPIC_API_KEY`). Sessions spawn under `SPAWNER_ROOT`, which jails them.
-- Voice end-to-end needs the resident whisper servers running (`docker compose up -d whisper
-  whisper-fast`) and `SPAWNER_WHISPER_URL` / `SPAWNER_WHISPER_FAST_URL` pointed at them.
+- Voice end-to-end needs the resident whisper server running (`docker compose up -d whisper`)
+  and `SPAWNER_WHISPER_URL` pointed at it.
 - To test a change without killing a live turn, run the fresh binary on a scratch port
   (`SPAWNER_ADDR=:8557`) with a separate `SPAWNER_STATE` — see [`deploy/README.md`](./deploy/README.md).
 

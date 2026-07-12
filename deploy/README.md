@@ -19,13 +19,14 @@ script, and a transcript helper.
 
 ## Transcription depends on the resident whisper servers
 
-The server transcribes via two **resident whisper.cpp HTTP servers** (accurate on
-`:8571`, fast draft on `:8572`) defined in the root
-[`docker-compose.yml`](../docker-compose.yml). They carry `restart: unless-stopped`,
-so once created they survive reboots, but a `docker compose down` removes them and
-voice goes silent until they're recreated. Bring them back with `docker compose up
--d whisper whisper-fast` (or just run `rebuild.sh`, which does it first). See
-[`../whisper/README.md`](../whisper/README.md).
+The server transcribes via one **resident whisper.cpp HTTP server** (on `:8571`)
+defined in the root [`docker-compose.yml`](../docker-compose.yml). It carries
+`restart: unless-stopped`, so once created it survives reboots, but a `docker
+compose down` removes it and voice goes silent until it's recreated. Bring it back
+with `docker compose up -d whisper` (or just run `rebuild.sh`, which does it first).
+An optional second "fast" draft model on `:8572` (`whisper-fast`) can offload the
+live hands-free draft — start it and set `SPAWNER_WHISPER_FAST_URL` to enable it.
+See [`../whisper/README.md`](../whisper/README.md).
 
 ## The server service
 
@@ -123,7 +124,7 @@ go build -C server -o /tmp/spawner-dev .
 SPAWNER_TOKEN=devsecret SPAWNER_ADDR=:8557 \
   SPAWNER_STATE=$HOME/.local/share/claude_spawner_dev/sessions.json \
   SPAWNER_ROOT=/data:$HOME \
-  SPAWNER_WHISPER_URL=http://localhost:8571 SPAWNER_WHISPER_FAST_URL=http://localhost:8572 \
+  SPAWNER_WHISPER_URL=http://localhost:8571 \
   /tmp/spawner-dev
 ```
 

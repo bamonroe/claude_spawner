@@ -1,11 +1,15 @@
 # Supporting services for the claude_spawner server.
 #
 # The server itself runs BARE METAL (a single Go binary — see deploy/), not in a
-# container. What stays containerized is the transcription backend: two resident
-# whisper.cpp servers on the Nvidia GPU. The bare-metal server points at them via
-# SPAWNER_WHISPER_URL / SPAWNER_WHISPER_FAST_URL (localhost:8571 / :8572).
+# container. What stays containerized is the transcription backend: one resident
+# whisper.cpp server on the Nvidia GPU. The bare-metal server points at it via
+# SPAWNER_WHISPER_URL (localhost:8571).
 #
-#   docker compose up -d whisper whisper-fast   # start the transcription backend
+#   docker compose up -d whisper   # start the transcription backend
+#
+# A second "fast" model on :8572 is optional (set SPAWNER_WHISPER_FAST_URL to
+# re-enable it) — with hardware this quick, one model handles both the live
+# hands-free draft and committed dictation, so we run a single container.
 
 services:
   # Resident whisper.cpp server on the Nvidia GPU via CUDA. The server + app
@@ -35,29 +39,4 @@ services:
     command: ["-m", "/models/ggml-medium.en.bin"]
     ports:
       - "8571:8571"
-    restart: unless-stopped
-
-  # Fast draft/detection model (base.en) on :8572 — used for the live hands-free
-  # draft + end-token detection, so those don't clog the accurate model on :8571.
-  whisper-fast:
-    build:
-      context: ./whisper
-      dockerfile: Dockerfile.cuda
-    volumes:
-      - ${HOME}/.local/share/whisper:/models:ro
-    environment:
-      NVIDIA_VISIBLE_DEVICES: all
-      NVIDIA_DRIVER_CAPABILITIES: compute,utility
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities:
-                - gpu
-                - compute
-    command: ["-m", "/models/ggml-base.en.bin"]
-    ports:
-      - "8572:8571"
     restart: unless-stopped
