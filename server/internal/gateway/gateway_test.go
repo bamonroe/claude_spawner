@@ -886,6 +886,36 @@ func TestDiscoverShowsEverySessionInADir(t *testing.T) {
 	}
 }
 
+// TestAdoptStaleIDReusesLiveSession verifies that adopting a discovered session
+// whose session_id is stale (the folder already has a live local session under a
+// different id) attaches to the live session instead of registering a phantom
+// "-2" duplicate. This reproduces the fresh-open-while-offline bug: the app shows
+// a cached discovered row for a since-superseded session and the user taps it.
+func TestAdoptStaleIDReusesLiveSession(t *testing.T) {
+	ts, _, gw := newTestServerGW(t, nil)
+	dir := t.TempDir()
+	// The live session that currently owns the folder.
+	if err := gw.store.Put(&session.Session{Name: "proj", Dir: dir, SessionID: "id-live", Host: session.LocalHost}); err != nil {
+		t.Fatal(err)
+	}
+	ws := dial(t, ts)
+	send(t, ws, map[string]any{"type": "hello", "token": "secret"})
+	readUntil(t, ws, "hello_ok")
+
+	// Adopt a DIFFERENT (stale) id for the same dir — the cached discovered entry.
+	send(t, ws, map[string]any{"type": "adopt", "session_id": "id-stale", "path": dir})
+	a := readUntil(t, ws, "attached")
+	if name, _ := a["name"].(string); name != "proj" {
+		t.Fatalf("adopt should attach to the live session, got %q", name)
+	}
+	if gw.store.Get("proj-2") != nil {
+		t.Fatal("adopt minted a phantom proj-2 duplicate for the stale id")
+	}
+	if gw.store.GetBySessionID("id-stale") != nil {
+		t.Fatal("stale id was registered instead of reusing the live session")
+	}
+}
+
 // TestSpawnAtReusesExistingSession verifies opening a folder that already has a
 // session attaches to it instead of minting a same-folder "-2" duplicate.
 func TestSpawnAtReusesExistingSession(t *testing.T) {

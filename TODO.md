@@ -12,6 +12,15 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-12 — **Fix: adopting a stale cached session mints a phantom `<dir>-2` duplicate.**
+      On a fresh offline open the app shows the *previous* run's cached discovered row for a folder;
+      tapping it sent `adopt` with a since-superseded `session_id`, and the server dutifully
+      registered it as a second record, name-deduped to `claude_spawner-2`. `doAdopt` now checks for
+      a live local session in the same dir first (`GetByDirHost(dir, LocalHost)`) and attaches to it
+      instead of registering the stale id — the registry holds one local session per folder.
+      Regression test `TestAdoptStaleIDReusesLiveSession`. Deleted the stray session that this
+      produced.
+
 - [x] 2026-07-12 — **Sidebar attention colour + sort.** The sessions drawer now colour-codes and
       sorts by attention (shared `commonMain`, so both the app and the web client): the **attached**
       session stays **purple** and pins to the top of its host group; sessions that are **thinking**

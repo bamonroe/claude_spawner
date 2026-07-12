@@ -395,6 +395,17 @@ func (c *conn) doAdopt(sessionID, dir string) {
 		c.doAttach(s.Name, false)
 		return
 	}
+	// A stale cached discovered entry can carry a session_id that is no longer the
+	// live one for this directory — e.g. the app was offline on a fresh open, so it
+	// showed the *previous* run's on-disk session, and the user tapped it while a
+	// newer session had already taken over the folder. Registering it verbatim would
+	// add a SECOND record for the same dir+host and dedup its name to "<dir>-2", a
+	// phantom duplicate. The registry holds one local session per folder, so attach
+	// to the existing live one instead of spawning the duplicate.
+	if s := c.srv.store.GetByDirHost(dir, session.LocalHost); s != nil {
+		c.doAttach(s.Name, false)
+		return
+	}
 	rec, err := c.srv.registerDiscovered(sessionID, dir)
 	if err != nil {
 		c.fail("internal", err.Error())
