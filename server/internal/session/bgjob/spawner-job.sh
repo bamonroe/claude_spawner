@@ -19,9 +19,11 @@
 #
 # The `hook` subcommand is wired as a Claude Code PreToolUse hook on the Bash tool
 # (injected via `claude --settings`). It reads the tool payload on stdin and, when
-# it's a background Bash launch (run_in_background true), exits 2 to BLOCK the call
-# and tells Claude to use `spawner-job start` instead — so surviving-a-turn is
-# enforced by the harness, not left to Claude remembering the priming instruction.
+# it's a background Bash launch (run_in_background true), transparently REWRITES the
+# call (PreToolUse `updatedInput`) to run detached through `spawner-job start` — no
+# cancellation, Claude's Bash tool simply runs the wrapped command. So surviving-a-
+# turn is enforced by the harness itself, not left to Claude remembering the priming
+# instruction. (Without jq to rebuild the input safely it falls back to blocking.)
 #
 # Registry: ${SPAWNER_JOB_ROOT:-$HOME/.spawner-jobs}/reg/<encoded-pwd>/<id>.{json,log}
 set -eu
@@ -129,18 +131,36 @@ cmd_reap() {
 	rm -f "$dir/$id.json" "$dir/$id.log"
 }
 
-# cmd_hook is the Claude Code PreToolUse enforcement. The matcher already scopes it
-# to the Bash tool; here we only need to catch a background launch. Exit 2 BLOCKS the
-# tool call and feeds stderr back to Claude; exit 0 lets a normal (foreground) Bash
-# run through untouched. Whitespace is stripped first so "run_in_background": true
-# matches regardless of the payload's spacing.
+# cmd_hook is the Claude Code PreToolUse handler (matcher scopes it to Bash). A
+# foreground call passes straight through (exit 0, no output). A BACKGROUND call is
+# transparently REWRITTEN — not cancelled — to run detached through `spawner-job
+# start` instead: we emit a PreToolUse `updatedInput` that replaces the tool's
+# arguments, so from Claude's side the same Bash tool just runs the wrapped command,
+# no retry and no confusion. jq does the rewrite (its @sh shell-quotes the original
+# command so it reaches spawner-job as one intact argument, and it re-emits valid
+# JSON). If jq is absent we can't rebuild the tool input safely, so we fall back to
+# BLOCKING (exit 2) with a redirect message — enforcement holds either way.
 cmd_hook() {
 	payload="$(cat)"
-	if printf '%s' "$payload" | tr -d ' \t' | grep -q '"run_in_background":true'; then
-		printf 'Background bash does not survive a turn in this environment and will be killed. Re-run it detached with `%s start '\''<command>'\''` instead — it outlives the turn and you will be notified when it finishes.\n' "$0" >&2
-		exit 2
+	bg="$(printf '%s' "$payload" | jq -r '.tool_input.run_in_background // false' 2>/dev/null || true)"
+	if [ -z "$bg" ]; then
+		# No jq: detect via a whitespace-insensitive substring match instead.
+		if printf '%s' "$payload" | tr -d ' \t' | grep -q '"run_in_background":true'; then
+			printf 'Background bash does not survive a turn in this environment and will be killed. Re-run it detached with `%s start '\''<command>'\''` instead — it outlives the turn and you will be notified when it finishes.\n' "$0" >&2
+			exit 2
+		fi
+		exit 0
 	fi
-	exit 0
+	[ "$bg" = "true" ] || exit 0
+	printf '%s' "$payload" | jq -c --arg sj "$0" '
+		.tool_input as $ti
+		| (($ti.command) // "") as $c
+		| {hookSpecificOutput: {
+			hookEventName: "PreToolUse",
+			permissionDecision: "allow",
+			updatedInput: ($ti | .run_in_background = false | .command = ($sj + " start " + ($c | @sh))),
+			additionalContext: ("This command was auto-detached via spawner-job so it survives the turn: it ran in the foreground and printed a job id — do not poll it with BashOutput. Check progress with " + $sj + " list (or " + $sj + " tail <id>).")
+		}}'
 }
 
 sub="${1:-}"

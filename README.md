@@ -234,11 +234,16 @@ session's jobs live only as long as its container — removing or recreating the
 
 This isn't left to Claude remembering the instruction. The server also installs a **Claude Code
 PreToolUse hook** (injected at launch via `claude --settings`) that runs on every `Bash` tool call:
-if the call asks to run in the background, the hook **blocks it** and tells Claude to re-issue it
-through `spawner-job start` instead. Hooks fire even under `--dangerously-skip-permissions`, so a
-background command literally can't be launched the wrong way — the survival guarantee is enforced by
-the harness, not by Claude's cooperation. (If the wrapper failed to stage, the hook is simply absent
-and the behaviour degrades gracefully to the priming instruction.)
+if the call asks to run in the background, the hook **transparently rewrites it** to run detached
+through `spawner-job start` instead — it doesn't cancel anything, so from Claude's side the same Bash
+tool just runs the wrapped command, with no retry and no confusion. (The rewrite uses the hook's
+`updatedInput`, which replaces the tool's arguments before it runs; `jq` shell-quotes the original
+command so it reaches the wrapper intact.) Hooks fire even under `--dangerously-skip-permissions`, so
+a background command can't slip through the old, fragile way — the survival guarantee is enforced by
+the harness, not by Claude's cooperation. Graceful degradation: if `jq` isn't on the target the hook
+falls back to **blocking** the call with a redirect message (enforcement still holds), and if the
+wrapper failed to stage at all the hook is simply absent and behaviour falls back to the priming
+instruction.
 
 ### Headphones and the hands-free microphone
 

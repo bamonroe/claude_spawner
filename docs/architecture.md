@@ -276,9 +276,11 @@ never block a turn. Caveat: sandbox jobs live only as long as the container.
 
 Enforcement (not just priming): the turn injects a Claude **PreToolUse hook** via `--settings`
 (`HookSettingsJSON` → `TurnSpec.SettingsJSON` → the Claude agent's argv) whose `Bash` matcher runs
-`spawner-job hook`; that subcommand exits 2 to block any `run_in_background` launch and redirects
-Claude to `spawner-job start`. Hooks fire under `--dangerously-skip-permissions`, so it's a hard
-gate; a missing (unstaged) wrapper makes the hook a graceful no-op.
+`spawner-job hook`. On a `run_in_background` launch that subcommand emits a PreToolUse `updatedInput`
+that **transparently rewrites** the call to `spawner-job start '<original cmd>'` (jq `@sh` quotes the
+command; `run_in_background` is cleared) — no cancellation, the same Bash tool just runs the wrapped
+command. Fallbacks preserve enforcement: no jq → exit 2 to block with a redirect; unstaged wrapper →
+the hook is a graceful no-op. Hooks fire under `--dangerously-skip-permissions`, so it's a hard gate.
 
 ## Transcription (internal/transcribe)
 

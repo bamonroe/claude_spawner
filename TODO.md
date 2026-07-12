@@ -23,10 +23,12 @@ Dates are `YYYY-MM-DD`.
   next dictation (`PendingNotes`), and primes Claude once per context (`JobsPrimed`) to use the
   wrapper. Reconcile/stage errors never block a turn.
 - [x] 2026-07-11 — **Enforce the wrapper via a Claude PreToolUse hook** — priming alone relied on
-  Claude's cooperation. The turn now injects a `--settings` hook (`HookSettingsJSON` →
-  `TurnSpec.SettingsJSON`) whose `Bash` matcher runs `spawner-job hook`, which exits 2 to block any
-  `run_in_background` launch and redirect Claude to `spawner-job start`. Fires even under
-  `--dangerously-skip-permissions`; a missing staged wrapper degrades to a no-op.
+  Claude's cooperation. The turn injects a `--settings` hook (`HookSettingsJSON` →
+  `TurnSpec.SettingsJSON`) whose `Bash` matcher runs `spawner-job hook`, which **transparently
+  rewrites** a `run_in_background` launch (PreToolUse `updatedInput`) into `spawner-job start '<cmd>'`
+  — no cancellation, the same Bash tool just runs the wrapped command. Fires even under
+  `--dangerously-skip-permissions`. Fallbacks keep enforcement: no jq → block (exit 2) with a
+  redirect; unstaged wrapper → graceful no-op.
 - [ ] **Human voice control for background jobs** (follow-up) — `hey buddy list jobs` / `kill job N`
   / `job status`: new `command.Kind`s + `Registry` entries + `docs/commands.{md,json}` regen, wired
   through `runCommand` to `Driver.RunOnTarget` `spawner-job list/kill`. The core (jobs survive +
