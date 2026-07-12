@@ -35,6 +35,7 @@ const (
 	ListJobs    Kind = "list_jobs"    // list the attached session's detached background jobs
 	KillJob     Kind = "kill_job"     // kill one of the attached session's background jobs by number
 	JobStatus   Kind = "job_status"   // report the attached session's background-job summary
+	Restart     Kind = "restart"      // restart/rebuild the spawner server (SPAWNER_RESTART_CMD)
 	Unknown     Kind = "unknown"
 )
 
@@ -86,7 +87,7 @@ var commandVocab = []string{
 	"spawn", "attach", "detach", "list", "kill", "status", "cancel",
 	"stop", "abort", "help", "read last", "replay", "clear", "compress", "compact",
 	"usage", "rename", "session", "project", "model", "models", "codex",
-	"scratch", "summary", "job", "jobs",
+	"scratch", "summary", "job", "jobs", "restart", "rebuild", "server",
 }
 
 // Vocabulary returns the control words worth biasing STT toward: the canonical
@@ -414,6 +415,15 @@ func Parse(text string) Intent {
 	case leadsWith(t, "job status", "jobs status", "background job status", "background jobs status"),
 		contains(t, "status of the job", "status of jobs", "how are the jobs", "how's the job", "hows the job"):
 		return Intent{Kind: JobStatus}
+
+	// Restart: rebuild/restart the spawner server itself (fires SPAWNER_RESTART_CMD).
+	// Requires the "server"/"spawner" noun so it can't be confused with restarting a
+	// session, aborting a turn, or dictation. "restart the server", "rebuild the
+	// server", "restart/rebuild spawner".
+	case (first == "restart" || first == "rebuild" || first == "reboot") && contains(t, "server", "spawner"),
+		contains(t, "restart the server", "rebuild the server", "reboot the server",
+			"restart the spawner", "rebuild the spawner", "restart yourself", "rebuild yourself"):
+		return Intent{Kind: Restart}
 
 	// Kill: short "kill <name>", or an explicit "… session" phrase.
 	case first == "kill" && n <= 3, contains(t, "kill session", "stop session", "end session", "close session"):

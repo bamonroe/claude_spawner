@@ -132,6 +132,16 @@
       "description": "Rename the session you're attached to"
     },
     {
+      "title": "restart the server",
+      "aliases": [
+        "restart the server",
+        "rebuild the server",
+        "reboot the server",
+        "restart spawner"
+      ],
+      "description": "Rebuild and restart the spawner server itself"
+    },
+    {
       "title": "scratch",
       "aliases": [
         "scratch on",

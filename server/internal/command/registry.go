@@ -75,6 +75,8 @@ var Registry = []Command{
 		"Kill one of the attached session's background jobs by number (from 'list jobs')", "kill job 2"},
 	{JobStatus, "job status", []string{"job status", "how are the jobs"},
 		"Speak a one-line summary of the attached session's background jobs", "job status"},
+	{Restart, "restart the server", []string{"restart the server", "rebuild the server", "reboot the server", "restart spawner"},
+		"Rebuild and restart the spawner server itself", "restart the server"},
 }
 
 // RegistryJSON returns the registry as indented JSON (an object with a

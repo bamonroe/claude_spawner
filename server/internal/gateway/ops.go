@@ -88,6 +88,8 @@ func (c *conn) runCommand(intent command.Intent) bool {
 		c.doKillJob(intent.Count)
 	case command.JobStatus:
 		c.doJobStatus()
+	case command.Restart:
+		c.doRestart()
 	default:
 		return false
 	}

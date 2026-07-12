@@ -101,6 +101,7 @@ Reject paths that escape the allowed root unless the user explicitly opts in.
 | `list_jobs`     | "list jobs" / "background jobs" / "what jobs" | Speaks the attached session's **detached background jobs** (the `spawner-job` jobs that survive turns — see `README.md`), numbered, each marked running or finished. The number is what `kill_job` takes. Refused if not attached. |
 | `kill_job`      | "kill job `<number>`" / "stop job `<number>`" / "cancel job `<number>`" | Terminates the N-th background job from `list_jobs` (1-based; digit or number-word), taking its whole process group down. A **number is required**, so it can't be confused with `kill` (delete a session) or `abort` (cancel the running turn). Refused if not attached, or if the number is out of range. |
 | `job_status`    | "job status" / "how are the jobs" | Speaks a one-line summary — how many background jobs are running vs finished — the quick check versus the full `list_jobs` listing. Refused if not attached. |
+| `restart`       | "restart the server" / "rebuild the server" / "restart spawner" | Rebuilds and restarts the **spawner server itself** by firing `SPAWNER_RESTART_CMD` (the same action as the app's restart button) — see `CLAUDE.md`'s config section for what that command does per deployment. Requires the noun "server"/"spawner" so it can't be confused with restarting a session or aborting a turn. Refused if restart isn't configured. **This drops the current turn** (including your own) while the server bounces. |
 
 ### Non-voice: the command tray
 
