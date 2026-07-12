@@ -135,8 +135,9 @@ fun Sidebar(
             val hostsInOrder = grouped.keys.sortedWith(compareBy({ it != LOCAL_HOST }, { it }))
             // A session's stable key, and the two "needs attention" predicates that drive both
             // its colour and its slot in the sort: the attached session (purple) always tops its
-            // host group; "orange" sessions — thinking now or holding unread output — come next,
-            // most-recent activity first; everything else falls to the bottom, alphabetically.
+            // host group; "orange" sessions — thinking now or holding unread output — come next;
+            // everything else follows. Within every tier the newest activity sits at the top, so
+            // the session whose last message is most recent is always highest in its group.
             fun key(d: DiscoveredInfo) = d.sessionId.ifBlank { d.dir }
             fun isAttached(d: DiscoveredInfo) =
                 d.registered && attachedId.isNotEmpty() && d.sessionId == attachedId
@@ -149,9 +150,9 @@ fun Sidebar(
             val sorted = { host: String ->
                 grouped[host].orEmpty().sortedWith(
                     compareBy<DiscoveredInfo> { tier(it) }
-                        // Orange group: newest message first (0 for other tiers → no effect).
-                        .thenByDescending { if (tier(it) == 1) it.lastActive else 0L }
-                        // Remaining group (and ties within orange): alphabetical.
+                        // Within each tier, most-recent activity first (largest unix mtime).
+                        .thenByDescending { it.lastActive }
+                        // Tiebreak only (equal/missing timestamps): alphabetical.
                         .thenBy { it.name.lowercase() },
                 )
             }

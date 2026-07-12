@@ -12,6 +12,13 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-12 — **Fix: sidebar recency sort only applied to the orange tier.** The drawer sort
+      ordered *only* busy/unread ("orange") sessions by most-recent activity; the neutral majority
+      fell to alphabetical, so a just-active session landed wherever its name sorted (often far from
+      the top). Now `thenByDescending { lastActive }` orders every tier newest-first (attached still
+      pinned top, orange still next), with name only as a tiebreak — the most recently active session
+      is always highest in its group.
+
 - [x] 2026-07-12 — **Fix: adopting a stale cached session mints a phantom `<dir>-2` duplicate.**
       On a fresh offline open the app shows the *previous* run's cached discovered row for a folder;
       tapping it sent `adopt` with a since-superseded `session_id`, and the server dutifully
