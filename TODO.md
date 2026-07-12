@@ -12,12 +12,13 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
-- [ ] 2026-07-12 — **Whisper model download-on-select (app UI).** Server side landed: the audio
-      picker now offers the full curated English catalogue (`transcribe.EnglishModels`), and picking a
-      model that isn't on disk downloads it from Hugging Face into `SPAWNER_WHISPER_MODELS_DIR` then
-      hot-loads it; a fresh deploy auto-fetches the boot model. New `whisper_download` progress
-      broadcast + `whisper_models_local` field. Remaining: wire the app's audio settings dropdown to
-      show every catalogue model with a downloaded/needs-download marker and a live download bar.
+- [x] 2026-07-12 — **Whisper model download-on-select.** The audio picker offers the full curated
+      English catalogue (`transcribe.EnglishModels`); picking a model that isn't on disk downloads it
+      from Hugging Face into `SPAWNER_WHISPER_MODELS_DIR`, shows a live progress bar, then hot-loads it
+      — a fresh deploy auto-fetches the boot model, so no manual ggml placement. New `whisper_download`
+      progress broadcast + `whisper_models_local` field; dropdown marks not-yet-downloaded models with
+      a ⤓ and a download bar. Wired through both the Android and browser clients. Installed on the
+      Pixel 8a + tablet; server-side takes effect on the next container rebuild.
 - [x] 2026-07-12 — **Server comes up bare: self-managed SSH keypair + auto-seeded loopback trust.**
       The server now mints its **own** ed25519 keypair (separate from the host's `~/.ssh` keys) on
       first boot when `SPAWNER_SSH_KEY` is empty — at `<state>/ssh/id_ed25519`, writing the public key
