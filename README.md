@@ -83,7 +83,9 @@ as before. The speak token is comma-separated too, so you can give it a couple o
 **When the end token misfires.** If "beep" isn't caught and the clip keeps growing, whatever you
 say next still lands in the same message — so you can just keep issuing commands: the server splits
 a committed message on **every** "hey buddy" and runs them in order ("hey buddy list, hey buddy
-detach"). And **"hey buddy, cancel"** (or "cancel that") is a reset point — it scraps everything
+detach"). Your leading dictation goes through in spoken order too — it's sent to the session before
+the commands run, so "<something to say> hey buddy detach" reaches the session before the detach
+takes it away. And **"hey buddy, cancel"** (or "cancel that") is a reset point — it scraps everything
 before it (the dictation and any earlier commands), while commands after it still run, so you can
 self-correct mid-utterance. End on a cancel with nothing after it and the whole message is scrapped.
 

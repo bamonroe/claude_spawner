@@ -43,7 +43,11 @@ Go server reference this. When you change a command, change it here first.
 - **Chained commands in one utterance.** Because clips accumulate until the hands-free end token
   (or silence commit), a single committed message can contain several wake phrases. The server
   splits on **every** "hey buddy" and runs the commands **in order** ("hey buddy list, hey buddy
-  detach" → list, then detach); any leading text before the first wake is the dictation. `cancel`
+  detach" → list, then detach); any leading text before the first wake is the dictation. Everything
+  runs in **spoken order**: the leading dictation was spoken first, so it's sent to the attached
+  session **before** the commands run — so "<dictation> hey buddy detach" lands the dictation in the
+  session before the detach removes it (the trade-off: "<dictation> hey buddy attach" dictates into
+  the *old* session, not the newly attached one). `cancel`
   is a **reset point**: it scraps everything **before** it — the leading dictation and any earlier
   commands — while commands **after** it still run ("hey buddy list, hey buddy cancel, hey buddy
   detach" → only detach). The **last** cancel wins, and a trailing cancel with nothing after it

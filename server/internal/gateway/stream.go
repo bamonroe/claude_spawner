@@ -122,16 +122,19 @@ func (c *conn) commitMessage() {
 			return
 		}
 	}
-	// Run the commands in sequence; an unknown command is a no-op. Dictate the
-	// leading fragment last, so a command like "attach" takes effect first and the
-	// dictation lands in the just-attached session.
-	for _, intent := range intents {
-		c.runCommand(intent)
-	}
+	// Honor spoken order: the leading dictation was spoken before the commands, so
+	// dictate it FIRST — into whatever session is attached at that moment — then run
+	// the commands. This lets "<dictation> hey buddy detach" land the dictation in
+	// the session before the detach takes it away. (The trade-off is that
+	// "<dictation> hey buddy attach" dictates into the *old* session, not the newly
+	// attached one — spoken order wins.)
 	if before = strings.TrimSpace(before); before != "" && c.attached != nil {
 		if dict := c.gateDictation(before); dict != "" {
 			c.dictate(dict)
 		}
+	}
+	for _, intent := range intents {
+		c.runCommand(intent)
 	}
 }
 
