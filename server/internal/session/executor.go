@@ -288,6 +288,21 @@ func (s SandboxExecutor) execArgs(name, dir, bin string, turnArgs []string) []st
 	return append(args, turnArgs...)
 }
 
+// ExecShort runs a short command inside the session's container to completion in
+// the given workdir, returning its combined output — the sandbox analogue of a
+// host `sh -c`, used by Driver.RunOnTarget for the background-job registry
+// (`spawner-job list` etc.), not for streaming a turn. It mirrors ctl (local exec
+// vs. SSH-native over the pool) but targets the container: `<runtime> exec -w
+// <dir> <container> sh -c <cmd>`.
+func (s SandboxExecutor) ExecShort(ctx context.Context, container, dir, cmd string) (string, error) {
+	args := []string{"exec", "-w", dir, container, "sh", "-c", cmd}
+	if s.Pool != nil {
+		out, err := s.Pool.Run(ctx, s.host(), shellJoinCmd(s.Runtime, args)+" 2>&1")
+		return string(out), err
+	}
+	return runCLI(ctx, s.Runtime, args)
+}
+
 // runCLI runs a short runtime command (create/inspect/rm) to completion and
 // returns its combined output. Used for lifecycle control, not for streaming a
 // turn (that goes through startProc).
