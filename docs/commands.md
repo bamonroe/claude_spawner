@@ -43,11 +43,12 @@ Go server reference this. When you change a command, change it here first.
 - **Chained commands in one utterance.** Because clips accumulate until the hands-free end token
   (or silence commit), a single committed message can contain several wake phrases. The server
   splits on **every** "hey buddy" and runs the commands **in order** ("hey buddy list, hey buddy
-  detach" → list, then detach); any leading text before the first wake is the dictation. This is
-  also the **cancel-the-whole-thing** escape hatch: if any segment in the chain is `cancel`
-  ("hey buddy … hey buddy cancel"), the entire committed message is scrapped and **nothing** runs —
-  handy when the end token misfired and you kept talking. (`SplitWake` keeps only the last command;
-  `SplitWakeAll` is what the commit path uses.)
+  detach" → list, then detach); any leading text before the first wake is the dictation. `cancel`
+  is a **reset point**: it scraps everything **before** it — the leading dictation and any earlier
+  commands — while commands **after** it still run ("hey buddy list, hey buddy cancel, hey buddy
+  detach" → only detach). The **last** cancel wins, and a trailing cancel with nothing after it
+  scraps the whole committed message — handy when the end token misfired and you kept talking.
+  (`SplitWake` keeps only the last command; `SplitWakeAll` is what the commit path uses.)
 
 ## Spoken-path conversions
 
@@ -77,7 +78,7 @@ Reject paths that escape the allowed root unless the user explicitly opts in.
 | `read_last`     | "read last" / "read last 3" / "read the last two" / "say that again" / "repeat that" | Re-reads aloud (TTS) + scrolls to the last N Claude replies in the current session (N defaults to 1; digit or number-word). |
 | `clear`         | "clear" / "clear context" / "clear session" / "clear the context" / "reset context" / "start fresh" / "wipe context" | Rotates the attached session's Claude context to a fresh `session_id`, so the next dictation replays **no** prior history (no re-read, no re-billing of the whole transcript). The old transcript is **kept on disk** and still shows in `history`. Deliberately NOT matched: "clear history" — clear never deletes. No-op if no turn has run yet; refused while a turn is in flight. |
 | `compress`      | "compress" / "compress context" / "compact" / "compact context" / "condense context" / "summarize the context" / "compact it" | The `/compact` counterpart to `clear`: asks Claude to **summarize** the conversation, then rotates to a fresh `session_id` and carries that summary forward as a seed prepended to the **next** dictation — so Claude continues with the context **condensed** instead of dropped. Costs one model turn (the summary). The old transcript is **kept on disk** and still shows in `history`. No-op if no turn has run yet; refused while a turn is in flight. A following `clear` discards the pending summary. |
-| `cancel`        | "cancel" / "cancel that" / "never mind"  | Aborts the current dialog; in a chained utterance, scraps the **whole** committed message so nothing runs |
+| `cancel`        | "cancel" / "cancel that" / "never mind"  | Aborts the current dialog; in a chained utterance, scraps everything **before** it (dictation + earlier commands) while later commands still run — the last cancel wins |
 | `stop`          | "hey bud stop" / "stop talking" / "quiet"| Barge-in: stops TTS everywhere; never dictated. Also, pressing push-to-talk stops speech client-side. |
 | `abort_turn`    | "stop the turn" / "cancel the turn" / "abort" / "stop working" | Cancels the running Claude turn (kills the child). Distinct from `stop` (TTS) and `cancel` (discard a composing message). |
 | `rename`        | "rename to `<name>`" / "rename this session `<name>`" / "call this `<name>`" | Renames the session you're **attached to** (no explicit old name — it always targets the current session). The spoken name is sanitized to one token (multi-word is joined/hyphenated), so "rename to my backend" → `my-backend`. Refused if you're not attached, if no name is given, or if the name is already taken; speaks a confirmation on success. Distinct from the app's rename UI, which renames any session by explicit old→new. |

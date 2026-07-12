@@ -83,8 +83,9 @@ as before. The speak token is comma-separated too, so you can give it a couple o
 **When the end token misfires.** If "beep" isn't caught and the clip keeps growing, whatever you
 say next still lands in the same message — so you can just keep issuing commands: the server splits
 a committed message on **every** "hey buddy" and runs them in order ("hey buddy list, hey buddy
-detach"). And if you'd rather throw the whole thing away, end with **"hey buddy, cancel"** (or
-"cancel that") — any `cancel` in the chain scraps the entire committed message and nothing runs.
+detach"). And **"hey buddy, cancel"** (or "cancel that") is a reset point — it scraps everything
+before it (the dictation and any earlier commands), while commands after it still run, so you can
+self-correct mid-utterance. End on a cancel with nothing after it and the whole message is scrapped.
 
 **The mic button (hold to talk).** With the box empty, **press and hold** the mic to record; release
 to send. The hold is *sticky* — it keeps recording even if your finger drifts off the small button —

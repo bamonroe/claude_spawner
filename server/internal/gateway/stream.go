@@ -105,14 +105,19 @@ func (c *conn) commitMessage() {
 		return
 	}
 	// "<dictation> hey buddy <cmd> hey buddy <cmd> …": each wake starts a command.
-	// Parse them all in order first so a "cancel" anywhere in the chain scraps the
-	// whole utterance (dictation included) before anything runs.
+	// Parse them all in order first.
 	intents := make([]command.Intent, len(cmds))
 	for i, seg := range cmds {
 		intents[i] = command.Parse(command.ApplyAliases(seg, c.aliases))
 	}
-	for _, intent := range intents {
-		if intent.Kind == command.Cancel {
+	// "cancel" scraps everything BEFORE it — the leading dictation and any earlier
+	// commands — so you can self-correct mid-utterance and keep commanding after
+	// it (the last cancel wins). A trailing cancel with nothing after it scraps the
+	// whole utterance.
+	intents, hadCancel := applyCancel(intents)
+	if hadCancel {
+		before = "" // the leading dictation precedes the cancel, so it's scrapped too
+		if len(intents) == 0 {
 			c.send(msgSay("scrapped it."))
 			return
 		}
@@ -128,6 +133,23 @@ func (c *conn) commitMessage() {
 			c.dictate(dict)
 		}
 	}
+}
+
+// applyCancel implements the "cancel" reset-point semantics for a chained
+// utterance: a `cancel` intent scraps everything before it, so it returns only
+// the intents following the LAST cancel (and whether any cancel was present).
+// No cancel ⇒ the intents unchanged, false.
+func applyCancel(intents []command.Intent) (kept []command.Intent, hadCancel bool) {
+	last := -1
+	for i, intent := range intents {
+		if intent.Kind == command.Cancel {
+			last = i
+		}
+	}
+	if last < 0 {
+		return intents, false
+	}
+	return intents[last+1:], true
 }
 
 // vocabBias returns a whisper initial-prompt that biases decoding toward the
