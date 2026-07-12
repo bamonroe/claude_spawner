@@ -32,6 +32,9 @@ const (
 	UseModel    Kind = "use_model"    // switch the attached session's model by number
 	Scratch     Kind = "scratch"      // toggle scratch mode: detached, echo transcriptions back aloud
 	SummaryOnly Kind = "summary_only" // speak only the final turn result; intermediate steps beep
+	ListJobs    Kind = "list_jobs"    // list the attached session's detached background jobs
+	KillJob     Kind = "kill_job"     // kill one of the attached session's background jobs by number
+	JobStatus   Kind = "job_status"   // report the attached session's background-job summary
 	Unknown     Kind = "unknown"
 )
 
@@ -82,7 +85,7 @@ var commandVocab = []string{
 	"spawn", "attach", "detach", "list", "kill", "status", "cancel",
 	"stop", "abort", "help", "read last", "clear", "compress", "compact",
 	"usage", "rename", "session", "project", "model", "models", "codex",
-	"scratch", "summary",
+	"scratch", "summary", "job", "jobs",
 }
 
 // Vocabulary returns the control words worth biasing STT toward: the canonical
@@ -394,6 +397,21 @@ func Parse(text string) Intent {
 			arg = "off"
 		}
 		return Intent{Kind: Scratch, Arg: arg}
+
+	// Background jobs: list/kill/status of the detached spawner-job jobs. Checked
+	// BEFORE the bare List/Kill/Status session cases so "list jobs" / "kill job 2" /
+	// "job status" aren't swallowed by them. KillJob needs a NUMBER so it can't be
+	// confused with killing a session or aborting the turn.
+	case leadsWith(t, "list jobs", "list the jobs", "list background jobs", "list the background jobs",
+		"show jobs", "show the jobs", "show background jobs", "background jobs"),
+		contains(t, "what jobs", "which jobs", "any jobs running"):
+		return Intent{Kind: ListJobs}
+	case (first == "kill" || first == "stop" || first == "cancel") && contains(t, "job") && modelIndex(words) > 0,
+		contains(t, "kill job", "stop job", "cancel job", "kill background job", "kill the job number"):
+		return Intent{Kind: KillJob, Count: modelIndex(words)}
+	case leadsWith(t, "job status", "jobs status", "background job status", "background jobs status"),
+		contains(t, "status of the job", "status of jobs", "how are the jobs", "how's the job", "hows the job"):
+		return Intent{Kind: JobStatus}
 
 	// Kill: short "kill <name>", or an explicit "… session" phrase.
 	case first == "kill" && n <= 3, contains(t, "kill session", "stop session", "end session", "close session"):

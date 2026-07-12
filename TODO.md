@@ -29,10 +29,12 @@ Dates are `YYYY-MM-DD`.
   — no cancellation, the same Bash tool just runs the wrapped command. Fires even under
   `--dangerously-skip-permissions`. Fallbacks keep enforcement: no jq → block (exit 2) with a
   redirect; unstaged wrapper → graceful no-op.
-- [ ] **Human voice control for background jobs** (follow-up) — `hey buddy list jobs` / `kill job N`
-  / `job status`: new `command.Kind`s + `Registry` entries + `docs/commands.{md,json}` regen, wired
-  through `runCommand` to `Driver.RunOnTarget` `spawner-job list/kill`. The core (jobs survive +
-  next-turn notification) is done; this is the operator-facing surface.
+- [x] 2026-07-11 — **Human voice control for background jobs** — `hey buddy list jobs` / `kill job N`
+  / `job status`: new `command.Kind`s (`ListJobs`/`KillJob`/`JobStatus`) + `Registry` entries +
+  `docs/commands.{md,json}` regen, wired through `runCommand` to `Driver.RunOnTarget` running
+  `spawner-job list`/`kill` (added a `kill` subcommand that group-SIGTERMs a running job). `kill job`
+  requires a number so it can't collide with kill-session or abort-turn. Parse-disambiguation tests
+  guard the collisions.
 
 - [x] 2026-07-11 — **Curatable command tray: pick which commands the swipe-up shows** — the tray was
       hard-wired to every argument-free command. Now it's user-curated. In **Settings › Commands**

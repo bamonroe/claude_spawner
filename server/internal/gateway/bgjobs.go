@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"strings"
 	"time"
@@ -111,6 +112,118 @@ func (s *Server) reconcileJobs(sess *session.Session) {
 // call site reads cleanly; errors flow up to be logged, never fatal.
 func (s *Server) srvStageJobScript(ctx context.Context, sess *session.Session, home string) error {
 	return s.driver.StageJobScript(ctx, sess, home)
+}
+
+// listTargetJobs stages the wrapper (if needed) and returns the live job registry for
+// the session's dir, most-recent last (spawner-job list order). Errors mean "no jobs
+// reachable" and come back as an empty slice, never a failure — the callers speak a
+// friendly line either way.
+func (s *Server) listTargetJobs(ctx context.Context, sess *session.Session) []bgjob.Record {
+	home := session.HostHome()
+	script := session.JobScriptPath(home)
+	_ = s.srvStageJobScript(ctx, sess, home)
+	out, err := s.driver.RunOnTarget(ctx, sess, shellQuoteArg(script)+" list --json")
+	if err != nil {
+		return nil
+	}
+	recs, err := bgjob.ParseList(trimToJSONArray(out))
+	if err != nil {
+		return nil
+	}
+	return recs
+}
+
+// doListJobs speaks the attached session's detached background jobs, numbered so the
+// user can "kill job N". Running vs finished is called out per job.
+func (c *conn) doListJobs() {
+	if c.attached == nil {
+		c.send(msgSay("attach to a session first."))
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.ctx, 8*time.Second)
+	defer cancel()
+	recs := c.srv.listTargetJobs(ctx, c.attached)
+	if len(recs) == 0 {
+		c.send(msgSay("no background jobs."))
+		return
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d background %s. ", len(recs), plural(len(recs), "job", "jobs"))
+	for i, r := range recs {
+		state := "running"
+		if r.Done {
+			state = "finished"
+		}
+		fmt.Fprintf(&b, "%d, %s, %s. ", i+1, state, logField(r.Cmd))
+	}
+	b.WriteString("say kill job and a number to stop one.")
+	c.send(msgSay(b.String()))
+}
+
+// doJobStatus speaks a one-line summary of the attached session's background jobs
+// (how many running / finished) — the quick check versus the full doListJobs listing.
+func (c *conn) doJobStatus() {
+	if c.attached == nil {
+		c.send(msgSay("attach to a session first."))
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.ctx, 8*time.Second)
+	defer cancel()
+	recs := c.srv.listTargetJobs(ctx, c.attached)
+	if len(recs) == 0 {
+		c.send(msgSay("no background jobs."))
+		return
+	}
+	running, done := 0, 0
+	for _, r := range recs {
+		if r.Done {
+			done++
+		} else {
+			running++
+		}
+	}
+	c.send(msgSay(fmt.Sprintf("%d running, %d finished. say list jobs for details.", running, done)))
+}
+
+// doKillJob terminates the n-th background job (1-based, matching doListJobs) of the
+// attached session, taking its whole process group down via the wrapper's kill.
+func (c *conn) doKillJob(n int) {
+	if c.attached == nil {
+		c.send(msgSay("attach to a session first."))
+		return
+	}
+	if n < 1 {
+		c.send(msgSay("which job? say kill job and a number."))
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.ctx, 8*time.Second)
+	defer cancel()
+	recs := c.srv.listTargetJobs(ctx, c.attached)
+	if n > len(recs) {
+		c.send(msgSay(fmt.Sprintf("there's no job %d. say list jobs to see them.", n)))
+		return
+	}
+	target := recs[n-1]
+	home := session.HostHome()
+	script := session.JobScriptPath(home)
+	if _, err := c.srv.driver.RunOnTarget(ctx, c.attached, shellQuoteArg(script)+" kill "+shellQuoteArg(target.ID)); err != nil {
+		c.send(msgSay("couldn't kill that job."))
+		return
+	}
+	// Drop it from the server's mirror so a stale entry doesn't linger.
+	c.attached.Jobs = dropJobByID(c.attached.Jobs, target.ID)
+	if err := c.srv.store.Put(c.attached); err != nil {
+		log.Printf("bgjobs[%s]: persist after kill: %v", c.attached.Name, err)
+	}
+	c.send(msgSay(fmt.Sprintf("killed job %d, %s.", n, logField(target.Cmd))))
+}
+
+// plural picks the singular or plural noun for n.
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
 
 // jobNote frames a finished job's command + bounded log tail as a note Claude reads

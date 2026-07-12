@@ -232,6 +232,12 @@ also check progress itself at any time with `~/.spawner-jobs/spawner-job list` /
 Reconcile and staging failures are swallowed and never block a turn. One caveat: a **sandbox**
 session's jobs live only as long as its container — removing or recreating the container loses them.
 
+You can also inspect and control these jobs by voice: **"hey buddy, list jobs"** speaks the attached
+session's jobs (numbered, each marked running or finished), **"job status"** gives the quick
+running-vs-finished count, and **"kill job 2"** stops one by its number (taking its whole process
+group down). The number is required, so it's never confused with killing a session or aborting the
+turn.
+
 This isn't left to Claude remembering the instruction. The server also installs a **Claude Code
 PreToolUse hook** (injected at launch via `claude --settings`) that runs on every `Bash` tool call:
 if the call asks to run in the background, the hook **transparently rewrites it** to run detached

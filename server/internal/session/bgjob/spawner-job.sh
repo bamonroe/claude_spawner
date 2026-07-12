@@ -15,6 +15,7 @@
 #   spawner-job list [--json]             list this dir's jobs + status
 #   spawner-job tail <id>                 print a bounded tail of a job's log
 #   spawner-job reap <id>                 delete a finished job's files
+#   spawner-job kill <id>                 terminate a running job (group SIGTERM) + remove it
 #   spawner-job hook                      Claude Code PreToolUse enforcement (stdin=payload)
 #
 # The `hook` subcommand is wired as a Claude Code PreToolUse hook on the Bash tool
@@ -131,6 +132,22 @@ cmd_reap() {
 	rm -f "$dir/$id.json" "$dir/$id.log"
 }
 
+# cmd_kill terminates a running job and removes its files. The job leader's pid is
+# its own session/process-group id (setsid made it the group leader at start), so a
+# negative-pid SIGTERM takes the whole tree — the job's command AND anything it
+# spawned — down together, mirroring the turn executors' group-kill.
+cmd_kill() {
+	id="$1"
+	dir="$(regdir)"
+	f="$dir/$id.json"
+	if [ -f "$f" ]; then
+		pid="$(sed -n 's/.*"pid":\([0-9]*\).*/\1/p' "$f")"
+		[ -n "$pid" ] && kill -TERM -"$pid" 2>/dev/null || true
+	fi
+	rm -f "$dir/$id.json" "$dir/$id.log"
+	printf 'killed %s\n' "$id"
+}
+
 # cmd_hook is the Claude Code PreToolUse handler (matcher scopes it to Bash). A
 # foreground call passes straight through (exit 0, no output). A BACKGROUND call is
 # transparently REWRITTEN — not cancelled — to run detached through `spawner-job
@@ -170,6 +187,7 @@ case "$sub" in
 	list)  cmd_list "${1:-}" ;;
 	tail)  [ $# -ge 1 ] || { echo "usage: spawner-job tail <id>" >&2; exit 2; }; cmd_tail "$1" ;;
 	reap)  [ $# -ge 1 ] || { echo "usage: spawner-job reap <id>" >&2; exit 2; }; cmd_reap "$1" ;;
+	kill)  [ $# -ge 1 ] || { echo "usage: spawner-job kill <id>" >&2; exit 2; }; cmd_kill "$1" ;;
 	hook)  cmd_hook ;;
-	*) echo "usage: spawner-job {start|list|tail|reap|hook} ..." >&2; exit 2 ;;
+	*) echo "usage: spawner-job {start|list|tail|reap|kill|hook} ..." >&2; exit 2 ;;
 esac

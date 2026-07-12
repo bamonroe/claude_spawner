@@ -199,6 +199,42 @@ func TestParseModels(t *testing.T) {
 	}
 }
 
+func TestParseJobs(t *testing.T) {
+	for _, in := range []string{"list jobs", "background jobs", "what jobs", "show jobs", "list the background jobs"} {
+		if got := Parse(in); got.Kind != ListJobs {
+			t.Errorf("Parse(%q).Kind = %s, want list_jobs", in, got.Kind)
+		}
+	}
+	for _, in := range []string{"job status", "background job status", "how are the jobs"} {
+		if got := Parse(in); got.Kind != JobStatus {
+			t.Errorf("Parse(%q).Kind = %s, want job_status", in, got.Kind)
+		}
+	}
+	// KillJob needs a number (digit or word) and must not be swallowed by kill-session.
+	for in, want := range map[string]int{
+		"kill job 2":            2,
+		"kill job three":        3,
+		"stop job 1":            1,
+		"kill background job 4": 4,
+	} {
+		got := Parse(in)
+		if got.Kind != KillJob || got.Count != want {
+			t.Errorf("Parse(%q) = {%s, %d}, want {kill_job, %d}", in, got.Kind, got.Count, want)
+		}
+	}
+	// Disambiguation: bare list/kill of a session must NOT be read as a job command.
+	if Parse("list sessions").Kind != List {
+		t.Error("list sessions should stay List, not ListJobs")
+	}
+	if got := Parse("kill bam"); got.Kind != Kill {
+		t.Errorf("kill bam should stay Kill (session), got %s", got.Kind)
+	}
+	// "kill job" with no number is ambiguous — must not silently kill a session.
+	if got := Parse("kill session bam"); got.Kind != Kill {
+		t.Errorf("kill session bam should stay Kill, got %s", got.Kind)
+	}
+}
+
 func TestParseAbortTurn(t *testing.T) {
 	// Abort must win over Cancel/Kill for these "…the turn" phrasings.
 	for _, in := range []string{"abort", "abort the turn", "stop the turn", "stop the command",

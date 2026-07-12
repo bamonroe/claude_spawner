@@ -82,6 +82,12 @@ func (c *conn) runCommand(intent command.Intent) bool {
 		c.doScratch(intent.Arg)
 	case command.SummaryOnly:
 		c.doSummaryOnly(intent.Arg)
+	case command.ListJobs:
+		c.doListJobs()
+	case command.KillJob:
+		c.doKillJob(intent.Count)
+	case command.JobStatus:
+		c.doJobStatus()
 	default:
 		return false
 	}

@@ -62,11 +62,28 @@
       "description": "Speak the list of commands"
     },
     {
+      "title": "job status",
+      "aliases": [
+        "job status",
+        "how are the jobs"
+      ],
+      "description": "Speak a one-line summary of the attached session's background jobs"
+    },
+    {
       "title": "kill",
       "aliases": [
         "kill session <name>"
       ],
       "description": "Delete a session by name"
+    },
+    {
+      "title": "kill job",
+      "aliases": [
+        "kill job <number>",
+        "stop job <number>",
+        "cancel job <number>"
+      ],
+      "description": "Kill one of the attached session's background jobs by number (from 'list jobs')"
     },
     {
       "title": "list",
@@ -75,6 +92,15 @@
         "what sessions"
       ],
       "description": "List your sessions"
+    },
+    {
+      "title": "list jobs",
+      "aliases": [
+        "list jobs",
+        "background jobs",
+        "what jobs"
+      ],
+      "description": "List the attached session's detached background jobs and their status"
     },
     {
       "title": "list models",

@@ -69,6 +69,12 @@ var Registry = []Command{
 		"Toggle scratch mode: while detached, hear each transcription read back to test STT", "scratch on"},
 	{SummaryOnly, "summary only", []string{"summary only", "summaries only", "speak everything"},
 		"Speak only the final result of a turn; intermediate steps beep quietly instead", "summary only"},
+	{ListJobs, "list jobs", []string{"list jobs", "background jobs", "what jobs"},
+		"List the attached session's detached background jobs and their status", "list jobs"},
+	{KillJob, "kill job", []string{"kill job <number>", "stop job <number>", "cancel job <number>"},
+		"Kill one of the attached session's background jobs by number (from 'list jobs')", "kill job 2"},
+	{JobStatus, "job status", []string{"job status", "how are the jobs"},
+		"Speak a one-line summary of the attached session's background jobs", "job status"},
 }
 
 // RegistryJSON returns the registry as indented JSON (an object with a
