@@ -43,7 +43,7 @@ var Registry = []Command{
 		"What the attached session is doing", "status"},
 	{Kill, "kill", []string{"kill session <name>"},
 		"Delete a session by name", "kill session bam"},
-	{ReadLast, "read last", []string{"read last", "read last 3", "say that again", "repeat that"},
+	{ReadLast, "read last", []string{"read last", "read last 3", "replay last", "say that again", "repeat that"},
 		"Re-read Claude's recent replies aloud", "read last"},
 	{Clear, "clear", []string{"clear context", "clear session", "reset context", "start fresh"},
 		"Start Claude fresh — keeps your history, stops re-reading it", "clear context"},

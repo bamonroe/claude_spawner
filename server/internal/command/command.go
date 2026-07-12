@@ -83,7 +83,7 @@ var wakePhrases = [][]string{
 // key word here when you add the command.
 var commandVocab = []string{
 	"spawn", "attach", "detach", "list", "kill", "status", "cancel",
-	"stop", "abort", "help", "read last", "clear", "compress", "compact",
+	"stop", "abort", "help", "read last", "replay", "clear", "compress", "compact",
 	"usage", "rename", "session", "project", "model", "models", "codex",
 	"scratch", "summary", "job", "jobs",
 }
@@ -321,9 +321,10 @@ func Parse(text string) Intent {
 		return Intent{Kind: Cancel}
 
 	// Read last: "read last", "read last 3", "read the last two", "read that
-	// back", "say that again", "repeat that/last".
+	// back", "say that again", "repeat that/last", "replay last/that".
 	case first == "read" && contains(t, "read last", "read the last", "read that", "read it", "read again"),
-		contains(t, "say that again", "say it again", "repeat that", "repeat last", "read that back", "read it back"):
+		first == "replay",
+		contains(t, "say that again", "say it again", "repeat that", "repeat last", "read that back", "read it back", "replay last", "replay that"):
 		return Intent{Kind: ReadLast, Count: readCount(words)}
 
 	case (first == "help" && n <= 2) || first == "commands" ||
