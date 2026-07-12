@@ -86,10 +86,11 @@ type Proc interface {
 	Wait() error
 }
 
-// HostExecutor runs claude as a direct child process on the host. This is the
-// default and reproduces the original inline exec: its own process group with a
-// group-kill on ctx cancel, so an aborted turn takes claude AND any tool child it
-// spawned (a build, a sleep) down with it, not just the top-level process.
+// HostExecutor runs claude as a direct child process on the host, in its own
+// process group with a group-kill on ctx cancel. The production server never uses
+// it — host turns always run over SSH (SSHExecutor) — but the unit tests do: it's
+// the hermetic turn executor that forks a fake `claude` without needing a live
+// sshd. NewDriver keeps it as the default so tests get a working host target.
 type HostExecutor struct {
 	// Bin is the claude binary (path or name resolved via PATH).
 	Bin string
@@ -114,13 +115,13 @@ func (h HostExecutor) Start(ctx context.Context, s *Session, bin string, args []
 // absolute path the host uses (keeping history/discovery working when the host
 // ~/.claude state is shared via Mounts).
 //
-// SSH-native mode: when Pool is non-nil the runtime CLI (create/exec/rm/inspect) is
-// not run locally but over SSH on Host — so a containerized, SSH-native server, which
-// has no container runtime of its own, drives rootless podman on the host exactly the
-// way it already runs host turns there. All mount/dir paths are then HOST paths (the
-// session Dir and Mounts already are, since sessions are created against the host
-// filesystem). With Pool nil it runs the runtime as local child processes (in the
-// server's own environment, rather than over SSH).
+// SSH-native mode: Pool is set in production, so the runtime CLI
+// (create/exec/rm/inspect) runs over SSH on Host — a containerized, SSH-native
+// server, which has no container runtime of its own, drives rootless podman on the
+// host exactly the way it runs host turns there. All mount/dir paths are then HOST
+// paths (the session Dir and Mounts already are, since sessions are created against
+// the host filesystem), and the transcript is read back over SSH on Host. With Pool
+// nil (tests only) it runs the runtime as local child processes.
 type SandboxExecutor struct {
 	// Runtime is the container CLI (e.g. "podman" for rootless, or "docker").
 	Runtime string

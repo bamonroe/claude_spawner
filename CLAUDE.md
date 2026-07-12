@@ -154,10 +154,11 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
   image), `SPAWNER_SANDBOX_CODEX_BIN` (`codex`; the codex binary inside the image for Codex-backend
   sandbox sessions), `SPAWNER_SANDBOX_MOUNTS` (comma-separated extra `-v` specs, e.g. sharing `$HOME/.claude`),
   `SPAWNER_SANDBOX_RUN_ARGS` (space-separated extra `run` flags, e.g. `--userns=keep-id`).
-- SSH-native execution (host turns over SSH; **empty `SPAWNER_SSH` keeps the direct-fork host
-  path** — transitional until loopback SSH is verified): `SPAWNER_SSH` (`1` enables; then every
-  host-target turn, local included, runs over SSH with no special-cased localhost fork),
-  `SPAWNER_SSH_USER` (login user; empty = current OS user), `SPAWNER_SSH_PORT` (`22`),
+- SSH-native execution (**unconditional** — every host-target turn, local included, runs over SSH
+  with no special-cased localhost fork, and the sandbox's podman + transcript reads run over the
+  same pool on the loopback host; the running server never touches its own filesystem for Claude
+  state. The direct-fork `HostExecutor` survives only as the hermetic unit-test executor, never in
+  production): `SPAWNER_SSH_USER` (login user; empty = current OS user), `SPAWNER_SSH_PORT` (`22`),
   `SPAWNER_SSH_KEY` (private-key path; **empty = the server self-manages its OWN keypair**, minting an
   ed25519 key under the state dir (`<state>/ssh/id_ed25519`) on first boot and writing the public key
   to `<key>.pub` + logging it — install that in the target host's `~/.ssh/authorized_keys` to grant
@@ -167,17 +168,16 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
   app records its key trust-on-first-use, deleting the host forgets it, and the running pool reloads
   the file so it takes effect without a restart), `SPAWNER_SSH_CLAUDE_BIN`
   (`claude`; the remote claude binary), `SPAWNER_SSH_CODEX_BIN` (`codex`; the remote codex binary for
-  Codex-backend SSH sessions — SSH reuses the host target, so this feeds the host codex binary when
-  `SPAWNER_SSH` is enabled).
+  Codex-backend SSH sessions — SSH reuses the host target, so this is the host codex binary; it
+  supersedes `SPAWNER_CODEX_BIN`, now vestigial).
 - Restart: `SPAWNER_RESTART_CMD` — a shell command fired by the app's restart button; empty disables
   restart. The server runs in a Docker container that builds the Go binary and drives the host over
   SSH (host `claude` turns and the rootless sandbox runtime both execute on the host — no separate
   host broker). The button does a **rebuild+recreate**: it runs `deploy/rebuild-container.sh`
   detached **on the host**, which must run there because the rebuild replaces the very container the
   server runs in — an in-container command would be killed mid-recreate, so `setsid` decouples it.
-  With `SPAWNER_SSH` enabled the server runs the command on the host over its own Go-native SSH
-  connection pool (no openssh client — the container needs no `/etc/passwd` entry); with SSH off it
-  falls back to running it locally via `sh -c` in its own process group. The restart
+  The server runs the command on the host over its own Go-native SSH connection pool (no openssh
+  client — the container needs no `/etc/passwd` entry). The restart
   message carries a `rebuild` flag (checkbox in the app; default on): the server substitutes the
   `%REBUILD%` token in the command with `rebuild` or `bounce` and passes it to the script — `rebuild`
   does a `--no-cache` recompile, `bounce` recreates from the existing image (fast, no code change).

@@ -58,63 +58,64 @@ func main() {
 	}
 	driver.HostBin(cfg.ClaudeBin)
 	// Per-agent binaries: Claude uses each executor's own Bin (host set above,
-	// sandbox/SSH below); other backends launch their own command per target.
-	// SSH reuses the host target (its executor replaces the host one when enabled),
-	// so the SSH codex binary is wired into the host entry in that case — mirroring
-	// how SSHExecutor.Bin carries SPAWNER_SSH_CLAUDE_BIN for Claude.
-	hostCodexBin := cfg.CodexBin
-	if cfg.SSHEnable {
-		hostCodexBin = cfg.SSHCodexBin
-	}
+	// sandbox below); other backends launch their own command per target. Host turns
+	// always run over SSH (the SSH executor replaces the host one below), so the host
+	// target's codex binary is the remote one — mirroring how SSHExecutor.Bin carries
+	// SPAWNER_SSH_CLAUDE_BIN for Claude.
+	hostCodexBin := cfg.SSHCodexBin
 	driver.AgentBins = map[string]map[session.Target]string{
 		"codex": {
 			session.TargetHost:    hostCodexBin,
 			session.TargetSandbox: cfg.SandboxCodexBin,
 		},
 	}
-	// SSH-native execution: when enabled, host-target turns run over SSH — every host
+	// SSH-native execution is unconditional: every host-target turn runs over SSH —
 	// including the local machine (Session.Host empty = loopback), so there's no
-	// special-cased local fork path. Transitional: off keeps the direct-fork host
-	// executor. A bad SSH config is fatal (the operator explicitly opted in; don't
-	// silently fall back).
-	var sshConns *session.SSHPool
-	if cfg.SSHEnable {
-		// The server owns its OWN SSH keypair, separate from the host's ~/.ssh keys.
-		// SPAWNER_SSH_KEY overrides the path; empty means self-manage under the state
-		// dir (persisted on the volume), minting the key on first boot. The public key
-		// is logged and written to <key>.pub — install it in the target host's
-		// ~/.ssh/authorized_keys to let the server SSH in (host turns + restart button).
-		selfKey := cfg.SSHKey
-		if selfKey == "" {
-			selfKey = filepath.Join(filepath.Dir(cfg.StatePath), "ssh", "id_ed25519")
-		}
-		pubLine, kerr := session.EnsureServerKey(selfKey)
-		if kerr != nil {
-			log.Fatalf("ssh: server key: %v", kerr)
-		}
-		log.Printf("server SSH public key (add to the host user's ~/.ssh/authorized_keys to enable loopback turns + the restart button):\n  %s", pubLine)
-		sshConns, err = session.NewSSHPool(session.SSHConfig{
-			User:       cfg.SSHUser,
-			Port:       cfg.SSHPort,
-			KeyFile:    selfKey,
-			KnownHosts: cfg.SSHKnownHosts,
-			Bin:        cfg.SSHClaudeBin,
-		}, hostStore, idStore)
-		if err != nil {
-			log.Fatalf("ssh: %v", err)
-		}
-		driver.Execs[session.TargetHost] = session.SSHExecutor{Pool: sshConns}
-		log.Printf("SSH-native execution enabled: host turns run over SSH (loopback for local sessions)")
-		// Auto-seed loopback into known_hosts (trust-on-first-use) so no manual
-		// ssh-keyscan is needed — the server comes up bare. Best-effort: if the host
-		// sshd isn't reachable yet, log and carry on (re-trusts on the next host save).
-		if terr := sshConns.TrustHost(session.LocalHost, cfg.SSHPort); terr != nil {
-			log.Printf("loopback host key not recorded yet (%v) — trusted automatically once localhost:22 is reachable", terr)
-		} else {
-			log.Printf("trusted loopback host key (%s)", session.LocalHost)
-		}
+	// special-cased local fork path in the running server. A bad SSH config is fatal;
+	// the server never silently falls back to a direct fork.
+	//
+	// The server owns its OWN SSH keypair, separate from the host's ~/.ssh keys.
+	// SPAWNER_SSH_KEY overrides the path; empty means self-manage under the state dir
+	// (persisted on the volume), minting the key on first boot. The public key is
+	// logged and written to <key>.pub — install it in the target host's
+	// ~/.ssh/authorized_keys to let the server SSH in (host turns + restart button).
+	selfKey := cfg.SSHKey
+	if selfKey == "" {
+		selfKey = filepath.Join(filepath.Dir(cfg.StatePath), "ssh", "id_ed25519")
+	}
+	pubLine, kerr := session.EnsureServerKey(selfKey)
+	if kerr != nil {
+		log.Fatalf("ssh: server key: %v", kerr)
+	}
+	log.Printf("server SSH public key (add to the host user's ~/.ssh/authorized_keys to enable loopback turns + the restart button):\n  %s", pubLine)
+	sshConns, err := session.NewSSHPool(session.SSHConfig{
+		User:       cfg.SSHUser,
+		Port:       cfg.SSHPort,
+		KeyFile:    selfKey,
+		KnownHosts: cfg.SSHKnownHosts,
+		Bin:        cfg.SSHClaudeBin,
+	}, hostStore, idStore)
+	if err != nil {
+		log.Fatalf("ssh: %v", err)
+	}
+	driver.Execs[session.TargetHost] = session.SSHExecutor{Pool: sshConns}
+	log.Printf("SSH-native execution: host turns run over SSH (loopback for local sessions)")
+	// Auto-seed loopback into known_hosts (trust-on-first-use) so no manual
+	// ssh-keyscan is needed — the server comes up bare. Best-effort: if the host
+	// sshd isn't reachable yet, log and carry on (re-trusts on the next host save).
+	if terr := sshConns.TrustHost(session.LocalHost, cfg.SSHPort); terr != nil {
+		log.Printf("loopback host key not recorded yet (%v) — trusted automatically once localhost:22 is reachable", terr)
+	} else {
+		log.Printf("trusted loopback host key (%s)", session.LocalHost)
 	}
 	if cfg.SandboxImage != "" {
+		// SSH-native: a containerized server has no runtime of its own, so it drives
+		// rootless podman on the host over the same pool it runs host turns on. All
+		// sandbox mount/dir paths are host paths, and the sandbox's transcript is read
+		// back over SSH on the runtime host (Host below) — never off the server's own
+		// filesystem. HomeMount stays the container's own $HOME — set it to match the
+		// host user's home in this deployment (or configure host mounts via
+		// SPAWNER_SANDBOX_MOUNTS).
 		sandbox := session.SandboxExecutor{
 			Runtime:   cfg.SandboxRuntime,
 			Image:     cfg.SandboxImage,
@@ -122,17 +123,10 @@ func main() {
 			Mounts:    cfg.SandboxMounts,
 			RunArgs:   cfg.SandboxRunArgs,
 			HomeMount: os.Getenv("HOME"),
+			Pool:      sshConns,
+			Host:      session.LocalHost,
 		}
-		if sshConns != nil {
-			// SSH-native: a containerized server has no runtime of its own, so it drives
-			// rootless podman on the host over the same pool it runs host turns on. All
-			// sandbox mount/dir paths are host paths (as they already are). HomeMount
-			// stays the container's own $HOME — set it to match the host user's home in
-			// this deployment (or configure host mounts via SPAWNER_SANDBOX_MOUNTS).
-			sandbox.Pool = sshConns
-			sandbox.Host = session.LocalHost
-			log.Printf("sandbox turns run over SSH on %s", session.LocalHost)
-		}
+		log.Printf("sandbox turns run over SSH on %s", session.LocalHost)
 		driver.Execs[session.TargetSandbox] = sandbox
 		log.Printf("sandbox target enabled: %s image %q", cfg.SandboxRuntime, cfg.SandboxImage)
 	}

@@ -158,8 +158,9 @@ like a Claude session's. (This rollout schema is the persisted record; it is *no
 
 The server runs in a **Docker container** that builds the Go binary from source — the one supported
 deployment. It runs as the ordinary user (never host root) and reaches the host over **SSH**
-(`SPAWNER_SSH=1`): it forks `claude` for host turns and drives the rootless runtime for sandbox
-turns **on the host** over that same SSH connection, and enforces the `SPAWNER_ROOT` jail itself
+(unconditional — SSH-native is not a toggle): it runs `claude` for host turns and drives the
+rootless runtime for sandbox turns **on the host** over that same SSH connection, reads every
+session's Claude transcript back over it, and enforces the `SPAWNER_ROOT` jail itself
 (the last hop before any launch). No component holds host root: the server is an unprivileged
 container and sandboxes use a rootless runtime on the host. Recipe: the root `docker-compose.yml`
 (the `spawner-server` service alongside `whisper`, so one `docker compose up -d --build` launches the
@@ -182,8 +183,9 @@ paths so discovery/browse read where the host writes). See the Dockerfile at
 
 ### SSH-native execution: the host is a dimension, localhost is just another host
 
-With `SPAWNER_SSH=1`, the `host` target is served by the **`SSHExecutor`** instead of the
-direct-`exec` `HostExecutor`: every host turn — the local machine included — runs over SSH. A
+The `host` target is served by the **`SSHExecutor`**: every host turn — the local machine
+included — runs over SSH (SSH-native is unconditional; the direct-`exec` `HostExecutor` survives
+only as the hermetic unit-test executor, never in the running server). A
 per-host `SSHPool` (`internal/session/ssh.go`) dials + authenticates once and keeps the connection
 alive, opening a cheap channel per turn. Which machine a session runs on is a durable per-session
 field, **`Session.Host`** — orthogonal to the host/sandbox target. The **app owns the host
@@ -237,18 +239,24 @@ down — so they don't accumulate; live sessions' containers are left for `Ensur
 server drives the runtime (create/exec/remove/list) directly as the user.
 
 **Sandbox on a containerized (SSH-native) server.** A containerized server has no container
-runtime of its own, so when `SPAWNER_SSH=1` the `SandboxExecutor` is wired with the same
+runtime of its own, so the `SandboxExecutor` is wired with the same
 `SSHPool` and drives **rootless podman on the host over SSH** — every `run`/`exec`/`inspect`/`rm`
 runs on `localhost` (the co-located host, over loopback SSH), exactly the way host turns already
 do. The exec turn streams over SSH via the shared `SSHPool.Stream`/`streamRemote` helper (the same
 cancelable, process-group-killed path as a host turn); lifecycle control goes over `SSHPool.Run`.
 Every mount/dir path is a **host** path (session `Dir` and `SPAWNER_SANDBOX_MOUNTS` already are,
-since sessions are created against the host filesystem), and `HomeMount` stays the container's own
-`$HOME` — which the deployment sets to the host user's home (the compose file mounts `$HOME:$HOME`).
-With `SPAWNER_SSH` unset the executor keeps running the runtime as **local** child processes (in the
-server's own environment). This is what lets the `sandbox` target — e.g. a `target: sandbox` session with no
-`Session.Host` — run on the containerized server, which otherwise fell back to the host executor and
-failed with "no host set".
+since sessions are created against the host filesystem), and `HomeMount` (`-v $HOME:$HOME`, run by
+podman **on the host**) makes the sandbox write its transcript into the host user's `~/.claude`.
+The server then reads that transcript — and runs discovery — **over SSH on `localhost`**, not off
+its own filesystem: a `sandbox` session carries no `Session.Host`, and `claudeFSFor("")` maps that
+empty host to the loopback host and returns the SSH-backed `claudeFS`. Nothing about the sandbox
+touches the server container's own `/data` or `$HOME`, which is why those bind mounts are gone from
+`docker-compose.yml` (only `state` and the whisper models dir remain).
+
+The `SandboxExecutor`'s local-child-process path (`Pool` nil) survives only for unit tests; the
+running server always wires the pool. This is what lets the `sandbox` target — e.g. a
+`target: sandbox` session with no `Session.Host` — run on the containerized server, which
+otherwise fell back to the host executor and failed with "no host set".
 
 ### Net security posture
 

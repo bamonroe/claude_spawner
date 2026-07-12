@@ -396,7 +396,7 @@ Each session picks an **execution target** at spawn time, a durable per-session 
   dotfiles, `~/.claude`, and checkouts are available and writable in the container just like on the
   host. Tune with the other `SPAWNER_SANDBOX_*` vars. A ready-to-build Arch image and the rootless-Podman
   config live in [`sandbox/`](./sandbox/README.md). Because the server is containerized and
-  SSH-native (`SPAWNER_SSH=1`), the container has no runtime of its own, so it drives rootless Podman
+  SSH-native, the container has no runtime of its own, so it drives rootless Podman
   **on the host over SSH** (the same connection host turns use) — set the `SPAWNER_SANDBOX_*` vars in
   the container env as host paths, keep `HOME` pointed at the host user's home, and sandbox sessions
   run on the host alongside host turns.
@@ -405,7 +405,7 @@ Each session picks an **execution target** at spawn time, a durable per-session 
 
 The **server runs in a Docker container** that builds the Go binary from source — this is the one
 supported deployment. It runs as your ordinary user (never root) and drives the host over **SSH**
-(`SPAWNER_SSH=1`): `claude` for host sessions and rootless Podman for sandbox sessions both execute
+(unconditional): `claude` for host sessions and rootless Podman for sandbox sessions both execute
 **on the host**, over the same SSH connection, so the container needs no host root and no separate
 broker. It enforces the `SPAWNER_ROOT` jail. Transcription is a second container — a resident
 whisper.cpp HTTP server ([`whisper/`](./whisper/README.md))

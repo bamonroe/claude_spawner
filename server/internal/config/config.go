@@ -117,13 +117,6 @@ type Config struct {
 	// addition to* the shared token, so a leaked token alone can't attach. Requires
 	// TLSCert/TLSKey (mTLS is layered on server TLS). Empty = no client-cert check.
 	TLSClientCA string
-	// SSHEnable turns on SSH-native execution: host-target turns run over SSH
-	// (Session.Host, empty = loopback) instead of a direct local fork, so the local
-	// machine is just another SSH host — no special-cased localhost path — and a
-	// containerized server can drive the real host without a privileged broker.
-	// Transitional rollout gate: empty keeps the direct-fork host path; the fork path
-	// is retired once loopback SSH is verified.
-	SSHEnable bool
 	// SSHUser/SSHPort/SSHKey/SSHKnownHosts/SSHClaudeBin configure the one SSH
 	// connection template shared by every host in the pool. SSHUser empty = current
 	// OS user; SSHPort 0 = 22; SSHKey empty = rely on the ssh-agent; SSHKnownHosts
@@ -177,7 +170,6 @@ func Load() (*Config, error) {
 		TLSCert:              os.Getenv("SPAWNER_TLS_CERT"),
 		TLSKey:               os.Getenv("SPAWNER_TLS_KEY"),
 		TLSClientCA:          os.Getenv("SPAWNER_TLS_CLIENT_CA"),
-		SSHEnable:            os.Getenv("SPAWNER_SSH") == "1",
 		SSHUser:              os.Getenv("SPAWNER_SSH_USER"),
 		SSHKey:               os.Getenv("SPAWNER_SSH_KEY"),
 		SSHKnownHosts:        os.Getenv("SPAWNER_SSH_KNOWN_HOSTS"),

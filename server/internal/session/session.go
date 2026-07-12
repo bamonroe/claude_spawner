@@ -313,8 +313,9 @@ func (d *Driver) Restart(ctx context.Context, rebuild bool) error {
 		}()
 		return nil
 	}
-	// No SSH pool (direct-fork mode): run locally, detached in its own process group
-	// so the rebuild survives the server's own termination on recreate.
+	// No SSH pool: only reachable from tests (production always wires the pool). Run
+	// locally, detached in its own process group so the rebuild would survive the
+	// server's own termination on recreate.
 	cmd := exec.Command("sh", "-c", cmdStr)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
@@ -329,8 +330,9 @@ func (d *Driver) Restart(ctx context.Context, rebuild bool) error {
 	return nil
 }
 
-// hostPool returns the SSH connection pool used for host turns, or nil when host
-// turns run as direct forks (SPAWNER_SSH unset). Restart reuses it to reach the
+// hostPool returns the SSH connection pool used for host turns. In production the
+// host executor is always an SSHExecutor, so this is non-nil; it returns nil only
+// under the test-only HostExecutor. Restart and claudeFSFor reuse it to reach the
 // host without the openssh client.
 func (d *Driver) hostPool() *SSHPool {
 	if ex, ok := d.Execs[TargetHost].(SSHExecutor); ok {

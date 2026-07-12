@@ -2,7 +2,7 @@
 
 The server runs in a **Docker container** that builds the Go binary from source — this is the one
 supported deployment. It runs as your ordinary user (never host root) and drives the host over
-**SSH** (`SPAWNER_SSH=1`): `claude` for host turns and rootless Podman for sandbox turns both run
+**SSH** (unconditional): `claude` for host turns and rootless Podman for sandbox turns both run
 **on the host**, over the same SSH connection, so the container needs no host root and no separate
 broker. Transcription is a second service in the **same** compose stack. Both are defined in the
 root [`docker-compose.yml`](../docker-compose.yml), so **one command launches the whole backend**.
@@ -74,8 +74,8 @@ path; text turns work without them.)
 
 For the container the app's **restart** button is a *one-tap deploy*, not just a bounce:
 `SPAWNER_RESTART_CMD` launches [`rebuild-container.sh`](rebuild-container.sh) detached (`setsid`)
-**on the host** — with `SPAWNER_SSH` on, the server runs it over its own Go-native SSH connection
-(the same loopback login as turns); with SSH off it runs locally via `sh -c`. The script runs
+**on the host** — the server runs it over its own Go-native SSH connection (the same loopback login
+as turns). The script runs
 `compose build --no-cache spawner-server` then `compose up -d spawner-server` to rebuild the image
 from current source and recreate the gateway container (the whisper service is left untouched). The
 build is deliberately `--no-cache`: `up --build` alone once reused a stale layer and shipped an old
