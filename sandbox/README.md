@@ -48,6 +48,6 @@ The container is **persistent for the session's lifetime**: created at spawn (`r
 infinity`), each turn `exec`s into it, and it's removed on delete. Orphans (a session deleted while
 the server was down) are swept at startup. See [`docs/architecture.md`](../docs/architecture.md).
 
-The server reads these `SPAWNER_SANDBOX_*` vars and drives the rootless runtime directly — it runs
-bare metal as your user, so there's no broker in between. `SPAWNER_SANDBOX_IMAGE` must be set (to any
-value) for the spawn dialog to offer the sandbox target.
+The server reads these `SPAWNER_SANDBOX_*` vars and drives the rootless runtime on the host over SSH
+(the same connection host turns use), so there's no broker in between. `SPAWNER_SANDBOX_IMAGE` must
+be set (to any value) for the spawn dialog to offer the sandbox target.

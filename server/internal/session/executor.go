@@ -119,7 +119,8 @@ func (h HostExecutor) Start(ctx context.Context, s *Session, bin string, args []
 // has no container runtime of its own, drives rootless podman on the host exactly the
 // way it already runs host turns there. All mount/dir paths are then HOST paths (the
 // session Dir and Mounts already are, since sessions are created against the host
-// filesystem). With Pool nil it runs the runtime as local child processes (bare-metal).
+// filesystem). With Pool nil it runs the runtime as local child processes (in the
+// server's own environment, rather than over SSH).
 type SandboxExecutor struct {
 	// Runtime is the container CLI (e.g. "podman" for rootless, or "docker").
 	Runtime string

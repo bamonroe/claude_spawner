@@ -12,6 +12,16 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-12 — **Removed the bare-metal/systemd deployment remnants; the container is the one
+      supported route.** The server now runs only as the Docker container that builds the Go binary
+      and drives the host over SSH (`deploy/spawner-container.yml`). Deleted the systemd-only
+      artifacts (`deploy/spawner-server.service`, `deploy/spawner-server.env.example`,
+      `deploy/rebuild.sh`) and rewrote the docs/comments that framed a bare-metal path: `deploy/README.md`
+      (container-only), `README.md` (live-deployment + build sections), `CLAUDE.md` (restart var +
+      build/run note), `docs/architecture.md` ("runs in a container, driving the host over SSH"),
+      `docs/protocol.md` (`restart` message), root `docker-compose.yml` header, `whisper/README.md`,
+      `android/README.md`, `sandbox/README.md`, and the `systemctl`/`KillMode` code comments in
+      `config.go`, `session.go`, `main.go`, `ops.go`, `executor.go`. No behavior or env-var change.
 - [x] 2026-07-12 — **Audio picker redesign: independent Output + Input sections.** The top-bar
       audio button now opens a two-section picker — **Output** (Earpiece / Speaker / Headset /
       Mute — where the voice plays) and **Input** (Device / Headset — which mic listens) — chosen

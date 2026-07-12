@@ -1,9 +1,10 @@
 # Supporting services for the claude_spawner server.
 #
-# The server itself runs BARE METAL (a single Go binary — see deploy/), not in a
-# container. What stays containerized is the transcription backend: one resident
-# whisper.cpp server on the Nvidia GPU. The bare-metal server points at it via
-# SPAWNER_WHISPER_URL (localhost:8571).
+# The server itself runs in its own container (deploy/spawner-container.yml, which
+# builds the Go binary and drives the host over SSH). This file holds the OTHER
+# container it depends on: the transcription backend — one resident whisper.cpp
+# server on the Nvidia GPU. The server points at it via SPAWNER_WHISPER_URL
+# (localhost:8571).
 #
 #   docker compose up -d whisper   # start the transcription backend
 #

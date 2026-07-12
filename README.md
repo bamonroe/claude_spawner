@@ -395,20 +395,20 @@ Each session picks an **execution target** at spawn time, a durable per-session 
   the server's whole `$HOME` is bind-mounted **read-write at the same path** by default so your
   dotfiles, `~/.claude`, and checkouts are available and writable in the container just like on the
   host. Tune with the other `SPAWNER_SANDBOX_*` vars. A ready-to-build Arch image and the rootless-Podman
-  config live in [`sandbox/`](./sandbox/README.md). On a **containerized, SSH-native server**
-  (`SPAWNER_SSH=1`) the sandbox works too: the container has no runtime of its own, so it drives
-  rootless Podman **on the host over SSH** (the same connection host turns use) — set the
-  `SPAWNER_SANDBOX_*` vars in the container env as host paths, keep `HOME` pointed at the host user's
-  home, and sandbox sessions run there just as they do bare-metal.
+  config live in [`sandbox/`](./sandbox/README.md). Because the server is containerized and
+  SSH-native (`SPAWNER_SSH=1`), the container has no runtime of its own, so it drives rootless Podman
+  **on the host over SSH** (the same connection host turns use) — set the `SPAWNER_SANDBOX_*` vars in
+  the container env as host paths, keep `HOME` pointed at the host user's home, and sandbox sessions
+  run on the host alongside host turns.
 
-### The live deployment: a bare-metal server under systemd
+### The live deployment: a containerized, SSH-native server
 
-The **server runs bare metal** as a single Go binary under a **systemd user service**, as your
-ordinary user (never root). It forks `claude` for host sessions and drives rootless Podman for
-sandbox sessions itself, enforcing the `SPAWNER_ROOT` jail — so no component runs as root. There is
-no separate broker: that indirection existed only to let a containerized server reach the host, and
-the server never needed root, so it was folded back into this binary. The only thing still
-containerized is **transcription** — a resident whisper.cpp HTTP server ([`whisper/`](./whisper/README.md))
+The **server runs in a Docker container** that builds the Go binary from source — this is the one
+supported deployment. It runs as your ordinary user (never root) and drives the host over **SSH**
+(`SPAWNER_SSH=1`): `claude` for host sessions and rootless Podman for sandbox sessions both execute
+**on the host**, over the same SSH connection, so the container needs no host root and no separate
+broker. It enforces the `SPAWNER_ROOT` jail. Transcription is a second container — a resident
+whisper.cpp HTTP server ([`whisper/`](./whisper/README.md))
 on `:8571`. One model handles both dictation and the live hands-free draft; on fast enough hardware
 there's no need to split the load. An optional second **fast** draft/detection model on `:8572`
 (`whisper-fast`) can offload the live draft — start that container and set `SPAWNER_WHISPER_FAST_URL`
@@ -426,14 +426,17 @@ came from the env default gets written to `settings.json`.
 (Settings the app owns — the per-device voice prefs — ride along in each `hello` and don't need
 server-side storage.)
 
-Bring-up lives in [`deploy/`](./deploy/README.md): build the binary, drop the env file, enable the
-lingering user service, and start the whisper server with `docker compose up -d whisper`. The app's **restart** button fires `SPAWNER_RESTART_CMD` (set it to
-[`deploy/rebuild.sh`](./deploy/rebuild.sh)), which rebuilds the binary and restarts the unit on
-current code. Full design in [`docs/architecture.md`](./docs/architecture.md).
+Bring-up lives in [`deploy/`](./deploy/README.md): fill in the env file, seed the server's own
+known_hosts, and `docker compose -f deploy/spawner-container.yml up -d --build`; start the whisper
+server with `docker compose up -d whisper`. The app's **restart** button fires `SPAWNER_RESTART_CMD`,
+which SSHes to the host and runs [`deploy/rebuild-container.sh`](./deploy/rebuild-container.sh)
+detached — a one-tap `compose up -d --build` that rebuilds the image from current source and
+recreates the container. Full design in [`docs/architecture.md`](./docs/architecture.md).
 
-## Building & running it
+## Building & running from source (local dev)
 
-Build the single binary and run it directly (no container):
+The supported **deployment** is the container above. For quick local iteration you can also build
+the single binary and run it directly:
 
 ```bash
 # build the server (the Go module is under server/)

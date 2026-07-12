@@ -86,7 +86,7 @@ docker exec android-emulator adb install -r /tmp/app-debug.apk
 docker exec android-emulator adb shell monkey -p com.bam.spawner -c android.intent.category.LAUNCHER 1
 ```
 
-The default server URL is `ws://100.64.0.2:8558/ws` (the host's tailnet IP, where the bare-metal
+The default server URL is `ws://100.64.0.2:8558/ws` (the host's tailnet IP, where the containerized
 server listens), token `devsecret` — change it in Settings → Server. NOTE: from the Dockerized
 emulator the host is reachable at that tailnet IP, not `10.0.2.2` (which is the emulator's container).
 

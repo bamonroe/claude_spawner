@@ -98,10 +98,11 @@ type Config struct {
 	// space-separated (e.g. "--userns=keep-id --network=none").
 	SandboxRunArgs []string
 	// RestartCmd is a shell command (run via `sh -c`, detached) that rebuilds and
-	// relaunches the server for the app's "restart" button — e.g. a script that
-	// rebuilds the binary and runs `systemctl --user restart --no-block
-	// spawner-server`. It is fired fire-and-forget in its own process group so it
-	// survives the server's own teardown (the unit must use KillMode=process).
+	// relaunches the server for the app's "restart" button — it SSHes to the host
+	// and launches deploy/rebuild-container.sh detached (setsid), which runs
+	// `compose up -d --build` to rebuild the image and recreate this container. It
+	// is fired fire-and-forget in its own process group so it survives the server's
+	// own teardown as the container is recreated.
 	// Empty disables restart (the app's button reports it isn't configured).
 	RestartCmd string
 	// TLSCert and TLSKey are the PEM cert/key files for serving wss:// (HTTPS).

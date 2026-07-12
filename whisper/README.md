@@ -36,8 +36,8 @@ Two servers run side by side (see [`../docker-compose.yml`](../docker-compose.ym
 - **`whisper-fast`** → host `:8572`, fast draft model (`base.en`) — the live hands-free draft +
   end-token detection, so the cheap high-frequency work never blocks the accurate model.
 
-The bare-metal server points at them with `SPAWNER_WHISPER_URL` / `SPAWNER_WHISPER_FAST_URL` (set in
-`deploy/spawner-server.env.example`). Start the two servers with `docker compose up -d whisper
+The server points at them with `SPAWNER_WHISPER_URL` / `SPAWNER_WHISPER_FAST_URL` (set in
+`deploy/spawner-container.env.example`). Start the two servers with `docker compose up -d whisper
 whisper-fast`; if neither URL is set the server falls back to forking `whisper-cli` locally.
 
 ## Build & run standalone

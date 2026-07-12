@@ -154,32 +154,30 @@ by `codexFS` (`internal/session/codex_transcript.go`). Both normalize to the sam
 like a Claude session's. (This rollout schema is the persisted record; it is *not* the live
 `codex exec --json` stream `parseCodexStream` consumes during a turn.)
 
-### The server runs bare metal (no broker)
+### The server runs in a container, driving the host over SSH (no broker)
 
-The server runs **bare metal** as a single binary, as the ordinary user — so it forks `claude` for
-host turns and drives the rootless runtime for sandbox turns **directly**, and enforces the
-`SPAWNER_ROOT` jail itself (the last hop before any launch). No component holds host root: the
-server is a plain user process and sandboxes use a rootless runtime.
+The server runs in a **Docker container** that builds the Go binary from source — the one supported
+deployment. It runs as the ordinary user (never host root) and reaches the host over **SSH**
+(`SPAWNER_SSH=1`): it forks `claude` for host turns and drives the rootless runtime for sandbox
+turns **on the host** over that same SSH connection, and enforces the `SPAWNER_ROOT` jail itself
+(the last hop before any launch). No component holds host root: the server is an unprivileged
+container and sandboxes use a rootless runtime on the host. Recipe:
+`deploy/spawner-container.yml` (host networking so `localhost:22` is the host sshd; home + roots
+mounted at the same paths so discovery/browse read where the host writes). See the Dockerfile at
+`server/Dockerfile`.
 
 > **Design note — the containerized-server + broker detour (reverted 2026-07-06).** An earlier design
 > ran the server in a container and put a small host-side **broker** daemon (`cmd/broker`, dialed
 > over a Unix socket) in front of the same `HostExecutor`/`SandboxExecutor` code, so the unprivileged
 > container could reach the host without host root. It worked, but bought little: the broker itself
 > ran bare metal, and the server never needed root, so the container protected the host from almost
-> nothing while adding an IPC hop and a whole wire protocol to maintain. It was folded back into the
-> binary. Don't re-introduce *that* (a bespoke Unix-socket broker); the privileged shortcuts — a
-> `--privileged` server with `--pid=host` + `nsenter` — were rejected for the same "no component holds
-> host root" reason and remain rejected.
-
-> **Containerized, the clean way (SSH-native, 2026-07-08).** With host turns running over **SSH**
-> (`SPAWNER_SSH=1`), the server *can* run in a container again — but it reaches the host over standard
-> SSH instead of a custom broker: `claude` runs on the host, the container needs no host root and no
-> privileged shortcuts, and there is no IPC protocol to maintain. This is the thing the broker detour
-> was trying to buy, now bought by SSH. It's optional (the bare-metal binary is still the default) and,
-> because execution is over SSH, it can run in parallel with a bare-metal instance for a safe cutover.
-> Recipe: `deploy/spawner-container.yml` (host networking so `localhost:22` is the host sshd; home +
-> roots mounted at the same paths so discovery/browse read where the host writes). See the Dockerfile
-> at `server/Dockerfile`.
+> nothing while adding an IPC hop and a whole wire protocol to maintain. Don't re-introduce *that* (a
+> bespoke Unix-socket broker); the privileged shortcuts — a `--privileged` server with `--pid=host` +
+> `nsenter` — were rejected for the same "no component holds host root" reason and remain rejected.
+> The container reaches the host over **standard SSH** instead (2026-07-08): `claude` runs on the
+> host, no host root, no privileged shortcuts, no IPC protocol to maintain — the thing the broker
+> detour was trying to buy, now bought by SSH. (There was a bare-metal-binary interregnum between the
+> revert and the SSH-native container; it's gone now — the container is the only route.)
 
 ### SSH-native execution: the host is a dimension, localhost is just another host
 
@@ -246,8 +244,8 @@ cancelable, process-group-killed path as a host turn); lifecycle control goes ov
 Every mount/dir path is a **host** path (session `Dir` and `SPAWNER_SANDBOX_MOUNTS` already are,
 since sessions are created against the host filesystem), and `HomeMount` stays the container's own
 `$HOME` — which the deployment sets to the host user's home (the compose file mounts `$HOME:$HOME`).
-With `SPAWNER_SSH` unset the executor keeps running the runtime as **local** child processes
-(bare-metal). This is what lets the `sandbox` target — e.g. a `target: sandbox` session with no
+With `SPAWNER_SSH` unset the executor keeps running the runtime as **local** child processes (in the
+server's own environment). This is what lets the `sandbox` target — e.g. a `target: sandbox` session with no
 `Session.Host` — run on the containerized server, which otherwise fell back to the host executor and
 failed with "no host set".
 
@@ -343,11 +341,11 @@ uppercase letters by voice. Acceptable; documented in `docs/commands.md`.
   internal/docsync/             drift tests: env vars/wire messages/error codes ↔ docs + CLAUDE.md
   cmd/wsclient/main.go          text client for manual testing; -audio streams a WAV
   cmd/gencommands/main.go       regenerate docs/commands.json from the command registry
-  main.go                       server entrypoint (built to a single bare-metal binary)
+  main.go                       server entrypoint (built into the Docker image from server/Dockerfile)
 docker-compose.yml              resident whisper/whisper-fast servers (transcription backend)
 /sandbox                        Arch-based sandbox image (Containerfile) for `target: sandbox` sessions (see sandbox/README.md)
 /whisper                        Vulkan/CPU Dockerfiles for the resident whisper.cpp server (see whisper/README.md)
-/deploy                         server systemd user service + env example + rebuild + claude-log helpers (see deploy/README.md)
+/deploy                         containerized server compose + env example + container-rebuild + claude-log helpers (see deploy/README.md)
 /android                        Android app (Kotlin/Compose) — see android/README.md
 /docs
   protocol.md                   WebSocket message schema (single source of truth)

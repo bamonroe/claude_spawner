@@ -276,18 +276,19 @@ func (d *Driver) ReconcileContainers(ctx context.Context, known map[string]bool)
 
 // Restart fires the configured RestartCmd to rebuild and relaunch the server (the
 // app's "restart" button). The command is run detached in its own process group
-// via `sh -c`, so it survives the server's own termination when it restarts the
-// unit (the systemd unit must use KillMode=process). It returns once the rebuild
-// is LAUNCHED — the process is replaced moments later — or an error if restart
-// isn't configured. Errors from the detached command are logged, not returned.
+// via `sh -c`, so it survives the server's own termination when the container is
+// recreated (it SSHes to the host and runs the rebuild via setsid, decoupled from
+// this container). It returns once the rebuild is LAUNCHED — the process is
+// replaced moments later — or an error if restart isn't configured. Errors from
+// the detached command are logged, not returned.
 func (d *Driver) Restart(ctx context.Context) error {
 	if d.RestartCmd == "" {
 		return fmt.Errorf("server restart is not configured (set SPAWNER_RESTART_CMD)")
 	}
 	cmd := exec.Command("sh", "-c", d.RestartCmd)
-	// Own process group so a `systemctl restart` inside the command doesn't take
-	// this detached child down with the server (KillMode=process on the unit does
-	// the rest — only the main process is killed, not the whole cgroup).
+	// Own process group so the detached rebuild isn't taken down with the server
+	// when the container is recreated (the command itself SSHes out and `setsid`s
+	// the rebuild on the host, so it runs fully decoupled from this container).
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
 		return err

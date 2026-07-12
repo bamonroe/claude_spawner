@@ -1,7 +1,7 @@
-# Containerized claude_spawner server (SSH-native). It drives the host over SSH —
-# claude runs on the HOST, not in this container — so there is no host broker and the
-# container needs no host root. Because the execution path is SSH, this can run IN
-# PARALLEL with a bare-metal instance (pick a non-clashing port) for a safe cutover.
+# Containerized claude_spawner server (SSH-native) — the one supported deployment.
+# It builds the Go binary from ../server and drives the host over SSH — claude runs
+# on the HOST, not in this container — so there is no host broker and the container
+# needs no host root.
 #
 # Prereqs (see deploy/README.md):
 #   - the host's sshd accepts a key-based login from the server user to itself
@@ -18,7 +18,7 @@ services:
     image: spawner:latest
     container_name: spawner-server
     # Host networking so localhost:22 is the host's sshd and SPAWNER_ADDR binds on the
-    # host directly. Use a port that doesn't collide with any bare-metal instance.
+    # host directly.
     network_mode: host
     user: "${SPAWNER_UID:?set SPAWNER_UID=$(id -u)}:${SPAWNER_GID:?set SPAWNER_GID=$(id -g)}"
     env_file: spawner-container.env

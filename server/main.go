@@ -219,9 +219,9 @@ func main() {
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
-	// Shut down on a signal: Ctrl-C, `systemctl --user stop`, or the process being
-	// replaced by the restart command (which rebuilds the binary and restarts the
-	// unit from the host — see the `restart` command and Driver.Restart).
+	// Shut down on a signal: Ctrl-C, `docker stop`, or the container being recreated
+	// by the restart command (which rebuilds the image and recreates the container
+	// from the host — see the `restart` command and Driver.Restart).
 	<-stop
 	log.Println("shutting down...")
 	gw.NotifyShutdown() // tell connected apps their in-flight turn was interrupted

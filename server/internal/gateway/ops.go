@@ -716,9 +716,9 @@ func (c *conn) doSetWhisperModel(name string, fast bool) {
 
 // doRestart fires the configured restart command to rebuild and relaunch the
 // server, picking up any new server code. The command (SPAWNER_RESTART_CMD) runs
-// detached on the host — typically rebuilding the binary and `systemctl --user
-// restart`-ing the unit — so the process is replaced out from under us and the app
-// auto-reconnects once the fresh one is listening. Any authenticated client may
+// detached on the host — SSHing over and running deploy/rebuild-container.sh to
+// rebuild the image and recreate this container — so the process is replaced out
+// from under us and the app auto-reconnects once the fresh one is listening. Any authenticated client may
 // trigger this; the trust boundary is the same as spawning arbitrary commands.
 // Reports back if restart isn't configured (SPAWNER_RESTART_CMD unset) instead of
 // pretending it worked.

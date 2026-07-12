@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Rebuild + recreate the CONTAINERIZED claude_spawner server
-# (deploy/spawner-container.yml). This is what the app's restart button runs for the
-# container deployment: unlike the bare-metal button (a pure `systemctl` bounce), it
+# (deploy/spawner-container.yml). This is what the app's restart button runs: it
 # rebuilds the image from current source and recreates the container, so one tap ships
 # new server code.
 #

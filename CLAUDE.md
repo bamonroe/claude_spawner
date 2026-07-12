@@ -110,8 +110,9 @@ you're changing the data path, the session driver, or STT. Two load-bearing rule
 ## Build, run & repository layout — see `docs/architecture.md` and `README.md`
 
 The **repository layout** (every package and what it does) and the internals are in
-`docs/architecture.md`. **How to build and run** the server (a bare-metal single binary under a
-systemd user service) is in `README.md`. Don't restate either here.
+`docs/architecture.md`. **How to build and run** the server (a Docker container that builds the Go
+binary and drives the host over SSH — the one supported deployment) is in `README.md`. Don't restate
+either here.
 
 ## Config env vars
 
@@ -162,17 +163,14 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
   (`claude`; the remote claude binary), `SPAWNER_SSH_CODEX_BIN` (`codex`; the remote codex binary for
   Codex-backend SSH sessions — SSH reuses the host target, so this feeds the host codex binary when
   `SPAWNER_SSH` is enabled).
-- Restart: `SPAWNER_RESTART_CMD` — a shell command (run via `sh -c`, detached) fired by the app's
-  restart button; empty disables restart. The server runs bare metal (a single binary, not
-  containerized), so it forks `claude` for host turns and drives the rootless runtime for sandbox
-  turns itself — there is no separate host broker. The command is fired in its own process group and
-  the systemd unit uses `KillMode=process`, so it survives the server's own teardown. The deployment
-  points it at just `systemctl --user restart --no-block spawner-server` (the button only bounces the
-  service, relaunching the current binary); rebuilding + deploying new code is a separate manual step
-  (`deploy/rebuild.sh`, which rebuilds the binary then restarts the unit). **Containerized, the button
-  instead does a full rebuild+recreate:** it SSHes to the host and launches `deploy/rebuild-container.sh`
-  detached (`compose up -d --build`), which must run on the host because the rebuild replaces the very
-  container the server runs in — see `deploy/README.md`.
+- Restart: `SPAWNER_RESTART_CMD` — a shell command (run via `sh -c`, detached, in its own process
+  group) fired by the app's restart button; empty disables restart. The server runs in a Docker
+  container that builds the Go binary and drives the host over SSH (host `claude` turns and the
+  rootless sandbox runtime both execute on the host — no separate host broker). The button does a
+  full **rebuild+recreate**: it SSHes to the host and launches `deploy/rebuild-container.sh` detached
+  (`compose up -d --build`), which must run on the host because the rebuild replaces the very
+  container the server runs in — an in-container command would be killed mid-recreate, so `setsid`
+  over SSH decouples it. See `deploy/README.md`.
 
 ## Token discipline — keep the context small
 
