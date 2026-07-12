@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Rebuild + recreate the CONTAINERIZED claude_spawner server
-# (deploy/spawner-container.yml). This is what the app's restart button runs: it
-# rebuilds the image from current source and recreates the container, so one tap ships
-# new server code.
+# Rebuild + recreate the CONTAINERIZED claude_spawner server (the spawner-server
+# service in the root docker-compose.yml). This is what the app's restart button runs:
+# it rebuilds the image from current source and recreates the container, so one tap
+# ships new server code. The whisper service is left untouched.
 #
 # It MUST run on the HOST, not inside the container — `compose up --build` recreates
 # the container and would kill anything running inside it (including this script). The
@@ -26,10 +26,7 @@ cd "$REPO"
 # host user so it can read/write the mounted home, state, and roots.
 export SPAWNER_UID="$(id -u)" SPAWNER_GID="$(id -g)"
 
-echo "==> [1/2] resident whisper server (:8571)"
-docker compose up -d whisper
-
-echo "==> [2/2] rebuild image + recreate the server container"
-docker compose -f deploy/spawner-container.yml up -d --build
+echo "==> rebuild image + recreate the server container (whisper left as-is)"
+docker compose up -d --build spawner-server
 
 echo "==> done."

@@ -427,11 +427,13 @@ came from the env default gets written to `settings.json`.
 server-side storage.)
 
 Bring-up lives in [`deploy/`](./deploy/README.md): fill in the env file, seed the server's own
-known_hosts, and `docker compose -f deploy/spawner-container.yml up -d --build`; start the whisper
-server with `docker compose up -d whisper`. The app's **restart** button fires `SPAWNER_RESTART_CMD`,
-which SSHes to the host and runs [`deploy/rebuild-container.sh`](./deploy/rebuild-container.sh)
-detached — a one-tap `compose up -d --build` that rebuilds the image from current source and
-recreates the container. Full design in [`docs/architecture.md`](./docs/architecture.md).
+known_hosts, and run a single `docker compose up -d --build` from the repo root — the root
+[`docker-compose.yml`](./docker-compose.yml) holds **both** the `spawner-server` gateway and the
+`whisper` transcription server, so one command builds the binary and launches the whole backend. The
+app's **restart** button fires `SPAWNER_RESTART_CMD`, which SSHes to the host and runs
+[`deploy/rebuild-container.sh`](./deploy/rebuild-container.sh) detached — a one-tap
+`compose up -d --build spawner-server` that rebuilds the image from current source and recreates the
+gateway. Full design in [`docs/architecture.md`](./docs/architecture.md).
 
 ## Building & running from source (local dev)
 

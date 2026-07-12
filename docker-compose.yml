@@ -1,22 +1,53 @@
-# Supporting services for the claude_spawner server.
+# The whole claude_spawner backend in one stack — launch it with a single command
+# from the repo root:
 #
-# The server itself runs in its own container (deploy/spawner-container.yml, which
-# builds the Go binary and drives the host over SSH). This file holds the OTHER
-# container it depends on: the transcription backend — one resident whisper.cpp
-# server on the Nvidia GPU. The server points at it via SPAWNER_WHISPER_URL
-# (localhost:8571).
+#   docker compose up -d --build
 #
-#   docker compose up -d whisper   # start the transcription backend
+# Two services:
+#   spawner-server — the Go gateway. This container builds the binary from ./server
+#                    and drives the HOST over SSH (SPAWNER_SSH=1): `claude` for host
+#                    turns and rootless Podman for sandbox turns both run on the host.
+#   whisper        — the resident whisper.cpp transcription server on :8571 (CUDA).
+#                    spawner-server points at it via SPAWNER_WHISPER_URL.
 #
-# A second "fast" model on :8572 is optional (set SPAWNER_WHISPER_FAST_URL to
-# re-enable it) — with hardware this quick, one model handles both the live
-# hands-free draft and committed dictation, so we run a single container.
+# Prereqs (see deploy/README.md): fill in deploy/spawner-container.env (token, SSH
+# key/known_hosts, whisper URL, sandbox), seed deploy/state/known_hosts, and set
+# SPAWNER_UID/SPAWNER_GID so the server runs as you (they're in the git-ignored .env —
+# copy .env.example, or prefix: SPAWNER_UID=$(id -u) SPAWNER_GID=$(id -g) docker compose ...).
+#
+# Text-only / no GPU: `docker compose up -d --build spawner-server` runs just the
+# gateway; voice needs the whisper service (and an Nvidia GPU + the container toolkit).
 
 services:
-  # Resident whisper.cpp server on the Nvidia GPU via CUDA. The server + app
-  # point at http://localhost:8571. Run standalone with:
-  #   docker compose up -d whisper
-  # Swap the model by changing `command:` — options in /models:
+  # The Go gateway. Host networking so localhost:22 is the host's sshd (host turns run
+  # over SSH) and SPAWNER_ADDR binds on the host directly; localhost:8571 reaches the
+  # whisper service's published port. Home + project roots mounted at the SAME paths the
+  # host uses so browse/discovery/transcripts read where the host writes them.
+  spawner-server:
+    build:
+      context: ./server
+    image: spawner:latest
+    container_name: spawner-server
+    network_mode: host
+    user: "${SPAWNER_UID:?set SPAWNER_UID=$(id -u) (or put it in .env)}:${SPAWNER_GID:?set SPAWNER_GID=$(id -g) (or put it in .env)}"
+    env_file: deploy/spawner-container.env
+    depends_on:
+      - whisper
+    volumes:
+      # The user's home and project roots at the SAME paths the host uses. Writable so a
+      # "new project folder" spawn can mkdir. `claude` itself runs on the host over SSH.
+      - "${HOME}:${HOME}"
+      - "/data:/data"
+      # Durable server state (sessions.json, hosts.json) kept out of the image.
+      - "./deploy/state:/state"
+      # So the container's bare uid resolves to a real user: the openssh CLIENT the restart
+      # button uses (SPAWNER_RESTART_CMD → ssh to host) aborts with "No user exists for uid"
+      # without a passwd entry. (Go's SSH for turns doesn't need this.)
+      - "/etc/passwd:/etc/passwd:ro"
+    restart: unless-stopped
+
+  # Resident whisper.cpp server on the Nvidia GPU via CUDA. The server + app point at
+  # http://localhost:8571. Swap the model by changing `command:` — options in /models:
   # ggml-medium.en.bin, ggml-large-v3.bin, ggml-small.en.bin.
   # (A CPU-only build lives in ./whisper/Dockerfile if the GPU is ever unavailable.)
   whisper:

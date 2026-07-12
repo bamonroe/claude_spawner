@@ -4,33 +4,33 @@ The server runs in a **Docker container** that builds the Go binary from source 
 supported deployment. It runs as your ordinary user (never host root) and drives the host over
 **SSH** (`SPAWNER_SSH=1`): `claude` for host turns and rootless Podman for sandbox turns both run
 **on the host**, over the same SSH connection, so the container needs no host root and no separate
-broker. The only other container is transcription (the resident whisper servers). This directory
-holds the server's compose file, its env template, the rebuild script, and a transcript helper.
+broker. Transcription is a second service in the **same** compose stack. Both are defined in the
+root [`docker-compose.yml`](../docker-compose.yml), so **one command launches the whole backend**.
+This directory holds the server's env template, the rebuild script, and a transcript helper.
 
 | File                        | What it is                                                                 |
 |-----------------------------|----------------------------------------------------------------------------|
-| `spawner-container.yml`     | Compose file for the containerized SSH-native server (builds the binary; drives the host over SSH). |
+| `../docker-compose.yml`     | The whole stack: the `spawner-server` gateway (builds the binary; drives the host over SSH) + the `whisper` transcription server. |
 | `spawner-container.env.example`| template for the server's env file (token, addr, root, SSH key/known_hosts, whisper, restart, sandbox). |
-| `rebuild-container.sh`      | host-side rebuild + recreate of the container; the restart button runs this over SSH.       |
+| `rebuild-container.sh`      | host-side rebuild + recreate of the `spawner-server` container; the restart button runs this over SSH.       |
 | `claude-log.sh`             | helper to read a session's Claude transcript by name.                     |
 
-## Transcription depends on the resident whisper servers
+## The whisper transcription service
 
-The server transcribes via one **resident whisper.cpp HTTP server** (on `:8571`) defined in the root
-[`docker-compose.yml`](../docker-compose.yml). It carries `restart: unless-stopped`, so once created
-it survives reboots, but a `docker compose down` removes it and voice goes silent until it's
-recreated. Bring it back with `docker compose up -d whisper`. An optional second "fast" draft model
-on `:8572` (`whisper-fast`) can offload the live hands-free draft — start it and set
+The `whisper` service is the resident whisper.cpp HTTP server (on `:8571`) the gateway transcribes
+through. It carries `restart: unless-stopped`, so once created it survives reboots, but a
+`docker compose down` removes it and voice goes silent until the next `up`. An optional second "fast"
+draft model on `:8572` (`whisper-fast`) can offload the live hands-free draft — start it and set
 `SPAWNER_WHISPER_FAST_URL` to enable it. See [`../whisper/README.md`](../whisper/README.md).
 
-## Running the server
+## Running the whole stack — one command
 
-[`spawner-container.yml`](spawner-container.yml) runs it. It uses **host networking** (so
-`localhost:22` is the host's own sshd and an empty `Session.Host` drives the host) and mounts the
+The `spawner-server` service uses **host networking** (so `localhost:22` is the host's own sshd and
+an empty `Session.Host` drives the host; `localhost:8571` reaches the whisper service) and mounts the
 user's home + project roots at the **same paths** the host uses (so the server browses and reads
 transcripts where the host writes them; `claude` runs on the host over SSH). Its config vars are
-documented in [`../CLAUDE.md`](../CLAUDE.md) (the config section — the authoritative list),
-templated in `spawner-container.env.example`.
+documented in [`../CLAUDE.md`](../CLAUDE.md) (the config section — the authoritative list), templated
+in `spawner-container.env.example`.
 
 Prereqs: the server user must have a **key-based SSH login to itself** (its public key in
 `~/.ssh/authorized_keys`). The server's SSH auth material is **self-contained in `deploy/state/`**,
@@ -45,11 +45,15 @@ after eyeballing the fingerprints. Then:
 ```bash
 cp deploy/spawner-container.env.example deploy/spawner-container.env   # edit token, key, port
 mkdir -p deploy/state
-# SPAWNER_UID/GID (not UID/GID — those are readonly in some shells) so it runs as you:
-SPAWNER_UID=$(id -u) SPAWNER_GID=$(id -g) docker compose -f deploy/spawner-container.yml up -d --build
+# Run the server as you (so it can read/write the mounts). Put these in the git-ignored
+# root .env once (cp .env.example .env; set your uid/gid) and drop the prefix thereafter:
+SPAWNER_UID=$(id -u) SPAWNER_GID=$(id -g) docker compose up -d --build
 ```
 
-The `deploy/spawner-container.env` (it holds the token) and `deploy/state/` are git-ignored — keep
+That single command builds the Go binary, starts the gateway, and brings up the whisper server.
+(Text-only / no GPU: `docker compose up -d --build spawner-server` runs just the gateway.)
+
+The `deploy/spawner-container.env` (it holds the token), the root `.env`, and `deploy/state/` are git-ignored — keep
 the token out of the repo. Point a client at its port (`SPAWNER_ADDR`, e.g. `:8098`) to exercise it.
 Verified end to end: a turn dictated through the container runs `claude` on the host over SSH and
 streams the reply back. (Transcription needs the resident whisper servers if you want the voice
@@ -59,8 +63,9 @@ path; text turns work without them.)
 
 For the container the app's **restart** button is a *one-tap deploy*, not just a bounce:
 `SPAWNER_RESTART_CMD` SSHes to the host over loopback and launches
-[`rebuild-container.sh`](rebuild-container.sh) detached (`setsid`), which runs `compose up -d --build`
-to rebuild the image from current source and recreate the container. It **must** run on the host —
+[`rebuild-container.sh`](rebuild-container.sh) detached (`setsid`), which runs
+`compose up -d --build spawner-server` to rebuild the image from current source and recreate the
+gateway container (the whisper service is left untouched). It **must** run on the host —
 `up --build` replaces the very container the server lives in, so an in-container command would be
 killed mid-recreate; `setsid` over SSH decouples it so it survives. The image ships `openssh-client`
 for exactly this, and the compose file mounts the host `/etc/passwd` read-only — without a passwd
@@ -86,7 +91,7 @@ SPAWNER_TOKEN=devsecret SPAWNER_ADDR=:8557 \
 ```
 
 Point the app at `:8557` to exercise it; promote by recreating the real container (the manual
-`docker compose -f deploy/spawner-container.yml up -d --build`, or the restart button) once it's solid.
+`docker compose up -d --build spawner-server`, or the restart button) once it's solid.
 
 ## `claude-log.sh` — inspect a session's transcript
 

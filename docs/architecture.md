@@ -161,9 +161,10 @@ deployment. It runs as the ordinary user (never host root) and reaches the host 
 (`SPAWNER_SSH=1`): it forks `claude` for host turns and drives the rootless runtime for sandbox
 turns **on the host** over that same SSH connection, and enforces the `SPAWNER_ROOT` jail itself
 (the last hop before any launch). No component holds host root: the server is an unprivileged
-container and sandboxes use a rootless runtime on the host. Recipe:
-`deploy/spawner-container.yml` (host networking so `localhost:22` is the host sshd; home + roots
-mounted at the same paths so discovery/browse read where the host writes). See the Dockerfile at
+container and sandboxes use a rootless runtime on the host. Recipe: the root `docker-compose.yml`
+(the `spawner-server` service alongside `whisper`, so one `docker compose up -d --build` launches the
+whole backend; host networking so `localhost:22` is the host sshd; home + roots mounted at the same
+paths so discovery/browse read where the host writes). See the Dockerfile at
 `server/Dockerfile`.
 
 > **Design note — the containerized-server + broker detour (reverted 2026-07-06).** An earlier design
@@ -204,10 +205,10 @@ machines, never touching its own box. (Legacy `sessions.json` records with an em
 migrated to `localhost` on load; discovered sessions, found by scanning this machine, are named
 `localhost`.)
 
-**What `localhost` means depends on the server's network namespace.** Bare metal, it's the machine
-the server runs on. In a container it's the container's own loopback — which has no sshd — *unless*
-the container shares the host's network. The `deploy/spawner-container.yml` recipe uses **host
-networking** precisely so that `localhost:22` inside the container is the **host's** sshd: the seeded
+**What `localhost` means depends on the server's network namespace.** In a container it's the
+container's own loopback — which has no sshd — *unless* the container shares the host's network. The
+`spawner-server` service in the root `docker-compose.yml` uses **host networking** precisely so that
+`localhost:22` inside the container is the **host's** sshd: the seeded
 `localhost` host then drives the host machine, and the mounted home/roots line up with the paths the
 host writes. A container *without* host networking can't reach the host as `localhost` — that's a
 deployment where you'd delete the `localhost` entry and register the host (and any others) as
@@ -342,7 +343,7 @@ uppercase letters by voice. Acceptable; documented in `docs/commands.md`.
   cmd/wsclient/main.go          text client for manual testing; -audio streams a WAV
   cmd/gencommands/main.go       regenerate docs/commands.json from the command registry
   main.go                       server entrypoint (built into the Docker image from server/Dockerfile)
-docker-compose.yml              resident whisper/whisper-fast servers (transcription backend)
+docker-compose.yml              the whole stack: spawner-server gateway + whisper transcription (one `up` launches both)
 /sandbox                        Arch-based sandbox image (Containerfile) for `target: sandbox` sessions (see sandbox/README.md)
 /whisper                        Vulkan/CPU Dockerfiles for the resident whisper.cpp server (see whisper/README.md)
 /deploy                         containerized server compose + env example + container-rebuild + claude-log helpers (see deploy/README.md)

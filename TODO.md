@@ -12,6 +12,14 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-12 — **Pooled the gateway + whisper into one compose stack; a single `docker compose
+      up -d --build` launches the whole backend.** Merged `deploy/spawner-container.yml` into the root
+      `docker-compose.yml` as a second service (`spawner-server` alongside `whisper`) and deleted the
+      standalone file. Added a git-ignored root `.env` (+ committed `.env.example`) holding
+      `SPAWNER_UID`/`SPAWNER_GID` so the bare command runs the server as you with no prefix.
+      `rebuild-container.sh` (the restart button) now scopes to `up -d --build spawner-server`, leaving
+      whisper untouched. Updated `deploy/README.md`, `README.md`, `docs/architecture.md`, and the
+      compose/script headers. `docker compose config` validates; no env-var or behavior change.
 - [x] 2026-07-12 — **Removed the bare-metal/systemd deployment remnants; the container is the one
       supported route.** The server now runs only as the Docker container that builds the Go binary
       and drives the host over SSH (`deploy/spawner-container.yml`). Deleted the systemd-only
