@@ -431,6 +431,12 @@ func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool fun
 		Resume:    s.Started,
 		Model:     s.Model,
 		Bypass:    d.Bypass,
+		// Install the PreToolUse hook that blocks background bash and redirects it to
+		// spawner-job (only the Claude backend consumes this). The wrapper is staged at
+		// this same home before the turn (reconcileJobs → StageJobScript); if staging
+		// failed the hook path is simply absent and Claude Code treats it as a
+		// non-blocking miss, degrading to the priming-instruction behaviour.
+		SettingsJSON: HookSettingsJSON(HostHome()),
 	})
 
 	// Launch via the session's execution target (host by default). The executor

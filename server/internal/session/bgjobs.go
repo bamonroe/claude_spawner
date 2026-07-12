@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -21,6 +22,38 @@ const jobRootRel = ".spawner-jobs"
 // call it by this path), so it must not depend on PATH.
 func JobScriptPath(home string) string {
 	return filepath.Join(home, jobRootRel, bgjob.StagedName)
+}
+
+// HookSettingsJSON builds the Claude --settings payload that installs the
+// PreToolUse enforcement hook: every Bash tool call is piped through
+// `spawner-job hook`, which blocks a background launch (run_in_background) and
+// tells Claude to use `spawner-job start` instead. home is the target's $HOME
+// (where the wrapper is staged). Injected per turn via TurnSpec.SettingsJSON so
+// enforcement doesn't depend on Claude remembering the priming instruction.
+func HookSettingsJSON(home string) string {
+	type hookEntry struct {
+		Type    string `json:"type"`
+		Command string `json:"command"`
+	}
+	type matcher struct {
+		Matcher string      `json:"matcher"`
+		Hooks   []hookEntry `json:"hooks"`
+	}
+	settings := struct {
+		Hooks map[string][]matcher `json:"hooks"`
+	}{
+		Hooks: map[string][]matcher{
+			"PreToolUse": {{
+				Matcher: "Bash",
+				Hooks:   []hookEntry{{Type: "command", Command: JobScriptPath(home) + " hook"}},
+			}},
+		},
+	}
+	b, err := json.Marshal(settings)
+	if err != nil { // struct is fixed-shape; marshal cannot fail in practice
+		return ""
+	}
+	return string(b)
 }
 
 // RunOnTarget runs an arbitrary SHORT command on the SAME target the session's

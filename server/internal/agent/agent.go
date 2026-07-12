@@ -56,6 +56,11 @@ type TurnSpec struct {
 	Resume    bool   // false: first turn (create the session); true: reattach
 	Model     string // model alias; "" resolves to the Agent's DefaultModel
 	Bypass    bool   // add the backend's skip-permissions flag
+	// SettingsJSON is a backend-settings JSON string injected at launch (Claude's
+	// --settings). The server uses it to install the PreToolUse hook that enforces
+	// detached background jobs. Empty for backends/turns that don't need it; only
+	// the Claude backend consumes it.
+	SettingsJSON string
 }
 
 // Agent is a headless AI CLI backend the server can drive.
@@ -207,6 +212,13 @@ func claude() *Agent {
 			}
 			if s.Bypass {
 				args = append(args, "--dangerously-skip-permissions")
+			}
+			// Injected settings carry the PreToolUse hook that blocks background bash
+			// (which can't survive a turn) and redirects Claude to spawner-job. Hooks
+			// fire even under --dangerously-skip-permissions, so this is real
+			// enforcement, not just the priming instruction.
+			if s.SettingsJSON != "" {
+				args = append(args, "--settings", s.SettingsJSON)
 			}
 			if len(m.Args) > 0 {
 				args = append(args, m.Args...)

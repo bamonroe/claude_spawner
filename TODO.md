@@ -22,6 +22,11 @@ Dates are `YYYY-MM-DD`.
   reconciler (`reconcileJobs`) notices finished jobs, injects a bounded completion note into the
   next dictation (`PendingNotes`), and primes Claude once per context (`JobsPrimed`) to use the
   wrapper. Reconcile/stage errors never block a turn.
+- [x] 2026-07-11 — **Enforce the wrapper via a Claude PreToolUse hook** — priming alone relied on
+  Claude's cooperation. The turn now injects a `--settings` hook (`HookSettingsJSON` →
+  `TurnSpec.SettingsJSON`) whose `Bash` matcher runs `spawner-job hook`, which exits 2 to block any
+  `run_in_background` launch and redirect Claude to `spawner-job start`. Fires even under
+  `--dangerously-skip-permissions`; a missing staged wrapper degrades to a no-op.
 - [ ] **Human voice control for background jobs** (follow-up) — `hey buddy list jobs` / `kill job N`
   / `job status`: new `command.Kind`s + `Registry` entries + `docs/commands.{md,json}` regen, wired
   through `runCommand` to `Driver.RunOnTarget` `spawner-job list/kill`. The core (jobs survive +

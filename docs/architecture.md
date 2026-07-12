@@ -274,6 +274,12 @@ the registry. A newly-finished job's bounded output becomes a framed `PendingNot
 context instruction telling Claude to use the wrapper. Reconcile/stage errors are swallowed so they
 never block a turn. Caveat: sandbox jobs live only as long as the container.
 
+Enforcement (not just priming): the turn injects a Claude **PreToolUse hook** via `--settings`
+(`HookSettingsJSON` → `TurnSpec.SettingsJSON` → the Claude agent's argv) whose `Bash` matcher runs
+`spawner-job hook`; that subcommand exits 2 to block any `run_in_background` launch and redirects
+Claude to `spawner-job start`. Hooks fire under `--dangerously-skip-permissions`, so it's a hard
+gate; a missing (unstaged) wrapper makes the hook a graceful no-op.
+
 ## Transcription (internal/transcribe)
 
 The gateway depends only on the `Transcriber` interface; there are **two implementations** and

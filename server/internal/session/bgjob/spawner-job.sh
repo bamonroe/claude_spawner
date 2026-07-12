@@ -15,6 +15,13 @@
 #   spawner-job list [--json]             list this dir's jobs + status
 #   spawner-job tail <id>                 print a bounded tail of a job's log
 #   spawner-job reap <id>                 delete a finished job's files
+#   spawner-job hook                      Claude Code PreToolUse enforcement (stdin=payload)
+#
+# The `hook` subcommand is wired as a Claude Code PreToolUse hook on the Bash tool
+# (injected via `claude --settings`). It reads the tool payload on stdin and, when
+# it's a background Bash launch (run_in_background true), exits 2 to BLOCK the call
+# and tells Claude to use `spawner-job start` instead — so surviving-a-turn is
+# enforced by the harness, not left to Claude remembering the priming instruction.
 #
 # Registry: ${SPAWNER_JOB_ROOT:-$HOME/.spawner-jobs}/reg/<encoded-pwd>/<id>.{json,log}
 set -eu
@@ -122,6 +129,20 @@ cmd_reap() {
 	rm -f "$dir/$id.json" "$dir/$id.log"
 }
 
+# cmd_hook is the Claude Code PreToolUse enforcement. The matcher already scopes it
+# to the Bash tool; here we only need to catch a background launch. Exit 2 BLOCKS the
+# tool call and feeds stderr back to Claude; exit 0 lets a normal (foreground) Bash
+# run through untouched. Whitespace is stripped first so "run_in_background": true
+# matches regardless of the payload's spacing.
+cmd_hook() {
+	payload="$(cat)"
+	if printf '%s' "$payload" | tr -d ' \t' | grep -q '"run_in_background":true'; then
+		printf 'Background bash does not survive a turn in this environment and will be killed. Re-run it detached with `%s start '\''<command>'\''` instead — it outlives the turn and you will be notified when it finishes.\n' "$0" >&2
+		exit 2
+	fi
+	exit 0
+}
+
 sub="${1:-}"
 [ $# -gt 0 ] && shift || true
 case "$sub" in
@@ -129,5 +150,6 @@ case "$sub" in
 	list)  cmd_list "${1:-}" ;;
 	tail)  [ $# -ge 1 ] || { echo "usage: spawner-job tail <id>" >&2; exit 2; }; cmd_tail "$1" ;;
 	reap)  [ $# -ge 1 ] || { echo "usage: spawner-job reap <id>" >&2; exit 2; }; cmd_reap "$1" ;;
-	*) echo "usage: spawner-job {start|list|tail|reap} ..." >&2; exit 2 ;;
+	hook)  cmd_hook ;;
+	*) echo "usage: spawner-job {start|list|tail|reap|hook} ..." >&2; exit 2 ;;
 esac
