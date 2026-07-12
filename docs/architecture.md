@@ -257,6 +257,23 @@ No component holds host root: the server is a plain user process and sandboxes u
 runtime. Cost is just the `Executor` seam. See `docs/protocol.md` if a spawn-time target selector
 reaches the wire protocol (it may not — the dialog can carry it server-side, like `rename`).
 
+## Detached background jobs (survive the turn boundary)
+
+A turn is one short-lived headless `claude` process, so a command that must outlive it can't ride
+Claude's in-process `run_in_background`. The `spawner-job` wrapper (embedded via `go:embed` in
+`internal/session/bgjob`, staged to each target on demand) launches the command with its **own**
+`setsid`/`nohup`, stdin `/dev/null`, and output to a log — so neither the SSH `kill -pgid` teardown
+nor the host executor's group-SIGKILL can reach it. Jobs are recorded in an on-target registry
+**keyed by working dir** (stable across `clear`/`compress` session-id rotation), the source of
+truth; `Session.Jobs`/`PendingNotes` are the persisted mirror.
+
+`Driver.RunOnTarget` runs short commands on the session's *same* target (host fork / `SSHPool.Run` /
+`podman exec`), which the gateway's `reconcileJobs` uses at each turn boundary and on attach to poll
+the registry. A newly-finished job's bounded output becomes a framed `PendingNotes` entry that
+`dictate` prepends to the next turn's prompt (so Claude is told), and `JobsPrimed` gates a one-per-
+context instruction telling Claude to use the wrapper. Reconcile/stage errors are swallowed so they
+never block a turn. Caveat: sandbox jobs live only as long as the container.
+
 ## Transcription (internal/transcribe)
 
 The gateway depends only on the `Transcriber` interface; there are **two implementations** and

@@ -12,6 +12,21 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-11 — **Detached background jobs that survive turns** — Claude's native
+  `run_in_background` can't span the headless-resume turn boundary (the bg process shares the
+  turn's process-group/pipes and dies at teardown; bg shells are tracked in-memory per claude
+  process). New `spawner-job` wrapper (embedded, staged to each target) launches a command fully
+  detached (`setsid nohup … </dev/null >log 2>&1 &`) with its own session/pgid, recorded in an
+  on-target registry keyed by working **dir** (survives session_id rotation). `Driver.RunOnTarget`
+  runs short commands on the session's target (host/SSH/sandbox); a turn-boundary + on-attach
+  reconciler (`reconcileJobs`) notices finished jobs, injects a bounded completion note into the
+  next dictation (`PendingNotes`), and primes Claude once per context (`JobsPrimed`) to use the
+  wrapper. Reconcile/stage errors never block a turn.
+- [ ] **Human voice control for background jobs** (follow-up) — `hey buddy list jobs` / `kill job N`
+  / `job status`: new `command.Kind`s + `Registry` entries + `docs/commands.{md,json}` regen, wired
+  through `runCommand` to `Driver.RunOnTarget` `spawner-job list/kill`. The core (jobs survive +
+  next-turn notification) is done; this is the operator-facing surface.
+
 - [x] 2026-07-11 — **Curatable command tray: pick which commands the swipe-up shows** — the tray was
       hard-wired to every argument-free command. Now it's user-curated. In **Settings › Commands**
       each command is a **collapsible card** (tap the header to expand); an expanded card shows the

@@ -209,6 +209,29 @@ server keeps no per-connection state. The beep is a low, round sine tone with a 
 deliberately unlike a sharp notification chime — and in hands-free mode it plays through the
 echo-cancelled voice path so the open mic doesn't hear it.
 
+### Detached background jobs that outlive a turn
+
+Each turn drives a **fresh** headless `claude` process (resumed from disk), so Claude's own
+`run_in_background` can't help with something that should keep running *after* the turn ends: the
+background process shares the turn's process group and output pipes and is torn down when the turn
+finishes (over SSH the channel closes and the group is killed), and even if it survived, the next
+turn's brand-new `claude` has no in-memory handle to poll it.
+
+The server provides a **`spawner-job`** wrapper for this. Claude is told, once per context, to start
+any long-running command (a build, a dev server, a watch, a long test run) with
+`~/.spawner-jobs/spawner-job start '<command>'` instead of `run_in_background`. The wrapper launches
+the command **fully detached** — its own `setsid` session, `nohup`, stdin from `/dev/null`, and
+stdout/stderr redirected to a log file — so nothing about the turn's teardown can reach it. Each job
+is recorded in an on-target registry **keyed by the session's working directory** (so it survives a
+`clear`/`compress` that rotates the session id).
+
+At every turn boundary (and when a device attaches) the server reconciles that registry: when a job
+has finished it injects a short, length-capped completion note — the command and a tail of its
+output — ahead of Claude's next turn, so **Claude is told the job is done** and can react. Claude can
+also check progress itself at any time with `~/.spawner-jobs/spawner-job list` / `tail <id>`.
+Reconcile and staging failures are swallowed and never block a turn. One caveat: a **sandbox**
+session's jobs live only as long as its container — removing or recreating the container loses them.
+
 ### Headphones and the hands-free microphone
 
 Hands-free listening normally runs as **communication audio** (like a call) with the platform echo
