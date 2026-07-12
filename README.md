@@ -152,6 +152,12 @@ than stitching a stale one. The cache lives under the app's private storage and 
 hash is opaque to the app, so this stays correct without the phone and server having to agree on how it's
 computed.
 
+The **session list itself is cached** the same way: the last set of discovered sessions is written to
+disk on every connect, so a fresh launch shows the sidebar populated (and lets you click into any
+session's cached transcript) **before — or entirely without — a server connection**. It's refreshed
+wholesale the moment the server's discovery sweep comes back. Live-only flags (a session being active or
+mid-turn) aren't cached, since offline nothing is running; they light up again on connect.
+
 ### Clearing vs. compressing context
 
 Every dictated turn resumes the session with `--resume`, so Claude re-reads the whole conversation

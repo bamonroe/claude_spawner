@@ -84,6 +84,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     // match and we hold content, an (re)attach skips the history fetch entirely.
     // `loadedFromCache` tracks which sessions we've pulled from disk into memory.
     private val cache = TranscriptCache(File(app.filesDir, "transcripts"))
+    private val discoveredCache = DiscoveredCache(File(app.filesDir, "discovered.json"))
     private val digestHeld = mutableMapOf<String, Pair<Int, String>>()
     private val serverDigest = mutableMapOf<String, Pair<Int, String>>()
     private val loadedFromCache = mutableSetOf<String>()
@@ -147,7 +148,9 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     override val scrollTick: StateFlow<Int> = _scrollTick.asStateFlow()
 
     // Claude sessions found on disk (from `discover`) that can be adopted.
-    private val _discovered = MutableStateFlow<List<DiscoveredInfo>>(emptyList())
+    // Seeded from the on-disk cache so the sidebar is populated on a fresh launch
+    // before (or without) a server connection; refreshed on each connect-time sweep.
+    private val _discovered = MutableStateFlow<List<DiscoveredInfo>>(discoveredCache.load())
     override val discovered: StateFlow<List<DiscoveredInfo>> = _discovered.asStateFlow()
 
     // Last error from a discover/adopt/delete action, shown on the Discover
@@ -1115,6 +1118,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
             is ServerMsg.ReadLast -> onReadLast(msg.count)
             is ServerMsg.Discovered -> {
                 _discovered.value = msg.sessions
+                discoveredCache.save(msg.sessions)
                 _discoverError.value = ""
                 // Re-derive the attached title from the fresh list by stable id. After a
                 // server switch the same session can carry a different name here, leaving
