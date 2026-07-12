@@ -34,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -125,6 +126,24 @@ fun MainScreen(
         withTimeoutOrNull(1500) { snapshotFlow { discovered }.drop(1).first() }
         refreshing = false
     }
+    // Per-session "activity we've already surfaced", keyed by stable session id. Seeded to a
+    // session's current lastActive the first time we see it (so nothing is falsely unread on
+    // first load) and kept current for the session you're attached to. A session only becomes
+    // "unread" — and thus orange in the sidebar — when new output lands for it while you're
+    // attached elsewhere. In-memory: a fresh launch starts everyone clean.
+    val seen = remember { mutableStateMapOf<String, Long>() }
+    LaunchedEffect(discovered, attachedId) {
+        discovered.forEach { d ->
+            val id = d.sessionId.ifBlank { d.dir }
+            val prev = seen[id]
+            if (prev == null || id == attachedId) seen[id] = maxOf(prev ?: 0L, d.lastActive)
+        }
+    }
+    val unread = discovered.mapNotNull { d ->
+        val id = d.sessionId.ifBlank { d.dir }
+        val mark = seen[id]
+        if (d.sessionId != attachedId && mark != null && d.lastActive > mark) id else null
+    }.toSet()
     val openSession = { d: DiscoveredInfo ->
         controller.adopt(d.sessionId, d.dir); scope.launch { drawerState.close() }; Unit
     }
@@ -152,6 +171,7 @@ fun MainScreen(
             agents = agents,
             attached = attached,
             attachedId = attachedId,
+            unread = unread,
             onNew = { onNewSession(); onNavigated() },
             refreshing = refreshing,
             onRefresh = { refreshing = true },

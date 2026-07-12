@@ -111,8 +111,14 @@ the left edge (just inside the edge — the very edge is Android's back gesture)
 **Refresh**) to re-scan at any time. See [`docs/commands.md`](docs/commands.md).
 
 Each session is shown as a **card** with its name, AI backend/model, and a **sandbox** badge when
-it runs in a container; the attached session's card is tinted. A **▶ play button** on the right of
-each card **attaches to that session directly**, no expanding needed. **Tap the card** itself to
+it runs in a container. The list is **colour-coded and sorted by attention**: the session you're
+**attached to** is tinted **purple** and pinned to the top; sessions that are **thinking** (a turn
+running) or hold **unread output** (new activity landed while you were attached elsewhere) are
+tinted **buddy orange** and sorted next by most-recent activity; everything else stays neutral,
+sorted alphabetically. A session clears its orange the moment you open it, and a fresh launch
+starts everyone neutral (nothing is marked unread until new output actually arrives). A **▶ play
+button** on the right of each card **attaches to that session directly**, no expanding needed.
+**Tap the card** itself to
 **expand it in place** (tap again to collapse), revealing its **directory path** and three actions:
 
 - **Open** — attach to the session (the same as tapping a row used to do).

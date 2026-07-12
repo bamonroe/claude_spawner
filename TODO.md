@@ -12,6 +12,16 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-12 — **Sidebar attention colour + sort.** The sessions drawer now colour-codes and
+      sorts by attention (shared `commonMain`, so both the app and the web client): the **attached**
+      session stays **purple** and pins to the top of its host group; sessions that are **thinking**
+      (`busy`) or hold **unread output** are tinted **buddy orange** (the `BuddyOrange` accent, now a
+      single shared const reused by the warm-cache indicator) and sorted next by most-recent activity;
+      the rest stay neutral, alphabetical. Unread is tracked in-memory in `MainScreen` (seed each
+      session at its current `lastActive` on first sighting, keep the attached one current → a session
+      only turns orange when new output lands while you're attached elsewhere; opening it clears it).
+      Verified on the emulator (purple/orange/neutral tiers + ordering) and installed to the phone +
+      tablet.
 - [x] 2026-07-12 — **Headset-media output + capture-follows-output fix** — the hands-free mic sat
       near the noise floor (~−60 dB, VAD never tripped) whenever the platform ran call-mode capture:
       `VOICE_COMMUNICATION` + AEC/AGC clamps a far-field voice, unlike push-to-talk's

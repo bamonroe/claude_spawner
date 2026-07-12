@@ -81,6 +81,7 @@ fun Sidebar(
     agents: List<AgentInfo>,
     attached: String?,
     attachedId: String,
+    unread: Set<String>,
     onNew: () -> Unit,
     refreshing: Boolean,
     onRefresh: () -> Unit,
@@ -132,6 +133,28 @@ fun Sidebar(
             // alphabetically. Each group gets a header.
             val grouped = discovered.groupBy { it.host.ifBlank { LOCAL_HOST } }
             val hostsInOrder = grouped.keys.sortedWith(compareBy({ it != LOCAL_HOST }, { it }))
+            // A session's stable key, and the two "needs attention" predicates that drive both
+            // its colour and its slot in the sort: the attached session (purple) always tops its
+            // host group; "orange" sessions — thinking now or holding unread output — come next,
+            // most-recent activity first; everything else falls to the bottom, alphabetically.
+            fun key(d: DiscoveredInfo) = d.sessionId.ifBlank { d.dir }
+            fun isAttached(d: DiscoveredInfo) =
+                d.registered && attachedId.isNotEmpty() && d.sessionId == attachedId
+            fun isOrange(d: DiscoveredInfo) = !isAttached(d) && (d.busy || key(d) in unread)
+            fun tier(d: DiscoveredInfo) = when {
+                isAttached(d) -> 0
+                isOrange(d) -> 1
+                else -> 2
+            }
+            val sorted = { host: String ->
+                grouped[host].orEmpty().sortedWith(
+                    compareBy<DiscoveredInfo> { tier(it) }
+                        // Orange group: newest message first (0 for other tiers → no effect).
+                        .thenByDescending { if (tier(it) == 1) it.lastActive else 0L }
+                        // Remaining group (and ties within orange): alphabetical.
+                        .thenBy { it.name.lowercase() },
+                )
+            }
             hostsInOrder.forEach { host ->
                 item {
                     Text(
@@ -142,35 +165,48 @@ fun Sidebar(
                     )
                     HorizontalDivider()
                 }
-                items(grouped[host].orEmpty()) { d ->
+                items(sorted(host)) { d ->
                 // Highlight the attached row by stable id, not name — the same session
                 // can be named differently here than when we attached (e.g. server switch).
-                val isAttached = d.registered && attachedId.isNotEmpty() && d.sessionId == attachedId
+                val isAttached = isAttached(d)
+                // Thinking now or holding unread output: the "buddy orange" attention cue.
+                val orange = isOrange(d)
                 // Each session is a card showing its name, AI backend, and sandbox
                 // badge; tapping it expands the card in place to reveal the path and
-                // Open/Edit/Delete actions. The attached session's card is tinted.
-                val cardKey = d.sessionId.ifBlank { d.dir }
+                // Open/Edit/Delete actions. The attached session's card is tinted
+                // purple; a session needing attention is tinted orange.
+                val cardKey = key(d)
                 val expanded = expandedKey == cardKey
                 Card(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
                         .clickable { expandedKey = if (expanded) "" else cardKey },
-                    colors = if (isAttached)
-                        CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-                    else CardDefaults.cardColors(),
+                    colors = when {
+                        isAttached -> CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer)
+                        orange -> CardDefaults.cardColors(
+                            containerColor = BuddyOrange.copy(alpha = 0.16f))
+                        else -> CardDefaults.cardColors()
+                    },
                 ) {
                     Column(Modifier.fillMaxWidth().padding(12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             if (d.busy) {
-                                Icon(Icons.Filled.Settings, null, Modifier.size(14.dp))
+                                Icon(Icons.Filled.Settings, null, Modifier.size(14.dp),
+                                    tint = if (orange) BuddyOrange else Color.Unspecified)
                                 Spacer(Modifier.width(4.dp))
                             } else if (d.active) {
-                                Icon(Icons.Filled.Warning, null, Modifier.size(14.dp))
+                                Icon(Icons.Filled.Warning, null, Modifier.size(14.dp),
+                                    tint = if (orange) BuddyOrange else Color.Unspecified)
                                 Spacer(Modifier.width(4.dp))
                             }
                             Text(d.name, style = MaterialTheme.typography.titleSmall,
                                 modifier = Modifier.weight(1f),
-                                color = if (isAttached) MaterialTheme.colorScheme.primary else Color.Unspecified,
-                                fontWeight = if (isAttached) FontWeight.Bold else null,
+                                color = when {
+                                    isAttached -> MaterialTheme.colorScheme.primary
+                                    orange -> BuddyOrange
+                                    else -> Color.Unspecified
+                                },
+                                fontWeight = if (isAttached || orange) FontWeight.Bold else null,
                                 maxLines = 1, overflow = TextOverflow.Ellipsis)
                             if (d.target == "sandbox") Row(
                                 Modifier.padding(start = 6.dp),

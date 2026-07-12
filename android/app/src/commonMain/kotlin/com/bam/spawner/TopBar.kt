@@ -151,7 +151,7 @@ fun CacheWarmBar(info: TurnUsageInfo) {
         "cache cold — next turn rebuilds context"
     }
     // Warm = orange (hot cache), cold = blue (chilled) — temperature cues, not the theme accent.
-    val color = if (warm) Color(0xFFF57C00) else Color(0xFF42A5F5)
+    val color = if (warm) BuddyOrange else Color(0xFF42A5F5)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
