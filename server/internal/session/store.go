@@ -51,7 +51,69 @@ func OpenStore(path string) (*Store, error) {
 			s.byID[rec.SessionID] = rec
 		}
 	}
+	// Self-heal phantom duplicates: a folder may hold at most one local
+	// (non-sandbox) session, but older binaries (and unguarded adopt paths) could
+	// register a second record for a dir that already had one — e.g. adopting a
+	// stale on-disk session_id. Collapse any such duplicates on load, keeping the
+	// primary and dropping the rest, so the list self-cleans on the next restart.
+	if n := s.dedupeLocal(); n > 0 {
+		if err := s.flush(); err != nil {
+			return nil, err
+		}
+	}
 	return s, nil
+}
+
+// dedupeLocal collapses duplicate local (non-sandbox) records that share a
+// directory down to a single primary, dropping the others from both indices.
+// Returns how many records it removed. The primary is the most "real" record for
+// the folder: a Started session beats a not-started one, an explicit host-target
+// beats an empty target (registerDiscovered leaves Target empty; a spawned/typed
+// session sets it), and ties break on the lexicographically-first name (the base
+// "<dir>", not the deduped "<dir>-2"). Caller holds no lock (invoked from
+// OpenStore before the store is shared) and is responsible for flushing.
+func (s *Store) dedupeLocal() (removed int) {
+	byDir := map[string][]*Session{}
+	for _, rec := range s.byName {
+		if rec.Target == TargetSandbox {
+			continue // sandbox sessions are keyed separately; not a dir duplicate
+		}
+		byDir[rec.Dir] = append(byDir[rec.Dir], rec)
+	}
+	for _, recs := range byDir {
+		if len(recs) < 2 {
+			continue
+		}
+		primary := recs[0]
+		for _, rec := range recs[1:] {
+			if localPrimacy(rec, primary) {
+				primary = rec
+			}
+		}
+		for _, rec := range recs {
+			if rec == primary {
+				continue
+			}
+			delete(s.byName, rec.Name)
+			if rec.SessionID != "" && s.byID[rec.SessionID] == rec {
+				delete(s.byID, rec.SessionID)
+			}
+			removed++
+		}
+	}
+	return removed
+}
+
+// localPrimacy reports whether a should win over b as a folder's primary record.
+func localPrimacy(a, b *Session) bool {
+	if a.Started != b.Started {
+		return a.Started // a started session outranks a not-started one
+	}
+	aHost, bHost := a.Target == TargetHost, b.Target == TargetHost
+	if aHost != bHost {
+		return aHost // an explicit host-target outranks an empty one
+	}
+	return a.Name < b.Name // stable tiebreak: the base name beats "<dir>-2"
 }
 
 // Get returns the session by name, or nil.

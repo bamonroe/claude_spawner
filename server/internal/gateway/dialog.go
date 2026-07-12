@@ -528,7 +528,22 @@ func (s *Server) uniqueName(base string) string {
 // Claude session (session_id + dir) that isn't in the registry yet, giving it a
 // unique auto-name from the directory basename. Shared by adopt / rename / fuzzy
 // voice-attach, which all "adopt" an on-disk session the same way.
+//
+// It is IDEMPOTENT on the folder: the registry holds one local session per
+// directory, so if this session_id — or ANY local (non-sandbox) session in the
+// same dir — is already registered, it returns that existing record instead of
+// adding a second. Without this, a stale discovered entry (e.g. a prior run's
+// on-disk session_id for a folder that already has a live record) adopted via any
+// caller would spawn a phantom "<dir>-2" duplicate. doAdopt guards this itself;
+// centralizing it here covers the rename / set-agent / fuzzy-voice-attach callers
+// too, so no path can create a per-folder duplicate.
 func (s *Server) registerDiscovered(sessionID, dir string) (*session.Session, error) {
+	if existing := s.store.GetBySessionID(sessionID); existing != nil {
+		return existing, nil
+	}
+	if existing := s.store.GetByDirHost(dir, session.LocalHost); existing != nil {
+		return existing, nil
+	}
 	rec := &session.Session{
 		Name:      s.uniqueName(sanitizeName(filepath.Base(dir))),
 		Dir:       dir,

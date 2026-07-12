@@ -1,6 +1,7 @@
 package session
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -322,5 +323,41 @@ func TestTranscriptCacheInvalidatesOnChange(t *testing.T) {
 	snap := localClaudeFS.lastUsageInFile(path)
 	if snap == nil || snap.Usage.CacheRead != 50 {
 		t.Errorf("after append: snapshot = %+v, want CacheRead 50", snap)
+	}
+}
+
+func TestDedupeLocalOnLoad(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sessions.json")
+	// Two records for the same dir+host (the phantom-duplicate bug): the real
+	// host-target session and a registerDiscovered-style empty-target dup.
+	list := []*Session{
+		{Name: "claude_spawner", Dir: "/data/claude_spawner", SessionID: "real", Host: LocalHost, Target: TargetHost, Started: true},
+		{Name: "claude_spawner-2", Dir: "/data/claude_spawner", SessionID: "dup", Host: LocalHost, Started: true},
+		{Name: "email", Dir: "/home/bam/email", SessionID: "sb", Target: TargetSandbox}, // untouched
+	}
+	data, _ := json.Marshal(list)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The dup is gone; the host-target primary and the sandbox session remain.
+	if got := s.List(); len(got) != 2 {
+		t.Fatalf("want 2 after dedupe, got %d: %+v", len(got), got)
+	}
+	if s.Get("claude_spawner-2") != nil {
+		t.Error("phantom duplicate claude_spawner-2 should have been dropped")
+	}
+	if got := s.Get("claude_spawner"); got == nil || got.SessionID != "real" {
+		t.Errorf("host-target primary should survive with its session_id, got %+v", got)
+	}
+	if s.GetBySessionID("dup") != nil {
+		t.Error("dropped duplicate should not remain in byID")
+	}
+	// The heal is persisted, so a second open sees the same clean state.
+	if s2, _ := OpenStore(path); len(s2.List()) != 2 {
+		t.Error("dedupe should persist across reopen")
 	}
 }
