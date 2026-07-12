@@ -142,6 +142,18 @@ func (s *Session) TranscriptPath() string { return TranscriptPathByID(s.SessionI
 // go through Driver.claudeFSFor.
 func TranscriptPathByID(sessionID string) string { return localClaudeFS.findByID(sessionID) }
 
+// TranscriptPathByID finds a Claude transcript by session_id on the given host
+// (empty host = loopback over SSH when SSH-native is wired). Returns "" if absent.
+func (d *Driver) TranscriptPathByID(host, sessionID string) string {
+	return d.claudeFSFor(host).findByID(sessionID)
+}
+
+// TranscriptCwd reads the working directory from a transcript on the given host
+// (empty host = loopback over SSH when SSH-native is wired).
+func (d *Driver) TranscriptCwd(host, path string) string {
+	return d.claudeFSFor(host).transcriptCwd(path)
+}
+
 // DeleteSessionsByIDs permanently removes the LOCAL transcript for each given
 // session_id (the file <session_id>.jsonl), leaving every OTHER session in the
 // same directory untouched. This is how one logical session is deleted — its

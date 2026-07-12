@@ -165,11 +165,16 @@ func (c *conn) doSpawnAt(path string, target session.Target, create bool, host, 
 	c.sendSessionList()
 }
 
-// dirExists reports whether dir is a directory in the given execution location: a
-// sandbox / local target (host == "") is checked locally; a host target is checked
-// on that host over SSH when SSH-native is enabled, else locally.
+// dirExists reports whether dir is a directory in the given execution location.
+// With SSH-native wired, EVERY location is checked over SSH — a host target on its
+// host, and a sandbox target (host == "") on the loopback host, since the sandbox's
+// container runs there and its files live on that host. Falls back to a local stat
+// only when SSH isn't wired.
 func (c *conn) dirExists(host, dir string) (bool, error) {
-	if host != "" && c.srv.ssh != nil {
+	if c.srv.ssh != nil {
+		if host == "" {
+			host = session.LocalHost
+		}
 		return c.srv.ssh.DirExists(c.ctx, host, dir)
 	}
 	info, err := os.Stat(dir)
@@ -185,10 +190,14 @@ func (c *conn) dirExists(host, dir string) (bool, error) {
 	return true, nil
 }
 
-// makeDir creates dir (and parents) in the given execution location — on the host
-// over SSH for a host target, locally otherwise.
+// makeDir creates dir (and parents) in the given execution location — over SSH on
+// the target's host (a sandbox's empty host resolves to loopback, where its
+// container's files live), or locally only when SSH isn't wired.
 func (c *conn) makeDir(host, dir string) error {
-	if host != "" && c.srv.ssh != nil {
+	if c.srv.ssh != nil {
+		if host == "" {
+			host = session.LocalHost
+		}
 		return c.srv.ssh.MakeDir(c.ctx, host, dir)
 	}
 	return c.srv.driver.MakeSpawnDir(c.ctx, dir)

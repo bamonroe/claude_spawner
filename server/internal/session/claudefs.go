@@ -374,15 +374,17 @@ func (fs claudeFS) deleteForDir(anySessionID, dir string) (int, error) {
 	return n, nil
 }
 
-// remoteClaudeFor returns the claudeFS for a session: the local backend when the
-// session runs on this machine (Host empty), or an SSH backend on Session.Host when
-// SSH-native execution is configured. Falls back to local if SSH isn't wired.
+// claudeFSFor returns the claudeFS backend for a session's on-disk Claude state on
+// the given host. With the SSH pool wired (SSH-native), EVERY host reads over SSH —
+// an explicit Session.Host, and an empty host (sandbox turns and local discovery)
+// maps to the loopback host — so the server never touches its own filesystem for
+// Claude state. Falls back to the in-process local backend only when SSH isn't wired.
 func (d *Driver) claudeFSFor(host string) claudeFS {
-	if host == "" {
-		return localClaudeFS
-	}
-	if ex, ok := d.Execs[TargetHost].(SSHExecutor); ok && ex.Pool != nil {
-		return claudeFS{remote: &sshFS{pool: ex.Pool, host: host}}
+	if pool := d.hostPool(); pool != nil {
+		if host == "" {
+			host = LocalHost
+		}
+		return claudeFS{remote: &sshFS{pool: pool, host: host}}
 	}
 	return localClaudeFS
 }

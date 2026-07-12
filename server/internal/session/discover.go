@@ -21,6 +21,13 @@ func DiscoverSessions() ([]Discovered, error) {
 	return localClaudeFS.discoverSessions()
 }
 
+// DiscoverSessions scans a host's ~/.claude/projects for every Claude session
+// transcript (empty host = the loopback machine over SSH when SSH-native is wired).
+// It's how sessions started outside the spawner are surfaced for adoption.
+func (d *Driver) DiscoverSessions(host string) ([]Discovered, error) {
+	return d.claudeFSFor(host).discoverSessions()
+}
+
 // transcriptCwd returns the first `cwd` recorded in a transcript (present on most
 // events), reading only the head of the file. Backend-neutral: local or over SSH.
 func (fs claudeFS) transcriptCwd(path string) string {

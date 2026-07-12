@@ -244,7 +244,7 @@ func usageSummary(sessionPct, weekPct int) string {
 // or not) and returns them, flagged with whether they're already registered and
 // whether an interactive claude is live in tmux at that directory.
 func (c *conn) doDiscover() {
-	found, err := session.DiscoverSessions()
+	found, err := c.srv.driver.DiscoverSessions("")
 	if err != nil {
 		c.fail("discover_failed", err.Error())
 		return
@@ -434,8 +434,8 @@ func (c *conn) doDeleteDiscovered(sessionID string) {
 	var dir string
 	if rec != nil {
 		dir = rec.Dir
-	} else if p := session.TranscriptPathByID(sessionID); p != "" {
-		dir = session.TranscriptCwd(p)
+	} else if p := c.srv.driver.TranscriptPathByID("", sessionID); p != "" {
+		dir = c.srv.driver.TranscriptCwd("", p)
 	}
 	if dir == "" {
 		c.fail("not_found", "no transcript or record for that session")
@@ -459,8 +459,8 @@ func (c *conn) doDeleteDiscovered(sessionID string) {
 		// Codex. Leaves any dir-mates that have their own rows.
 		_, err = c.srv.driver.DeleteSession(rec.Agent, rec.Host, rec.TranscriptIDs())
 	} else {
-		// Unregistered rows come from the LOCAL on-disk scan (TranscriptPathByID
-		// above is local), so delete locally.
+		// Unregistered rows come from the discovery scan on the loopback host
+		// (TranscriptPathByID above reads the same place), so delete there.
 		_, err = c.srv.driver.DeleteSessionsForDir(c.ctx, "", sessionID, dir)
 	}
 	if err != nil {
@@ -570,7 +570,7 @@ func (c *conn) doList() {
 	// Speak the names from the unified (all-machine) list, newest first, using
 	// custom registry names where set. Cap the spoken count so a machine with
 	// dozens of sessions doesn't read a novel.
-	found, err := session.DiscoverSessions()
+	found, err := c.srv.driver.DiscoverSessions("")
 	if err != nil {
 		c.send(msgSay("couldn't list sessions."))
 		return
@@ -678,7 +678,7 @@ func (c *conn) resolveSession(spoken string) *session.Session {
 			return s
 		}
 	}
-	found, _ := session.DiscoverSessions()
+	found, _ := c.srv.driver.DiscoverSessions("")
 	for _, d := range found {
 		if matchKey(filepath.Base(d.Dir)) == key {
 			if rec, err := c.srv.registerDiscovered(d.SessionID, d.Dir); err == nil {
