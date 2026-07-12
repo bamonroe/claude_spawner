@@ -167,13 +167,15 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
   (`claude`; the remote claude binary), `SPAWNER_SSH_CODEX_BIN` (`codex`; the remote codex binary for
   Codex-backend SSH sessions — SSH reuses the host target, so this feeds the host codex binary when
   `SPAWNER_SSH` is enabled).
-- Restart: `SPAWNER_RESTART_CMD` — a shell command (run via `sh -c`, detached, in its own process
-  group) fired by the app's restart button; empty disables restart. The server runs in a Docker
-  container that builds the Go binary and drives the host over SSH (host `claude` turns and the
-  rootless sandbox runtime both execute on the host — no separate host broker). The button does a
-  **rebuild+recreate**: it SSHes to the host and launches `deploy/rebuild-container.sh` detached,
-  which must run on the host because the rebuild replaces the very container the server runs in — an
-  in-container command would be killed mid-recreate, so `setsid` over SSH decouples it. The restart
+- Restart: `SPAWNER_RESTART_CMD` — a shell command fired by the app's restart button; empty disables
+  restart. The server runs in a Docker container that builds the Go binary and drives the host over
+  SSH (host `claude` turns and the rootless sandbox runtime both execute on the host — no separate
+  host broker). The button does a **rebuild+recreate**: it runs `deploy/rebuild-container.sh`
+  detached **on the host**, which must run there because the rebuild replaces the very container the
+  server runs in — an in-container command would be killed mid-recreate, so `setsid` decouples it.
+  With `SPAWNER_SSH` enabled the server runs the command on the host over its own Go-native SSH
+  connection pool (no openssh client — the container needs no `/etc/passwd` entry); with SSH off it
+  falls back to running it locally via `sh -c` in its own process group. The restart
   message carries a `rebuild` flag (checkbox in the app; default on): the server substitutes the
   `%REBUILD%` token in the command with `rebuild` or `bounce` and passes it to the script — `rebuild`
   does a `--no-cache` recompile, `bounce` recreates from the existing image (fast, no code change).

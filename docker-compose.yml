@@ -44,10 +44,6 @@ services:
       - "/data/storage/whisper:/data/storage/whisper"
       # Durable server state (sessions.json, hosts.json) kept out of the image.
       - "./deploy/state:/state"
-      # So the container's bare uid resolves to a real user: the openssh CLIENT the restart
-      # button uses (SPAWNER_RESTART_CMD → ssh to host) aborts with "No user exists for uid"
-      # without a passwd entry. (Go's SSH for turns doesn't need this.)
-      - "/etc/passwd:/etc/passwd:ro"
     restart: unless-stopped
 
   # Resident whisper.cpp server on the Nvidia GPU via CUDA. The server + app point at

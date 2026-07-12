@@ -275,12 +275,13 @@ func (d *Driver) ReconcileContainers(ctx context.Context, known map[string]bool)
 }
 
 // Restart fires the configured RestartCmd to rebuild and relaunch the server (the
-// app's "restart" button). The command is run detached in its own process group
-// via `sh -c`, so it survives the server's own termination when the container is
-// recreated (it SSHes to the host and runs the rebuild via setsid, decoupled from
-// this container). It returns once the rebuild is LAUNCHED — the process is
-// replaced moments later — or an error if restart isn't configured. Errors from
-// the detached command are logged, not returned.
+// app's "restart" button). When a host SSH pool is configured the command runs on
+// the host over that Go-native connection; otherwise it runs locally, detached in
+// its own process group via `sh -c`. Either way the command `setsid`s the rebuild
+// so it survives the server's own termination when the container is recreated. It
+// returns once the rebuild is LAUNCHED — the process is replaced moments later — or
+// an error if restart isn't configured. Errors from the command are logged, not
+// returned.
 // Restart fires the configured restart command. rebuild picks a full recompile vs a
 // fast bounce: the command may contain the token `%REBUILD%`, which is replaced with
 // `rebuild` or `bounce` and forwarded to deploy/rebuild-container.sh as its first arg
@@ -295,10 +296,26 @@ func (d *Driver) Restart(ctx context.Context, rebuild bool) error {
 		arg = "rebuild"
 	}
 	cmdStr := strings.ReplaceAll(d.RestartCmd, "%REBUILD%", arg)
+	// Prefer the in-process SSH pool: the rebuild must run on the HOST (it recreates
+	// this very container), and the pool already reaches the host for turns — so we
+	// run the command there over Go-native SSH rather than shelling to the openssh
+	// client. The remote command `setsid`s the rebuild, so it stays decoupled from
+	// this container even as the SSH channel dies during recreate. Using openssh here
+	// was the only reason the container needed an /etc/passwd entry.
+	if pool := d.hostPool(); pool != nil {
+		log.Printf("restart: launching over ssh pool on %s: %q", LocalHost, cmdStr)
+		go func() {
+			// Background ctx: the caller's ctx dies with the request, but the rebuild
+			// is already detached on the host — don't let a cancel signal the channel.
+			if _, err := pool.Run(context.Background(), LocalHost, cmdStr); err != nil {
+				log.Printf("restart command failed: %v", err)
+			}
+		}()
+		return nil
+	}
+	// No SSH pool (direct-fork mode): run locally, detached in its own process group
+	// so the rebuild survives the server's own termination on recreate.
 	cmd := exec.Command("sh", "-c", cmdStr)
-	// Own process group so the detached rebuild isn't taken down with the server
-	// when the container is recreated (the command itself SSHes out and `setsid`s
-	// the rebuild on the host, so it runs fully decoupled from this container).
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
 		return err
@@ -309,6 +326,16 @@ func (d *Driver) Restart(ctx context.Context, rebuild bool) error {
 			log.Printf("restart command failed: %v", err)
 		}
 	}()
+	return nil
+}
+
+// hostPool returns the SSH connection pool used for host turns, or nil when host
+// turns run as direct forks (SPAWNER_SSH unset). Restart reuses it to reach the
+// host without the openssh client.
+func (d *Driver) hostPool() *SSHPool {
+	if ex, ok := d.Execs[TargetHost].(SSHExecutor); ok {
+		return ex.Pool
+	}
 	return nil
 }
 

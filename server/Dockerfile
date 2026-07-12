@@ -14,12 +14,10 @@ COPY . ./
 RUN CGO_ENABLED=0 go build -trimpath -o /spawner ./
 
 FROM alpine:3.20
-# ca-certificates for any outbound TLS. openssh-client is NOT needed for turns (claude
-# SSH is Go-native) — it's here only so the app's restart button can SSH to the host
-# and launch the detached container rebuild (deploy/rebuild-container.sh), which must
-# run on the host because `compose up --build` recreates this very container. ffmpeg
+# ca-certificates for any outbound TLS. No openssh client: all SSH (turns AND the
+# restart button's host rebuild) is Go-native over the connection pool. ffmpeg
 # decodes the app's Ogg/Opus voice clips to PCM/WAV before whisper (the server execs
 # SPAWNER_FFMPEG_BIN in-process, so it must live in this image, not just on the host).
-RUN apk add --no-cache ca-certificates openssh-client ffmpeg
+RUN apk add --no-cache ca-certificates ffmpeg
 COPY --from=build /spawner /usr/local/bin/spawner
 ENTRYPOINT ["/usr/local/bin/spawner"]

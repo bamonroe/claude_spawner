@@ -73,8 +73,9 @@ path; text turns work without them.)
 ## The restart button rebuilds
 
 For the container the app's **restart** button is a *one-tap deploy*, not just a bounce:
-`SPAWNER_RESTART_CMD` SSHes to the host over loopback and launches
-[`rebuild-container.sh`](rebuild-container.sh) detached (`setsid`), which runs
+`SPAWNER_RESTART_CMD` launches [`rebuild-container.sh`](rebuild-container.sh) detached (`setsid`)
+**on the host** — with `SPAWNER_SSH` on, the server runs it over its own Go-native SSH connection
+(the same loopback login as turns); with SSH off it runs locally via `sh -c`. The script runs
 `compose build --no-cache spawner-server` then `compose up -d spawner-server` to rebuild the image
 from current source and recreate the gateway container (the whisper service is left untouched). The
 build is deliberately `--no-cache`: `up --build` alone once reused a stale layer and shipped an old
@@ -87,12 +88,10 @@ to the script as its first arg: `rebuild` (default) does the `--no-cache` recomp
 skips the build and just recreates from the existing image — a fast restart that ships no code
 change. A command without a `%REBUILD%` token always rebuilds (older configs). It **must** run on the host —
 recreating the container replaces the very container the server lives in, so an in-container command would be
-killed mid-recreate; `setsid` over SSH decouples it so it survives. The image ships `openssh-client`
-for exactly this, and the compose file mounts the host `/etc/passwd` read-only — without a passwd
-entry the openssh client aborts with *"No user exists for uid"* (the container runs as a bare uid;
-Go's SSH for turns doesn't care, but the CLI does). **Bootstrap:** the running container must already
-have been built from this Dockerfile (with `openssh-client`), have `SPAWNER_RESTART_CMD` in its env,
-and have the `/etc/passwd` mount, so do the manual `up -d --build` above first; after that the button
+killed mid-recreate; `setsid` decouples it so it survives. All SSH is Go-native over the connection
+pool, so the image needs no openssh client and the container needs no `/etc/passwd` mount.
+**Bootstrap:** the running container must already have been built from this Dockerfile and have
+`SPAWNER_RESTART_CMD` in its env, so do the manual `up -d --build` above first; after that the button
 self-serves. A rebuild started this way drops any in-flight turn as the container is recreated.
 
 ### Testing a build without touching the live server

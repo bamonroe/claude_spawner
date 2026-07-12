@@ -17,8 +17,10 @@ Dates are `YYYY-MM-DD`.
   - [x] 2026-07-12 — **Whisper models → `/data/storage/whisper`**, mounted directly (rw into the
         gateway for on-demand downloads, ro into the whisper service at `/models`) instead of via the
         broad `${HOME}` mount. Severs whisper from `${HOME}`.
-  - [ ] Restart via the in-process Go SSH pool instead of shelling to `openssh` → drops the
-        `/etc/passwd:ro` mount (only the openssh client needed a passwd entry).
+  - [x] 2026-07-12 — **Restart via the in-process Go SSH pool** instead of shelling to `openssh`.
+        The gateway runs `SPAWNER_RESTART_CMD` (now the bare `setsid …` host command, no ssh wrapper)
+        on the host over its own connection pool; drops the `/etc/passwd:ro` mount and `openssh-client`
+        from the image (both existed only for the restart client). Falls back to local `sh -c` with no pool.
   - [ ] Bake the web bundle into the image (served over host networking) → drops the `/data`-for-web
         mount. Then the only host mount left is a narrow one for sandbox-target transcripts.
 - [x] 2026-07-12 — **Restart button: optional rebuild.** The restart dialog has a *Rebuild from
