@@ -122,7 +122,9 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
   directory holding the built Compose/Wasm web-client bundle — `index.html` + `spawnerweb.js` +
   `.wasm` — served as static files at `/` alongside the `/ws` gateway, so one binary hosts both the
   API and the browser client. The static assets are public; the sensitive surface stays behind the
-  token-authenticated `/ws` handshake), `SPAWNER_ROOT` (colon-separated
+  token-authenticated `/ws` handshake. In the containerized deploy the bundle is **baked into the
+  image** at `/srv/web` — `deploy/rebuild-container.sh` stages the Gradle output into the build
+  context, so a `rebuild` ships the current client with no host mount), `SPAWNER_ROOT` (colon-separated
   spawn-dir jail), `SPAWNER_STATE` (`sessions.json`), `SPAWNER_HOSTS` (`hosts.json`; the
   app-managed SSH host registry — the app is the source of truth, this file just persists it),
   `SPAWNER_IDENTITIES` (`identities.json`; the app-managed SSH identity registry — names + public

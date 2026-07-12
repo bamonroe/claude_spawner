@@ -26,3 +26,8 @@ server/spawner
 
 # Self-signed TLS material for the web client (deploy-local; key must never be committed)
 deploy/tls/
+
+# Baked web bundle staged into the image build context (see deploy/rebuild-container.sh);
+# only the placeholder is tracked so the Dockerfile COPY target always exists.
+/server/webdist/*
+!/server/webdist/.gitkeep

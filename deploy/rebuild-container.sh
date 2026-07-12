@@ -36,6 +36,20 @@ if [ "$MODE" = "bounce" ]; then
   echo "==> bounce: recreate the server container from the existing image (no rebuild)"
 else
   echo "==> rebuild image + recreate the server container (whisper left as-is)"
+  # Stage the pre-built web bundle into the image build context so it bakes into the
+  # image (served at SPAWNER_WEB_DIR=/srv/web) — no host mount. We do NOT run Gradle
+  # here: the bundle is built out-of-band by `:app:wasmJsBrowserDistribution` when the
+  # UI changes; a rebuild just packages whatever bundle is currently built. Preserve
+  # the tracked .gitkeep so the (gitignored) dir always exists for the Dockerfile COPY.
+  WEB_SRC="$REPO/android/app/build/dist/wasmJs/productionExecutable"
+  mkdir -p server/webdist
+  find server/webdist -mindepth 1 ! -name .gitkeep -delete
+  if [ -d "$WEB_SRC" ] && [ -n "$(ls -A "$WEB_SRC" 2>/dev/null)" ]; then
+    cp -a "$WEB_SRC"/. server/webdist/
+    echo "==> staged web bundle from $WEB_SRC"
+  else
+    echo "==> no web bundle at $WEB_SRC — image will serve no web client"
+  fi
   # --no-cache: force a fresh compile every time. `up --build` alone trusts Docker's
   # layer cache to notice changed source, but it has silently reused a stale build layer
   # and shipped an old binary in a fresh container — so the restart button appeared to do

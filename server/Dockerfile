@@ -20,4 +20,11 @@ FROM alpine:3.20
 # SPAWNER_FFMPEG_BIN in-process, so it must live in this image, not just on the host).
 RUN apk add --no-cache ca-certificates ffmpeg
 COPY --from=build /spawner /usr/local/bin/spawner
+# The browser client bundle (Kotlin/Wasm), baked into the image and served at
+# SPAWNER_WEB_DIR=/srv/web — so one artifact ships both the API and the web client,
+# with no host mount. It's staged into this build context (server/webdist/) by
+# deploy/rebuild-container.sh from the Gradle output (:app:wasmJsBrowserDistribution),
+# built out-of-band — this image build does NOT run Gradle. Empty (.gitkeep only) when
+# no bundle has been staged, which just serves no client.
+COPY webdist/ /srv/web/
 ENTRYPOINT ["/usr/local/bin/spawner"]

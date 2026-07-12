@@ -21,8 +21,14 @@ Dates are `YYYY-MM-DD`.
         The gateway runs `SPAWNER_RESTART_CMD` (now the bare `setsid …` host command, no ssh wrapper)
         on the host over its own connection pool; drops the `/etc/passwd:ro` mount and `openssh-client`
         from the image (both existed only for the restart client). Falls back to local `sh -c` with no pool.
-  - [ ] Bake the web bundle into the image (served over host networking) → drops the `/data`-for-web
-        mount. Then the only host mount left is a narrow one for sandbox-target transcripts.
+  - [x] 2026-07-12 — **Bake the web bundle into the image** at `/srv/web` (served over host
+        networking), so one artifact ships API + client with no host mount for the web dir.
+        `rebuild-container.sh` stages the Gradle output (`:app:wasmJsBrowserDistribution`, built
+        out-of-band) into the build context; the Dockerfile `COPY`s it. `SPAWNER_WEB_DIR=/srv/web`.
+        Behavior change: a UI change now needs a container `rebuild` to ship (a `bounce` won't).
+  - [ ] Remove the `${HOME}`/`/data` mounts entirely — now held only by **sandbox-target** sessions
+        (local podman: transcripts under `~/.claude`, spawn dirs stat/mkdir in-process). The
+        remaining coupling to resolve.
 - [x] 2026-07-12 — **Restart button: optional rebuild.** The restart dialog has a *Rebuild from
       source* checkbox (default on). The `restart` message carries a `rebuild` flag (nil/absent =
       rebuild, back-compat); the server substitutes the `%REBUILD%` token in `SPAWNER_RESTART_CMD`

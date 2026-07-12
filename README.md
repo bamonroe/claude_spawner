@@ -488,6 +488,12 @@ SPAWNER_TOKEN=devsecret SPAWNER_ADDR=:8080 SPAWNER_ROOT="$HOME/git:/data" \
 #   then open http://<host>:8080/ in a browser (needs a Wasm-GC browser — recent Firefox/Chrome)
 ```
 
+In the **containerized deploy** the bundle isn't mounted — it's **baked into the image** at
+`/srv/web` (with `SPAWNER_WEB_DIR=/srv/web`). `deploy/rebuild-container.sh` stages the Gradle output
+into the image build context, so a `rebuild` press of the restart button ships the current client;
+a `bounce` won't. Rebuild the bundle out-of-band (the `:app:wasmJsBrowserDistribution` task above)
+whenever the UI changes, then rebuild the container to publish it.
+
 The bundle defaults its WebSocket to the **same origin** it was served from (`/ws`, `wss://` when the
 page is https), so a server-hosted client connects with no setup — you only edit the URL/token under
 **Settings → Server** if you're pointing elsewhere. The static assets are public; the privileged
