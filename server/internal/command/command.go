@@ -69,6 +69,7 @@ var wakePhrases = [][]string{
 	{"hey", "bud"},
 	{"hey", "body"},
 	{"hey", "buddie"},
+	{"hey", "buddies"},
 	{"hey", "budy"},
 	{"everybody"},
 	{"heybuddy"},
