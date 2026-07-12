@@ -32,18 +32,11 @@ transcripts where the host writes them; `claude` runs on the host over SSH). Its
 documented in [`../CLAUDE.md`](../CLAUDE.md) (the config section — the authoritative list), templated
 in `spawner-container.env.example`.
 
-Prereqs: the server user must have a **key-based SSH login to itself** (its public key in
-`~/.ssh/authorized_keys`). The server's SSH auth material is **self-contained in `deploy/state/`**,
-not read from the host home: put the private key at `deploy/state/ssh/` (`0600`) and point
-`SPAWNER_SSH_KEY` at it (`/state/ssh/...`). Host keys are verified against the server's **own**
-known_hosts — `SPAWNER_SSH_KNOWN_HOSTS=/state/known_hosts` (in `deploy/state/`), deliberately
-**independent of the host's `~/.ssh/known_hosts`** so the server owns its trust set. Seed it with
-every host the server dials (loopback for the restart button and local turns, plus each registered
-SSH host), e.g. `ssh-keyscan -t ed25519,rsa localhost your.remote.host >> deploy/state/known_hosts`
-after eyeballing the fingerprints. Then:
+The server comes up **bare** — it mints its own SSH identity and seeds its own trust set, so there is
+nothing to place by hand up front:
 
 ```bash
-cp deploy/spawner-container.env.example deploy/spawner-container.env   # edit token, key, port
+cp deploy/spawner-container.env.example deploy/spawner-container.env   # edit the token
 mkdir -p deploy/state
 # Run the server as you (so it can read/write the mounts). Put these in the git-ignored
 # root .env once (cp .env.example .env; set your uid/gid) and drop the prefix thereafter:
@@ -52,6 +45,24 @@ SPAWNER_UID=$(id -u) SPAWNER_GID=$(id -g) docker compose up -d --build
 
 That single command builds the Go binary, starts the gateway, and brings up the whisper server.
 (Text-only / no GPU: `docker compose up -d --build spawner-server` runs just the gateway.)
+
+### Enabling the restart button (and loopback host turns)
+
+The server drives the host over SSH, so it needs a key the host accepts. It **owns its own keypair**,
+separate from the host's `~/.ssh` keys: on first boot it generates one at `deploy/state/ssh/id_ed25519`
+(`0600`, persisted on the volume) and writes the public key to `id_ed25519.pub` (also logged at
+startup). To let the container SSH into the machine it runs on — for host turns and, crucially, the
+**restart button** — add that public key to the login user's `~/.ssh/authorized_keys` on the host:
+
+```bash
+cat deploy/state/ssh/id_ed25519.pub >> ~/.ssh/authorized_keys
+```
+
+Host keys are verified against the server's **own** known_hosts (`SPAWNER_SSH_KNOWN_HOSTS=/state/known_hosts`,
+independent of the host's `~/.ssh/known_hosts`), which the server **auto-seeds**: the loopback host
+(the local machine actually running the container) is trusted on first boot, and each host you add in
+the app is trusted when you save it. No manual `ssh-keyscan` step. `SPAWNER_SSH_KEY` can override the
+key path if you'd rather supply your own; leave it empty to let the server self-manage.
 
 The `deploy/spawner-container.env` (it holds the token), the root `.env`, and `deploy/state/` are git-ignored — keep
 the token out of the repo. Point a client at its port (`SPAWNER_ADDR`, e.g. `:8098`) to exercise it.

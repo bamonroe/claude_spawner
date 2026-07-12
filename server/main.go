@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -78,10 +79,24 @@ func main() {
 	// silently fall back).
 	var sshConns *session.SSHPool
 	if cfg.SSHEnable {
+		// The server owns its OWN SSH keypair, separate from the host's ~/.ssh keys.
+		// SPAWNER_SSH_KEY overrides the path; empty means self-manage under the state
+		// dir (persisted on the volume), minting the key on first boot. The public key
+		// is logged and written to <key>.pub — install it in the target host's
+		// ~/.ssh/authorized_keys to let the server SSH in (host turns + restart button).
+		selfKey := cfg.SSHKey
+		if selfKey == "" {
+			selfKey = filepath.Join(filepath.Dir(cfg.StatePath), "ssh", "id_ed25519")
+		}
+		pubLine, kerr := session.EnsureServerKey(selfKey)
+		if kerr != nil {
+			log.Fatalf("ssh: server key: %v", kerr)
+		}
+		log.Printf("server SSH public key (add to the host user's ~/.ssh/authorized_keys to enable loopback turns + the restart button):\n  %s", pubLine)
 		sshConns, err = session.NewSSHPool(session.SSHConfig{
 			User:       cfg.SSHUser,
 			Port:       cfg.SSHPort,
-			KeyFile:    cfg.SSHKey,
+			KeyFile:    selfKey,
 			KnownHosts: cfg.SSHKnownHosts,
 			Bin:        cfg.SSHClaudeBin,
 		}, hostStore, idStore)
@@ -90,6 +105,14 @@ func main() {
 		}
 		driver.Execs[session.TargetHost] = session.SSHExecutor{Pool: sshConns}
 		log.Printf("SSH-native execution enabled: host turns run over SSH (loopback for local sessions)")
+		// Auto-seed loopback into known_hosts (trust-on-first-use) so no manual
+		// ssh-keyscan is needed — the server comes up bare. Best-effort: if the host
+		// sshd isn't reachable yet, log and carry on (re-trusts on the next host save).
+		if terr := sshConns.TrustHost(session.LocalHost, cfg.SSHPort); terr != nil {
+			log.Printf("loopback host key not recorded yet (%v) — trusted automatically once localhost:22 is reachable", terr)
+		} else {
+			log.Printf("trusted loopback host key (%s)", session.LocalHost)
+		}
 	}
 	if cfg.SandboxImage != "" {
 		sandbox := session.SandboxExecutor{

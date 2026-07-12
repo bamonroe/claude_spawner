@@ -12,6 +12,16 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-12 — **Server comes up bare: self-managed SSH keypair + auto-seeded loopback trust.**
+      The server now mints its **own** ed25519 keypair (separate from the host's `~/.ssh` keys) on
+      first boot when `SPAWNER_SSH_KEY` is empty — at `<state>/ssh/id_ed25519`, writing the public key
+      to `<key>.pub` and logging it — and auto-trusts the loopback host key into its own known_hosts
+      at startup (best-effort TOFU), so no manual key placement or `ssh-keyscan` seeding is needed.
+      The one manual step to enable host turns + the restart button is documented: add the generated
+      public key to the host user's `~/.ssh/authorized_keys`. New `session.EnsureServerKey` (+ test);
+      wired in `main.go`; `SPAWNER_SSH_KEY` default flipped to empty in the container env; docs updated
+      (`deploy/README.md`, `README.md`, `CLAUDE.md`, `deploy/spawner-container.env.example`). The
+      loopback entry (the local machine running the container) is the seeded `localhost` host.
 - [x] 2026-07-12 — **Pooled the gateway + whisper into one compose stack; a single `docker compose
       up -d --build` launches the whole backend.** Merged `deploy/spawner-container.yml` into the root
       `docker-compose.yml` as a second service (`spawner-server` alongside `whisper`) and deleted the

@@ -156,10 +156,14 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
   path** — transitional until loopback SSH is verified): `SPAWNER_SSH` (`1` enables; then every
   host-target turn, local included, runs over SSH with no special-cased localhost fork),
   `SPAWNER_SSH_USER` (login user; empty = current OS user), `SPAWNER_SSH_PORT` (`22`),
-  `SPAWNER_SSH_KEY` (private-key path; empty relies on the `ssh-agent`), `SPAWNER_SSH_KNOWN_HOSTS`
+  `SPAWNER_SSH_KEY` (private-key path; **empty = the server self-manages its OWN keypair**, minting an
+  ed25519 key under the state dir (`<state>/ssh/id_ed25519`) on first boot and writing the public key
+  to `<key>.pub` + logging it — install that in the target host's `~/.ssh/authorized_keys` to grant
+  access; a set path overrides and is used as-is), `SPAWNER_SSH_KNOWN_HOSTS`
   (`~/.ssh/known_hosts`; host keys are always verified — no insecure mode. The server **owns**
-  this file: adding a host in the app records its key trust-on-first-use, deleting the host forgets
-  it, and the running pool reloads the file so it takes effect without a restart), `SPAWNER_SSH_CLAUDE_BIN`
+  this file and **auto-seeds** it: the loopback host is trusted on first boot, adding a host in the
+  app records its key trust-on-first-use, deleting the host forgets it, and the running pool reloads
+  the file so it takes effect without a restart), `SPAWNER_SSH_CLAUDE_BIN`
   (`claude`; the remote claude binary), `SPAWNER_SSH_CODEX_BIN` (`codex`; the remote codex binary for
   Codex-backend SSH sessions — SSH reuses the host target, so this feeds the host codex binary when
   `SPAWNER_SSH` is enabled).

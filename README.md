@@ -426,11 +426,15 @@ came from the env default gets written to `settings.json`.
 (Settings the app owns — the per-device voice prefs — ride along in each `hello` and don't need
 server-side storage.)
 
-Bring-up lives in [`deploy/`](./deploy/README.md): fill in the env file, seed the server's own
-known_hosts, and run a single `docker compose up -d --build` from the repo root — the root
-[`docker-compose.yml`](./docker-compose.yml) holds **both** the `spawner-server` gateway and the
-`whisper` transcription server, so one command builds the binary and launches the whole backend. The
-app's **restart** button fires `SPAWNER_RESTART_CMD`, which SSHes to the host and runs
+Bring-up lives in [`deploy/`](./deploy/README.md): fill in the env file's token and run a single
+`docker compose up -d --build` from the repo root — the root [`docker-compose.yml`](./docker-compose.yml)
+holds **both** the `spawner-server` gateway and the `whisper` transcription server, so one command
+builds the binary and launches the whole backend. The server comes up **bare**: it mints its own SSH
+keypair on first boot and auto-trusts the loopback host key, so there's nothing to seed by hand. The
+one manual step is enabling host access — add the server's generated public key
+(`deploy/state/ssh/id_ed25519.pub`, also logged at startup) to the host user's `~/.ssh/authorized_keys`
+so the container can SSH in for host turns and the restart button. The app's **restart** button fires
+`SPAWNER_RESTART_CMD`, which SSHes to the host and runs
 [`deploy/rebuild-container.sh`](./deploy/rebuild-container.sh) detached — a one-tap
 `compose up -d --build spawner-server` that rebuilds the image from current source and recreates the
 gateway. Full design in [`docs/architecture.md`](./docs/architecture.md).
