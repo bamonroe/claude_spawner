@@ -5,7 +5,7 @@
 #
 # Two services:
 #   spawner-server — the Go gateway. This container builds the binary from ./server
-#                    and drives the HOST over SSH (SPAWNER_SSH=1): `claude` for host
+#                    and drives the HOST over SSH (unconditionally): `claude` for host
 #                    turns and rootless Podman for sandbox turns both run on the host.
 #   whisper        — the resident whisper.cpp transcription server on :8571 (CUDA).
 #                    spawner-server points at it via SPAWNER_WHISPER_URL.
@@ -21,8 +21,9 @@
 services:
   # The Go gateway. Host networking so localhost:22 is the host's sshd (host turns run
   # over SSH) and SPAWNER_ADDR binds on the host directly; localhost:8571 reaches the
-  # whisper service's published port. Home + project roots mounted at the SAME paths the
-  # host uses so browse/discovery/transcripts read where the host writes them.
+  # whisper service's published port. No host FS is mounted for project/home access:
+  # every turn, spawn-dir op, and transcript/discovery read runs on the host over SSH,
+  # so the gateway never touches the host's `/data` or `$HOME` from inside the container.
   spawner-server:
     build:
       context: ./server
@@ -34,15 +35,13 @@ services:
     depends_on:
       - whisper
     volumes:
-      # The user's home and project roots at the SAME paths the host uses. Writable so a
-      # "new project folder" spawn can mkdir. `claude` itself runs on the host over SSH.
-      - "${HOME}:${HOME}"
-      - "/data:/data"
       # Whisper ggml models, mounted directly (rw) so the gateway can download
       # catalogue models on demand; the whisper service mounts the same dir ro at
-      # /models. A dedicated mount so it survives the ${HOME}/`/data` mounts going away.
+      # /models. The only host-path mount besides state — a deliberate shared artifact
+      # dir, not a blanket assumption that the host's /data/$HOME mean anything here.
       - "/data/storage/whisper:/data/storage/whisper"
-      # Durable server state (sessions.json, hosts.json) kept out of the image.
+      # Durable server state (sessions.json, hosts.json, the server's SSH key) kept out
+      # of the image.
       - "./deploy/state:/state"
     restart: unless-stopped
 

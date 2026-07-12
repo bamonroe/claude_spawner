@@ -12,8 +12,9 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
-- **Collapse spawner-server host mounts.** With SSH-native turns, most host FS access already
-      goes over SSH; trim the broad `${HOME}`/`/data`/`passwd` bind mounts down to essentials.
+- [x] 2026-07-12 — **Collapsed spawner-server host mounts.** With SSH-native turns, host FS access
+      already went over SSH; trimmed the broad `${HOME}`/`/data`/`passwd` bind mounts down to
+      essentials (`state` + the narrow whisper models dir). All four steps below done.
   - [x] 2026-07-12 — **Whisper models → `/data/storage/whisper`**, mounted directly (rw into the
         gateway for on-demand downloads, ro into the whisper service at `/models`) instead of via the
         broad `${HOME}` mount. Severs whisper from `${HOME}`.
@@ -26,9 +27,16 @@ Dates are `YYYY-MM-DD`.
         `rebuild-container.sh` stages the Gradle output (`:app:wasmJsBrowserDistribution`, built
         out-of-band) into the build context; the Dockerfile `COPY`s it. `SPAWNER_WEB_DIR=/srv/web`.
         Behavior change: a UI change now needs a container `rebuild` to ship (a `bounce` won't).
-  - [ ] Remove the `${HOME}`/`/data` mounts entirely — now held only by **sandbox-target** sessions
-        (local podman: transcripts under `~/.claude`, spawn dirs stat/mkdir in-process). The
-        remaining coupling to resolve.
+  - [x] 2026-07-12 — **Route sandbox + discovery through the SSH pool, then remove the `${HOME}`/`/data`
+        mounts entirely.** The last coupling was sandbox-target sessions reading their transcript /
+        stat+mkdir'ing their spawn dir in-process (host `""`). `claudeFSFor("")`, `dirExists`/`makeDir`,
+        and `DiscoverSessions`/`TranscriptPathByID`/`TranscriptCwd` now map the empty host to loopback
+        and read over SSH — the sandbox's podman already runs there, so its files live on the host.
+        Also made SSH-native **unconditional** (dropped the `SPAWNER_SSH` toggle; `HostExecutor` + the
+        local-child-process paths survive only as the hermetic unit-test executor). `docker-compose.yml`
+        now mounts only `state` + `/data/storage/whisper`. Follow-up: `SPAWNER_CODEX_BIN` is now
+        vestigial (superseded by `SPAWNER_SSH_CODEX_BIN`); the old `~/.local/share/whisper` model copies
+        can be deleted once verified live.
 - [x] 2026-07-12 — **Restart button: optional rebuild.** The restart dialog has a *Rebuild from
       source* checkbox (default on). The `restart` message carries a `rebuild` flag (nil/absent =
       rebuild, back-compat); the server substitutes the `%REBUILD%` token in `SPAWNER_RESTART_CMD`
