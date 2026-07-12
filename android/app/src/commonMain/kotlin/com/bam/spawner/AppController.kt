@@ -130,5 +130,6 @@ interface AppController : HostsIdentitiesController {
     fun setWhisperModel(model: String, fast: Boolean = false)
     /** Push the context-compression preference (warm + auto) to the server (live, no reconnect). */
     fun setAutoCompress(warm: Boolean, auto: Boolean, thresholdK: Int)
-    fun restartServer()
+    /** Restart the server; rebuild=true recompiles from source, false is a fast bounce that reuses the current image. */
+    fun restartServer(rebuild: Boolean = true)
 }

@@ -746,7 +746,7 @@ var wireHandlers = map[string]func(c *conn, in inbound){
 	"auto_compress": func(c *conn, in inbound) {
 		c.srv.setAutoCompress(in.WarmCompress, in.AutoCompress, in.AutoCompressThreshold)
 	},
-	"restart":       func(c *conn, in inbound) { c.doRestart() },
+	"restart":       func(c *conn, in inbound) { c.doRestart(in.Rebuild) },
 	"wake":          func(c *conn, in inbound) { c.startAudio(in.Codec, in.HandsFree, in.Calibrate) },
 	"commit":        func(c *conn, in inbound) { c.commitMessage() }, // silence-timeout commit of the hands-free buffer
 	"discard_draft": func(c *conn, in inbound) { c.clearBuffer() },   // drop the uncommitted hands-free draft

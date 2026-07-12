@@ -171,10 +171,13 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
   group) fired by the app's restart button; empty disables restart. The server runs in a Docker
   container that builds the Go binary and drives the host over SSH (host `claude` turns and the
   rootless sandbox runtime both execute on the host — no separate host broker). The button does a
-  full **rebuild+recreate**: it SSHes to the host and launches `deploy/rebuild-container.sh` detached
-  (`compose up -d --build`), which must run on the host because the rebuild replaces the very
-  container the server runs in — an in-container command would be killed mid-recreate, so `setsid`
-  over SSH decouples it. See `deploy/README.md`.
+  **rebuild+recreate**: it SSHes to the host and launches `deploy/rebuild-container.sh` detached,
+  which must run on the host because the rebuild replaces the very container the server runs in — an
+  in-container command would be killed mid-recreate, so `setsid` over SSH decouples it. The restart
+  message carries a `rebuild` flag (checkbox in the app; default on): the server substitutes the
+  `%REBUILD%` token in the command with `rebuild` or `bounce` and passes it to the script — `rebuild`
+  does a `--no-cache` recompile, `bounce` recreates from the existing image (fast, no code change).
+  Commands with no `%REBUILD%` token always rebuild. See `deploy/README.md`.
 
 ## Token discipline — keep the context small
 

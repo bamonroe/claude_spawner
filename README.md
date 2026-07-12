@@ -441,8 +441,10 @@ one manual step is enabling host access — add the server's generated public ke
 so the container can SSH in for host turns and the restart button. The app's **restart** button fires
 `SPAWNER_RESTART_CMD`, which SSHes to the host and runs
 [`deploy/rebuild-container.sh`](./deploy/rebuild-container.sh) detached — a one-tap
-`compose up -d --build spawner-server` that rebuilds the image from current source and recreates the
-gateway. Full design in [`docs/architecture.md`](./docs/architecture.md).
+`compose build --no-cache` + recreate that rebuilds the image from current source and recreates the
+gateway. The button has a **Rebuild from source** checkbox (default on): leave it on to recompile and
+pick up server changes, or clear it for a fast *bounce* that relaunches from the current build without
+recompiling. Full design in [`docs/architecture.md`](./docs/architecture.md).
 
 ## Building & running from source (local dev)
 

@@ -386,7 +386,9 @@ object Outbound {
             put("type", "set_whisper_model"); put("whisper_model", model)
             if (fast) put("fast", true)
         }.toString()
-    fun restart() = buildJsonObject { put("type", "restart") }.toString() // ask the server to restart
+    // ask the server to restart; rebuild=true recompiles from source, false is a fast
+    // bounce that recreates from the existing image
+    fun restart(rebuild: Boolean) = buildJsonObject { put("type", "restart"); put("rebuild", rebuild) }.toString()
 
     fun wake(codec: String, handsFree: Boolean = false, calibrate: Boolean = false) =
         buildJsonObject {

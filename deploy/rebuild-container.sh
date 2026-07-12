@@ -26,13 +26,23 @@ cd "$REPO"
 # host user so it can read/write the mounted home, state, and roots.
 export SPAWNER_UID="$(id -u)" SPAWNER_GID="$(id -g)"
 
-echo "==> rebuild image + recreate the server container (whisper left as-is)"
-# --no-cache: force a fresh compile every time. `up --build` alone trusts Docker's
-# layer cache to notice changed source, but it has silently reused a stale build layer
-# and shipped an old binary in a fresh container — so the restart button appeared to do
-# nothing. A full no-cache build is slower but guarantees the running server is the
-# current code, which is the whole point of the button.
-docker compose build --no-cache spawner-server
+# Mode from the restart button: `bounce` recreates from the existing image (fast, ships
+# no code changes); anything else (default, incl. the voice command) does a full
+# --no-cache rebuild. The server substitutes this arg into SPAWNER_RESTART_CMD's
+# %REBUILD% token.
+MODE="${1:-rebuild}"
+
+if [ "$MODE" = "bounce" ]; then
+  echo "==> bounce: recreate the server container from the existing image (no rebuild)"
+else
+  echo "==> rebuild image + recreate the server container (whisper left as-is)"
+  # --no-cache: force a fresh compile every time. `up --build` alone trusts Docker's
+  # layer cache to notice changed source, but it has silently reused a stale build layer
+  # and shipped an old binary in a fresh container — so the restart button appeared to do
+  # nothing. A full no-cache build is slower but guarantees the running server is the
+  # current code, which is the whole point of the button.
+  docker compose build --no-cache spawner-server
+fi
 
 # Force-remove any container already holding the fixed name `spawner-server` before the
 # recreate. A container left over from a DIFFERENT compose project name (e.g. one brought

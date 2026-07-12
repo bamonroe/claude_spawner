@@ -281,11 +281,21 @@ func (d *Driver) ReconcileContainers(ctx context.Context, known map[string]bool)
 // this container). It returns once the rebuild is LAUNCHED — the process is
 // replaced moments later — or an error if restart isn't configured. Errors from
 // the detached command are logged, not returned.
-func (d *Driver) Restart(ctx context.Context) error {
+// Restart fires the configured restart command. rebuild picks a full recompile vs a
+// fast bounce: the command may contain the token `%REBUILD%`, which is replaced with
+// `rebuild` or `bounce` and forwarded to deploy/rebuild-container.sh as its first arg
+// (the script skips the image build on `bounce`). Commands without the token run
+// unchanged — an older config always does a full rebuild.
+func (d *Driver) Restart(ctx context.Context, rebuild bool) error {
 	if d.RestartCmd == "" {
 		return fmt.Errorf("server restart is not configured (set SPAWNER_RESTART_CMD)")
 	}
-	cmd := exec.Command("sh", "-c", d.RestartCmd)
+	arg := "bounce"
+	if rebuild {
+		arg = "rebuild"
+	}
+	cmdStr := strings.ReplaceAll(d.RestartCmd, "%REBUILD%", arg)
+	cmd := exec.Command("sh", "-c", cmdStr)
 	// Own process group so the detached rebuild isn't taken down with the server
 	// when the container is recreated (the command itself SSHes out and `setsid`s
 	// the rebuild on the host, so it runs fully decoupled from this container).
@@ -293,7 +303,7 @@ func (d *Driver) Restart(ctx context.Context) error {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-	log.Printf("restart: launched %q", d.RestartCmd)
+	log.Printf("restart: launched %q", cmdStr)
 	go func() {
 		if err := cmd.Wait(); err != nil {
 			log.Printf("restart command failed: %v", err)

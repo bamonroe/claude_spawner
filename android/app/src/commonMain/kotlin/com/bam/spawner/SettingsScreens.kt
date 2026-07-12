@@ -43,6 +43,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -732,6 +733,7 @@ fun ServerSettings(
     var token by rememberSaveable { mutableStateOf(settings.token) }
     val connected by controller.connected.collectAsState()
     var restartConfirm by remember { mutableStateOf(false) }
+    var rebuildOnRestart by remember { mutableStateOf(true) }
     SettingsScaffold("Server", onBack) {
         OutlinedTextField(url, { url = it }, label = { Text("Server URL") }, placeholder = { Text("cs.bam") }, supportingText = { Text("Host is enough — ws:// and /ws are added for you") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(token, { token = it }, label = { Text("Token") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -788,8 +790,9 @@ fun ServerSettings(
         HorizontalDivider()
         Text("Restart server", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Restarts the server process on your machine — it rebuilds from current code, so this "
-                + "picks up server changes. In-flight turns are interrupted; the app reconnects on its own.",
+            "Restarts the server process on your machine. With Rebuild on, it recompiles from "
+                + "current code first, so it picks up server changes (slower); off is a fast bounce "
+                + "that reuses the current build. In-flight turns are interrupted; the app reconnects on its own.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
         )
         Button(
@@ -805,8 +808,19 @@ fun ServerSettings(
         AlertDialog(
             onDismissRequest = { restartConfirm = false },
             title = { Text("Restart the server?") },
-            text = { Text("The server will rebuild and relaunch. Any running turn is interrupted; the app reconnects automatically.") },
-            confirmButton = { TextButton(onClick = { restartConfirm = false; controller.restartServer() }) { Text("Restart") } },
+            text = {
+                Column {
+                    Text(
+                        if (rebuildOnRestart) "The server will recompile from current code, then relaunch. Any running turn is interrupted; the app reconnects automatically."
+                        else "The server will relaunch from the current build (no recompile). Any running turn is interrupted; the app reconnects automatically."
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { rebuildOnRestart = !rebuildOnRestart }) {
+                        Checkbox(checked = rebuildOnRestart, onCheckedChange = { rebuildOnRestart = it })
+                        Text("Rebuild from source")
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { restartConfirm = false; controller.restartServer(rebuildOnRestart) }) { Text("Restart") } },
             dismissButton = { TextButton(onClick = { restartConfirm = false }) { Text("Cancel") } },
         )
     }

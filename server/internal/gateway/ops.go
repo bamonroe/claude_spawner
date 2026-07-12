@@ -89,7 +89,7 @@ func (c *conn) runCommand(intent command.Intent) bool {
 	case command.JobStatus:
 		c.doJobStatus()
 	case command.Restart:
-		c.doRestart()
+		c.doRestart(nil) // voice "restart" = full rebuild (nil default)
 	default:
 		return false
 	}
@@ -729,13 +729,21 @@ func (c *conn) doSetWhisperModel(name string, fast bool) {
 // trigger this; the trust boundary is the same as spawning arbitrary commands.
 // Reports back if restart isn't configured (SPAWNER_RESTART_CMD unset) instead of
 // pretending it worked.
-func (c *conn) doRestart() {
+// rebuild is nil for older clients / the voice command (treated as a full rebuild);
+// an explicit false requests a fast bounce that recreates from the existing image
+// without recompiling.
+func (c *conn) doRestart(rebuild *bool) {
+	full := rebuild == nil || *rebuild
 	go func() {
-		if err := c.srv.driver.Restart(context.Background()); err != nil {
+		if err := c.srv.driver.Restart(context.Background(), full); err != nil {
 			c.fail("restart_failed", err.Error())
 			return
 		}
-		c.srv.broadcast(msgSay("rebuilding and restarting the server — back in a moment."))
+		if full {
+			c.srv.broadcast(msgSay("rebuilding and restarting the server — back in a moment."))
+		} else {
+			c.srv.broadcast(msgSay("restarting the server — back in a moment."))
+		}
 	}()
 }
 

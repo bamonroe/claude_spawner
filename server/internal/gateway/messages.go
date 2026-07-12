@@ -42,6 +42,7 @@ type inbound struct {
 	WhisperURL            string            `json:"whisper_url"`             // on `hello`: resident whisper server URL (overrides the default)
 	WhisperModel          string            `json:"whisper_model"`           // on `hello`: ggml model to hot-load on the resident server (e.g. "medium.en")
 	Fast                  bool              `json:"fast"`                    // on `set_whisper_model`: target the fast (draft/detection) server instead of the accurate one
+	Rebuild               *bool             `json:"rebuild"`                 // on `restart`: recompile from source (nil/absent = yes, back-compat) vs a fast bounce that recreates from the existing image
 	Before                *int              `json:"before"`                  // on `history`: page cursor (exclusive index); nil = most recent
 	Limit                 int               `json:"limit"`                   // on `history`: page size (default 30)
 	HaveHash              string            `json:"have_hash"`               // on `history`: digest of the top page the app already cached; server replies `unchanged` if it still matches

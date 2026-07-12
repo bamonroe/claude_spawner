@@ -12,6 +12,14 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-12 — **Restart button: optional rebuild.** The restart dialog has a *Rebuild from
+      source* checkbox (default on). The `restart` message carries a `rebuild` flag (nil/absent =
+      rebuild, back-compat); the server substitutes the `%REBUILD%` token in `SPAWNER_RESTART_CMD`
+      with `rebuild`/`bounce` and passes it to `rebuild-container.sh` — `rebuild` does the `--no-cache`
+      recompile, `bounce` recreates from the existing image (fast, no code change). Also hardened the
+      script: force-remove the stale-named container before recreate (cross-project name collision was
+      silently no-op-ing the recreate) and always `--no-cache` on rebuild (stale-layer reuse shipped an
+      old binary in a fresh container). Wired through both clients; docs + protocol updated.
 - [x] 2026-07-12 — **Whisper model download-on-select.** The audio picker offers the full curated
       English catalogue (`transcribe.EnglishModels`); picking a model that isn't on disk downloads it
       from Hugging Face into `SPAWNER_WHISPER_MODELS_DIR`, shows a live progress bar, then hot-loads it
