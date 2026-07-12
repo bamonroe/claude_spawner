@@ -4,12 +4,12 @@
 # it rebuilds the image from current source and recreates the container, so one tap
 # ships new server code. The whisper service is left untouched.
 #
-# It MUST run on the HOST, not inside the container — `compose up --build` recreates
-# the container and would kill anything running inside it (including this script). The
-# restart command SSHes into the host (localhost) and launches this DETACHED (setsid),
-# so it survives the very container it replaces. The build happens as part of
-# `up --build`; if it fails, compose leaves the running container in place. Safe to run
-# repeatedly.
+# It MUST run on the HOST, not inside the container — recreating the container would
+# kill anything running inside it (including this script). The restart command SSHes
+# into the host (localhost) and launches this DETACHED (setsid), so it survives the very
+# container it replaces. It builds the image (--no-cache, so a fresh compile every time)
+# and only then recreates the container; if the build fails, `set -e` aborts before the
+# recreate, leaving the running container in place. Safe to run repeatedly.
 set -euo pipefail
 
 REPO=/data/claude_spawner
@@ -27,6 +27,12 @@ cd "$REPO"
 export SPAWNER_UID="$(id -u)" SPAWNER_GID="$(id -g)"
 
 echo "==> rebuild image + recreate the server container (whisper left as-is)"
-docker compose up -d --build spawner-server
+# --no-cache: force a fresh compile every time. `up --build` alone trusts Docker's
+# layer cache to notice changed source, but it has silently reused a stale build layer
+# and shipped an old binary in a fresh container — so the restart button appeared to do
+# nothing. A full no-cache build is slower but guarantees the running server is the
+# current code, which is the whole point of the button.
+docker compose build --no-cache spawner-server
+docker compose up -d spawner-server
 
 echo "==> done."

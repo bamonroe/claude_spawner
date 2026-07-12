@@ -75,9 +75,12 @@ path; text turns work without them.)
 For the container the app's **restart** button is a *one-tap deploy*, not just a bounce:
 `SPAWNER_RESTART_CMD` SSHes to the host over loopback and launches
 [`rebuild-container.sh`](rebuild-container.sh) detached (`setsid`), which runs
-`compose up -d --build spawner-server` to rebuild the image from current source and recreate the
-gateway container (the whisper service is left untouched). It **must** run on the host —
-`up --build` replaces the very container the server lives in, so an in-container command would be
+`compose build --no-cache spawner-server` then `compose up -d spawner-server` to rebuild the image
+from current source and recreate the gateway container (the whisper service is left untouched). The
+build is deliberately `--no-cache`: `up --build` alone once reused a stale layer and shipped an old
+binary in a fresh container, so the button appeared to do nothing — a full recompile guarantees the
+running server is the current code. It **must** run on the host —
+recreating the container replaces the very container the server lives in, so an in-container command would be
 killed mid-recreate; `setsid` over SSH decouples it so it survives. The image ships `openssh-client`
 for exactly this, and the compose file mounts the host `/etc/passwd` read-only — without a passwd
 entry the openssh client aborts with *"No user exists for uid"* (the container runs as a bare uid;
