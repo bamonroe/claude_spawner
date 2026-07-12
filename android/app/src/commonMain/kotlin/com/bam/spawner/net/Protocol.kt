@@ -20,11 +20,16 @@ import kotlinx.serialization.json.putJsonObject
  * JVM-only and this file is now shared between the Android and web clients).
  */
 sealed interface ServerMsg {
-    data class HelloOk(val serverVersion: String, val whisperModel: String, val whisperModelFast: String = "", val whisperModels: List<String> = emptyList()) : ServerMsg
+    data class HelloOk(val serverVersion: String, val whisperModel: String, val whisperModelFast: String = "", val whisperModels: List<String> = emptyList(), val whisperModelsLocal: List<String> = emptyList()) : ServerMsg
     // The resident servers' current models, server-global: accurate ("full") +
-    // fast draft/detection ("quick"; empty = no fast server configured), plus
-    // the ggml models available on the server's disk (empty = unknown → free text).
-    data class WhisperModel(val model: String, val fastModel: String = "", val models: List<String> = emptyList()) : ServerMsg
+    // fast draft/detection ("quick"; empty = no fast server configured). `models`
+    // is the English-model catalogue offered as a picker; `local` is the subset
+    // already downloaded — a catalogue entry not in `local` downloads on select.
+    // Both empty = unknown → free text.
+    data class WhisperModel(val model: String, val fastModel: String = "", val models: List<String> = emptyList(), val local: List<String> = emptyList()) : ServerMsg
+    // Progress of an on-demand ggml model download the server runs when a client
+    // picks a catalogue model that isn't on disk yet. total 0 = unknown size.
+    data class WhisperDownload(val model: String, val fast: Boolean, val received: Long, val total: Long, val done: Boolean, val error: String) : ServerMsg
     data class Say(val text: String) : ServerMsg
     data class Transcript(val text: String, val final: Boolean) : ServerMsg
     data class Pending(val text: String) : ServerMsg // live hands-free draft buffer
@@ -70,8 +75,9 @@ sealed interface ServerMsg {
         fun parse(raw: String): ServerMsg {
             val o = json.parseToJsonElement(raw).jsonObject
             return when (o.str("type")) {
-                "hello_ok" -> HelloOk(o.str("server_version"), o.str("whisper_model"), o.str("whisper_model_fast"), readStrings(o.arr("whisper_models")))
-                "whisper_model" -> WhisperModel(o.str("model"), o.str("fast_model"), readStrings(o.arr("whisper_models")))
+                "hello_ok" -> HelloOk(o.str("server_version"), o.str("whisper_model"), o.str("whisper_model_fast"), readStrings(o.arr("whisper_models")), readStrings(o.arr("whisper_models_local")))
+                "whisper_model" -> WhisperModel(o.str("model"), o.str("fast_model"), readStrings(o.arr("whisper_models")), readStrings(o.arr("whisper_models_local")))
+                "whisper_download" -> WhisperDownload(o.str("model"), o.bool("fast"), o.long("received"), o.long("total"), o.bool("done"), o.str("error"))
                 "say" -> Say(o.str("text"))
                 "transcript" -> Transcript(o.str("text"), o.bool("final", true))
                 "pending" -> Pending(o.str("text"))

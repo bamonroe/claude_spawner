@@ -696,7 +696,14 @@ func (c *conn) resolveSession(spoken string) *session.Session {
 // success, broadcast the new models to every client, else report the error.
 func (c *conn) doSetWhisperModel(name string, fast bool) {
 	go func() {
-		if err := c.srv.setWhisperModel(strings.TrimSpace(name), fast); err != nil {
+		name = strings.TrimSpace(name)
+		// Fetch the model first if it's a known catalog model not yet on disk; this
+		// broadcasts download progress and is a no-op when it's already present.
+		if err := c.srv.ensureModel(name, fast); err != nil {
+			c.fail("whisper_failed", err.Error())
+			return
+		}
+		if err := c.srv.setWhisperModel(name, fast); err != nil {
 			c.fail("whisper_failed", err.Error())
 			return
 		}

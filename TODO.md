@@ -12,6 +12,12 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [ ] 2026-07-12 — **Whisper model download-on-select (app UI).** Server side landed: the audio
+      picker now offers the full curated English catalogue (`transcribe.EnglishModels`), and picking a
+      model that isn't on disk downloads it from Hugging Face into `SPAWNER_WHISPER_MODELS_DIR` then
+      hot-loads it; a fresh deploy auto-fetches the boot model. New `whisper_download` progress
+      broadcast + `whisper_models_local` field. Remaining: wire the app's audio settings dropdown to
+      show every catalogue model with a downloaded/needs-download marker and a live download bar.
 - [x] 2026-07-12 — **Server comes up bare: self-managed SSH keypair + auto-seeded loopback trust.**
       The server now mints its **own** ed25519 keypair (separate from the host's `~/.ssh` keys) on
       first boot when `SPAWNER_SSH_KEY` is empty — at `<state>/ssh/id_ed25519`, writing the public key

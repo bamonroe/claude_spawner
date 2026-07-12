@@ -83,26 +83,50 @@ func msgAgents(reg *agent.Registry) map[string]any {
 	return map[string]any{"type": "agents", "agents": agents, "default": def}
 }
 
-func msgHelloOK(sessionID, whisperModel, whisperFastModel string, whisperModels []string) map[string]any {
+func msgHelloOK(sessionID, whisperModel, whisperFastModel string, whisperModels, whisperModelsLocal []string) map[string]any {
 	if whisperModels == nil {
 		whisperModels = []string{}
+	}
+	if whisperModelsLocal == nil {
+		whisperModelsLocal = []string{}
 	}
 	return map[string]any{
 		"type": "hello_ok", "server_version": serverVersion, "session_id": sessionID,
 		"whisper_model": whisperModel, "whisper_model_fast": whisperFastModel,
-		"whisper_models": whisperModels,
+		"whisper_models": whisperModels, "whisper_models_local": whisperModelsLocal,
 	}
 }
 
 // msgWhisperModel reports the resident whisper servers' current models (server-
 // global): the accurate one and the fast draft/detection one (fast_model is ""
-// when no fast server is configured), plus the ggml models available on disk
-// (empty when SPAWNER_WHISPER_MODELS_DIR isn't set). Broadcast on any change.
-func msgWhisperModel(name, fastName string, models []string) map[string]any {
+// when no fast server is configured). `whisper_models` is the full English
+// catalog offered as a picker (plus any extra on-disk ggml file), and
+// `whisper_models_local` is the subset actually downloaded — so the app can mark
+// which entries would download on select. Both empty when
+// SPAWNER_WHISPER_MODELS_DIR isn't set. Broadcast on any change.
+func msgWhisperModel(name, fastName string, models, local []string) map[string]any {
 	if models == nil {
 		models = []string{}
 	}
-	return map[string]any{"type": "whisper_model", "model": name, "fast_model": fastName, "whisper_models": models}
+	if local == nil {
+		local = []string{}
+	}
+	return map[string]any{
+		"type": "whisper_model", "model": name, "fast_model": fastName,
+		"whisper_models": models, "whisper_models_local": local,
+	}
+}
+
+// msgWhisperDownload reports progress of an on-demand ggml model download (the
+// server fetches a catalog model that isn't on disk when a client selects it).
+// `received`/`total` are bytes (total 0 = unknown); `done` marks completion, and
+// `error` is set (with done) when the download failed. `fast` echoes which
+// server the download is for. Broadcast to every client so all see the progress.
+func msgWhisperDownload(model string, fast bool, received, total int64, done bool, errStr string) map[string]any {
+	return map[string]any{
+		"type": "whisper_download", "model": model, "fast": fast,
+		"received": received, "total": total, "done": done, "error": errStr,
+	}
 }
 
 func msgSay(text string) map[string]any {

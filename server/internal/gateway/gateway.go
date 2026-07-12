@@ -64,6 +64,9 @@ type Server struct {
 	fastLoaded    string     // "<url>|<model>" last hot-loaded on the fast (draft/detection) server
 	currentFast   string     // the fast server's model NAME ("" when no fast server is configured)
 
+	downloadMu  sync.Mutex      // guards downloading
+	downloading map[string]bool // ggml model names being fetched now, so two clients don't double-download
+
 	settings *session.SettingsStore // persisted server-global prefs (survives restart)
 
 	rateLimitMu sync.Mutex        // guards the last-seen subscription rate-limit state
@@ -139,6 +142,85 @@ func (s *Server) availableWhisperModels() []string {
 	return names
 }
 
+// catalogWhisperModels is what the picker offers: the full curated English
+// catalog (small→large) followed by any extra ggml file on disk that isn't in
+// it, so the app can present every downloadable English model, not just the ones
+// already fetched. Returns nil when SPAWNER_WHISPER_MODELS_DIR isn't set — with
+// no dir we can't download, so the app falls back to free-text entry.
+func (s *Server) catalogWhisperModels() []string {
+	if s.cfg.WhisperModelsDir == "" {
+		return nil
+	}
+	seen := map[string]bool{}
+	var names []string
+	for _, m := range transcribe.EnglishModels {
+		names = append(names, m.Name)
+		seen[m.Name] = true
+	}
+	for _, n := range s.availableWhisperModels() { // on-disk, size-ordered
+		if !seen[n] {
+			names = append(names, n)
+			seen[n] = true
+		}
+	}
+	return names
+}
+
+// ensureModel makes sure ggml-<name>.bin is present in the models dir before a
+// /load, downloading it from the catalog when it's missing. It broadcasts
+// progress so the app can show a download bar (a big model is a slow fetch), and
+// single-flights per name so two clients selecting the same missing model share
+// one download. A no-op when the file exists, the dir is unset (free-text mode),
+// or the name isn't a known catalog model (let the /load surface the error).
+func (s *Server) ensureModel(name string, fast bool) error {
+	dir := s.cfg.WhisperModelsDir
+	if dir == "" || !transcribe.IsCatalogModel(name) {
+		return nil
+	}
+	if _, err := os.Stat(filepath.Join(dir, transcribe.ModelFileName(name))); err == nil {
+		return nil // already present
+	}
+	s.downloadMu.Lock()
+	if s.downloading[name] {
+		s.downloadMu.Unlock()
+		return fmt.Errorf("model %s is already downloading", name)
+	}
+	s.downloading[name] = true
+	s.downloadMu.Unlock()
+	defer func() {
+		s.downloadMu.Lock()
+		delete(s.downloading, name)
+		s.downloadMu.Unlock()
+	}()
+
+	log.Printf("whisper: downloading model %s into %s", name, dir)
+	s.broadcastWhisperDownload(name, fast, 0, 0, false, "")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+	err := transcribe.DownloadModel(ctx, dir, name, func(received, total int64) {
+		s.broadcastWhisperDownload(name, fast, received, total, false, "")
+	})
+	if err != nil {
+		s.broadcastWhisperDownload(name, fast, 0, 0, true, err.Error())
+		return err
+	}
+	s.broadcastWhisperDownload(name, fast, 0, 0, true, "")
+	return nil
+}
+
+// broadcastWhisperDownload pushes model-download progress to every connected app.
+func (s *Server) broadcastWhisperDownload(name string, fast bool, received, total int64, done bool, errStr string) {
+	s.connsMu.Lock()
+	cs := make([]*conn, 0, len(s.conns))
+	for c := range s.conns {
+		cs = append(cs, c)
+	}
+	s.connsMu.Unlock()
+	for _, c := range cs {
+		c.send(msgWhisperDownload(name, fast, received, total, done, errStr))
+	}
+}
+
 // setWhisperModel hot-loads `name` onto a resident whisper server — the fast
 // (draft/detection) one when fast is set, else the accurate one — and records
 // it as that server's current model. Blocks on the /load; call it from a
@@ -187,7 +269,8 @@ func (s *Server) setWhisperModel(name string, fast bool) error {
 // (accurate + fast), so a change made by one client updates all of them.
 func (s *Server) broadcastWhisperModel() {
 	model, fastModel := s.currentWhisperModels()
-	models := s.availableWhisperModels()
+	all := s.catalogWhisperModels()
+	local := s.availableWhisperModels()
 	s.connsMu.Lock()
 	cs := make([]*conn, 0, len(s.conns))
 	for c := range s.conns {
@@ -195,7 +278,7 @@ func (s *Server) broadcastWhisperModel() {
 	}
 	s.connsMu.Unlock()
 	for _, c := range cs {
-		c.send(msgWhisperModel(model, fastModel, models))
+		c.send(msgWhisperModel(model, fastModel, all, local))
 	}
 }
 
@@ -281,6 +364,7 @@ func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, ids
 		fastStt:      fast,
 		projects:     proj,
 		clients:      map[string]*clientState{},
+		downloading:  map[string]bool{},
 		jobs:         map[string]*sessionJob{},
 		conns:        map[*conn]bool{},
 		inflight:     inflight,
@@ -301,6 +385,11 @@ func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, ids
 	// doesn't delay startup.
 	if cfg.WhisperURL != "" && bootModel != "" {
 		go func() {
+			// Auto-fetch the boot model if the models dir is empty, so a fresh deploy
+			// comes up transcribing without the operator pre-placing ggml files.
+			if err := s.ensureModel(bootModel, false); err != nil {
+				log.Printf("whisper: startup download failed: %v", err)
+			}
 			if err := s.setWhisperModel(bootModel, false); err != nil {
 				log.Printf("whisper: startup load failed: %v", err)
 			}
@@ -308,6 +397,9 @@ func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, ids
 	}
 	if cfg.WhisperFastURL != "" && bootFast != "" {
 		go func() {
+			if err := s.ensureModel(bootFast, true); err != nil {
+				log.Printf("whisper: fast startup download failed: %v", err)
+			}
 			if err := s.setWhisperModel(bootFast, true); err != nil {
 				log.Printf("whisper: fast startup load failed: %v", err)
 			}
@@ -552,7 +644,7 @@ func (c *conn) authenticate() bool {
 	// The whisper model is server-global: the app reads it here rather than pushing
 	// its own (so two clients don't bounce it), and changes it via set_whisper_model.
 	model, fastModel := c.srv.currentWhisperModels()
-	c.send(msgHelloOK("ws", model, fastModel, c.srv.availableWhisperModels()))
+	c.send(msgHelloOK("ws", model, fastModel, c.srv.catalogWhisperModels(), c.srv.availableWhisperModels()))
 	// Advertise the AI backend registry so the app's new-session picker can offer a
 	// backend + model choice (and badge sessions by backend).
 	c.send(msgAgents(c.srv.driver.Registry()))
