@@ -1,10 +1,6 @@
 package com.bam.spawner
 
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -15,15 +11,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.fillMaxSize
 import com.bam.spawner.audio.AudioOutput
-import com.bam.spawner.ui.ThemeMode
+import com.bam.spawner.ui.SpawnerTheme
 import com.bam.spawner.ui.parseThemeMode
 
 /**
  * The browser client's root: a minimal navigation shell over the shared screens, backed by a
  * [WebAppController] (real WebSocket) and [WebPrefs] (localStorage). Auto-connects on load using
- * the saved URL/token; the audio hardware the shared [MainScreen] expects is stubbed (no mic /
- * TTS / output routing in the browser until M5). `AppRoot` stays Android-only, so this is the
- * web equivalent.
+ * the saved URL/token. Browser audio is live (Web Audio push-to-talk + hands-free, SpeechSynthesis
+ * TTS); output routing is Speaker/Mute only, since browsers speak to the OS default sink. `AppRoot`
+ * stays Android-only, so this is the web equivalent.
  */
 @Composable
 fun WebRoot() {
@@ -33,17 +29,13 @@ fun WebRoot() {
     var screen by remember { mutableStateOf("main") }
     val connected by controller.connected.collectAsState()
     val mic by controller.micText.collectAsState()
+    val audioOutput by controller.audioOutput.collectAsState()
 
     // Connect once on load using the saved server URL + token (edit them under Settings → Server).
     LaunchedEffect(Unit) { controller.connect(prefs.url, prefs.token) }
 
     val reconnect = { controller.connect(prefs.url, prefs.token) }
-    val dark = when (themeMode) {
-        ThemeMode.SYSTEM -> isSystemInDarkTheme()
-        ThemeMode.LIGHT -> false
-        ThemeMode.DARK -> true
-    }
-    MaterialTheme(colorScheme = if (dark) darkColorScheme() else lightColorScheme()) {
+    SpawnerTheme(themeMode) {
         Surface(Modifier.fillMaxSize()) {
             when (screen) {
                 "settings" -> SettingsHub(onOpen = { screen = it }, onBack = { screen = "main" })
@@ -81,13 +73,13 @@ fun WebRoot() {
                     showCacheTimer = prefs.cacheWarmTimer,
                     trayCommandNames = prefs.trayCommandNames().toSet(),
                     // Push-to-talk, SpeechSynthesis TTS, and VAD-gated hands-free are all live
-                    // (M5); only audio-output routing stays stubbed (browsers speak to the
-                    // default sink).
+                    // (M5). Browsers speak to the OS default sink and expose no routing, so the
+                    // output control is Speaker (voice on) vs Mute (voice off).
                     mic = mic,
-                    audioOutput = AudioOutput.MUTE,
-                    audioOutputs = listOf(AudioOutput.MUTE),
+                    audioOutput = audioOutput,
+                    audioOutputs = listOf(AudioOutput.SPEAKER, AudioOutput.MUTE),
                     onToggleHandsFree = { on -> if (on) controller.startHandsFree() else controller.stopHandsFree() },
-                    onSelectAudioOutput = {},
+                    onSelectAudioOutput = controller::setAudioOutput,
                     onRefreshOutputs = {},
                     onTalkStart = controller::startTalking,
                     onTalkStop = controller::stopTalking,

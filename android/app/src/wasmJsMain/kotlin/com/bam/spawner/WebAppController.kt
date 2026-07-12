@@ -1,5 +1,6 @@
 package com.bam.spawner
 
+import com.bam.spawner.audio.AudioOutput
 import com.bam.spawner.net.AgentInfo
 import com.bam.spawner.net.AskQuestion
 import com.bam.spawner.net.DiscoveredInfo
@@ -88,6 +89,28 @@ class WebAppController(private val prefs: Prefs) : AppController {
     override val voiceState: StateFlow<VoiceState> = _voiceState.asStateFlow()
     private val _speaking = MutableStateFlow(false)
     override val speaking: StateFlow<Boolean> = _speaking.asStateFlow()
+
+    // Browser audio output. The page speaks via SpeechSynthesis to the OS default sink, so the
+    // only meaningful routing is Speaker (voice on) vs Mute (voice off). Any saved earpiece/
+    // bluetooth value (from the phone's registry) normalizes to Speaker. Persisted like the phone.
+    private val _audioOutput = MutableStateFlow(
+        if (runCatching { AudioOutput.valueOf(prefs.audioOutput.uppercase()) }.getOrNull() == AudioOutput.MUTE)
+            AudioOutput.MUTE
+        else
+            AudioOutput.SPEAKER,
+    )
+    val audioOutput: StateFlow<AudioOutput> = _audioOutput.asStateFlow()
+
+    /** Switch the browser voice on (Speaker) or off (Mute); Mute also halts any current utterance. */
+    fun setAudioOutput(out: AudioOutput) {
+        val o = if (out == AudioOutput.MUTE) AudioOutput.MUTE else AudioOutput.SPEAKER
+        _audioOutput.value = o
+        prefs.audioOutput = o.name.lowercase()
+        if (o == AudioOutput.MUTE) {
+            cancelSpeech()
+            _speaking.value = false
+        }
+    }
     private val _activity = MutableStateFlow("")
     override val activity: StateFlow<String> = _activity.asStateFlow()
 
@@ -475,6 +498,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
     // queue in the engine; a lightweight poll flips `speaking` off once the queue drains so
     // the SpeakingBar and its stop button track real playback.
     private fun speak(text: String) {
+        if (_audioOutput.value == AudioOutput.MUTE) return
         val spoken = Markdown.toSpeech(text)
         if (spoken.isBlank()) return
         speakText(spoken)

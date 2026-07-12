@@ -346,12 +346,14 @@ Milestones:
               `BrowseScreen`/`ServerCertSection` and owns permissions/lifecycle) and hosts the shared
               `MainScreen`. **Verified: `:app:assembleDebug` (APK) + `:app:wasmJsBrowserDistribution`
               (web bundle) both build.**
-  - [~] **(d) Remaining platform seams — mostly done.** Done: prefs (`Prefs`/`WebPrefs`), monotonic +
-        wall clock (`Clock.kt`), file pickers (InputBar 📎 slot), back handler (`PlatformBackHandler`),
-        `AudioOutput`/`ThemeMode` shared. Still open: status-bar chrome (`ui/Theme.kt`
-        `setStatusBarAppearance` → `expect/actual`; the web root uses plain `MaterialTheme` so it's not
-        blocking). Audio capture / wake word / TTS / notifications / foreground service are M5 (web
-        gets Web Audio + `SpeechSynthesis`); until then the web controller stubs them.
+  - [x] **(d) Remaining platform seams — done.** (2026-07-11) Done: prefs (`Prefs`/`WebPrefs`),
+        monotonic + wall clock (`Clock.kt`), file pickers (InputBar 📎 slot), back handler
+        (`PlatformBackHandler`), `AudioOutput`/`ThemeMode` shared, and now **status-bar chrome**:
+        `SpawnerTheme` moved to `commonMain/ui/Theme.kt` over a new `expect fun
+        ApplySystemBarAppearance(dark)` — Android's `actual` tints the window insets controller,
+        web's is a no-op. `WebRoot` uses the shared `SpawnerTheme` instead of inline `MaterialTheme`.
+        Audio capture / wake word / TTS / notifications / foreground service are M5 (web gets Web
+        Audio + `SpeechSynthesis`); until then the web controller stubs them.
   - [x] 2026-07-09 — **(e) Web controller + entry point wired.** `wasmJsMain/WebPrefs.kt`
         (`localStorage`-backed `Prefs`), `WebAppController.kt` (implements `AppController`, wiring a real
         shared `SpawnerClient`'s `ServerMsg`s → state flows and methods → `Outbound` sends; replicates the
@@ -435,8 +437,14 @@ Milestones:
         as the phone; server streaming-appends until the end token). Echo rejected by tripling the
         VAD bar while `speechSynthesis.speaking` (plus getUserMedia's own echoCancellation).
         `voiceState` now tracks LISTENING/CAPTURING/SPEAKING. Per-session toggle (not auto-started —
-        getUserMedia needs a user gesture). ⚠ live browser test pending. Remaining M5: audio-output
-        routing (output stays MUTE — browsers speak to the default sink).
+        getUserMedia needs a user gesture). ⚠ live browser test pending.
+  - [x] 2026-07-11 — **Browser audio-output control (Speaker/Mute).** Browsers speak via
+        `SpeechSynthesis` to the OS default sink and expose no routing, so the picker now offers the
+        two states that matter: Speaker (voice on) vs Mute (voice off). `WebAppController` owns an
+        `audioOutput` flow + `setAudioOutput`, persists it via `Prefs.audioOutput`, gates `speak()`
+        on it, and cancels any in-flight utterance when muted; `WebRoot` feeds it into the shared
+        `TopBar` output button. (Any saved earpiece/bluetooth value from the phone normalizes to
+        Speaker.) Replaces the old MUTE-only stub.
   - [x] `localStorage`-backed prefs — done earlier with `WebPrefs`.
 - [~] **M6 — Serve + document.** (in progress)
   - [x] 2026-07-09 — **Server hosts the web bundle.** New `SPAWNER_WEB_DIR` config: when set, the Go
@@ -447,8 +455,8 @@ Milestones:
         origin** (`/ws`, `wss://` on https) so a server-hosted client connects with no setup.
         Documented in `CLAUDE.md` (config) + `README.md` (web-client build/run section). Verified on a
         scratch port: `/`→index.html, `/spawnerweb.wasm`→`application/wasm`, `/healthz`→ok; `go build`
-        + `go test ./...` green. **Live browser load over the server itself + status-bar `expect/actual`
-        remain.**
+        + `go test ./...` green. (Live browser load over the server itself was verified next; the
+        status-bar `expect/actual` seam landed 2026-07-11 — see M3 step (d).)
   - [x] 2026-07-09 — **Live browser verified + two connect blockers fixed.** The web client is served
         by the container (`:8098`) and reachable at `https://claude.bam` (Caddy `tls <cert> <key>` with
         a self-signed cert in `deploy/tls/`, set via caddyedit — the host Caddy's internal CA had an
