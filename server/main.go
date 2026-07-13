@@ -52,15 +52,26 @@ func main() {
 	}
 	driver := session.NewDriver()
 	driver.RestartCmd = cfg.RestartCmd
-	defaultProfile := session.ExecProfile{
-		Name:      session.DefaultProfileName,
-		Target:    session.TargetHost,
-		Image:     cfg.SandboxImage,
-		HomeMount: os.Getenv("HOME"),
-		Mounts:    cfg.SandboxMounts,
-		RunArgs:   cfg.SandboxRunArgs,
+	// First-run starter profiles, seeded from the flat sandbox config. Written once
+	// to SPAWNER_PROFILES; after that the app owns the catalogue. bare-metal (host)
+	// is the default so a fresh install works even without a sandbox image; the two
+	// sandbox starters are seeded only when an image is configured.
+	seed := []session.ExecProfile{
+		{Name: "bare-metal", Target: session.TargetHost, Default: true},
 	}
-	profiles, err := session.LoadProfiles(cfg.ProfilesPath, defaultProfile)
+	if cfg.SandboxImage != "" {
+		seed = append(seed,
+			session.ExecProfile{
+				Name: "sandbox", Target: session.TargetSandbox, Image: cfg.SandboxImage,
+				HomeMount: os.Getenv("HOME"), Mounts: cfg.SandboxMounts, RunArgs: cfg.SandboxRunArgs,
+			},
+			session.ExecProfile{
+				Name: "locked", Target: session.TargetSandbox, Image: cfg.SandboxImage,
+				RunArgs: cfg.SandboxRunArgs,
+			},
+		)
+	}
+	profiles, err := session.OpenProfileStore(cfg.ProfilesPath, seed)
 	if err != nil {
 		log.Fatalf("execution profiles: %v", err)
 	}

@@ -1150,7 +1150,8 @@ func (c *conn) newSession(base, dir string, target session.Target, agentID, prof
 	// old callers get Claude.
 	ag := c.srv.driver.Registry().Resolve(agentID)
 	s.Agent, s.Model = ag.ID, ag.DefaultModel
-	if p := c.srv.driver.ProfileRegistry().Resolve(profileID); p != nil && p.Name != session.DefaultProfileName {
+	reg := c.srv.driver.ProfileRegistry()
+	if p := reg.Resolve(profileID); p != nil && p.Name != reg.DefaultName() {
 		s.Profile = p.Name
 	}
 	if target == session.TargetSandbox {

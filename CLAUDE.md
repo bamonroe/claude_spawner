@@ -127,8 +127,11 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
   context (building it in a throwaway Gradle container if missing, so a fresh clone's first deploy
   ships the client too), so a `rebuild` ships the current client with no host mount), `SPAWNER_ROOT` (colon-separated
   spawn-dir jail), `SPAWNER_STATE` (`sessions.json`), `SPAWNER_PROFILES` (`profiles.json`; optional
-  JSON execution-profile catalogue. Missing file = only the built-in `default` profile, whose image /
-  mounts / run args come from the flat sandbox env vars below),
+  app-managed JSON execution-profile catalogue — the app is the source of truth (like
+  `hosts.json`/`identities.json`), the server persists it and re-broadcasts on change. A missing file
+  is seeded on first run with starter profiles from the flat sandbox env vars below — `bare-metal`
+  (host, marked default), plus `sandbox`/`locked` when `SPAWNER_SANDBOX_IMAGE` is set — then the app
+  owns it. "Default" is a per-profile marker the user sets, not a fixed profile),
   `SPAWNER_PROFILE_VARS` (optional JSON object of string values — the server-wide `{{.Vars.X}}`
   substitution set for profile templating, e.g. `{"OllamaHost":"pickle.bam.net"}`. A profile's own
   `vars` overlay these; profile-derived built-ins are `{{.Home}}`, `{{.Session}}`, `{{.Dir}}`.

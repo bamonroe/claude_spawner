@@ -95,7 +95,7 @@ func msgProfiles(reg *session.ProfileRegistry) map[string]any {
 	for _, p := range reg.List() {
 		profiles = append(profiles, map[string]any{"name": p.Name, "target": p.Target})
 	}
-	return map[string]any{"type": "profiles", "profiles": profiles, "default": session.DefaultProfileName}
+	return map[string]any{"type": "profiles", "profiles": profiles, "default": reg.DefaultName()}
 }
 
 func msgHelloOK(sessionID, whisperModel, whisperFastModel string, whisperModels, whisperModelsLocal []string, tts bool) map[string]any {

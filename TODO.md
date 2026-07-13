@@ -31,6 +31,19 @@ Dates are `YYYY-MM-DD`.
         profile's own `vars`, profile winning on a clash. An undefined var is a hard error that
         surfaces on the turn. Unlocks Ollama-across-hosts (see the `ollama` preset). Covered by render
         + merge + fail-loud tests.
+      - App-managed profiles registry (user-defined profiles + default marker). Full design in
+        `EXEC_PROFILES_DESIGN.md` phase 6.
+        - [x] 2026-07-13 — Server foundation: `ProfileRegistry` is now a file-backed store (path +
+          mutex + atomic flush, `Put`/`Delete`/`SetDefault`/`Get`/`DefaultName`) mirroring
+          `HostStore`. "Default" is a per-profile marker (no built-in `default` profile); resolution
+          falls back to the marked profile else the first; an empty `image` falls back to
+          `SPAWNER_SANDBOX_IMAGE`. First run seeds `bare-metal`/`sandbox`/`locked` from the sandbox
+          env vars and persists them. Store CRUD + seeding + default-marker + example-load tests green.
+        - [ ] Wire + gateway CRUD: `profile_put`/`profile_delete`/`profile_set_default` handlers that
+          mutate + `broadcast(msgProfiles)`, richer `msgProfiles` fields, `bad_profile` error,
+          `docs/protocol.md` + docsync/clientsync + `Protocol.kt` builders.
+        - [ ] App profiles settings page: `ProfilesSettings` Compose screen (list + add/edit/delete +
+          set-default), `set_profiles` hub row + routing, controller impls in both clients.
       - [x] 2026-07-13 — Protocol/client advertisement slice: server now pushes a `profiles`
         message after `agents`, carrying each profile's `name` and advisory `target` plus default
         name. Android and web parse and retain it on `AppController.profiles`.

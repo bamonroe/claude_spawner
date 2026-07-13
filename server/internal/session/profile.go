@@ -7,10 +7,9 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"text/template"
 )
-
-const DefaultProfileName = "default"
 
 var envNameRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
@@ -18,8 +17,13 @@ var envNameRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // session stores only Profile (the name); Driver resolves that name to one of
 // these before a turn or sandbox lifecycle operation runs.
 type ExecProfile struct {
-	Name      string            `json:"name"`
-	Target    Target            `json:"target,omitempty"`
+	Name   string `json:"name"`
+	Target Target `json:"target,omitempty"`
+	// Default marks this profile as the one a session with no explicit choice
+	// resolves to. At most one profile is Default; if none is, the first in the
+	// catalogue is treated as default. The app sets it (there is no built-in
+	// "default" profile — default is a marker, not a special entry).
+	Default   bool              `json:"default,omitempty"`
 	Image     string            `json:"image,omitempty"`
 	HomeMount string            `json:"home_mount,omitempty"`
 	Mounts    []string          `json:"mounts,omitempty"`
@@ -122,64 +126,84 @@ func mergeVars(global, profile map[string]string) map[string]string {
 	return out
 }
 
-// ProfileRegistry is the ordered execution-profile catalogue advertised to
-// clients and used by Driver to resolve a session's Profile name.
+// ProfileRegistry is a concurrency-safe, file-backed catalogue of execution
+// profiles. The app is the source of truth: it creates/edits/deletes profiles and
+// the server persists them to a JSON file and re-broadcasts on change (mirroring
+// HostStore / IdentityStore). Exactly one profile may be marked Default; if none
+// is, the first in the catalogue is treated as default. There is no built-in
+// "default" profile — default is a marker set by the user.
 type ProfileRegistry struct {
+	path  string
+	mu    sync.RWMutex
 	order []*ExecProfile
 	byID  map[string]*ExecProfile
 }
 
-// NewProfileRegistry returns a registry containing at least the built-in default
-// profile. Additional profiles with duplicate names replace the earlier entry.
-func NewProfileRegistry(def ExecProfile, extras ...ExecProfile) (*ProfileRegistry, error) {
-	if def.Name == "" {
-		def.Name = DefaultProfileName
-	}
+// NewProfileRegistry builds an in-memory registry (no persistence) from the given
+// profiles, validating and defensively copying each. Used by tests and by callers
+// that construct a Driver literal.
+func NewProfileRegistry(profiles ...ExecProfile) (*ProfileRegistry, error) {
 	r := &ProfileRegistry{byID: map[string]*ExecProfile{}}
-	if err := r.add(def, ExecProfile{}); err != nil {
-		return nil, err
-	}
-	base := *r.byID[DefaultProfileName]
-	for _, p := range extras {
-		if err := r.add(p, base); err != nil {
+	for _, p := range profiles {
+		if err := r.put(p); err != nil {
 			return nil, err
 		}
 	}
+	r.normalizeDefault()
 	return r, nil
 }
 
-// LoadProfiles reads a JSON profile file and overlays it on top of def. A missing
-// or empty path leaves only the built-in default profile.
-func LoadProfiles(path string, def ExecProfile) (*ProfileRegistry, error) {
-	if path == "" {
-		return NewProfileRegistry(def)
-	}
+// OpenProfileStore loads the profile catalogue from path. A missing file is a
+// first run: the store is seeded with `seed` and written out. An existing file is
+// read as either a JSON array or a {"profiles":[...]} wrapper.
+func OpenProfileStore(path string, seed []ExecProfile) (*ProfileRegistry, error) {
+	r := &ProfileRegistry{path: path, byID: map[string]*ExecProfile{}}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return NewProfileRegistry(def)
+		if !os.IsNotExist(err) {
+			return nil, err
 		}
+		for _, p := range seed {
+			if err := r.put(p); err != nil {
+				return nil, err
+			}
+		}
+		r.normalizeDefault()
+		return r, r.flush()
+	}
+	list, err := parseProfiles(data, path)
+	if err != nil {
 		return nil, err
 	}
-	var extras []ExecProfile
-	if err := json.Unmarshal(data, &extras); err != nil {
+	for _, p := range list {
+		if err := r.put(p); err != nil {
+			return nil, err
+		}
+	}
+	r.normalizeDefault()
+	return r, nil
+}
+
+func parseProfiles(data []byte, path string) ([]ExecProfile, error) {
+	var list []ExecProfile
+	if err := json.Unmarshal(data, &list); err != nil {
 		var wrapped struct {
 			Profiles []ExecProfile `json:"profiles"`
 		}
 		if werr := json.Unmarshal(data, &wrapped); werr != nil {
 			return nil, fmt.Errorf("parse profiles %s: %w", path, err)
 		}
-		extras = wrapped.Profiles
+		list = wrapped.Profiles
 	}
-	return NewProfileRegistry(def, extras...)
+	return list, nil
 }
 
-func (r *ProfileRegistry) add(p ExecProfile, base ExecProfile) error {
+// put validates + defensively copies p and upserts it by name. It takes no lock
+// and does not persist — callers that mutate (Put/Delete/SetDefault) hold r.mu and
+// call flush themselves.
+func (r *ProfileRegistry) put(p ExecProfile) error {
 	if p.Name == "" {
 		return fmt.Errorf("execution profile has empty name")
-	}
-	if p.Image == "" {
-		p.Image = base.Image
 	}
 	if p.Env == nil {
 		p.Env = map[string]string{}
@@ -202,49 +226,156 @@ func (r *ProfileRegistry) add(p ExecProfile, base ExecProfile) error {
 	cp := p
 	if _, exists := r.byID[p.Name]; !exists {
 		r.order = append(r.order, &cp)
-		r.byID[p.Name] = &cp
-		return nil
-	}
-	r.byID[p.Name] = &cp
-	for i, existing := range r.order {
-		if existing.Name == p.Name {
-			r.order[i] = &cp
-			break
+	} else {
+		for i, existing := range r.order {
+			if existing.Name == p.Name {
+				r.order[i] = &cp
+				break
+			}
 		}
 	}
+	r.byID[p.Name] = &cp
 	return nil
 }
 
-// Resolve returns the named profile, falling back to default for empty or unknown
-// names. The returned profile must not be mutated by callers.
+// normalizeDefault keeps at most one Default marker: if a hand-edited file marks
+// several, the first wins and the rest are cleared.
+func (r *ProfileRegistry) normalizeDefault() {
+	seen := false
+	for _, p := range r.order {
+		if !p.Default {
+			continue
+		}
+		if seen {
+			p.Default = false
+		}
+		seen = true
+	}
+}
+
+// Put upserts a profile and persists the catalogue.
+func (r *ProfileRegistry) Put(p ExecProfile) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.put(p); err != nil {
+		return err
+	}
+	r.normalizeDefault()
+	return r.flush()
+}
+
+// Delete removes a profile by name and persists. Removing an absent name is a
+// no-op (idempotent, like HostStore.Delete).
+func (r *ProfileRegistry) Delete(name string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.byID[name]; !ok {
+		return nil
+	}
+	delete(r.byID, name)
+	out := r.order[:0]
+	for _, p := range r.order {
+		if p.Name != name {
+			out = append(out, p)
+		}
+	}
+	r.order = out
+	r.normalizeDefault()
+	return r.flush()
+}
+
+// SetDefault marks name as the default profile, clearing the marker on all others,
+// and persists.
+func (r *ProfileRegistry) SetDefault(name string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.byID[name]; !ok {
+		return fmt.Errorf("unknown profile %q", name)
+	}
+	for _, p := range r.order {
+		p.Default = p.Name == name
+	}
+	return r.flush()
+}
+
+// Get returns the named profile or nil. The result must not be mutated.
+func (r *ProfileRegistry) Get(name string) *ExecProfile {
+	if r == nil {
+		return nil
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.byID[name]
+}
+
+// Resolve returns the named profile, falling back to the default (marked, else the
+// first) for an empty or unknown name. The result must not be mutated by callers.
 func (r *ProfileRegistry) Resolve(name string) *ExecProfile {
 	if r == nil {
 		return nil
 	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	if name != "" {
 		if p := r.byID[name]; p != nil {
 			return p
 		}
 	}
-	return r.byID[DefaultProfileName]
+	return r.defaultLocked()
 }
 
-// List returns the profiles in stable display order.
+// DefaultName is the name of the profile a no-choice session resolves to (the
+// marked default, else the first), or "" when the catalogue is empty.
+func (r *ProfileRegistry) DefaultName() string {
+	if r == nil {
+		return ""
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if p := r.defaultLocked(); p != nil {
+		return p.Name
+	}
+	return ""
+}
+
+func (r *ProfileRegistry) defaultLocked() *ExecProfile {
+	for _, p := range r.order {
+		if p.Default {
+			return p
+		}
+	}
+	if len(r.order) > 0 {
+		return r.order[0]
+	}
+	return nil
+}
+
+// List returns the profiles, default first, then in catalogue order.
 func (r *ProfileRegistry) List() []*ExecProfile {
 	if r == nil {
 		return nil
 	}
-	out := append([]*ExecProfile(nil), r.order...)
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Name == DefaultProfileName {
-			return true
-		}
-		if out[j].Name == DefaultProfileName {
-			return false
-		}
-		return out[i].Name < out[j].Name
-	})
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]*ExecProfile, len(r.order))
+	copy(out, r.order)
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Default && !out[j].Default })
 	return out
+}
+
+func (r *ProfileRegistry) flush() error {
+	if r.path == "" {
+		return nil
+	}
+	data, err := json.MarshalIndent(map[string]any{"profiles": r.order}, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := r.path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, r.path)
 }
 
 func (p *ExecProfile) envList() []string {

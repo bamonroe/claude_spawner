@@ -7,62 +7,97 @@ import (
 	"testing"
 )
 
-func TestLoadProfilesDefaultAndExtras(t *testing.T) {
+func TestProfileStoreLoadsFileAndResolvesDefault(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "profiles.json")
 	data := `{
 		"profiles": [
+			{"name": "bare-metal", "target": "host"},
 			{
-				"name": "ollama",
+				"name": "ollama", "target": "sandbox", "default": true,
 				"mounts": ["/host/auth.json:/root/auth.json:ro"],
-				"env": {"OLLAMA_BASE_URL": "http://10.0.0.8:11434"},
-				"run_args": ["--add-host", "pickle:100.64.0.7"]
+				"env": {"OLLAMA_BASE_URL": "http://10.0.0.8:11434"}
 			}
 		]
 	}`
 	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	def := ExecProfile{
-		Name:    DefaultProfileName,
-		Target:  TargetSandbox,
-		Image:   "default-image",
-		Mounts:  []string{"/default:/default:ro"},
-		RunArgs: []string{"--userns=keep-id"},
-	}
-	reg, err := LoadProfiles(path, def)
+	reg, err := OpenProfileStore(path, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := reg.Resolve("").Image; got != "default-image" {
-		t.Fatalf("default image = %q", got)
+	if got := reg.DefaultName(); got != "ollama" {
+		t.Errorf("DefaultName = %q, want ollama (the marked profile)", got)
 	}
-	ollama := reg.Resolve("ollama")
-	if ollama == nil {
-		t.Fatal("missing ollama profile")
-	}
-	if ollama.Image != "default-image" {
-		t.Errorf("extra profile should inherit image, got %q", ollama.Image)
-	}
-	if !reflect.DeepEqual(ollama.Mounts, []string{"/host/auth.json:/root/auth.json:ro"}) {
-		t.Errorf("mounts = %v", ollama.Mounts)
-	}
-	if got := ollama.Env["OLLAMA_BASE_URL"]; got != "http://10.0.0.8:11434" {
-		t.Errorf("env = %q", got)
+	if reg.Resolve("").Name != "ollama" {
+		t.Errorf("empty name should resolve to the marked default")
 	}
 	if reg.Resolve("missing") != reg.Resolve("") {
 		t.Errorf("unknown profile did not fall back to default")
 	}
+	if got := reg.Resolve("ollama").Env["OLLAMA_BASE_URL"]; got != "http://10.0.0.8:11434" {
+		t.Errorf("env = %q", got)
+	}
 }
 
-func TestLoadProfilesRejectsBadEnvKey(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "profiles.json")
+// TestProfileStoreFirstRunSeeds verifies a missing file is seeded and persisted,
+// with the first profile treated as default when none is explicitly marked.
+func TestProfileStoreFirstRunSeeds(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "profiles.json")
+	seed := []ExecProfile{{Name: "bare-metal", Target: TargetHost, Default: true}, {Name: "sandbox", Target: TargetSandbox}}
+	reg, err := OpenProfileStore(path, seed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reg.DefaultName() != "bare-metal" {
+		t.Errorf("seeded default = %q, want bare-metal", reg.DefaultName())
+	}
+	// The seed must have been written, so a reopen with no seed sees the same set.
+	reopened, err := OpenProfileStore(path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reopened.List()) != 2 || reopened.Resolve("sandbox") == nil {
+		t.Errorf("seed was not persisted: %d profiles", len(reopened.List()))
+	}
+}
+
+func TestProfileStorePutDeleteSetDefault(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "profiles.json")
+	reg, err := OpenProfileStore(path, []ExecProfile{{Name: "a", Default: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.Put(ExecProfile{Name: "b", Target: TargetSandbox}); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.SetDefault("b"); err != nil {
+		t.Fatal(err)
+	}
+	if reg.DefaultName() != "b" || reg.Resolve("a").Default {
+		t.Errorf("SetDefault did not move the marker exclusively to b")
+	}
+	if err := reg.Delete("a"); err != nil {
+		t.Fatal(err)
+	}
+	if reg.Get("a") != nil || len(reg.List()) != 1 {
+		t.Errorf("Delete left a behind")
+	}
+	// Persisted across reopen.
+	reopened, _ := OpenProfileStore(path, nil)
+	if reopened.DefaultName() != "b" || reopened.Get("a") != nil {
+		t.Errorf("mutations not persisted")
+	}
+}
+
+func TestProfileStoreRejectsBadEnvKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "profiles.json")
 	if err := os.WriteFile(path, []byte(`[{"name":"bad","env":{"1NOPE":"x"}}]`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := LoadProfiles(path, ExecProfile{Name: DefaultProfileName}); err == nil {
-		t.Fatal("LoadProfiles succeeded with invalid env key")
+	if _, err := OpenProfileStore(path, nil); err == nil {
+		t.Fatal("OpenProfileStore succeeded with invalid env key")
 	}
 }
 
@@ -121,7 +156,7 @@ func TestProfileRenderUnknownVarFailsLoud(t *testing.T) {
 
 func TestProfileForMergesVarsProfileWins(t *testing.T) {
 	reg, err := NewProfileRegistry(
-		ExecProfile{Name: DefaultProfileName},
+		ExecProfile{Name: "base", Default: true},
 		ExecProfile{Name: "p", Env: map[string]string{"U": "{{.Vars.A}}-{{.Vars.B}}"}, Vars: map[string]string{"B": "prof"}},
 	)
 	if err != nil {
@@ -141,7 +176,7 @@ func TestProfileForMergesVarsProfileWins(t *testing.T) {
 // documented preset can't silently rot into something the loader rejects.
 func TestShippedExampleProfilesLoad(t *testing.T) {
 	path := filepath.Join("..", "..", "..", "deploy", "profiles.example.json")
-	reg, err := LoadProfiles(path, ExecProfile{Name: DefaultProfileName, HomeMount: "/home/you"})
+	reg, err := OpenProfileStore(path, nil)
 	if err != nil {
 		t.Fatalf("example profiles failed to load: %v", err)
 	}

@@ -100,23 +100,32 @@ Templating applies to every string-bearing profile field — `image`, `home_moun
    profiles that explicitly opt in. **Security note:** any credential in a sandbox is reachable by
    the agent-driven code running there — that is inherent (the agent needs the key to call the
    model), which is exactly why per-profile scoping is the default.
-3. **Ownership → file-based first, app-managed later.** Mirror how `hosts.json`/`identities.json`
-   evolved: start with `SPAWNER_PROFILES` (`profiles.json`) the server reads; add client-side
-   management once the shape is proven. No app UI in the first pass.
+3. **Ownership → app-managed registry (the `hosts.json`/`identities.json` model).** The app is the
+   source of truth: the user creates/edits/deletes profiles on a settings page and the server just
+   persists the catalogue to `SPAWNER_PROFILES` (`profiles.json`) and re-broadcasts on change. The
+   first pass shipped it server-file-only; **revised 2026-07-13** to the full app-managed store
+   (`ProfileRegistry` gained `path`/mutex/atomic flush + `Put`/`Delete`/`SetDefault`, mirroring
+   `HostStore`).
+4. **"Default" is a marker, not a profile.** There is no built-in `default` profile. Each profile is
+   a real thing the user defines (e.g. `bare-metal`, `sandbox`, `locked`), and exactly one may carry
+   a `default` flag the user sets; a session with no explicit choice resolves to it. If none is
+   marked, the first in the catalogue wins. On first run (no file) the server **seeds starters** from
+   the flat sandbox config — `bare-metal` (host, marked default so a fresh install always works),
+   plus `sandbox` and `locked` when `SPAWNER_SANDBOX_IMAGE` is set — then hands ownership to the app.
 
 ## Backward compatibility
 
-The existing env-var sandbox config **becomes the built-in `default` profile**. A session with no
-profile selected uses `default`. Zero behavior change on day one — phase 1 is a pure refactor of the
-globals into a profile the executor consumes.
+The existing env-var sandbox config **seeds the starter profiles on first run** (see decision 4). A
+session with no profile resolves to the marked default (the seeded `bare-metal`, which is host-target
+— matching the pre-profile behavior of running on the host). Sessions persist only a `profile` name;
+empty or unknown resolves to the default marker.
 
-Implemented 2026-07-13: the server reads optional `SPAWNER_PROFILES` (`profiles.json`) as either a
-JSON array of profiles or `{ "profiles": [...] }`. Missing file means only `default`. The built-in
-`default` profile is seeded from `SPAWNER_SANDBOX_IMAGE`, `SPAWNER_SANDBOX_MOUNTS`, and
-`SPAWNER_SANDBOX_RUN_ARGS`. Sessions now persist a `profile` name; empty or unknown resolves to
-`default`. Profile `env` applies to host turns, SSH host turns, and host-side short commands; for
-sandbox sessions, `image`/`mounts`/`creds`/`env`/`run_args` shape the persistent container at create
-time.
+Implemented 2026-07-13: the server reads/writes `SPAWNER_PROFILES` (`profiles.json`) as either a JSON
+array or `{ "profiles": [...] }`. A missing file is seeded (see decision 4) and written out. Profile
+`env` applies to host turns, SSH host turns, and host-side short commands; for sandbox sessions,
+`image`/`mounts`/`creds`/`env`/`run_args` shape the persistent container at create time (an empty
+`image` falls back to `SPAWNER_SANDBOX_IMAGE`). A profile's `home_mount` is bind-mounted only when
+set, so a `locked` profile with no mounts is genuinely isolated.
 
 ## Integration seam
 
@@ -147,7 +156,22 @@ time.
    plus a user-defined `{{.Vars.X}}` map (global `SPAWNER_PROFILE_VARS` overlaid by the profile's
    own `vars`). An undefined var fails the turn loudly. Unlocks Ollama-across-hosts — see the
    `ollama` preset in `deploy/profiles.example.json`.
-6. **opencode backend spike** drops in on top: an `opencode.go` agent + a profile that injects its
+6. **App-managed profiles registry** (user-defined profiles + default marker). Turns the read-only
+   catalogue into a full CRUD registry the app owns, so users define their own profiles instead of
+   editing a server file. Broken into sub-steps:
+   - ✅ 2026-07-13 — **Server foundation.** `ProfileRegistry` is now a file-backed store (path +
+     mutex + atomic flush, `Put`/`Delete`/`SetDefault`/`Get`/`DefaultName`), mirroring `HostStore`.
+     "Default" became a per-profile marker (no built-in `default` profile); resolution falls back to
+     the marked profile, else the first. First run seeds `bare-metal`/`sandbox`/`locked` starters
+     from the sandbox env vars. Covered by store CRUD + seeding + default-marker tests.
+   - ⬜ **Wire + gateway CRUD.** `profile_put` / `profile_delete` / `profile_set_default` inbound
+     handlers that mutate the store and `broadcast(msgProfiles(...))`; enrich `msgProfiles` to carry
+     the full profile fields (so the editor can round-trip them); `bad_profile` error code;
+     `docs/protocol.md` + docsync/clientsync + `Protocol.kt` builders kept green.
+   - ⬜ **App profiles settings page.** A `ProfilesSettings` Compose screen (mirroring
+     `HostsSettings`) with list + add/edit/delete + set-default, a `set_profiles` hub row, and
+     controller impls in both `VoiceController` and `WebAppController`.
+7. **opencode backend spike** drops in on top: an `opencode.go` agent + a profile that injects its
    creds and points at the Ollama endpoint. (See the multi-backend epic in `TODO.md`.)
 
 ## Relationship to the interrupted "Fable" client refactor

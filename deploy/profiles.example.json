@@ -1,5 +1,5 @@
 {
-  "_comment": "Example SPAWNER_PROFILES catalogue. Copy to the path SPAWNER_PROFILES points at (e.g. /state/profiles.json) and edit. These profiles are added ON TOP OF the built-in 'default' profile, which is seeded from the flat SPAWNER_SANDBOX_* env vars and mounts the server's HOME. Paths are HOST paths (sandbox turns drive rootless podman on the host). Templating ({{.Var}}) is not wired yet, so use literal paths for now. Adjust /home/you and the claude/codex mounts to your host layout.",
+  "_comment": "Example SPAWNER_PROFILES catalogue. The app manages profiles at runtime; this file is the on-disk form (edit it directly, or let the server seed starters on first run). This IS the whole catalogue — there is no separate built-in 'default'; 'default: true' marks the profile a no-choice session uses (exactly one; if none, the first wins). Paths are HOST paths (sandbox turns drive rootless podman on the host). {{.Home}}/{{.Session}}/{{.Dir}} and {{.Vars.X}} (from SPAWNER_PROFILE_VARS, overlaid by a profile's own 'vars') are templated; an empty 'image' falls back to SPAWNER_SANDBOX_IMAGE. Adjust /home/you and the claude/codex mounts to your host layout.",
 
   "profiles": [
     {
@@ -18,6 +18,7 @@
     {
       "name": "open",
       "target": "sandbox",
+      "default": true,
       "home_mount": "/home/you",
       "mounts": [
         "/opt/claude-code:/opt/claude-code:ro",

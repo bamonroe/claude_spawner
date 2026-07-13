@@ -222,7 +222,7 @@ func (d *Driver) Registry() *agent.Registry { return d.agents() }
 // default-only registry for tests and older callers that build Driver literals.
 func (d *Driver) ProfileRegistry() *ProfileRegistry {
 	if d.Profiles == nil {
-		d.Profiles, _ = NewProfileRegistry(ExecProfile{Name: DefaultProfileName})
+		d.Profiles, _ = NewProfileRegistry(ExecProfile{Name: "bare-metal", Target: TargetHost, Default: true})
 	}
 	return d.Profiles
 }

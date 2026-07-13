@@ -129,7 +129,7 @@ func send(t *testing.T, ws *websocket.Conn, v map[string]any) {
 func TestProfilesAdvertisedOnConnect(t *testing.T) {
 	ts, _, gw := newTestServerGW(t, nil)
 	reg, err := session.NewProfileRegistry(
-		session.ExecProfile{Name: session.DefaultProfileName, Target: session.TargetHost},
+		session.ExecProfile{Name: "host", Target: session.TargetHost, Default: true},
 		session.ExecProfile{Name: "ollama", Target: session.TargetSandbox},
 	)
 	if err != nil {
@@ -152,10 +152,10 @@ func TestProfilesAdvertisedOnConnect(t *testing.T) {
 		m := item.(map[string]any)
 		names = append(names, m["name"].(string))
 	}
-	if strings.Join(names, ",") != "default,ollama" {
+	if strings.Join(names, ",") != "host,ollama" {
 		t.Fatalf("profile names = %v", names)
 	}
-	if msg["default"] != session.DefaultProfileName {
+	if msg["default"] != "host" {
 		t.Fatalf("default = %#v", msg["default"])
 	}
 }
@@ -1035,7 +1035,7 @@ func TestSpawnAtCreatesNewFolder(t *testing.T) {
 func TestSpawnAtPersistsProfile(t *testing.T) {
 	ts, root, gw := newTestServerGW(t, nil)
 	reg, err := session.NewProfileRegistry(
-		session.ExecProfile{Name: session.DefaultProfileName, Target: session.TargetHost},
+		session.ExecProfile{Name: "host", Target: session.TargetHost, Default: true},
 		session.ExecProfile{Name: "open", Target: session.TargetHost, Env: map[string]string{"OLLAMA_BASE_URL": "http://ollama:11434"}},
 	)
 	if err != nil {

@@ -289,6 +289,12 @@ func (s SandboxExecutor) createArgsFor(name, dir string, p *ExecProfile) []strin
 		// The home mount is profile-scoped: only profiles that carry HomeMount get the
 		// host home bind-mounted, so a "locked" profile (empty HomeMount) can drop it.
 		homeMount = p.HomeMount
+		// A profile with no image of its own falls back to the executor's configured
+		// image (SPAWNER_SANDBOX_IMAGE), so profiles need only override it when they want a
+		// different one.
+		if image == "" {
+			image = s.Image
+		}
 	}
 	args := []string{"run", "-d", "--name", name, "-w", dir, "-v", dir + ":" + dir}
 	if homeMount != "" && homeMount != dir {
