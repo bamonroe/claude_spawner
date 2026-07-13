@@ -4,9 +4,10 @@ Docker images for a **resident whisper.cpp HTTP server** — it builds `whisper-
 and keeps the model loaded in memory, so transcription doesn't reload the model per utterance. The
 spawner's `RemoteWhisper` transcriber POSTs audio to it instead of forking `whisper-cli` each time.
 Why this exists and how the server chooses between resident vs. CLI transcription lives in
-[`../CLAUDE.md`](../CLAUDE.md) (the *Transcription* section) — this file documents the images.
+[`../docs/architecture.md`](../docs/architecture.md) (the *Transcription* section) — this file
+documents the images.
 
-## Two images
+## Three images
 
 | File               | Backend        | Use                                                            |
 |--------------------|----------------|---------------------------------------------------------------|

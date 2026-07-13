@@ -299,12 +299,11 @@ either can back it:
 
 - **`RemoteWhisper`** (`remote.go`) — POSTs the WAV to a **resident whisper.cpp HTTP server**
   (`/inference`). This is the preferred path on this host, which has an **Nvidia GPU**: the
-  `whisper`/`whisper-fast` compose services run whisper.cpp built with **Vulkan** and keep the
-  model warm. Two servers run: an accurate model (`medium.en`, `:8571`) for real dictation, and a
-  fast draft model (`base.en`, `:8572`) for the live hands-free draft + end-token detection, so
-  the cheap high-frequency work never blocks the accurate model. Enabled via
-  `SPAWNER_WHISPER_URL` / `SPAWNER_WHISPER_FAST_URL`. (Measured on the RX 550: `medium.en` ~4.8s,
-  `small.en` ~2–3s, `large-v3` ~10.5s per clip — 3–4× the CPU-only build.)
+  `whisper` compose service runs whisper.cpp built with **CUDA** and keeps the model warm
+  (`medium.en`, `:8571`), handling both real dictation and the live hands-free draft +
+  end-token detection. An optional second, fast draft server (`base.en`, `:8572`) can offload
+  the cheap high-frequency work so it never blocks the accurate model — see `whisper/README.md`
+  for how to add it. Enabled via `SPAWNER_WHISPER_URL` / `SPAWNER_WHISPER_FAST_URL`.
 - **`WhisperCPP`** (`transcribe.go`) — shells out to the **whisper.cpp CLI** (one process per
   utterance), `exec`'d like `claude`/`tmux`, no server. The fallback when no whisper URL is set.
   It size-picks a model per clip (tiny/base/small) from `SPAWNER_WHISPER_MODEL{,_FAST,_BASE}`.
