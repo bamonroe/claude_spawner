@@ -314,6 +314,10 @@ disabled unless a model/URL is configured; when disabled the audio path returns 
 but text utterances still work. Swapping to faster-whisper or a cloud API (e.g. Groq
 large-v3-turbo) stays a one-file change behind the `Transcriber` interface.
 
+Whisper hallucinates on silence (it fills quiet stretches with looped YouTube-outro phrases), so
+the resident server images run with **Silero VAD + non-speech-token suppression** as entrypoint
+defaults — see `whisper/README.md` (the anti-hallucination defaults) for the details.
+
 Known limitation: STT output is all-lowercase, so sessions can't be created in directories with
 uppercase letters by voice. Acceptable; documented in `docs/commands.md`.
 

@@ -22,6 +22,12 @@ the compute backend.
 - Listens on container port **`8571`** (`--host 0.0.0.0`, `-t 4`). The model is **mounted, not
   baked** — `-v /data/storage/whisper:/models:ro` — and selected by the `command:` (`-m
   /models/ggml-<model>.bin`).
+- **Anti-hallucination defaults** (all images): Silero VAD (`--vad`, model baked into the image at
+  `/usr/local/share/whisper-vad/ggml-silero-v5.1.2.bin` — infrastructure, so *not* in the `/models`
+  mount) strips silence before decoding, and `--suppress-nst` suppresses non-speech tokens. Without
+  these, Whisper fills silent stretches in a clip with looped YouTube-outro phrases ("Thanks for
+  watching…"). They're entrypoint defaults; a request can override them per-call (`vad=false`,
+  `suppress_nst=false`).
 - `POST /inference` — multipart `file` (WAV) + `response_format=json`, `temperature=0.0`, optional
   `prompt` (whisper.cpp initial-prompt vocab bias). Returns the transcript as JSON. This is the
   per-utterance call `RemoteWhisper.Transcribe` makes.

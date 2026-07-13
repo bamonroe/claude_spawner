@@ -23,7 +23,15 @@ RUN apt-get update \
 COPY --from=build /out/whisper-server /usr/local/bin/whisper-server
 COPY --from=build /out/lib/ /usr/local/lib/
 RUN ldconfig
+# Silero VAD model, baked in (it's infrastructure, not a user-swappable STT model,
+# so it stays out of the /models mount). Pinned to a repo revision.
+ADD --chmod=644 https://huggingface.co/ggml-org/whisper-vad/resolve/9ffd54a1e1ee413ddf265af9913beaf518d1639b/ggml-silero-v5.1.2.bin /usr/local/share/whisper-vad/ggml-silero-v5.1.2.bin
 
 EXPOSE 8571
-ENTRYPOINT ["whisper-server", "--host", "0.0.0.0", "--port", "8571", "-t", "4"]
+# --vad strips silence before decoding and --suppress-nst drops non-speech tokens:
+# together they stop Whisper hallucinating text ("Thanks for watching…") on
+# silent stretches. Per-request fields can still override both.
+ENTRYPOINT ["whisper-server", "--host", "0.0.0.0", "--port", "8571", "-t", "4", \
+            "--vad", "--vad-model", "/usr/local/share/whisper-vad/ggml-silero-v5.1.2.bin", \
+            "--suppress-nst"]
 CMD ["-m", "/models/ggml-small.en.bin"]

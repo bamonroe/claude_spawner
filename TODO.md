@@ -80,6 +80,14 @@ Dates are `YYYY-MM-DD`.
         rebuild ships the server TTS code (the feature is default-on; flip the Server voice
         switch off to compare).
 
+- [x] 2026-07-13 — **Whisper anti-hallucination: server-side Silero VAD + non-speech-token
+      suppression.** Whisper filled silent stretches in push-to-talk/hands-free clips with looped
+      YouTube-outro phrases ("Thanks for watching…"). All three whisper images now bake in the
+      Silero VAD model (pinned HF revision) and run `whisper-server` with `--vad --vad-model …
+      --suppress-nst` as entrypoint defaults, so silence is stripped before decoding and non-speech
+      tokens are suppressed for every request — no gateway change needed. Documented in
+      `whisper/README.md` + `docs/architecture.md`.
+
 - [x] 2026-07-12 — **Collapsed spawner-server host mounts.** With SSH-native turns, host FS access
       already went over SSH; trimmed the broad `${HOME}`/`/data`/`passwd` bind mounts down to
       essentials (`state` + the narrow whisper models dir). All four steps below done.
