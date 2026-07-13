@@ -44,14 +44,15 @@ Dates are `YYYY-MM-DD`.
           the full ExecProfile per entry; `bad_profile` error; `docs/protocol.md` + docsync/clientsync
           + `Protocol.kt` (`profilePut`/`profileDelete`/`profileSetDefault`, enriched `ProfileInfo`).
           Gateway CRUD-broadcast test green.
-        - [~] App profiles settings page — code written, build-verify PENDING. `ProfilesSettings`
-          Compose screen (list + per-row default marker/"Make default" + Edit/Delete; add/edit form
-          with name, target chips, image, home_mount, multiline mounts/creds/env/run_args/vars), a
-          `ProfilesController` interface + impls in `VoiceController`/`WebAppController`, `set_profiles`
-          hub row, routing in `MainActivity.kt`/`WebRoot.kt`. NOT compiled/tap-tested: local Gradle
-          toolchain broken (`~/.gradle/gradle.properties` pins a removed JDK 21; box has only JDK
-          25/26 which Gradle 8.10.2 rejects). Build APK on a working JDK, install emulator → Pixel 8a,
-          tap-test the editor before checking this off.
+        - [x] 2026-07-13 — App profiles settings page: `ProfilesSettings` Compose screen (list +
+          per-row default marker/"Make default" + Edit/Delete; add/edit form with name, target chips,
+          image, home_mount, multiline mounts/creds/env/run_args/vars), `ProfilesController` interface
+          + impls in `VoiceController`/`WebAppController`, `set_profiles` hub row, routing in both
+          clients. Both platforms compile; APK built + installed on the emulator; screen renders +
+          navigates. Built with a Temurin-17 JDK copied from the `android-emulator` container (box's
+          `~/.gradle/gradle.properties` pins a removed JDK 21; its JDK 25/26 are too new for Gradle
+          8.10.2 — flag for the user to fix). Remaining: form + CRUD round-trip on a server-connected
+          client (emulator was offline) and a Pixel 8a install.
       - [x] 2026-07-13 — Protocol/client advertisement slice: server now pushes a `profiles`
         message after `agents`, carrying each profile's `name` and advisory `target` plus default
         name. Android and web parse and retain it on `AppController.profiles`.

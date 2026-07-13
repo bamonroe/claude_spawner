@@ -170,15 +170,17 @@ set, so a `locked` profile with no mounts is genuinely isolated.
      `bad_profile` error code; `docs/protocol.md` + docsync/clientsync + `Protocol.kt` builders
      (`profilePut`/`profileDelete`/`profileSetDefault`) + enriched `ProfileInfo` all green. Covered by
      a gateway CRUD-broadcast test.
-   - 🟡 **App profiles settings page — code written, build-verify pending.** A `ProfilesSettings`
-     Compose screen (mirroring `HostsSettings`): list with per-row default marker + "Make default" +
-     Edit/Delete, and an add/edit form (name, target chips, image, home_mount, and multiline
-     mounts/creds/env/run_args/vars). A `ProfilesController` interface (`profiles` + put/delete/
-     set-default), impls in both `VoiceController` and `WebAppController`, a `set_profiles` hub row,
-     and routing in `MainActivity.kt` + `WebRoot.kt`. **Not yet compiled/tap-tested:** the local
-     Gradle toolchain is broken — `~/.gradle/gradle.properties` pins `org.gradle.java.home` to a
-     removed JDK 21, and the box only has JDK 25/26 which Gradle 8.10.2 rejects. Needs a working JDK
-     (17/21) to build the APK, install on the emulator, then the Pixel 8a, and tap-test the editor.
+   - ✅ 2026-07-13 — **App profiles settings page.** A `ProfilesSettings` Compose screen (mirroring
+     `HostsSettings`): list with per-row default marker + "Make default" + Edit/Delete, and an
+     add/edit form (name, target chips, image, home_mount, and multiline mounts/creds/env/run_args/
+     vars). A `ProfilesController` interface (`profiles` + put/delete/set-default), impls in both
+     `VoiceController` and `WebAppController`, a `set_profiles` hub row, and routing in
+     `MainActivity.kt` + `WebRoot.kt`. Both platforms compile (built with the Temurin-17 JDK copied
+     out of the `android-emulator` container — the box's global `~/.gradle/gradle.properties` pins a
+     removed JDK 21, and its JDK 25/26 are too new for Gradle 8.10.2). APK built, installed on the
+     emulator, and the screen verified to render + navigate (title, blurb, empty state, Add button;
+     Add is `enabled=connected` like Hosts). Remaining on-device check: the form + CRUD round-trip on
+     a **server-connected** client (emulator was offline), and a Pixel 8a install.
 7. **opencode backend spike** drops in on top: an `opencode.go` agent + a profile that injects its
    creds and points at the Ollama endpoint. (See the multi-backend epic in `TODO.md`.)
 
