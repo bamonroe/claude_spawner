@@ -102,6 +102,11 @@ class SettingsStore(context: Context) : Prefs {
         get() = prefs.getBoolean("server_tts", true)
         set(v) = prefs.edit().putBoolean("server_tts", v).apply()
 
+    /** Chosen Kokoro voice ("" = the server default); rides each speak request. */
+    override var ttsVoice: String
+        get() = prefs.getString("tts_voice", "") ?: ""
+        set(v) = prefs.edit().putString("tts_voice", v).apply()
+
     /** Spoken word that commits a hands-free message ("beep" by default). */
     override var endToken: String
         get() = prefs.getString("end_token", Prefs.DEFAULT_END_TOKEN)?.ifBlank { Prefs.DEFAULT_END_TOKEN } ?: Prefs.DEFAULT_END_TOKEN

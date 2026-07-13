@@ -68,6 +68,10 @@ sealed interface ServerMsg {
     // Closes a speak stream. error empty = success; non-empty (tts disabled,
     // synthesis failed, queue full, …) = fall back to on-device TTS for it.
     data class SpeakEnd(val id: String, val error: String) : ServerMsg
+    // Reply to the tts_voices request: Kokoro's selectable voice ids plus the
+    // server-default voice, for the audio-settings picker. error non-empty
+    // (tts disabled, voices unavailable) = no catalogue.
+    data class TtsVoices(val voices: List<String>, val defaultVoice: String, val error: String) : ServerMsg
     data class SpeechMode(val summaryOnly: Boolean) : ServerMsg // speak only the final result (intermediate steps beep) vs everything
     data class Listing(val path: String, val parent: String, val entries: List<BrowseEntry>) : ServerMsg
     data class FileSaved(val path: String) : ServerMsg // an upload landed on the target host
@@ -129,6 +133,7 @@ sealed interface ServerMsg {
                 "stop_speaking" -> StopSpeaking
                 "speak_audio" -> SpeakAudio(o.str("id"), o.str("codec"))
                 "speak_end" -> SpeakEnd(o.str("id"), o.str("error"))
+                "tts_voices" -> TtsVoices(readStrings(o.arr("voices")), o.str("default"), o.str("error"))
                 "speech_mode" -> SpeechMode(o.bool("summary_only"))
                 "listing" -> Listing(o.str("path"), o.str("parent"), readEntries(o.arr("entries")))
                 "file_saved" -> FileSaved(o.str("path"))
@@ -410,6 +415,10 @@ object Outbound {
         if (voice.isNotEmpty()) put("voice", voice)
         if (format.isNotEmpty()) put("format", format)
     }.toString()
+    // Barge-in for server TTS: drop queued speaks and abort in-flight synthesis.
+    fun speakStop() = buildJsonObject { put("type", "speak_stop") }.toString()
+    // Ask for Kokoro's voice catalogue (the audio-settings voice picker).
+    fun ttsVoices() = buildJsonObject { put("type", "tts_voices") }.toString()
     fun wake(codec: String, handsFree: Boolean = false, calibrate: Boolean = false) =
         buildJsonObject {
             put("type", "wake"); put("codec", codec)

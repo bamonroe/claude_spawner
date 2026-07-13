@@ -240,10 +240,16 @@ streams the audio straight back down the WebSocket, and the app plays it as it a
 synthesized for muted or summary-only-beeping clients, since they never ask. If the server refuses
 or synthesis fails, that utterance is read by the device's own voice automatically — the fallback
 needs no toggling. Barge-in ("hey buddy stop", push-to-talk) halts server-voice playback exactly
-like local speech. The web client has the same switch and fallback — it asks for mp3 and plays the
+like local speech — and it also tells the server to abort the in-flight synthesis, not just the
+local playback. The web client has the same switch and fallback — it asks for mp3 and plays the
 clip via Web Audio (the phone streams raw PCM) — and on-device speech remains the whole story when
-`SPAWNER_TTS_URL` is unset. Voice selection (Kokoro ships dozens) is server-configured via
-`SPAWNER_TTS_VOICE` for now; a per-device voice picker is planned (see `TODO.md`).
+`SPAWNER_TTS_URL` is unset.
+
+Kokoro ships dozens of voices, and each device picks its own: a **Voice** dropdown under the Server
+voice switch lists the server's catalogue (relayed live from Kokoro), with the `SPAWNER_TTS_VOICE`
+default as the first entry. Picking a voice speaks a short preview in it, and the choice rides each
+synthesis request from that device — nothing is stored server-side, so your phone and your browser
+can sound different.
 
 ### Detached background jobs that outlive a turn
 

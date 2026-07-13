@@ -88,6 +88,10 @@ interface AppController : HostsIdentitiesController {
     // Whether the connected server offers Kokoro speech synthesis (hello_ok
     // `tts`) — the audio-settings "Server voice" toggle only takes effect then.
     val serverTtsAvailable: StateFlow<Boolean>
+    // Kokoro's voice catalogue + the server-default voice (from the tts_voices
+    // reply; both empty until the server offers TTS) — feeds the voice picker.
+    val ttsVoices: StateFlow<List<String>>
+    val ttsVoiceDefault: StateFlow<String>
     val ask: StateFlow<List<AskQuestion>?>
     // AI backend registry (from the `agents` message): the backends + models the
     // new-session picker offers. Empty until the server advertises it on connect.
@@ -131,6 +135,9 @@ interface AppController : HostsIdentitiesController {
     // --- Server controls -----------------------------------------------------
     /** Hot-load a resident whisper model: the accurate ("full") server, or the fast ("quick") one. */
     fun setWhisperModel(model: String, fast: Boolean = false)
+    // Speak a short sample in [voice] through the server (the voice picker's
+    // preview; no-op when server TTS is off or unavailable).
+    fun previewTtsVoice(voice: String)
     /** Push the context-compression preference (warm + auto) to the server (live, no reconnect). */
     fun setAutoCompress(warm: Boolean, auto: Boolean, thresholdK: Int)
     /** Restart the server; rebuild=true recompiles from source, false is a fast bounce that reuses the current image. */

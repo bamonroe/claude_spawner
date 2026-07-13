@@ -581,7 +581,9 @@ type conn struct {
 	stt           transcribe.Transcriber // per-conn override (app-set whisper URL); nil = server default
 	scratch       bool                   // scratch mode: while detached, echo each transcription back aloud (STT test)
 
-	speakCh chan speakReq // queued `speak` requests, drained in order by speakWorker; nil = server TTS disabled
+	speakCh     chan speakReq      // queued `speak` requests, drained in order by speakWorker; nil = server TTS disabled
+	speakMu     sync.Mutex         // guards speakCancel (read loop vs speak worker)
+	speakCancel context.CancelFunc // aborts the in-flight synthesis (speak_stop); nil = none running
 }
 
 // transcriber returns this connection's STT — an app-set override if present,
@@ -776,6 +778,8 @@ var wireHandlers = map[string]func(c *conn, in inbound){
 	},
 	"restart":       func(c *conn, in inbound) { c.doRestart(in.Rebuild) },
 	"speak":         func(c *conn, in inbound) { c.handleSpeak(in.ID, in.Text, in.Voice, in.Format) },
+	"speak_stop":    func(c *conn, in inbound) { c.handleSpeakStop() },
+	"tts_voices":    func(c *conn, in inbound) { c.handleTTSVoices() },
 	"wake":          func(c *conn, in inbound) { c.startAudio(in.Codec, in.HandsFree, in.Calibrate) },
 	"commit":        func(c *conn, in inbound) { c.commitMessage() }, // silence-timeout commit of the hands-free buffer
 	"discard_draft": func(c *conn, in inbound) { c.clearBuffer() },   // drop the uncommitted hands-free draft

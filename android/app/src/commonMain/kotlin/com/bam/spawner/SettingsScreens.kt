@@ -910,6 +910,35 @@ fun AudioSettings(
                 onCheckedChange = { serverTts = it; settings.serverTts = it },
             )
         }
+        // The Kokoro voice picker (server-relayed catalogue; empty until the server
+        // offers TTS). Client-local: the choice rides each speak request; picking a
+        // voice speaks a short preview in it.
+        val ttsVoices by controller.ttsVoices.collectAsState()
+        val ttsVoiceDefault by controller.ttsVoiceDefault.collectAsState()
+        if (ttsAvailable && ttsVoices.isNotEmpty()) {
+            var voice by remember { mutableStateOf(settings.ttsVoice) }
+            var voicesOpen by remember { mutableStateOf(false) }
+            Box {
+                OutlinedButton(onClick = { voicesOpen = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Voice: ${voice.ifBlank { "server default ($ttsVoiceDefault)" }} ▾")
+                }
+                DropdownMenu(expanded = voicesOpen, onDismissRequest = { voicesOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text("server default ($ttsVoiceDefault)") },
+                        onClick = {
+                            voice = ""; settings.ttsVoice = ""; voicesOpen = false
+                            controller.previewTtsVoice("")
+                        },
+                    )
+                    ttsVoices.forEach { v ->
+                        DropdownMenuItem(text = { Text(v) }, onClick = {
+                            voice = v; settings.ttsVoice = v; voicesOpen = false
+                            controller.previewTtsVoice(v) // hear it right away
+                        })
+                    }
+                }
+            }
+        }
 
         HorizontalDivider()
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {

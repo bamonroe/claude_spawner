@@ -71,8 +71,14 @@ Dates are `YYYY-MM-DD`.
         in order (WebAudio.kt server-TTS section); same speak() router/fallback/cancel shape as
         Android in WebAppController, and the hands-free VAD echo-triple + SPEAKING pill treat
         server playback like SpeechSynthesis;
-        (5) the audio-settings voice dropdown + barge-in
-        polish + phone verification.
+        (5) ✅ 2026-07-12 voice picker + barge-in polish — new `tts_voices` request relays
+        Kokoro's catalogue live (server-default first; picking a voice speaks a preview in it;
+        the choice is client-local, riding each speak's `voice` field), and new `speak_stop`
+        drops the connection's queued speaks and aborts the in-flight synthesis via a
+        per-request cancel (its stream closes with a `cancelled` speak_end) — sent by both
+        clients alongside local barge-in/mute. Remaining: hear it on the phone after the next
+        rebuild ships the server TTS code (the feature is default-on; flip the Server voice
+        switch off to compare).
 
 - [x] 2026-07-12 — **Collapsed spawner-server host mounts.** With SSH-native turns, host FS access
       already went over SSH; trimmed the broad `${HOME}`/`/data`/`passwd` bind mounts down to

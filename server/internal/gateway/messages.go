@@ -387,6 +387,17 @@ func msgSpeakEnd(id, errStr string) map[string]any {
 	return map[string]any{"type": "speak_end", "id": id, "error": errStr}
 }
 
+// msgTTSVoices relays Kokoro's voice catalogue (reply to `tts_voices`): the
+// selectable voice ids plus the server-default voice (SPAWNER_TTS_VOICE) the
+// client's picker shows as "server default". error non-empty (tts disabled,
+// voices unavailable) = no catalogue; the picker stays free-defaulted.
+func msgTTSVoices(voices []string, def, errStr string) map[string]any {
+	if voices == nil {
+		voices = []string{}
+	}
+	return map[string]any{"type": "tts_voices", "voices": voices, "default": def, "error": errStr}
+}
+
 // msgSpeechMode tells the app whether to speak only the final result of a turn
 // (summary_only true: intermediate streamed steps beep instead of being read
 // aloud) or everything (false). Sent by the "summary only" / "speak everything"

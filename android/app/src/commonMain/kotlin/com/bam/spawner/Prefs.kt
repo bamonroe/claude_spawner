@@ -61,6 +61,9 @@ interface Prefs {
      *  server offers TTS (hello_ok `tts`); on-device speech remains the
      *  automatic fallback (and handles any speak the server refuses). */
     var serverTts: Boolean
+    /** The chosen Kokoro voice for server TTS ("" = the server default). Client-local:
+     *  it rides each speak request's voice field; nothing is stored server-side. */
+    var ttsVoice: String
     /** Spoken word that commits a hands-free message ("beep" by default). */
     var endToken: String
     /** Custom wake word(s), comma-separated for several misheard variants,

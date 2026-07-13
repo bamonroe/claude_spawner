@@ -18,6 +18,10 @@ func fakeKokoro(t *testing.T, audio []byte) (*httptest.Server, *[]map[string]any
 	t.Helper()
 	var reqs []map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/audio/voices" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"voices": []string{"af_heart", "bf_emma"}})
+			return
+		}
 		if r.URL.Path != "/v1/audio/speech" {
 			http.NotFound(w, r)
 			return
@@ -117,6 +121,73 @@ func TestSpeakStreamsAudio(t *testing.T) {
 	}
 	if v := (*reqs)[1]["voice"]; v != "bf_emma" {
 		t.Errorf("override voice = %v, want bf_emma", v)
+	}
+}
+
+func TestTTSVoices(t *testing.T) {
+	kokoro, _ := fakeKokoro(t, []byte("x"))
+	ts, _, gw := newTestServerGW(t, nil)
+	gw.tts = tts.New(kokoro.URL, "bf_emma", "opus")
+	ws, _ := speakHello(t, ts)
+
+	send(t, ws, map[string]any{"type": "tts_voices"})
+	m := readUntil(t, ws, "tts_voices")
+	if e, _ := m["error"].(string); e != "" {
+		t.Fatalf("tts_voices error = %q", e)
+	}
+	if m["default"] != "bf_emma" {
+		t.Errorf("default = %v, want bf_emma", m["default"])
+	}
+	voices, _ := m["voices"].([]any)
+	if len(voices) != 2 || voices[0] != "af_heart" || voices[1] != "bf_emma" {
+		t.Errorf("voices = %v, want [af_heart bf_emma]", voices)
+	}
+
+	// Disabled: an error-bearing reply, not silence.
+	ts2, _ := newTestServer(t, nil)
+	ws2, _ := speakHello(t, ts2)
+	send(t, ws2, map[string]any{"type": "tts_voices"})
+	m = readUntil(t, ws2, "tts_voices")
+	if e, _ := m["error"].(string); e == "" {
+		t.Error("disabled tts_voices should carry an error")
+	}
+}
+
+func TestSpeakStopCancelsInFlight(t *testing.T) {
+	// A Kokoro stub that streams slowly: one chunk, then blocks until the
+	// request context dies — so only a cancel can end the stream.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/audio/speech" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "audio/opus")
+		_, _ = w.Write(bytes.Repeat([]byte("a"), 1024))
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	t.Cleanup(srv.Close)
+
+	ts, _, gw := newTestServerGW(t, nil)
+	gw.tts = tts.New(srv.URL, "af_heart", "opus")
+	ws, _ := speakHello(t, ts)
+
+	send(t, ws, map[string]any{"type": "speak", "id": "s1", "text": "long reply"})
+	// Wait for the first audio frame so the synthesis is provably in flight.
+	_ = ws.SetReadDeadline(time.Now().Add(5 * time.Second))
+	for {
+		mt, data, err := ws.ReadMessage()
+		if err != nil {
+			t.Fatalf("waiting for first frame: %v", err)
+		}
+		if mt == websocket.BinaryMessage && len(data) > 0 {
+			break
+		}
+	}
+	send(t, ws, map[string]any{"type": "speak_stop"})
+	m := readUntil(t, ws, "speak_end")
+	if m["id"] != "s1" || m["error"] != "cancelled" {
+		t.Errorf("speak_end = %v, want id s1 error cancelled", m)
 	}
 }
 

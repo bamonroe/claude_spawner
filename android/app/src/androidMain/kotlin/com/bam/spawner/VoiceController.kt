@@ -294,6 +294,12 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     private val _serverTtsAvailable = MutableStateFlow(false)
     override val serverTtsAvailable: StateFlow<Boolean> = _serverTtsAvailable.asStateFlow()
 
+    // Kokoro's voice catalogue + server default (tts_voices reply; feeds the picker).
+    private val _ttsVoices = MutableStateFlow<List<String>>(emptyList())
+    override val ttsVoices: StateFlow<List<String>> = _ttsVoices.asStateFlow()
+    private val _ttsVoiceDefault = MutableStateFlow("")
+    override val ttsVoiceDefault: StateFlow<String> = _ttsVoiceDefault.asStateFlow()
+
     // --- Server-TTS (Kokoro) speak bookkeeping --------------------------------
     // Everything the net thread and the UI thread both touch sits under speakLock.
     private val speakLock = Any()
@@ -759,7 +765,9 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
      *  when the toggle is on and the server offers TTS, else on-device. The
      *  server streams PCM back bracketed by speak_audio/speak_end; an
      *  error-bearing speak_end falls back to the on-device voice. */
-    private fun speakText(text: String) {
+    private fun speakText(text: String) = speakText(text, settings.ttsVoice)
+
+    private fun speakText(text: String, voice: String) {
         if (text.isBlank() || speaker.isMuted()) return
         if (settings.serverTts && _serverTtsAvailable.value && _connected.value) {
             val id = synchronized(speakLock) {
@@ -769,10 +777,15 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                 while (speakTexts.size > 64) speakTexts.remove(speakTexts.keys.first())
                 id
             }
-            client?.send(Outbound.speak(id, text, voice = "", format = "pcm"))
+            client?.send(Outbound.speak(id, text, voice = voice, format = "pcm"))
         } else {
             speaker.speak(text)
         }
+    }
+
+    /** Voice-picker preview: speak a short sample in [voice] through the server. */
+    override fun previewTtsVoice(voice: String) {
+        speakText("Hi bud — this is how I'd sound.", voice)
     }
 
     /** speak_audio: the next binary frames are this utterance's PCM. Anything we
@@ -811,12 +824,17 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
 
     /** Forget all in-flight server speaks and silence their playback (barge-in,
      *  mute, disconnect). Frames still arriving for a cancelled utterance are
-     *  dropped until its speak_end passes. */
+     *  dropped until its speak_end passes; speak_stop tells the server to drop
+     *  its queue and abort the in-flight synthesis too (moot when disconnected —
+     *  the outbox just drops it). */
     private fun cancelServerSpeech() {
-        synchronized(speakLock) {
+        val hadInFlight = synchronized(speakLock) {
+            val had = speakTexts.isNotEmpty() || speakStreamLive
             speakTexts.clear()
             speakStreamLive = false
+            had
         }
+        if (hadInFlight) client?.send(Outbound.speakStop())
         speaker.streamStop()
     }
 
@@ -1048,6 +1066,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                 _whisperModels.value = msg.whisperModels
                 _whisperModelsLocal.value = msg.whisperModelsLocal
                 _serverTtsAvailable.value = msg.tts
+                if (msg.tts) client?.send(Outbound.ttsVoices()) // fetch the voice-picker catalogue
                 discover() // the drawer lists ALL machine sessions (discovery is the source)
                 client?.send(Outbound.digest()) // validate the offline transcript cache (bodies-free)
                 settings.lastSession.takeIf { it.isNotEmpty() }?.let {
@@ -1178,6 +1197,10 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
             }
             is ServerMsg.SpeakAudio -> onSpeakAudio(msg)
             is ServerMsg.SpeakEnd -> onSpeakEnd(msg)
+            is ServerMsg.TtsVoices -> if (msg.error.isEmpty()) {
+                _ttsVoices.value = msg.voices
+                _ttsVoiceDefault.value = msg.defaultVoice
+            }
             is ServerMsg.SpeechMode -> settings.summaryOnlySpeech = msg.summaryOnly // "summary only" / "speak everything" voice toggle
             is ServerMsg.Dialog -> _status.value = "dialog: ${msg.state}"
             is ServerMsg.Attached -> {

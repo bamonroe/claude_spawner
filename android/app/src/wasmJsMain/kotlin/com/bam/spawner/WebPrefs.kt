@@ -97,6 +97,9 @@ class WebPrefs : Prefs {
     override var serverTts: Boolean
         get() = bool("server_tts", true)
         set(v) = putBool("server_tts", v)
+    override var ttsVoice: String
+        get() = str("tts_voice", "")
+        set(v) = putStr("tts_voice", v)
     override var endToken: String
         get() = str("end_token", Prefs.DEFAULT_END_TOKEN).ifBlank { Prefs.DEFAULT_END_TOKEN }
         set(v) = putStr("end_token", v)

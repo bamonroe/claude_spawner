@@ -151,6 +151,11 @@ class WebAppController(private val prefs: Prefs) : AppController {
     // (see speak() below); browser SpeechSynthesis remains the fallback.
     private val _serverTtsAvailable = MutableStateFlow(false)
     override val serverTtsAvailable: StateFlow<Boolean> = _serverTtsAvailable.asStateFlow()
+    // Kokoro's voice catalogue + server default (tts_voices reply; feeds the picker).
+    private val _ttsVoices = MutableStateFlow<List<String>>(emptyList())
+    override val ttsVoices: StateFlow<List<String>> = _ttsVoices.asStateFlow()
+    private val _ttsVoiceDefault = MutableStateFlow("")
+    override val ttsVoiceDefault: StateFlow<String> = _ttsVoiceDefault.asStateFlow()
 
     // Server-TTS speak bookkeeping (single-threaded on the JS main loop, so no
     // locking): id -> stripped text of each in-flight speak, kept for the
@@ -227,6 +232,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
                 _whisperModels.value = msg.whisperModels
                 _whisperModelsLocal.value = msg.whisperModelsLocal
                 _serverTtsAvailable.value = msg.tts
+                if (msg.tts) client?.send(Outbound.ttsVoices()) // fetch the voice-picker catalogue
                 discover()
                 if (prefs.lastSession.isNotBlank()) {
                     client?.send(Outbound.attach(prefs.lastSession, prefs.lastSessionId, silent = true))
@@ -270,6 +276,10 @@ class WebAppController(private val prefs: Prefs) : AppController {
             is ServerMsg.StopSpeaking -> { cancelServerSpeech(); cancelSpeech(); _speaking.value = false }
             is ServerMsg.SpeakAudio -> onSpeakAudio(msg)
             is ServerMsg.SpeakEnd -> onSpeakEnd(msg)
+            is ServerMsg.TtsVoices -> if (msg.error.isEmpty()) {
+                _ttsVoices.value = msg.voices
+                _ttsVoiceDefault.value = msg.defaultVoice
+            }
             is ServerMsg.SpeechMode -> prefs.summaryOnlySpeech = msg.summaryOnly // voice toggle mirrors the audio-settings switch
             is ServerMsg.ContextReset -> _lastTurnUsage.value = null
             is ServerMsg.Activity -> _activity.value = msg.text
@@ -536,7 +546,9 @@ class WebAppController(private val prefs: Prefs) : AppController {
     // and plays via Web Audio), else the browser's SpeechSynthesis. A lightweight
     // poll flips `speaking` off once every engine and in-flight request drains, so
     // the SpeakingBar and its stop button track real playback either way.
-    private fun speak(text: String) {
+    private fun speak(text: String) = speak(text, prefs.ttsVoice)
+
+    private fun speak(text: String, voice: String) {
         if (_audioOutput.value == AudioOutput.MUTE) return
         val spoken = Markdown.toSpeech(text)
         if (spoken.isBlank()) return
@@ -545,7 +557,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
             speakTexts[id] = spoken
             // Runaway guard; the server refuses past 32 queued anyway.
             while (speakTexts.size > 64) speakTexts.remove(speakTexts.keys.first())
-            client?.send(Outbound.speak(id, spoken, voice = "", format = "mp3"))
+            client?.send(Outbound.speak(id, spoken, voice = voice, format = "mp3"))
         } else {
             speakText(spoken)
         }
@@ -556,6 +568,11 @@ class WebAppController(private val prefs: Prefs) : AppController {
                 _speaking.value = false
             }
         }
+    }
+
+    /** Voice-picker preview: speak a short sample in [voice] through the server. */
+    override fun previewTtsVoice(voice: String) {
+        speak("Hi bud — this is how I'd sound.", voice)
     }
 
     /** speak_audio: the next binary frames are this utterance's audio. Anything we
@@ -591,6 +608,9 @@ class WebAppController(private val prefs: Prefs) : AppController {
      *  mute, disconnect). Frames still arriving for a cancelled utterance are
      *  dropped until its speak_end passes. */
     private fun cancelServerSpeech() {
+        // speak_stop tells the server to drop its queue and abort the in-flight
+        // synthesis too (moot when disconnected — the outbox just drops it).
+        if (speakTexts.isNotEmpty() || speakStreamLive) client?.send(Outbound.speakStop())
         speakTexts.clear()
         speakStreamLive = false
         cancelServerSpeechPlayback()

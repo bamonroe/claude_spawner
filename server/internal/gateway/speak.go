@@ -10,6 +10,7 @@ package gateway
 // belong to that id — no per-frame tagging needed.
 
 import (
+	"context"
 	"io"
 	"log"
 	"strings"
@@ -57,6 +58,49 @@ func (c *conn) handleSpeak(id, text, voice, format string) {
 	}
 }
 
+// handleSpeakStop services an inbound `speak_stop` (barge-in): drop every
+// queued request and abort the in-flight synthesis so no more frames follow.
+// Dropped requests get no speak_end — the client that barged in already forgot
+// them. No-op when server TTS is disabled or nothing is queued/playing.
+func (c *conn) handleSpeakStop() {
+	if c.speakCh == nil {
+		return
+	}
+drain:
+	for {
+		select {
+		case <-c.speakCh:
+		default:
+			break drain
+		}
+	}
+	c.speakMu.Lock()
+	cancel := c.speakCancel
+	c.speakMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+// handleTTSVoices relays Kokoro's voice catalogue (GET /v1/audio/voices) for
+// the client's settings picker, plus the server-default voice. Answered from a
+// goroutine so the (up to 10s) HTTP call never stalls the read loop.
+func (c *conn) handleTTSVoices() {
+	if c.srv.tts == nil {
+		c.send(msgTTSVoices(nil, "", "tts disabled"))
+		return
+	}
+	go func() {
+		voices, err := c.srv.tts.Voices(c.ctx)
+		if err != nil {
+			log.Printf("tts: voices: %v", err)
+			c.send(msgTTSVoices(nil, c.srv.tts.Voice, "voices unavailable"))
+			return
+		}
+		c.send(msgTTSVoices(voices, c.srv.tts.Voice, ""))
+	}()
+}
+
 // speakWorker drains the connection's speak queue, one synthesis at a time.
 // Runs for the life of the connection: the channel is closed after the read
 // loop exits, and the conn ctx aborts any in-flight synthesis.
@@ -70,8 +114,24 @@ func (c *conn) speakWorker() {
 // speak_audio header, the audio bytes as binary frames, then speak_end (with
 // an error string when synthesis or the stream failed part-way).
 func (c *conn) streamSpeak(req speakReq) {
-	body, _, err := c.srv.tts.Speak(c.ctx, req.text, req.voice, req.format)
+	// Per-request cancel so a speak_stop barge-in aborts this synthesis without
+	// touching the connection.
+	ctx, cancel := context.WithCancel(c.ctx)
+	c.speakMu.Lock()
+	c.speakCancel = cancel
+	c.speakMu.Unlock()
+	defer func() {
+		c.speakMu.Lock()
+		c.speakCancel = nil
+		c.speakMu.Unlock()
+		cancel()
+	}()
+	body, _, err := c.srv.tts.Speak(ctx, req.text, req.voice, req.format)
 	if err != nil {
+		if ctx.Err() != nil { // barged in before synthesis started — not a failure
+			c.send(msgSpeakEnd(req.id, "cancelled"))
+			return
+		}
 		log.Printf("tts: speak: %v", err)
 		c.send(msgSpeakEnd(req.id, "synthesis failed"))
 		return
@@ -96,6 +156,10 @@ func (c *conn) streamSpeak(req speakReq) {
 			break
 		}
 		if rerr != nil {
+			if ctx.Err() != nil { // speak_stop barge-in aborted the stream
+				c.send(msgSpeakEnd(req.id, "cancelled"))
+				return
+			}
 			log.Printf("tts: stream: %v", rerr)
 			c.send(msgSpeakEnd(req.id, "stream failed"))
 			return
