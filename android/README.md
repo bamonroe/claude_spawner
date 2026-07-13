@@ -72,17 +72,22 @@ sdkmanager "platforms;android-35" "build-tools;35.0.0"
 sdkmanager --licenses
 ```
 
-Or the containerized build used in this repo (both mounted host dirs must **pre-exist** — Docker
-creates missing bind sources root-owned, breaking the non-root build — and `~/Android/Sdk` must be
-a provisioned SDK as above):
+Or the containerized build used in this repo, run from the **repo root** (the whole repo must be
+mounted, not just `android/` — the build reads the repo-root `docs/commands.json`). All mounted
+host dirs must **pre-exist** — Docker creates missing bind sources root-owned, breaking the
+non-root build — and `~/Android/Sdk` must be a provisioned SDK as above. The Gradle cache is a
+dedicated dir rather than `~/.gradle`: mounting the host's would leak its `gradle.properties`
+(e.g. a host-only `org.gradle.java.home`) into the container and clash with host Gradle daemons
+on the cache journal lock:
 
 ```bash
-mkdir -p ~/.gradle
+mkdir -p ~/.cache/claude_spawner-gradle
 docker run --rm --user "$(id -u):$(id -g)" \
   -e HOME=/gradlehome -e GRADLE_USER_HOME=/gradlehome -e ANDROID_SDK_ROOT=/sdk \
-  -v "$PWD:/project" -v "$HOME/Android/Sdk:/sdk" -v "$HOME/.gradle:/gradlehome" \
-  -w /project gradle:8.10.2-jdk17 gradle :app:assembleDebug --no-daemon
-# -> app/build/outputs/apk/debug/app-debug.apk
+  -v "$PWD:/project" -v "$HOME/Android/Sdk:/sdk" \
+  -v "$HOME/.cache/claude_spawner-gradle:/gradlehome" \
+  -w /project/android gradle:8.10.2-jdk17 gradle :app:assembleDebug --no-daemon
+# -> android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
 Set `SPAWNER_DEBUG_KEYSTORE` to a keystore path to pin the debug signing key (see
