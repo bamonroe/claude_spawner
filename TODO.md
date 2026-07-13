@@ -12,6 +12,39 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [ ] **Kokoro server-side TTS** — synthesize reply speech on the server (Kokoro-82M via
+      [Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI), OpenAI-compatible
+      `/v1/audio/speech`, streaming, CUDA) and ship audio to clients, replacing on-device
+      Android `TextToSpeech` and the browser's `SpeechSynthesis` with one consistent
+      high-quality voice — and giving the web client a real voice for the first time.
+      Scoped 2026-07-12; design notes:
+      - **Pull, not push**: the speak/mute/summary-only decision stays client-local (as today —
+        the server has no per-client speak flag). Client sends a new `speak` request
+        (`{id, text}`, markdown already stripped client-side via `tts/Markdown.kt`); server
+        streams back synthesized audio. No audio is synthesized for muted clients.
+      - **Wire**: first server→client binary audio. Frame it like the reverse of the mic path
+        (`audio.go`): a `speak_audio {id, codec}` JSON header, then binary WS frames, then
+        `speak_end {id}`. Client→server binary today is implicit (one stream type); server→client
+        needs the id-tagged header since multiple speaks can be in flight. `docs/protocol.md` +
+        docsync/clientsync exemptions updated in the same pass.
+      - **Server**: new `internal/tts` package mirroring `transcribe/remote.go` (HTTP POST to
+        `SPAWNER_TTS_URL`, empty = disabled → clients fall back to local TTS). Env vars:
+        `SPAWNER_TTS_URL`, `SPAWNER_TTS_VOICE`, `SPAWNER_TTS_FORMAT` (opus default). New compose
+        service `kokoro` (GPU like whisper; ~2–3 GB VRAM at inference, model <1 GB).
+      - **Android**: stream into a `MODE_STREAM` AudioTrack in `Speaker.kt` (the warm-track beep
+        machinery and `AudioRouter` earpiece/speaker/headset routing already exist); on-device
+        TTS remains the fallback and a settings toggle picks server-vs-local voice. Barge-in
+        (`stop`) kills playback + in-flight synth like today's `Speaker.stop()`.
+      - **Web**: decode via Web Audio (`decodeAudioData` on the existing AudioContext in
+        `WebAudio.kt`); replaces SpeechSynthesis when the server offers TTS.
+      - **Latency**: v1 synthesizes the final reply + `say` lines (Kokoro-FastAPI streams
+        sentence-by-sentence, so first audio is fast); live chunk-by-chunk speech of streaming
+        prose stays on-device initially, revisit after latency is measured.
+      - Milestones: (1) compose service + `internal/tts` + config/docs, CLI-tested;
+        (2) `speak` protocol + gateway plumbing + drift tests; (3) Android playback + settings
+        toggle + fallback; (4) web playback; (5) voice picker (`/v1/audio/voices`) + barge-in
+        polish + phone verification.
+
 - [x] 2026-07-12 — **Collapsed spawner-server host mounts.** With SSH-native turns, host FS access
       already went over SSH; trimmed the broad `${HOME}`/`/data`/`passwd` bind mounts down to
       essentials (`state` + the narrow whisper models dir). All four steps below done.
