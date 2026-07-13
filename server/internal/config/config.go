@@ -139,10 +139,10 @@ type Config struct {
 	// empty = ~/.ssh/known_hosts (host keys are always verified — no insecure mode);
 	// SSHClaudeBin/SSHCodexBin/SSHOpencodeBin are the remote claude/codex/opencode
 	// binaries (default "claude"/"codex"/"opencode").
-	SSHUser       string
-	SSHPort       int
-	SSHKey        string
-	SSHKnownHosts string
+	SSHUser        string
+	SSHPort        int
+	SSHKey         string
+	SSHKnownHosts  string
 	SSHClaudeBin   string
 	SSHCodexBin    string
 	SSHOpencodeBin string
