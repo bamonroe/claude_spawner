@@ -190,6 +190,7 @@ func Default() *Registry {
 	r := &Registry{byID: map[string]*Agent{}}
 	r.register(claude())
 	r.register(codex())
+	r.register(opencode())
 	return r
 }
 

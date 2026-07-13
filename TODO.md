@@ -158,6 +158,26 @@ Dates are `YYYY-MM-DD`.
       streaming (deferred Close covers all paths), SSH pool (dials under the pool lock), job hub
       lock ordering. `go test -race ./internal/gateway` passes.
 
+- [x] 2026-07-13 — **opencode backend (local Ollama)** — the Phase 7 spike, landed. New
+      self-contained `internal/agent/opencode.go`: `opencode run --format json`, self-assigns its
+      `ses_…` id (adopted from the stream), resumes with `-s`, `--auto` = bypass, `--` terminates
+      flags. Parser keys off each event's `part.type` — text parts concatenate into the reply (live
+      via `OnText`, synthetic/ignored skipped), tool parts become breadcrumbs (filePath from the
+      tool input), the step-finish part carries usage; a top-level error event fails the turn while
+      still returning the session id. Models are the `ollama/*` catalogue (`qwen` = qwen2.5-coder,
+      `llama`) resolved via the provider block in the host user's `~/.config/opencode/opencode.jsonc`
+      (Ollama at `localhost:11434/v1`), so turns run entirely on local weights. Registered in
+      `agent.Default()`; per-target binaries `SPAWNER_SSH_OPENCODE_BIN`/`SPAWNER_SANDBOX_OPENCODE_BIN`
+      wired into `Driver.AgentBins`; `opencode` added to `spawnAgentWords` + the STT command vocab.
+      Parser + error tests green; build/vet/test + docsync/clientsync clean. Docs updated
+      (`README.md`, `docs/architecture.md`, `CLAUDE.md`). **Caveat:** declares the Claude transcript
+      layout as the "no reader" fallback, so reattach replays no history — a native opencode
+      transcript reader is still to do. Verified `opencode run` end-to-end against the live Ollama
+      server (both models reply; `-s` resume works); not yet exercised through a spawned spawner
+      session on the rebuilt server.
+      - [ ] Native opencode transcript reader (history replay + context badge) — its own
+            `TranscriptKind` + reader in `internal/session`, so reattach isn't blank.
+
 - [x] 2026-07-13 — **AI backends made fully self-contained** (the 1.0 quality pass, part 1).
       Each backend now owns its stream parser (`Agent.ParseTurn`) and declares its transcript
       layout (`Agent.Transcript`), replacing the session driver's `Format` switches — `Turn` has

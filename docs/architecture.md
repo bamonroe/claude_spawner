@@ -140,13 +140,19 @@ and parse it — so the server drives more than `claude`.
   Executor never mentions claude/codex. Adding a backend touches neither the executors nor the
   gateway.
 
-**Two backends ship today.** *Claude* (`--output-format stream-json`; the server mints the
+**Three backends ship today.** *Claude* (`--output-format stream-json`; the server mints the
 `session_id` and passes `--session-id`/`--resume`). *Codex* (`codex exec` / `codex exec resume`,
 `--json` JSONL): Codex **mints its own** session id (`thread_id`, read from the first output event),
 so `Agent.SelfAssignsID` tells `Turn` to adopt the id `ParseTurn` returns in
 `TurnResult.SessionID` rather than supplying one. Model availability
 can be **plan-dependent** (on a ChatGPT-account Codex, only `gpt-5.5` is `-m`-selectable, so its
 alternates are reasoning-effort presets); the registry is the single place that catalogue lives.
+*opencode* (`opencode run` / `run -s <id>`, `--format json` JSONL) drives **local Ollama** models:
+like Codex it **self-assigns** its session id (a `ses_…` id on every event), its models are the
+`ollama/*` catalogue served by the provider block in the host user's `~/.config/opencode/opencode.jsonc`
+(pointed at the local Ollama server), and `--auto` is its skip-permissions equivalent. It declares
+the Claude transcript layout as the "no reader" fallback, so reattach replays nothing until a native
+opencode transcript reader is written.
 
 **Reattach replays each backend's own on-disk transcript.** A session has no live process, so the
 `history` page and the on-attach context badge are rebuilt from disk — and *where* that record lives
@@ -366,7 +372,7 @@ uppercase letters by voice. Acceptable; documented in `docs/commands.md`.
                                   lists the chosen host's FS over SSH from "/" (not the local roots)
     messages.go                 wire message constructors
     *_test.go                   httptest+ws integration (auth, spawn, dictation, ask, stream)
-  internal/agent/               AI backend registry: Agent type + Registry (agent.go), shared turn vocabulary (turn.go), one self-contained file per backend (claude.go, codex.go)
+  internal/agent/               AI backend registry: Agent type + Registry (agent.go), shared turn vocabulary (turn.go), one self-contained file per backend (claude.go, codex.go, opencode.go)
   internal/session/session.go   headless driver: Driver.Turn (per-agent args + parser), parseStream/parseCodexStream
   internal/session/executor.go  pluggable Executor: HostExecutor (direct exec) + SandboxExecutor (runtime)
   internal/session/store.go     durable session registry (file-backed, atomic writes); Session.Target/Container

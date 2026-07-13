@@ -91,10 +91,15 @@ func main() {
 	// target's codex binary is the remote one — mirroring how SSHExecutor.Bin carries
 	// SPAWNER_SSH_CLAUDE_BIN for Claude.
 	hostCodexBin := cfg.SSHCodexBin
+	hostOpencodeBin := cfg.SSHOpencodeBin
 	driver.AgentBins = map[string]map[session.Target]string{
 		"codex": {
 			session.TargetHost:    hostCodexBin,
 			session.TargetSandbox: cfg.SandboxCodexBin,
+		},
+		"opencode": {
+			session.TargetHost:    hostOpencodeBin,
+			session.TargetSandbox: cfg.SandboxOpencodeBin,
 		},
 	}
 	// SSH-native execution is unconditional: every host-target turn runs over SSH —

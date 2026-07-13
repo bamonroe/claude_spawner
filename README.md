@@ -332,16 +332,24 @@ picker drops its entries and any headset selection falls back (Output → Earpie
 ### Choosing the AI backend and its model
 
 The server drives more than one headless AI. Each **backend** is an entry in an AI registry that
-declares how to invoke it and how to read its output, so they share one interface; two ship today:
+declares how to invoke it and how to read its output, so they share one interface; three ship today:
 
 - **Claude Code** (the default) — `claude` headless in stream-json mode.
 - **Codex** (OpenAI's CLI) — `codex exec`; the server captures Codex's own session id and resumes
   it turn to turn. Needs `codex` installed and logged in (`codex login`); host turns run over SSH, so
   set `SPAWNER_SSH_CODEX_BIN` if `codex` isn't on the host's `PATH` (and `SPAWNER_SANDBOX_CODEX_BIN`
   for the sandbox target, analogous to the per-target Claude binaries).
+- **opencode** (local **Ollama** models) — `opencode run --format json`; like Codex it captures
+  opencode's own `ses_…` session id and resumes it turn to turn. Its models are the `ollama/*`
+  catalogue, so **runs stay entirely on-box** against local weights — no cloud round-trip. Needs
+  `opencode` installed with an **Ollama provider** in `~/.config/opencode/opencode.jsonc` (an
+  `@ai-sdk/openai-compatible` provider whose `baseURL` points at the running Ollama server, e.g.
+  `http://localhost:11434/v1`, listing the local models). Set `SPAWNER_SSH_OPENCODE_BIN` if
+  `opencode` isn't on the host's `PATH` (and `SPAWNER_SANDBOX_OPENCODE_BIN` for the sandbox). It has
+  no on-disk transcript reader yet, so reattaching an opencode session replays no history.
 
-Pick the backend when you spawn — by **voice**, "hey buddy, spawn a codex session" (or "…on codex")
-creates a Codex session; a plain spawn uses Claude. In the **visual New-session picker** (the app or
+Pick the backend when you spawn — by **voice**, "hey buddy, spawn a codex session" (or "…on
+opencode") creates that backend's session; a plain spawn uses Claude. In the **visual New-session picker** (the app or
 the browser client), a backend chip row (shown when more than one backend is available) and a model
 chip row let you choose both before starting. The new session is stamped with that backend and its
 default model.
@@ -351,7 +359,8 @@ the spawner picks for you, plus a short catalogue you can switch between by voic
 
 - **"hey buddy, list models"** — speaks the attached session's backend catalogue, numbered, marking
   the current one (Claude: `opus` / `sonnet` / `fable`; Codex on a ChatGPT-account plan: `gpt-5.5`
-  and its low/high reasoning presets — the account decides which model ids are selectable).
+  and its low/high reasoning presets — the account decides which model ids are selectable; opencode:
+  the local Ollama models, e.g. `qwen` (qwen2.5-coder) / `llama`).
 - **"hey buddy, use model 2"** — switches to that numbered model (say the number — "two" or "2").
   Selecting by **number** is deliberate: it sidesteps having to pronounce awkward model names. The
   choice is durable on the session and takes effect on your next message.

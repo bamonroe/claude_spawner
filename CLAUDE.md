@@ -143,7 +143,11 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
   private material never leaves the server, the app only sees/copies the public key),
   `SPAWNER_CLAUDE_BIN` (`claude`; the host binary for Claude-backend sessions — the first entry
   in the AI backend registry, see `docs/architecture.md`. Codex's per-target binaries are
-  `SPAWNER_SSH_CODEX_BIN` for host/SSH turns and `SPAWNER_SANDBOX_CODEX_BIN` for the sandbox).
+  `SPAWNER_SSH_CODEX_BIN` for host/SSH turns and `SPAWNER_SANDBOX_CODEX_BIN` for the sandbox;
+  opencode's are `SPAWNER_SSH_OPENCODE_BIN` (host/SSH, default `opencode`) and
+  `SPAWNER_SANDBOX_OPENCODE_BIN` (sandbox, default `opencode`). The opencode backend drives local
+  Ollama models — its model catalogue is `ollama/*`, resolved via the provider block in the host
+  user's `~/.config/opencode/opencode.jsonc`, which must point at the running Ollama server).
 - Transport TLS (all optional; empty = plain `ws://`, fine behind Tailscale): `SPAWNER_TLS_CERT`
   and `SPAWNER_TLS_KEY` (PEM cert/key — set **both** to serve `wss://`; one without the other is a
   startup error), `SPAWNER_TLS_CLIENT_CA` (PEM CA bundle — when set, the app must present a client

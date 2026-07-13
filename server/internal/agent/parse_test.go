@@ -102,6 +102,63 @@ func TestParseCodexStreamFailure(t *testing.T) {
 	}
 }
 
+// TestParseOpencodeStream feeds the real `opencode run --format json` event
+// shapes (captured from a live Ollama-backed run): every event carries
+// opencode's own sessionID (adopted as the id, since opencode self-assigns), a
+// tool part becomes a breadcrumb (filePath pulled from its input), text parts
+// concatenate into the reply and stream live, and the step-finish part carries
+// usage (reasoning folds into Output).
+func TestParseOpencodeStream(t *testing.T) {
+	const stream = `{"type":"step_start","sessionID":"ses_abc","part":{"type":"step-start"}}
+{"type":"tool","sessionID":"ses_abc","part":{"type":"tool","tool":"edit","callID":"c1","state":{"status":"completed","input":{"filePath":"/tmp/foo.go"},"output":"ok"}}}
+{"type":"text","sessionID":"ses_abc","part":{"type":"text","text":"Let me look."}}
+{"type":"text","sessionID":"ses_abc","part":{"type":"text","text":"Done.","synthetic":false}}
+{"type":"text","sessionID":"ses_abc","part":{"type":"text","text":"(internal)","synthetic":true}}
+{"type":"step_finish","sessionID":"ses_abc","part":{"type":"step-finish","reason":"stop","tokens":{"input":2050,"output":3,"reasoning":2,"cache":{"write":10,"read":40}},"cost":0}}
+`
+	var texts []string
+	var tools []ToolUse
+	res, err := parseOpencodeStream(strings.NewReader(stream), TurnCallbacks{
+		OnTool: func(t ToolUse) { tools = append(tools, t) },
+		OnText: func(s string) { texts = append(texts, s) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Reply != "Let me look.\n\nDone." {
+		t.Errorf("reply = %q, want the two non-synthetic texts joined", res.Reply)
+	}
+	if res.SessionID != "ses_abc" {
+		t.Errorf("SessionID = %q, want ses_abc (opencode self-assigns)", res.SessionID)
+	}
+	// reasoning (2) folds into output (3); cache read/write map through.
+	if want := (Usage{Input: 2050, Output: 5, CacheWrite: 10, CacheRead: 40}); res.Usage != want {
+		t.Errorf("usage = %+v, want %+v", res.Usage, want)
+	}
+	if want := []string{"Let me look.", "Done."}; strings.Join(texts, "|") != strings.Join(want, "|") {
+		t.Errorf("streamed texts = %v, want %v (synthetic skipped)", texts, want)
+	}
+	if len(tools) != 1 || tools[0].Name != "edit" || tools[0].FilePath != "/tmp/foo.go" {
+		t.Errorf("tools = %+v, want one edit of /tmp/foo.go", tools)
+	}
+}
+
+// TestParseOpencodeStreamError confirms a top-level error event fails the turn
+// while opencode's sessionID (seen first) is still returned, so a first turn
+// that fails after the id lands stays resumable.
+func TestParseOpencodeStreamError(t *testing.T) {
+	const stream = `{"type":"step_start","sessionID":"ses_z","part":{"type":"step-start"}}
+{"type":"error","sessionID":"ses_z","error":{"data":{"message":"provider unreachable"}}}
+`
+	res, err := parseOpencodeStream(strings.NewReader(stream), TurnCallbacks{})
+	if err == nil || !strings.Contains(err.Error(), "provider unreachable") {
+		t.Fatalf("err = %v, want it to mention the failure", err)
+	}
+	if res.SessionID != "ses_z" {
+		t.Errorf("SessionID = %q, want ses_z even on failure", res.SessionID)
+	}
+}
+
 // TestParseClaudeStreamReportsCorruption confirms a stream that truncates
 // mid-flight (garbage lines, no result event) surfaces the malformed-line count
 // instead of a bare "no result" — so a corrupted claude stdout is diagnosable.

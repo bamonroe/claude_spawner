@@ -103,6 +103,9 @@ type Config struct {
 	// SandboxCodexBin is the codex binary inside the sandbox image (default
 	// "codex"), for Codex-backend sandbox sessions.
 	SandboxCodexBin string
+	// SandboxOpencodeBin is the opencode binary inside the sandbox image (default
+	// "opencode"), for opencode-backend sandbox sessions.
+	SandboxOpencodeBin string
 	// SandboxMounts are extra `-v` volume specs ("host:container[:opts]") for
 	// sandbox sessions, comma-separated. Typically shares "$HOME/.claude" so
 	// in-sandbox transcripts stay discoverable by the host.
@@ -134,14 +137,15 @@ type Config struct {
 	// connection template shared by every host in the pool. SSHUser empty = current
 	// OS user; SSHPort 0 = 22; SSHKey empty = rely on the ssh-agent; SSHKnownHosts
 	// empty = ~/.ssh/known_hosts (host keys are always verified — no insecure mode);
-	// SSHClaudeBin/SSHCodexBin are the remote claude/codex binaries (default
-	// "claude"/"codex").
+	// SSHClaudeBin/SSHCodexBin/SSHOpencodeBin are the remote claude/codex/opencode
+	// binaries (default "claude"/"codex"/"opencode").
 	SSHUser       string
 	SSHPort       int
 	SSHKey        string
 	SSHKnownHosts string
-	SSHClaudeBin  string
-	SSHCodexBin   string
+	SSHClaudeBin   string
+	SSHCodexBin    string
+	SSHOpencodeBin string
 
 	// WebDir is a directory holding the built Compose/Wasm web-client bundle
 	// (index.html + spawnerweb.js + .wasm). When set, the server serves it as
@@ -180,6 +184,7 @@ func Load() (*Config, error) {
 		SandboxRuntime:       env("SPAWNER_SANDBOX_RUNTIME", "podman"),
 		SandboxClaudeBin:     env("SPAWNER_SANDBOX_CLAUDE_BIN", "claude"),
 		SandboxCodexBin:      env("SPAWNER_SANDBOX_CODEX_BIN", "codex"),
+		SandboxOpencodeBin:   env("SPAWNER_SANDBOX_OPENCODE_BIN", "opencode"),
 		SandboxMounts:        splitList(os.Getenv("SPAWNER_SANDBOX_MOUNTS"), ","),
 		SandboxRunArgs:       strings.Fields(os.Getenv("SPAWNER_SANDBOX_RUN_ARGS")),
 		RestartCmd:           os.Getenv("SPAWNER_RESTART_CMD"),
@@ -191,6 +196,7 @@ func Load() (*Config, error) {
 		SSHKnownHosts:        os.Getenv("SPAWNER_SSH_KNOWN_HOSTS"),
 		SSHClaudeBin:         env("SPAWNER_SSH_CLAUDE_BIN", "claude"),
 		SSHCodexBin:          env("SPAWNER_SSH_CODEX_BIN", "codex"),
+		SSHOpencodeBin:       env("SPAWNER_SSH_OPENCODE_BIN", "opencode"),
 	}
 	if v := os.Getenv("SPAWNER_PROFILE_VARS"); v != "" {
 		if err := json.Unmarshal([]byte(v), &c.ProfileVars); err != nil {

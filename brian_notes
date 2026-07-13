@@ -1,0 +1,10 @@
+Web Client:
+
+When creating a "New session" The icons next to the folders all show as a box with an X in it. This looks like it's a glyph that's missing. Can we make these vector graphics instead?
+=======
+Andriod Client:
+
+=======
+General:
+
+When typing a message, if the message leads with a "/" that should indicate the attached word is a command. so "/clear" would clear the conversation "/compress" would compress, "/attach to trashbot" would attach trashbot. I believe typing "hey buddy clear" already has this same effect, but I would like the shorthand of having these commands activated with a "/" but only when the first charachter in the typed message stream is "/"

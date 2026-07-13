@@ -86,7 +86,7 @@ var wakePhrases = [][]string{
 var commandVocab = []string{
 	"spawn", "attach", "detach", "list", "kill", "status", "cancel",
 	"stop", "abort", "help", "read last", "replay", "clear", "compress", "compact",
-	"usage", "rename", "session", "project", "model", "models", "codex",
+	"usage", "rename", "session", "project", "model", "models", "codex", "opencode",
 	"scratch", "summary", "job", "jobs", "restart", "rebuild", "server",
 }
 
@@ -580,7 +580,7 @@ func readCount(words []string) int {
 // selection. Only distinctive, non-path-like names belong here: "claude" is
 // intentionally absent — it's the default backend AND a common path token (dirs
 // like claude_spawner), so treating it as a selector would corrupt locations.
-var spawnAgentWords = map[string]string{"codex": "codex"}
+var spawnAgentWords = map[string]string{"codex": "codex", "opencode": "opencode"}
 
 // extractSpawnAgent pulls an inline backend choice out of a spawn utterance and
 // returns the chosen agent id (empty if none) plus the utterance with the
