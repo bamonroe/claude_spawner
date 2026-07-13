@@ -64,6 +64,7 @@ func HookSettingsJSON(home string) string {
 // (`spawner-job list --json`, `tail`, `reap`) and by staging; it is NOT the turn
 // path (turns stream via Driver.Turn).
 func (d *Driver) RunOnTarget(ctx context.Context, s *Session, cmd string) ([]byte, error) {
+	s.ResolvedProfile = d.ProfileFor(s)
 	switch e := d.executor(s.Target).(type) {
 	case SandboxExecutor:
 		if s.Container == "" {
@@ -79,10 +80,13 @@ func (d *Driver) RunOnTarget(ctx context.Context, s *Session, cmd string) ([]byt
 			host = LocalHost
 		}
 		// Run in the session Dir so the registry key (pwd) matches the turn's.
-		return e.Pool.Run(ctx, host, "cd "+shellQuote(s.Dir)+" && "+cmd)
+		return e.Pool.Run(ctx, host, "cd "+shellQuote(s.Dir)+" && "+shellEnvCommand(s.ResolvedProfile.envList(), cmd))
 	default: // HostExecutor (or any direct-fork executor)
 		c := exec.CommandContext(ctx, "sh", "-c", cmd)
 		c.Dir = s.Dir
+		if env := s.ResolvedProfile.envList(); len(env) > 0 {
+			c.Env = append(c.Environ(), env...)
+		}
 		out, err := c.CombinedOutput()
 		return out, err
 	}

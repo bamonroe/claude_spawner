@@ -17,6 +17,25 @@ Dates are `YYYY-MM-DD`.
       global `SPAWNER_SANDBOX_*` config (which becomes the built-in `default` profile). Prerequisite
       for the opencode backend and for reaching a local Ollama model across hosts/sandboxes. Full
       design + phasing in `EXEC_PROFILES_DESIGN.md`. Proposed 2026-07-13.
+      - [x] 2026-07-13 — Server foundation: added `ExecProfile` + registry, optional
+        `SPAWNER_PROFILES` (`profiles.json`) loader, durable `Session.Profile`, and driver
+        resolution. The built-in `default` profile is seeded from the existing sandbox env vars, so
+        sessions with no profile behave exactly as before. Profile env now reaches host/SSH turns and
+        host-side short commands; sandbox profiles can override image, mounts, credential mounts, env,
+        and run args when the persistent container is created. Covered by focused session/gateway
+        tests. Remaining: templating variables and documented example profiles.
+      - [x] 2026-07-13 — Protocol/client advertisement slice: server now pushes a `profiles`
+        message after `agents`, carrying each profile's `name` and advisory `target` plus default
+        name. Android and web parse and retain it on `AppController.profiles`.
+        `docs/protocol.md`, docsync, gateway test, and shared Kotlin compile gate are green.
+      - [x] 2026-07-13 — Profile selection wire slice: `spawn_at.profile` now persists a
+        non-default profile on the session, `attached` / `session_list` / `discovered` echo it, and
+        Android plus web controllers forward the optional field. The server also honors a selected
+        profile's advisory target when `spawn_at.target` is omitted.
+      - [x] 2026-07-13 — New-session profile picker: `BrowseScreen` now shows execution-profile
+        chips when more than one profile is advertised, defaults to the server's first/default
+        profile, applies the profile's advisory host/sandbox target on selection, and sends the
+        chosen profile for both "start here" and "new folder" spawns.
 
 - [ ] **Kokoro server-side TTS** — synthesize reply speech on the server (Kokoro-82M via
       [Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI), OpenAI-compatible

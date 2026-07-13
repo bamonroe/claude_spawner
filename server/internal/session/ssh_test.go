@@ -109,10 +109,29 @@ func TestRemoteCommand(t *testing.T) {
 	// The prompt-bearing arg carries spaces and an apostrophe; it must survive intact
 	// so the remote claude sees exactly what the user dictated.
 	args := []string{"-p", "what's up here", "--output-format", "stream-json"}
-	got := remoteCommand("/data/proj dir", "claude", args)
+	got := remoteCommand("/data/proj dir", "claude", args, nil)
 	want := `cd '/data/proj dir' && exec 'claude' '-p' 'what'\''s up here' '--output-format' 'stream-json'`
 	if got != want {
 		t.Errorf("remoteCommand mismatch\n got: %s\nwant: %s", got, want)
+	}
+}
+
+func TestRemoteCommandEnv(t *testing.T) {
+	got := remoteCommand("/data/proj", "opencode", []string{"run"}, []string{
+		"OLLAMA_BASE_URL=http://10.0.0.8:11434",
+		"OPENAI_API_KEY=sk-test",
+	})
+	want := `cd '/data/proj' && exec env 'OLLAMA_BASE_URL=http://10.0.0.8:11434' 'OPENAI_API_KEY=sk-test' 'opencode' 'run'`
+	if got != want {
+		t.Errorf("remoteCommand env mismatch\n got: %s\nwant: %s", got, want)
+	}
+}
+
+func TestShellEnvCommand(t *testing.T) {
+	got := shellEnvCommand([]string{"A=one two", "B=it's"}, "printf '%s' \"$A:$B\"")
+	want := `env 'A=one two' 'B=it'\''s' sh -c 'printf '\''%s'\'' "$A:$B"'`
+	if got != want {
+		t.Errorf("shellEnvCommand =\n%s\nwant\n%s", got, want)
 	}
 }
 
@@ -167,7 +186,7 @@ func TestLiveSSHLoopback(t *testing.T) {
 		t.Fatalf("NewSession: %v", err)
 	}
 	defer sess.Close()
-	out, err := sess.Output(remoteCommand("/", "printf", []string{"%s", "hi there"}))
+	out, err := sess.Output(remoteCommand("/", "printf", []string{"%s", "hi there"}, nil))
 	if err != nil {
 		t.Fatalf("run remote command: %v", err)
 	}
@@ -177,7 +196,7 @@ func TestLiveSSHLoopback(t *testing.T) {
 }
 
 func TestCancelableCommand(t *testing.T) {
-	got := cancelableCommand(remoteCommand("/tmp", "sleep", []string{"30"}))
+	got := cancelableCommand(remoteCommand("/tmp", "sleep", []string{"30"}, nil))
 	// setsid → new process group; the wrapper shell echoes its pgid ($$) on stderr,
 	// then execs the inner cd+claude so the exec'd process keeps that pgid.
 	want := `setsid sh -c 'echo __spawner_pgid__ $$ 1>&2; cd '\''/tmp'\'' && exec '\''sleep'\'' '\''30'\'''`

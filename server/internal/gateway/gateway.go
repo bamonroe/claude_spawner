@@ -722,6 +722,9 @@ func (c *conn) authenticate() bool {
 	// Advertise the AI backend registry so the app's new-session picker can offer a
 	// backend + model choice (and badge sessions by backend).
 	c.send(msgAgents(c.srv.driver.Registry()))
+	// Advertise execution profiles separately from hello_ok so older clients can
+	// ignore the message and still use the built-in default profile.
+	c.send(msgProfiles(c.srv.driver.ProfileRegistry()))
 	// Push the last-known plan session-limit so the app can show it immediately,
 	// rather than staying blank until the first turn of this connection.
 	if rl := c.srv.lastRateLimit(); rl.Type != "" {
@@ -812,7 +815,7 @@ var wireHandlers = map[string]func(c *conn, in inbound){
 	"upload":            func(c *conn, in inbound) { c.doUpload(in.Path, in.Name, in.HostName, in.Content) },
 	"download":          func(c *conn, in inbound) { c.doDownload(in.Path, in.HostName) },
 	"spawn_at": func(c *conn, in inbound) {
-		c.doSpawnAt(in.Path, session.Target(in.Target), in.Create, in.HostName, in.Agent, in.Model)
+		c.doSpawnAt(in.Path, session.Target(in.Target), in.Create, in.HostName, in.Agent, in.Model, in.Profile)
 	},
 	"cancel":            func(c *conn, in inbound) { c.cancelDialog() },
 	"abort":             func(c *conn, in inbound) { c.abortTurn() },

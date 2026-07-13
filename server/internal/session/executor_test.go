@@ -98,8 +98,8 @@ type fakeReaper struct {
 func (f *fakeReaper) Start(context.Context, *Session, string, []string) (Proc, error) {
 	return nil, nil
 }
-func (f *fakeReaper) Ensure(context.Context, string, string) error { return nil }
-func (f *fakeReaper) List(context.Context) ([]string, error)       { return f.all, nil }
+func (f *fakeReaper) Ensure(context.Context, *Session) error { return nil }
+func (f *fakeReaper) List(context.Context) ([]string, error) { return f.all, nil }
 func (f *fakeReaper) Remove(_ context.Context, name string) error {
 	f.removed = append(f.removed, name)
 	return nil
@@ -148,6 +148,43 @@ func TestSandboxPrefixIsolation(t *testing.T) {
 	}
 	if strings.Contains(cn, containerPrefix) {
 		t.Errorf("test container %q contains the production prefix %q — reconcile would cross namespaces", cn, containerPrefix)
+	}
+}
+
+func TestSandboxCreateArgsUsesProfile(t *testing.T) {
+	s := SandboxExecutor{
+		Runtime:   "podman",
+		Image:     "base-image",
+		Mounts:    []string{"/base:/base:ro"},
+		RunArgs:   []string{"--network=none"},
+		HomeMount: "/home/bam",
+	}
+	p := &ExecProfile{
+		Name:    "open",
+		Image:   "profile-image",
+		Mounts:  []string{"/home/bam/src:/src:rw"},
+		Creds:   []string{"/secrets/opencode.json:/root/.local/share/opencode/auth.json:ro"},
+		Env:     map[string]string{"OLLAMA_BASE_URL": "http://10.0.0.8:11434", "OPENAI_API_KEY": "abc"},
+		RunArgs: []string{"--dns", "100.100.100.100"},
+	}
+	got := strings.Join(s.createArgsFor("spawner-abc123", "/work/proj", p), " ")
+
+	for _, want := range []string{
+		"-v /home/bam/src:/src:rw",
+		"-v /secrets/opencode.json:/root/.local/share/opencode/auth.json:ro",
+		"-e OLLAMA_BASE_URL=http://10.0.0.8:11434",
+		"-e OPENAI_API_KEY=abc",
+		"--dns 100.100.100.100",
+		"profile-image sleep infinity",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("profile createArgs missing %q\n got: %s", want, got)
+		}
+	}
+	for _, old := range []string{"/base:/base:ro", "--network=none", "base-image sleep infinity"} {
+		if strings.Contains(got, old) {
+			t.Errorf("profile createArgs should override executor value %q\n got: %s", old, got)
+		}
 	}
 }
 

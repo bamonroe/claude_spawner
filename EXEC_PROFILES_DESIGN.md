@@ -1,6 +1,8 @@
 # Design note — session execution-environment profiles
 
-Status: **proposed** (design only, no code yet). Scoped 2026-07-13.
+Status: **in progress**. Server-side file-backed profiles, the profile-selection wire slice, and
+new-session picker controls landed 2026-07-13; example profile presets and templating remain future
+phases.
 
 Prerequisite for the **opencode backend** work: opencode gives one binary that fronts 75+ providers
 and local models, but using it (and local models generally) means credentials and network endpoints
@@ -87,23 +89,39 @@ The existing env-var sandbox config **becomes the built-in `default` profile**. 
 profile selected uses `default`. Zero behavior change on day one — phase 1 is a pure refactor of the
 globals into a profile the executor consumes.
 
+Implemented 2026-07-13: the server reads optional `SPAWNER_PROFILES` (`profiles.json`) as either a
+JSON array of profiles or `{ "profiles": [...] }`. Missing file means only `default`. The built-in
+`default` profile is seeded from `SPAWNER_SANDBOX_IMAGE`, `SPAWNER_SANDBOX_MOUNTS`, and
+`SPAWNER_SANDBOX_RUN_ARGS`. Sessions now persist a `profile` name; empty or unknown resolves to
+`default`. Profile `env` applies to host turns, SSH host turns, and host-side short commands; for
+sandbox sessions, `image`/`mounts`/`creds`/`env`/`run_args` shape the persistent container at create
+time.
+
 ## Integration seam
 
 - Session gains a `Profile` field (name; persisted like `Agent`/`Model`).
 - The resolved profile is threaded onto the session so `SandboxExecutor.Start` and the SSH executor
   consume it instead of reading globals directly.
-- Gateway protocol carries the selectable profile list + the session's chosen profile (so the
-  visual "new session" picker and the voice spawn flow can choose one). `docs/protocol.md` +
-  docsync/clientsync exemptions updated in the same pass.
+- Gateway protocol carries the selectable profile list (implemented 2026-07-13 as `profiles`) and
+  the session's chosen profile (`spawn_at.profile`, then `attached` / `session_list` /
+  `discovered`), so the visual "new session" picker and voice spawn flow have a durable wire slot
+  to choose one. `docs/protocol.md` + docsync/clientsync stay updated in the same pass.
 - `default` selection preserves current behavior for pre-profile clients.
 
 ## Phasing
 
-1. **Profile struct + registry + per-session selection.** Current env-var sandbox config becomes the
-   built-in `default`. No behavior change — foundation only.
-2. **Mounts + credential injection** (env and file). Ship `locked` / `open` example profiles.
-3. **Network/endpoint config + `{{.Var}}` templating.** Unlocks Ollama-across-hosts.
-4. **opencode backend spike** drops in on top: an `opencode.go` agent + a profile that injects its
+1. ✅ 2026-07-13 — **Profile struct + registry + server-side session field.** Current env-var
+   sandbox config becomes the built-in `default`. No behavior change for sessions that do not name a
+   profile.
+2. ✅ 2026-07-13 — **Mounts + credential injection primitives** (env and file) are executable from
+   the profile file. Still to do: ship documented `locked` / `open` examples.
+3. ✅ 2026-07-13 — **Profile selection wire slot.** Clients receive the `profiles` catalogue, can
+   send `spawn_at.profile`, and registered-session messages echo the chosen non-default profile.
+4. ✅ 2026-07-13 — **Visible new-session picker controls.** `BrowseScreen` shows profile chips,
+   defaults to the advertised default, applies the profile's advisory target on selection, and sends
+   the chosen profile on both existing spawn paths.
+5. **Network/endpoint config + `{{.Var}}` templating.** Unlocks Ollama-across-hosts.
+6. **opencode backend spike** drops in on top: an `opencode.go` agent + a profile that injects its
    creds and points at the Ollama endpoint. (See the multi-backend epic in `TODO.md`.)
 
 ## Relationship to the interrupted "Fable" client refactor

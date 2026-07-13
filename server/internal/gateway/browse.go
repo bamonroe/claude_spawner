@@ -83,11 +83,15 @@ func (c *conn) listDir(host, dir string, files bool) ([]listingEntry, error) {
 // attaches to it — the visual equivalent of finishing the spawn dialog. The
 // directory (and its existence / creation) is resolved on the target host, so a
 // remote spawn checks and makes the folder on that remote box, not locally.
-func (c *conn) doSpawnAt(path string, target session.Target, create bool, host, agentID, model string) {
+func (c *conn) doSpawnAt(path string, target session.Target, create bool, host, agentID, model, profileID string) {
 	dir := filepath.Clean(path)
 	if !filepath.IsAbs(dir) {
 		c.fail("bad_path", "spawn path must be absolute")
 		return
+	}
+	profile := c.srv.driver.ProfileRegistry().Resolve(profileID)
+	if target == "" && profileID != "" && profile != nil && profile.Target != "" {
+		target = profile.Target
 	}
 	// The execution location: a local sandbox (host stays empty) or a specific SSH
 	// host — an unspecified host means loopback. This drives where the folder is
@@ -133,7 +137,7 @@ func (c *conn) doSpawnAt(path string, target session.Target, create bool, host, 
 		c.doAttach(existing.Name, false)
 		return
 	}
-	sess, err := c.newSession(sanitizeName(filepath.Base(dir)), dir, target, agentID)
+	sess, err := c.newSession(sanitizeName(filepath.Base(dir)), dir, target, agentID, profileID)
 	if err != nil {
 		c.fail("internal", err.Error())
 		return

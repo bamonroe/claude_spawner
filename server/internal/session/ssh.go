@@ -382,7 +382,7 @@ func (e SSHExecutor) Start(ctx context.Context, s *Session, bin string, args []s
 	if err != nil {
 		return nil, err
 	}
-	proc, err := e.run(ctx, client, s.Dir, bin, args)
+	proc, err := e.run(ctx, client, s, bin, args)
 	if err != nil {
 		// The pooled connection may have died since the last turn; evict and re-dial
 		// once. A fresh client that still fails is a real error.
@@ -391,7 +391,7 @@ func (e SSHExecutor) Start(ctx context.Context, s *Session, bin string, args []s
 		if derr != nil {
 			return nil, err
 		}
-		proc, err = e.run(ctx, client, s.Dir, bin, args)
+		proc, err = e.run(ctx, client, s, bin, args)
 	}
 	return proc, err
 }
@@ -399,8 +399,8 @@ func (e SSHExecutor) Start(ctx context.Context, s *Session, bin string, args []s
 // run opens one SSH session (channel) on client, launches the remote claude in the
 // session's directory, and wires ctx-cancel to stop it. The returned Proc streams
 // the remote stdout and Waits on the remote exit.
-func (e SSHExecutor) run(ctx context.Context, client *ssh.Client, dir, bin string, args []string) (Proc, error) {
-	return streamRemote(ctx, client, remoteCommand(dir, bin, args))
+func (e SSHExecutor) run(ctx context.Context, client *ssh.Client, s *Session, bin string, args []string) (Proc, error) {
+	return streamRemote(ctx, client, remoteCommand(s.Dir, bin, args, s.ResolvedProfile.envList()))
 }
 
 // streamRemote launches `inner` (a POSIX-sh command) on client, wrapped so an abort
@@ -512,11 +512,22 @@ func (p *sshProc) Wait() error {
 // change into the session directory, then exec claude with the given args. Every
 // component is single-quoted so a prompt containing spaces, quotes, or newlines
 // reaches the remote claude verbatim.
-func remoteCommand(dir, bin string, args []string) string {
+func remoteCommand(dir, bin string, args []string, env []string) string {
 	var b strings.Builder
 	b.WriteString("cd ")
 	b.WriteString(shellQuote(dir))
 	b.WriteString(" && exec ")
+	wroteEnv := false
+	for _, e := range env {
+		if _, _, ok := strings.Cut(e, "="); ok {
+			if !wroteEnv {
+				b.WriteString("env ")
+				wroteEnv = true
+			}
+			b.WriteString(shellQuote(e))
+			b.WriteByte(' ')
+		}
+	}
 	b.WriteString(shellQuote(bin))
 	for _, a := range args {
 		b.WriteByte(' ')
@@ -536,6 +547,23 @@ func shellJoinCmd(name string, args []string) string {
 		b.WriteByte(' ')
 		b.WriteString(shellQuote(a))
 	}
+	return b.String()
+}
+
+func shellEnvCommand(env []string, cmd string) string {
+	if len(env) == 0 {
+		return cmd
+	}
+	var b strings.Builder
+	b.WriteString("env")
+	for _, e := range env {
+		if _, _, ok := strings.Cut(e, "="); ok {
+			b.WriteByte(' ')
+			b.WriteString(shellQuote(e))
+		}
+	}
+	b.WriteString(" sh -c ")
+	b.WriteString(shellQuote(cmd))
 	return b.String()
 }
 

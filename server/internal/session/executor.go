@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"sort"
 	"strings"
 	"syscall"
 )
@@ -62,7 +63,7 @@ const containerPrefix = "spawner-sbx-"
 type SandboxLifecycle interface {
 	// Ensure makes sure the named container exists and is running for a session
 	// rooted at dir, creating it if absent. Idempotent.
-	Ensure(ctx context.Context, name, dir string) error
+	Ensure(ctx context.Context, sess *Session) error
 	// Remove force-deletes the named container (no error if it's already gone).
 	Remove(ctx context.Context, name string) error
 }
@@ -100,7 +101,7 @@ func (h HostExecutor) Start(ctx context.Context, s *Session, bin string, args []
 	if bin == "" {
 		bin = h.Bin
 	}
-	return startProc(ctx, bin, args, s.Dir, "start turn")
+	return startProcEnv(ctx, bin, args, s.Dir, "start turn", s.ResolvedProfile.envList())
 }
 
 // SandboxExecutor runs a session's turns inside a persistent, isolated container
@@ -201,7 +202,7 @@ func (s SandboxExecutor) Start(ctx context.Context, sess *Session, bin string, t
 	if sess.Container == "" {
 		return nil, fmt.Errorf("sandbox session %q has no container name", sess.Name)
 	}
-	if err := s.Ensure(ctx, sess.Container, sess.Dir); err != nil {
+	if err := s.Ensure(ctx, sess); err != nil {
 		return nil, err
 	}
 	if bin == "" {
@@ -222,12 +223,16 @@ func (s SandboxExecutor) Start(ctx context.Context, sess *Session, bin string, t
 // Ensure creates and starts the session's long-lived container if it isn't
 // already running. The container just idles (`sleep infinity`); turns run via
 // exec. A stale stopped container of the same name is removed first.
-func (s SandboxExecutor) Ensure(ctx context.Context, name, dir string) error {
+func (s SandboxExecutor) Ensure(ctx context.Context, sess *Session) error {
+	name, dir := sess.Container, sess.Dir
+	if name == "" {
+		return fmt.Errorf("sandbox session %q has no container name", sess.Name)
+	}
 	if s.running(ctx, name) {
 		return nil
 	}
 	_ = s.Remove(ctx, name) // clear a stopped leftover so the name is free
-	if out, err := s.ctl(ctx, s.createArgs(name, dir)); err != nil {
+	if out, err := s.ctl(ctx, s.createArgsFor(name, dir, sess.ResolvedProfile)); err != nil {
 		return fmt.Errorf("create sandbox %s: %w: %s", name, err, strings.TrimSpace(out))
 	}
 	return nil
@@ -269,17 +274,42 @@ func (s SandboxExecutor) running(ctx context.Context, name string) bool {
 // matches the host), plus extra mounts and run-flags, the image, and a keep-alive
 // command. Split out for unit-testing without a runtime.
 func (s SandboxExecutor) createArgs(name, dir string) []string {
+	return s.createArgsFor(name, dir, nil)
+}
+
+func (s SandboxExecutor) createArgsFor(name, dir string, p *ExecProfile) []string {
+	image, mounts, creds, env, runArgs := s.Image, s.Mounts, []string(nil), map[string]string(nil), s.RunArgs
+	if p != nil {
+		image = p.Image
+		mounts = p.Mounts
+		creds = p.Creds
+		env = p.Env
+		runArgs = p.RunArgs
+	}
 	args := []string{"run", "-d", "--name", name, "-w", dir, "-v", dir + ":" + dir}
 	if s.HomeMount != "" && s.HomeMount != dir {
 		// Whole host home, read-write, at the same path — dotfiles/.claude/checkouts
 		// writable inside the sandbox exactly as on the host.
 		args = append(args, "-v", s.HomeMount+":"+s.HomeMount)
 	}
-	for _, m := range s.Mounts {
+	for _, m := range mounts {
 		args = append(args, "-v", m)
 	}
-	args = append(args, s.RunArgs...)
-	args = append(args, s.Image, "sleep", "infinity")
+	for _, m := range creds {
+		args = append(args, "-v", m)
+	}
+	if len(env) > 0 {
+		keys := make([]string, 0, len(env))
+		for k := range env {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			args = append(args, "-e", k+"="+env[k])
+		}
+	}
+	args = append(args, runArgs...)
+	args = append(args, image, "sleep", "infinity")
 	return args
 }
 
@@ -319,9 +349,16 @@ func runCLI(ctx context.Context, name string, args []string) (string, error) {
 // not just the top-level process. dir sets the working directory when non-empty.
 // startErrPrefix labels a launch failure.
 func startProc(ctx context.Context, name string, args []string, dir, startErrPrefix string) (Proc, error) {
+	return startProcEnv(ctx, name, args, dir, startErrPrefix, nil)
+}
+
+func startProcEnv(ctx context.Context, name string, args []string, dir, startErrPrefix string, env []string) (Proc, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	if dir != "" {
 		cmd.Dir = dir
+	}
+	if len(env) > 0 {
+		cmd.Env = append(cmd.Environ(), env...)
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {

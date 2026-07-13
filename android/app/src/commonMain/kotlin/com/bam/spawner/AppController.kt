@@ -3,6 +3,7 @@ package com.bam.spawner
 import com.bam.spawner.net.AgentInfo
 import com.bam.spawner.net.AskQuestion
 import com.bam.spawner.net.DiscoveredInfo
+import com.bam.spawner.net.ProfileInfo
 import com.bam.spawner.net.RateLimitInfo
 import com.bam.spawner.net.ServerMsg
 import com.bam.spawner.net.TokenUsage
@@ -96,6 +97,9 @@ interface AppController : HostsIdentitiesController {
     // AI backend registry (from the `agents` message): the backends + models the
     // new-session picker offers. Empty until the server advertises it on connect.
     val agents: StateFlow<List<AgentInfo>>
+    // Execution profiles (from the `profiles` message): environment bundles the
+    // new-session picker will offer. Empty until the server advertises it.
+    val profiles: StateFlow<List<ProfileInfo>>
 
     // --- File browse / transfer ----------------------------------------------
     val listing: StateFlow<ServerMsg.Listing?>
@@ -117,8 +121,8 @@ interface AppController : HostsIdentitiesController {
     fun deleteDiscovered(sessionId: String)
     fun renameDiscovered(sessionId: String, dir: String, newName: String)
     fun setAgent(sessionId: String, dir: String, agent: String, model: String)
-    fun spawnAt(path: String, target: String = "", host: String = "", agent: String = "", model: String = "")
-    fun spawnNewFolder(parent: String, name: String, target: String = "", host: String = "", agent: String = "", model: String = "")
+    fun spawnAt(path: String, target: String = "", host: String = "", agent: String = "", model: String = "", profile: String = "")
+    fun spawnNewFolder(parent: String, name: String, target: String = "", host: String = "", agent: String = "", model: String = "", profile: String = "")
 
     // --- Browse / file transfer ----------------------------------------------
     fun browse(path: String, host: String = "", files: Boolean = false)

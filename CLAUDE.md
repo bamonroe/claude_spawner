@@ -126,7 +126,10 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
   image** at `/srv/web` — `deploy/rebuild-container.sh` stages the Gradle output into the build
   context (building it in a throwaway Gradle container if missing, so a fresh clone's first deploy
   ships the client too), so a `rebuild` ships the current client with no host mount), `SPAWNER_ROOT` (colon-separated
-  spawn-dir jail), `SPAWNER_STATE` (`sessions.json`), `SPAWNER_HOSTS` (`hosts.json`; the
+  spawn-dir jail), `SPAWNER_STATE` (`sessions.json`), `SPAWNER_PROFILES` (`profiles.json`; optional
+  JSON execution-profile catalogue. Missing file = only the built-in `default` profile, whose image /
+  mounts / run args come from the flat sandbox env vars below),
+  `SPAWNER_HOSTS` (`hosts.json`; the
   app-managed SSH host registry — the app is the source of truth, this file just persists it),
   `SPAWNER_IDENTITIES` (`identities.json`; the app-managed SSH identity registry — names + public
   keys), `SPAWNER_SSH_KEYS` (`ssh_keys`; directory holding each identity's private key, `0600`; the
@@ -192,6 +195,9 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
 
 Context tokens are the main cost here, so default to the frugal path:
 
+- The user is often interacting through phone speech-to-text. Treat spoken file and directory names
+  as approximate: underscores, spelling, and capitalization may be wrong, so check likely matches
+  before saying a file is missing.
 - **Read in slices, not whole files.** Reach for `grep`/`glob` to find the target, then `Read` with
   `offset`/`limit` around it. Only read a whole file when you genuinely need all of it. Never re-read
   a file you just edited — the edit already confirmed the new state.

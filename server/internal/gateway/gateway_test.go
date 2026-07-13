@@ -126,6 +126,40 @@ func send(t *testing.T, ws *websocket.Conn, v map[string]any) {
 	}
 }
 
+func TestProfilesAdvertisedOnConnect(t *testing.T) {
+	ts, _, gw := newTestServerGW(t, nil)
+	reg, err := session.NewProfileRegistry(
+		session.ExecProfile{Name: session.DefaultProfileName, Target: session.TargetHost},
+		session.ExecProfile{Name: "ollama", Target: session.TargetSandbox},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gw.driver.Profiles = reg
+
+	ws := dial(t, ts)
+	send(t, ws, map[string]any{"type": "hello", "token": "secret", "client_id": "profiles"})
+	readUntil(t, ws, "hello_ok")
+	readUntil(t, ws, "agents")
+	msg := readUntil(t, ws, "profiles")
+
+	items, ok := msg["profiles"].([]any)
+	if !ok || len(items) != 2 {
+		t.Fatalf("profiles = %#v, want two entries", msg["profiles"])
+	}
+	names := []string{}
+	for _, item := range items {
+		m := item.(map[string]any)
+		names = append(names, m["name"].(string))
+	}
+	if strings.Join(names, ",") != "default,ollama" {
+		t.Fatalf("profile names = %v", names)
+	}
+	if msg["default"] != session.DefaultProfileName {
+		t.Fatalf("default = %#v", msg["default"])
+	}
+}
+
 // readUntil reads messages until one with the given type arrives (or times out).
 func readUntil(t *testing.T, ws *websocket.Conn, typ string) map[string]any {
 	t.Helper()
@@ -516,11 +550,11 @@ type fakeSandbox struct {
 func (f *fakeSandbox) Start(context.Context, *session.Session, string, []string) (session.Proc, error) {
 	return nil, nil // turns aren't exercised in the lifecycle test
 }
-func (f *fakeSandbox) Ensure(_ context.Context, name, dir string) error {
+func (f *fakeSandbox) Ensure(_ context.Context, sess *session.Session) error {
 	if f.ensured == nil {
 		f.ensured = map[string]string{}
 	}
-	f.ensured[name] = dir
+	f.ensured[sess.Container] = sess.Dir
 	return nil
 }
 func (f *fakeSandbox) Remove(_ context.Context, name string) error {
@@ -994,6 +1028,56 @@ func TestSpawnAtCreatesNewFolder(t *testing.T) {
 	if m := readUntil(t, ws, "error"); m["code"] != "bad_path" {
 		t.Fatalf("expected bad_path re-creating an existing folder, got %v", m)
 	}
+}
+
+// TestSpawnAtPersistsProfile verifies the picker can choose an execution
+// profile at spawn time and that registered-session messages carry it back.
+func TestSpawnAtPersistsProfile(t *testing.T) {
+	ts, root, gw := newTestServerGW(t, nil)
+	reg, err := session.NewProfileRegistry(
+		session.ExecProfile{Name: session.DefaultProfileName, Target: session.TargetHost},
+		session.ExecProfile{Name: "open", Target: session.TargetHost, Env: map[string]string{"OLLAMA_BASE_URL": "http://ollama:11434"}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gw.driver.Profiles = reg
+	dir := filepath.Join(root, "profiled")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ws := dial(t, ts)
+	send(t, ws, map[string]any{"type": "hello", "token": "secret"})
+	readUntil(t, ws, "hello_ok")
+
+	send(t, ws, map[string]any{"type": "spawn_at", "path": dir, "profile": "open"})
+	attached := readUntil(t, ws, "attached")
+	if attached["profile"] != "open" {
+		t.Fatalf("attached profile = %#v, want open", attached["profile"])
+	}
+	rec := gw.store.GetByDirHost(dir, session.LocalHost)
+	if rec == nil || rec.Profile != "open" {
+		t.Fatalf("stored profile = %#v, want open", rec)
+	}
+
+	list := readUntil(t, ws, "session_list")
+	row := list["sessions"].([]any)[0].(map[string]any)
+	if row["profile"] != "open" {
+		t.Fatalf("session_list profile = %#v, want open", row["profile"])
+	}
+
+	send(t, ws, map[string]any{"type": "discover"})
+	discovered := readUntil(t, ws, "discovered")
+	for _, item := range discovered["sessions"].([]any) {
+		row := item.(map[string]any)
+		if row["dir"] == dir {
+			if row["profile"] != "open" {
+				t.Fatalf("discovered profile = %#v, want open", row["profile"])
+			}
+			return
+		}
+	}
+	t.Fatalf("spawned session missing from discovered: %v", discovered["sessions"])
 }
 
 // TestSpawnAtRejectsRelativePath: the visual picker walks the target host's whole

@@ -8,6 +8,7 @@ import com.bam.spawner.net.HelloConfig
 import com.bam.spawner.net.Host
 import com.bam.spawner.net.Identity
 import com.bam.spawner.net.Outbound
+import com.bam.spawner.net.ProfileInfo
 import com.bam.spawner.net.RateLimitInfo
 import com.bam.spawner.net.ServerMsg
 import com.bam.spawner.net.SpawnerClient
@@ -169,6 +170,8 @@ class WebAppController(private val prefs: Prefs) : AppController {
 
     private val _agents = MutableStateFlow<List<AgentInfo>>(emptyList())
     override val agents: StateFlow<List<AgentInfo>> = _agents.asStateFlow()
+    private val _profiles = MutableStateFlow<List<ProfileInfo>>(emptyList())
+    override val profiles: StateFlow<List<ProfileInfo>> = _profiles.asStateFlow()
 
     private val _listing = MutableStateFlow<ServerMsg.Listing?>(null)
     override val listing: StateFlow<ServerMsg.Listing?> = _listing.asStateFlow()
@@ -342,6 +345,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
             is ServerMsg.HostList -> _hosts.value = msg.hosts
             is ServerMsg.IdentityList -> _identities.value = msg.identities
             is ServerMsg.Agents -> _agents.value = msg.agents
+            is ServerMsg.Profiles -> _profiles.value = msg.profiles
             is ServerMsg.Err -> {
                 _activity.value = ""
                 if (_usageLoading.value) _usageLoading.value = false
@@ -408,11 +412,11 @@ class WebAppController(private val prefs: Prefs) : AppController {
     override fun setAgent(sessionId: String, dir: String, agent: String, model: String) {
         client?.send(Outbound.setAgent(sessionId, dir, agent, model))
     }
-    override fun spawnAt(path: String, target: String, host: String, agent: String, model: String) { client?.send(Outbound.spawnAt(path, target = target, host = host, agent = agent, model = model)) }
-    override fun spawnNewFolder(parent: String, name: String, target: String, host: String, agent: String, model: String) {
+    override fun spawnAt(path: String, target: String, host: String, agent: String, model: String, profile: String) { client?.send(Outbound.spawnAt(path, target = target, host = host, agent = agent, model = model, profile = profile)) }
+    override fun spawnNewFolder(parent: String, name: String, target: String, host: String, agent: String, model: String, profile: String) {
         val clean = name.trim().trim('/')
         if (clean.isEmpty()) return
-        client?.send(Outbound.spawnAt("$parent/$clean", create = true, target = target, host = host, agent = agent, model = model))
+        client?.send(Outbound.spawnAt("$parent/$clean", create = true, target = target, host = host, agent = agent, model = model, profile = profile))
     }
 
     override fun browse(path: String, host: String, files: Boolean) { client?.send(Outbound.browse(path, host, files)) }

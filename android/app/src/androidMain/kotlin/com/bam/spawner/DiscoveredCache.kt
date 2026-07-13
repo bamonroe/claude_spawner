@@ -43,6 +43,7 @@ data class CachedDiscovered(
     val host: String = "",
     val agent: String = "",
     val model: String = "",
+    val profile: String = "",
 )
 
 // A cached session is never live: `active`/`busy` are volatile server-side facts
@@ -51,10 +52,10 @@ data class CachedDiscovered(
 private fun CachedDiscovered.toInfo() = DiscoveredInfo(
     name = name, dir = dir, sessionId = sessionId, lastActive = lastActive,
     active = false, registered = registered, busy = false,
-    target = target, host = host, agent = agent, model = model,
+    target = target, host = host, agent = agent, model = model, profile = profile,
 )
 
 private fun DiscoveredInfo.toCached() = CachedDiscovered(
     name = name, dir = dir, sessionId = sessionId, lastActive = lastActive,
-    registered = registered, target = target, host = host, agent = agent, model = model,
+    registered = registered, target = target, host = host, agent = agent, model = model, profile = profile,
 )

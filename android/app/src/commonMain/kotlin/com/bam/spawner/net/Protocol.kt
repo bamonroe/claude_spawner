@@ -40,7 +40,7 @@ sealed interface ServerMsg {
     data class Dialog(val state: String, val prompt: String) : ServerMsg
     // usage/usageAt seed the context meter from the transcript's last turn on
     // attach (usageAt = that turn's unix seconds, for the cache-warm countdown).
-    data class Attached(val name: String, val sessionId: String = "", val usage: TokenUsage? = null, val usageAt: Long = 0, val agent: String = "", val model: String = "") : ServerMsg
+    data class Attached(val name: String, val sessionId: String = "", val usage: TokenUsage? = null, val usageAt: Long = 0, val agent: String = "", val model: String = "", val profile: String = "") : ServerMsg
     data object Detached : ServerMsg
     data class ContextReset(val name: String) : ServerMsg // Claude context cleared → drop token accounting
     data class Renamed(val old: String, val name: String, val sessionId: String = "") : ServerMsg // attached session renamed → update title in place (matched by id)
@@ -77,6 +77,7 @@ sealed interface ServerMsg {
     data class FileSaved(val path: String) : ServerMsg // an upload landed on the target host
     data class FileData(val name: String, val path: String, val content: String) : ServerMsg // a download's base64 bytes
     data class Agents(val agents: List<AgentInfo>, val default: String) : ServerMsg // AI backend registry (for the new-session picker)
+    data class Profiles(val profiles: List<ProfileInfo>, val default: String) : ServerMsg // execution profiles (for the new-session picker)
     data class HostList(val hosts: List<Host>) : ServerMsg // app-managed SSH host registry
     data class IdentityList(val identities: List<Identity>) : ServerMsg // app-managed SSH identities
     data class Digests(val items: List<SessionDigest>) : ServerMsg // per-session transcript digests for offline-cache validation
@@ -99,7 +100,7 @@ sealed interface ServerMsg {
                 "transcribing" -> Transcribing
                 "files" -> Files(readStrings(o.arr("files")))
                 "dialog" -> Dialog(o.str("state"), o.str("prompt"))
-                "attached" -> Attached(o.str("name"), o.str("session_id"), readUsage(o.obj("usage")), o.long("usage_at"), o.str("agent"), o.str("model"))
+                "attached" -> Attached(o.str("name"), o.str("session_id"), readUsage(o.obj("usage")), o.long("usage_at"), o.str("agent"), o.str("model"), o.str("profile"))
                 "detached" -> Detached
                 "context_reset" -> ContextReset(o.str("name"))
                 "renamed" -> Renamed(o.str("old"), o.str("name"), o.str("session_id"))
@@ -139,6 +140,7 @@ sealed interface ServerMsg {
                 "file_saved" -> FileSaved(o.str("path"))
                 "file_data" -> FileData(o.str("name"), o.str("path"), o.str("content"))
                 "agents" -> Agents(readAgents(o.arr("agents")), o.str("default"))
+                "profiles" -> Profiles(readProfiles(o.arr("profiles")), o.str("default"))
                 "host_list" -> HostList(readHosts(o.arr("hosts")))
                 "identity_list" -> IdentityList(readIdentities(o.arr("identities")))
                 "digests" -> Digests(readDigests(o.arr("items")))
@@ -158,7 +160,7 @@ sealed interface ServerMsg {
                     s.str("name"), s.str("dir"), s.str("session_id"),
                     s.long("last_active"), s.bool("active"), s.bool("registered"),
                     s.bool("busy"), s.str("target"), s.str("host"),
-                    s.str("agent"), s.str("model"),
+                    s.str("agent"), s.str("model"), s.str("profile"),
                 )
             }
         }
@@ -203,6 +205,13 @@ sealed interface ServerMsg {
                     a.str("id"), a.str("name"), a.str("default_model"),
                     (a.arr("models") ?: JsonArray(emptyList())).map { it.jsonObject.str("alias") },
                 )
+            }
+        }
+
+        private fun readProfiles(arr: JsonArray?): List<ProfileInfo> {
+            if (arr == null) return emptyList()
+            return arr.map { it.jsonObject }.map { p ->
+                ProfileInfo(p.str("name"), p.str("target"))
             }
         }
 
@@ -252,6 +261,9 @@ data class TokenUsage(val input: Int, val output: Int, val cacheWrite: Int, val 
  * new-session picker to choose a backend + model.
  */
 data class AgentInfo(val id: String, val name: String, val defaultModel: String, val models: List<String>)
+
+/** One execution environment profile advertised by the server. */
+data class ProfileInfo(val name: String, val target: String)
 
 /**
  * The Claude subscription's usage-window state (see docs/protocol.md `rate_limit`).
@@ -311,6 +323,7 @@ data class DiscoveredInfo(
     val host: String = "",     // the SSH host this session runs on (for grouping)
     val agent: String = "",    // AI backend id ("codex"); empty = default (claude)
     val model: String = "",    // model alias stamped at spawn (opus/gpt-5.5/…)
+    val profile: String = "",  // execution profile; empty = default profile
 )
 
 /** A directory in the "new session" browser. */
@@ -471,12 +484,13 @@ object Outbound {
         put("type", "download"); put("path", path)
         if (host.isNotEmpty()) put("host_name", host)
     }.toString()
-    fun spawnAt(path: String, create: Boolean = false, target: String = "", host: String = "", agent: String = "", model: String = "") = buildJsonObject {
+    fun spawnAt(path: String, create: Boolean = false, target: String = "", host: String = "", agent: String = "", model: String = "", profile: String = "") = buildJsonObject {
         put("type", "spawn_at"); put("path", path); put("create", create)
         if (target.isNotEmpty()) put("target", target)
         if (host.isNotEmpty()) put("host_name", host)
         if (agent.isNotEmpty()) put("agent", agent)
         if (model.isNotEmpty()) put("model", model)
+        if (profile.isNotEmpty()) put("profile", profile)
     }.toString()
 
     // SSH host registry (Settings → Hosts). The server persists these and broadcasts

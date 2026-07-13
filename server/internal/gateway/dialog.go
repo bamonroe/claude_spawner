@@ -460,7 +460,7 @@ func (c *conn) beginAttachQuestion(dir, prompt string, target session.Target) {
 	sess := c.srv.store.GetByDir(dir)
 	if sess == nil {
 		var err error
-		sess, err = c.newSession(sanitizeName(filepath.Base(dir)), dir, target, c.dlg.agentID)
+		sess, err = c.newSession(sanitizeName(filepath.Base(dir)), dir, target, c.dlg.agentID, "")
 		if err != nil {
 			c.fail("internal", err.Error())
 			c.dlg = nil

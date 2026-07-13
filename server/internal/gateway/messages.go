@@ -28,6 +28,7 @@ type inbound struct {
 	Create                bool              `json:"create"`                  // on spawn_at: mkdir the path (on the target host) first if it doesn't exist
 	Agent                 string            `json:"agent"`                   // on spawn_at/set_agent: AI backend id ("codex"); "" = default backend
 	Model                 string            `json:"model"`                   // on spawn_at/set_agent: model alias for the session; "" = the backend's default
+	Profile               string            `json:"profile"`                 // on spawn_at: execution profile name; "" = default profile
 	Codec                 string            `json:"codec"`                   // audio codec on wake: "ogg_opus" | "pcm16"
 	ClientID              string            `json:"client_id"`               // stable per-app id, for reconnect/resume
 	HandsFree             bool              `json:"hands_free"`              // set on `wake` when the clip is VAD-gated (hands-free)
@@ -85,6 +86,16 @@ func msgAgents(reg *agent.Registry) map[string]any {
 		def = d.ID
 	}
 	return map[string]any{"type": "agents", "agents": agents, "default": def}
+}
+
+// msgProfiles advertises the execution-profile catalogue. The profile name is
+// what future spawn requests will send; target is an advisory default.
+func msgProfiles(reg *session.ProfileRegistry) map[string]any {
+	profiles := make([]map[string]any, 0)
+	for _, p := range reg.List() {
+		profiles = append(profiles, map[string]any{"name": p.Name, "target": p.Target})
+	}
+	return map[string]any{"type": "profiles", "profiles": profiles, "default": session.DefaultProfileName}
 }
 
 func msgHelloOK(sessionID, whisperModel, whisperFastModel string, whisperModels, whisperModelsLocal []string, tts bool) map[string]any {
@@ -217,6 +228,9 @@ func msgAttached(s *session.Session, cx *session.ContextSnapshot) map[string]any
 	}
 	if s.Model != "" {
 		m["model"] = s.Model
+	}
+	if s.Profile != "" {
+		m["profile"] = s.Profile
 	}
 	if cx != nil {
 		m["usage"] = cx.Usage
@@ -456,6 +470,7 @@ type discoveredView struct {
 	Host       string `json:"host,omitempty"`   // the SSH host the session runs on (for grouping in the app)
 	Agent      string `json:"agent,omitempty"`  // AI backend id ("codex") when not the default; badge in the app
 	Model      string `json:"model,omitempty"`  // current model alias for the session
+	Profile    string `json:"profile,omitempty"`
 }
 
 func msgDiscovered(items []discoveredView) map[string]any {
@@ -489,6 +504,8 @@ type sessionView struct {
 	// empty for records predating backend selection (→ the default backend/model).
 	Agent string `json:"agent,omitempty"`
 	Model string `json:"model,omitempty"`
+	// Profile is the execution profile name when not the built-in default.
+	Profile string `json:"profile,omitempty"`
 }
 
 // listingEntry is one entry in a browse listing.

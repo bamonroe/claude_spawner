@@ -52,6 +52,19 @@ func main() {
 	}
 	driver := session.NewDriver()
 	driver.RestartCmd = cfg.RestartCmd
+	defaultProfile := session.ExecProfile{
+		Name:    session.DefaultProfileName,
+		Target:  session.TargetHost,
+		Image:   cfg.SandboxImage,
+		Mounts:  cfg.SandboxMounts,
+		RunArgs: cfg.SandboxRunArgs,
+	}
+	profiles, err := session.LoadProfiles(cfg.ProfilesPath, defaultProfile)
+	if err != nil {
+		log.Fatalf("execution profiles: %v", err)
+	}
+	driver.Profiles = profiles
+	log.Printf("execution profiles loaded: %d profile(s)", len(profiles.List()))
 	if len(cfg.SpawnRoots) > 0 {
 		// The account-global /usage check runs claude in this dir; use a spawn root so
 		// it lands somewhere sane (rather than /tmp).

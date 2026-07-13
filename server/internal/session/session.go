@@ -71,6 +71,12 @@ type Session struct {
 	// "fable"). Empty means the backend's own configured default (no --model flag);
 	// spawn stamps the agent's DefaultModel here, and a voice command can change it.
 	Model string `json:"model,omitempty"`
+	// Profile is the execution-environment profile name. Empty means the built-in
+	// default profile, preserving records written before profiles existed.
+	Profile string `json:"profile,omitempty"`
+	// ResolvedProfile is set by Driver immediately before launching a turn or
+	// sandbox lifecycle command. It is deliberately not persisted.
+	ResolvedProfile *ExecProfile `json:"-"`
 	// Jobs mirrors the detached background jobs Claude launched for this session via
 	// the spawner-job wrapper (see internal/session/bgjob). The reconciler diffs the
 	// on-target registry against this list at turn boundaries; a job that just
@@ -135,6 +141,9 @@ type Driver struct {
 	// unchanged. (SSH reuses the host target, so its Codex bin is wired into the
 	// host entry when SSH is enabled — see main.go.) Nil is fine (no overrides).
 	AgentBins map[string]map[Target]string
+	// Profiles is the execution-environment profile registry. Empty/unknown
+	// session profile names resolve to the built-in default profile.
+	Profiles *ProfileRegistry
 	// Bypass adds --dangerously-skip-permissions when true (project default).
 	Bypass bool
 	// UsageDir is the working directory for the account-global /usage check. It has
@@ -204,6 +213,23 @@ func (d *Driver) AgentFor(s *Session) *agent.Agent { return d.agents().Resolve(s
 // named backend at spawn and list the available backends.
 func (d *Driver) Registry() *agent.Registry { return d.agents() }
 
+// ProfileRegistry returns the execution-profile registry, creating a minimal
+// default-only registry for tests and older callers that build Driver literals.
+func (d *Driver) ProfileRegistry() *ProfileRegistry {
+	if d.Profiles == nil {
+		d.Profiles, _ = NewProfileRegistry(ExecProfile{Name: DefaultProfileName})
+	}
+	return d.Profiles
+}
+
+// ProfileFor resolves the execution profile a session uses.
+func (d *Driver) ProfileFor(s *Session) *ExecProfile {
+	if s == nil {
+		return d.ProfileRegistry().Resolve("")
+	}
+	return d.ProfileRegistry().Resolve(s.Profile)
+}
+
 // executor resolves a Target to its Executor, falling back to the host executor
 // for the empty string or any target with no registered executor.
 func (d *Driver) executor(t Target) Executor {
@@ -223,7 +249,8 @@ func (d *Driver) EnsureContainer(ctx context.Context, s *Session) error {
 		return nil
 	}
 	if lc, ok := d.Execs[TargetSandbox].(SandboxLifecycle); ok {
-		return lc.Ensure(ctx, s.Container, s.Dir)
+		s.ResolvedProfile = d.ProfileFor(s)
+		return lc.Ensure(ctx, s)
 	}
 	return nil
 }
@@ -451,6 +478,7 @@ func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool fun
 	// owns process-group/abort semantics; Turn only builds args and parses stdout.
 	// The backend command (claude/codex) is resolved from the agent; "" lets the
 	// executor use its own configured binary (the Claude path).
+	s.ResolvedProfile = d.ProfileFor(s)
 	proc, err := d.executor(s.Target).Start(ctx, s, d.binFor(ag, s.Target), args)
 	if err != nil {
 		return "", Usage{}, err

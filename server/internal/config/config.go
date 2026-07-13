@@ -24,6 +24,9 @@ type Config struct {
 	SpawnRoots []string
 	// StatePath is the file where the durable session registry is persisted.
 	StatePath string
+	// ProfilesPath is the optional JSON file defining named execution profiles.
+	// Missing files are ignored; the built-in default profile is always present.
+	ProfilesPath string
 	// HostsPath is the file where the app-managed SSH host registry is persisted
 	// (the source of truth is the app; the server just stores it so it survives
 	// restarts and is shared across clients).
@@ -149,6 +152,7 @@ func Load() (*Config, error) {
 		AuthToken:            os.Getenv("SPAWNER_TOKEN"),
 		WebDir:               os.Getenv("SPAWNER_WEB_DIR"),
 		StatePath:            env("SPAWNER_STATE", "sessions.json"),
+		ProfilesPath:         env("SPAWNER_PROFILES", "profiles.json"),
 		HostsPath:            env("SPAWNER_HOSTS", "hosts.json"),
 		IdentitiesPath:       env("SPAWNER_IDENTITIES", "identities.json"),
 		SSHKeysDir:           env("SPAWNER_SSH_KEYS", "ssh_keys"),

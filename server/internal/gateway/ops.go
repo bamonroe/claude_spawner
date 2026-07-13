@@ -267,7 +267,7 @@ func (c *conn) doDiscover() {
 			Name: s.Name, Dir: s.Dir, SessionID: s.SessionID,
 			LastActive: discByDir[s.Dir].LastActive, Active: active[s.Dir], Registered: true,
 			Busy: c.srv.isBusy(s.SessionID), Target: sandboxTarget(s), Host: s.Host,
-			Agent: s.Agent, Model: s.Model,
+			Agent: s.Agent, Model: s.Model, Profile: s.Profile,
 		})
 	}
 	// Unregistered sessions found on disk — one adoptable row per directory (these
@@ -559,7 +559,7 @@ func (c *conn) sendSessionList() {
 	sessions := c.srv.store.List()
 	views := make([]sessionView, 0, len(sessions))
 	for _, s := range sessions {
-		views = append(views, sessionView{Name: s.Name, Dir: s.Dir, Target: sandboxTarget(s), Agent: s.Agent, Model: s.Model})
+		views = append(views, sessionView{Name: s.Name, Dir: s.Dir, Target: sandboxTarget(s), Agent: s.Agent, Model: s.Model, Profile: s.Profile})
 	}
 	c.send(msgSessionList(views))
 }
@@ -1138,7 +1138,7 @@ func negative(text string, extra [][]string) bool {
 
 // newSession builds a durable record with a generated session_id, ensuring a
 // unique name derived from base.
-func (c *conn) newSession(base, dir string, target session.Target, agentID string) (*session.Session, error) {
+func (c *conn) newSession(base, dir string, target session.Target, agentID, profileID string) (*session.Session, error) {
 	id, err := session.NewSessionID()
 	if err != nil {
 		return nil, err
@@ -1150,6 +1150,9 @@ func (c *conn) newSession(base, dir string, target session.Target, agentID strin
 	// old callers get Claude.
 	ag := c.srv.driver.Registry().Resolve(agentID)
 	s.Agent, s.Model = ag.ID, ag.DefaultModel
+	if p := c.srv.driver.ProfileRegistry().Resolve(profileID); p != nil && p.Name != session.DefaultProfileName {
+		s.Profile = p.Name
+	}
 	if target == session.TargetSandbox {
 		cn, err := session.NewContainerName()
 		if err != nil {

@@ -38,10 +38,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * The "new session" browser: pick a target (host vs sandbox), a host, an AI backend
- * and model, then browse that host's filesystem and spawn a session in the chosen
- * directory (or a fresh folder). Fully parameterized off [AppController], so the same
- * screen serves both the Android app and the web client.
+ * The "new session" browser: pick a target (host vs sandbox), a host, an execution
+ * profile, an AI backend and model, then browse that host's filesystem and spawn a
+ * session in the chosen directory (or a fresh folder). Fully parameterized off
+ * [AppController], so the same screen serves both the Android app and the web client.
  */
 @Composable
 @OptIn(ExperimentalLayoutApi::class)
@@ -68,6 +68,22 @@ fun BrowseScreen(controller: AppController, onStarted: () -> Unit, onBack: () ->
     var selectedModel by rememberSaveable { mutableStateOf("") }
     LaunchedEffect(selectedAgent, agents) {
         agentInfo?.let { if (it.models.none { m -> m == selectedModel }) selectedModel = it.defaultModel }
+    }
+    // Execution profile for the new session. The server advertises the built-in
+    // default first; keep the selection valid as the catalogue arrives. A selected
+    // profile's advisory target updates the target switch, but the user can still
+    // flip the switch afterwards.
+    val profiles by controller.profiles.collectAsState()
+    var selectedProfile by rememberSaveable { mutableStateOf("") }
+    LaunchedEffect(profiles) {
+        if (profiles.isNotEmpty() && profiles.none { it.name == selectedProfile }) selectedProfile = profiles.first().name
+    }
+    fun selectProfile(name: String) {
+        selectedProfile = name
+        profiles.firstOrNull { it.name == name }?.target?.let {
+            if (it == "sandbox") sandbox = true
+            if (it == "host") sandbox = false
+        }
     }
     val target = if (sandbox) "sandbox" else "host"
     // A host only applies to the host target (a sandbox runs locally); drop any
@@ -101,7 +117,7 @@ fun BrowseScreen(controller: AppController, onStarted: () -> Unit, onBack: () ->
             confirmButton = {
                 TextButton(
                     enabled = !newFolder.isNullOrBlank(),
-                    onClick = { controller.spawnNewFolder(parent, newFolder!!, target, spawnHost, selectedAgent, selectedModel); newFolder = null; onStarted() },
+                    onClick = { controller.spawnNewFolder(parent, newFolder!!, target, spawnHost, selectedAgent, selectedModel, selectedProfile); newFolder = null; onStarted() },
                 ) { Text("Create & start") }
             },
             dismissButton = { TextButton(onClick = { newFolder = null }) { Text("Cancel") } },
@@ -136,6 +152,13 @@ fun BrowseScreen(controller: AppController, onStarted: () -> Unit, onBack: () ->
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 4.dp)) {
                 hosts.forEach { h ->
                     FilterChip(selected = selectedHost == h.name, onClick = { selectedHost = h.name }, label = { Text(h.name) })
+                }
+            }
+        }
+        if (profiles.size > 1) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 4.dp)) {
+                profiles.forEach { p ->
+                    FilterChip(selected = selectedProfile == p.name, onClick = { selectProfile(p.name) }, label = { Text(p.name) })
                 }
             }
         }
@@ -191,7 +214,7 @@ fun BrowseScreen(controller: AppController, onStarted: () -> Unit, onBack: () ->
         HorizontalDivider()
         val canStart = listing?.path?.isNotEmpty() == true
         Button(
-            onClick = { listing?.path?.let { controller.spawnAt(it, target, spawnHost, selectedAgent, selectedModel) }; onStarted() },
+            onClick = { listing?.path?.let { controller.spawnAt(it, target, spawnHost, selectedAgent, selectedModel, selectedProfile) }; onStarted() },
             enabled = canStart,
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
         ) { Text("Start session here") }
