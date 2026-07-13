@@ -82,7 +82,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -111,6 +110,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import kotlin.math.log10
+import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.bam.spawner.audio.AudioInput
 import com.bam.spawner.audio.AudioOutput
@@ -276,9 +276,13 @@ private fun AppRoot(
             onSttChanged = reconnect,
             onBack = { screen = "settings" },
             micMeter = { threshold ->
-                DisposableEffect(Unit) {
+                // Meter only while the app is in the foreground: the standalone meter
+                // holds the mic open, so backgrounding with Audio settings on-screen
+                // must release it (ON_STOP) and coming back restarts it (ON_START) —
+                // a plain DisposableEffect kept polling the mic in the background.
+                LifecycleStartEffect(Unit) {
                     controller.startMeter()
-                    onDispose { controller.stopMeter() }
+                    onStopOrDispose { controller.stopMeter() }
                 }
                 val level by controller.micLevel.collectAsStateWithLifecycle()
                 Text("Mic level", style = MaterialTheme.typography.titleMedium)
