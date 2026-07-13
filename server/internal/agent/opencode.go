@@ -22,16 +22,16 @@ import (
 // Executor), so no --dir is needed. Models are the local Ollama models the
 // provider config exposes; the flag is opencode's `provider/model` form.
 //
-// Transcript: opencode persists its own session store, but this backend declares
-// TranscriptClaude — the documented "no reader" fallback — so reattach replays
-// nothing and context usage reads zero. A native opencode transcript reader is
-// future work (see TODO.md).
+// Transcript: opencode persists sessions in a SQLite database, so it declares
+// TranscriptOpencode — its reader (session/opencode_transcript.go) shells out to
+// opencode's own `export`/`session delete` commands to replay history and read
+// context usage on reattach.
 func opencode() *Agent {
 	return &Agent{
 		ID:            "opencode",
 		Name:          "opencode (Ollama)",
 		Bin:           "opencode",
-		Transcript:    TranscriptClaude,
+		Transcript:    TranscriptOpencode,
 		SelfAssignsID: true,
 		DefaultModel:  "qwen",
 		Models: []Model{

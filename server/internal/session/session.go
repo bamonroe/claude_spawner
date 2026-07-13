@@ -423,11 +423,14 @@ type transcriptReader interface {
 
 // transcriptReaderFor selects the on-disk reader for a session's backend (agent
 // id) on its host, by the agent's declared transcript layout: Codex reads its
-// rollout files, every other backend reads Claude-style transcripts. host empty
-// = local machine.
+// rollout files, opencode shells out to its export command, every other backend
+// reads Claude-style transcripts. host empty = local machine.
 func (d *Driver) transcriptReaderFor(agentID, host string) transcriptReader {
-	if d.agents().Resolve(agentID).Transcript == agent.TranscriptCodex {
+	switch d.agents().Resolve(agentID).Transcript {
+	case agent.TranscriptCodex:
 		return codexFS{d.claudeFSFor(host)}
+	case agent.TranscriptOpencode:
+		return opencodeFS{d.claudeFSFor(host)}
 	}
 	return d.claudeFSFor(host)
 }

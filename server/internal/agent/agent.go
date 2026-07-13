@@ -30,6 +30,11 @@ const (
 	TranscriptClaude TranscriptKind = "claude-projects"
 	// TranscriptCodex is Codex CLI's layout: ~/.codex/sessions/YYYY/MM/DD/rollout-*-<thread_id>.jsonl.
 	TranscriptCodex TranscriptKind = "codex-rollouts"
+	// TranscriptOpencode is opencode's layout: sessions live in a SQLite database
+	// (~/.local/share/opencode/opencode.db), not flat files, so its reader shells
+	// out to opencode's own `export`/`session delete` commands rather than reading
+	// a path (see opencode_transcript.go).
+	TranscriptOpencode TranscriptKind = "opencode-db"
 )
 
 // Model is one selectable model within an [Agent], chosen by a short alias the

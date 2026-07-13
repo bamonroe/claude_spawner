@@ -345,8 +345,9 @@ declares how to invoke it and how to read its output, so they share one interfac
   `opencode` installed with an **Ollama provider** in `~/.config/opencode/opencode.jsonc` (an
   `@ai-sdk/openai-compatible` provider whose `baseURL` points at the running Ollama server, e.g.
   `http://localhost:11434/v1`, listing the local models). Set `SPAWNER_SSH_OPENCODE_BIN` if
-  `opencode` isn't on the host's `PATH` (and `SPAWNER_SANDBOX_OPENCODE_BIN` for the sandbox). It has
-  no on-disk transcript reader yet, so reattaching an opencode session replays no history.
+  `opencode` isn't on the host's `PATH` (and `SPAWNER_SANDBOX_OPENCODE_BIN` for the sandbox). opencode
+  keeps sessions in a SQLite DB, so reattach replays history via `opencode export` (and delete uses
+  `opencode session delete`) rather than reading files.
 
 Pick the backend when you spawn — by **voice**, "hey buddy, spawn a codex session" (or "…on
 opencode") creates that backend's session; a plain spawn uses Claude. In the **visual New-session picker** (the app or

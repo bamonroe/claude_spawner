@@ -170,13 +170,19 @@ Dates are `YYYY-MM-DD`.
       `agent.Default()`; per-target binaries `SPAWNER_SSH_OPENCODE_BIN`/`SPAWNER_SANDBOX_OPENCODE_BIN`
       wired into `Driver.AgentBins`; `opencode` added to `spawnAgentWords` + the STT command vocab.
       Parser + error tests green; build/vet/test + docsync/clientsync clean. Docs updated
-      (`README.md`, `docs/architecture.md`, `CLAUDE.md`). **Caveat:** declares the Claude transcript
-      layout as the "no reader" fallback, so reattach replays no history — a native opencode
-      transcript reader is still to do. Verified `opencode run` end-to-end against the live Ollama
-      server (both models reply; `-s` resume works); not yet exercised through a spawned spawner
-      session on the rebuilt server.
-      - [ ] Native opencode transcript reader (history replay + context badge) — its own
-            `TranscriptKind` + reader in `internal/session`, so reattach isn't blank.
+      (`README.md`, `docs/architecture.md`, `CLAUDE.md`). Verified `opencode run` end-to-end against
+      the live Ollama server (both models reply; `-s` resume works); not yet exercised through a
+      spawned spawner session on the rebuilt server.
+      - [x] 2026-07-13 — Native opencode transcript reader (history replay + context badge). opencode
+            persists sessions in a SQLite DB, not files, so `opencodeFS`
+            (`internal/session/opencode_transcript.go`) shells out to `opencode export <id>` (mapping
+            its message/part JSON to `[]Message`, taking context size from the last `step-finish`
+            tokens since session-level `info.tokens` is summed across turns) and `opencode session
+            delete <id>`, over the same SSH seam as the file readers. New `TranscriptOpencode` kind;
+            `transcriptReaderFor` routes to it. Ids are `ses_`-validated before shell interpolation.
+            Pure map/context/id-validation unit tests green. **Caveat:** the reader assumes the host
+            `opencode` binary is on PATH (no config handle for `SPAWNER_SSH_OPENCODE_BIN`); still to
+            exercise reattach through a live spawned session.
 
 - [x] 2026-07-13 — **AI backends made fully self-contained** (the 1.0 quality pass, part 1).
       Each backend now owns its stream parser (`Agent.ParseTurn`) and declares its transcript

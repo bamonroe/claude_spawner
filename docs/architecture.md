@@ -150,9 +150,9 @@ alternates are reasoning-effort presets); the registry is the single place that 
 *opencode* (`opencode run` / `run -s <id>`, `--format json` JSONL) drives **local Ollama** models:
 like Codex it **self-assigns** its session id (a `ses_…` id on every event), its models are the
 `ollama/*` catalogue served by the provider block in the host user's `~/.config/opencode/opencode.jsonc`
-(pointed at the local Ollama server), and `--auto` is its skip-permissions equivalent. It declares
-the Claude transcript layout as the "no reader" fallback, so reattach replays nothing until a native
-opencode transcript reader is written.
+(pointed at the local Ollama server), and `--auto` is its skip-permissions equivalent. It persists
+sessions in a SQLite DB rather than flat files, so its transcript reader shells out to opencode's own
+commands (see below).
 
 **Reattach replays each backend's own on-disk transcript.** A session has no live process, so the
 `history` page and the on-attach context badge are rebuilt from disk — and *where* that record lives
@@ -161,10 +161,15 @@ and *how* it's shaped differs by backend, so the reader is chosen by the agent's
 `~/.claude/projects/*/<session_id>.jsonl` (read by `claudeFS`); Codex writes a **rollout** JSONL at
 `~/.codex/sessions/YYYY/MM/DD/rollout-<ts>-<thread_id>.jsonl` in an unrelated schema — conversation
 prose as `event_msg` `user_message`/`agent_message` lines, context size as `token_count` lines — read
-by `codexFS` (`internal/session/codex_transcript.go`). Both normalize to the same `[]Message` /
-`ContextSnapshot` the gateway already sends, so a Codex session's past turns replay on reattach exactly
-like a Claude session's. (This rollout schema is the persisted record; it is *not* the live
-`codex exec --json` stream the agent's `ParseTurn` consumes during a turn.)
+by `codexFS` (`internal/session/codex_transcript.go`). opencode keeps sessions in a **SQLite database**
+(`~/.local/share/opencode/opencode.db`), not files, so `opencodeFS`
+(`internal/session/opencode_transcript.go`) instead shells out to opencode's own stable commands over
+the same SSH seam — `opencode export <id>` for history (mapping its message/part JSON, taking each
+turn's context size from the last `step-finish` part's tokens, since the session-level `info.tokens`
+is summed across turns) and `opencode session delete <id>` for removal. All three normalize to the same
+`[]Message` / `ContextSnapshot` the gateway already sends, so a Codex or opencode session's past turns
+replay on reattach exactly like a Claude session's. (These persisted records are *not* the live
+`--json` streams the agents' `ParseTurn` consume during a turn.)
 
 ### Adding an AI backend (e.g. Gemini CLI, a local model)
 
@@ -380,6 +385,7 @@ uppercase letters by voice. Acceptable; documented in `docs/commands.md`.
   internal/session/discover.go  scan ~/.claude/projects for all Claude sessions (adopt/discover)
   internal/session/transcript.go read/stitch Claude on-disk transcripts for `history` (spans clears)
   internal/session/codex_transcript.go  codexFS: read Codex rollout files for `history`/context badge
+  internal/session/opencode_transcript.go  opencodeFS: `opencode export`/`session delete` for `history`/context badge
   internal/command/command.go   utterance -> intent parser + StripWake
   internal/command/registry.go  Command registry (single source of truth) + RegistryJSON
   internal/transcribe/          Transcriber interface: WhisperCPP (CLI) + RemoteWhisper (HTTP)
