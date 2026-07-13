@@ -229,6 +229,22 @@ server keeps no per-connection state. The beep is a low, round sine tone with a 
 deliberately unlike a sharp notification chime — and in hands-free mode it plays through the
 echo-cancelled voice path so the open mic doesn't hear it.
 
+### Server voice: Kokoro speech synthesis streamed to the device
+
+When the server is configured with a resident Kokoro TTS server (`SPAWNER_TTS_URL`; see the compose
+stack's `kokoro` service), replies can be spoken with a **neural server-side voice** instead of the
+device's built-in text-to-speech. The decision stays on the client — the **Server voice** switch on
+the **Audio** settings page (on by default, active only when the connected server offers TTS): for
+each reply the app sends the text up as a `speak` request, the server synthesizes it with Kokoro and
+streams the audio straight back down the WebSocket, and the app plays it as it arrives. Nothing is
+synthesized for muted or summary-only-beeping clients, since they never ask. If the server refuses
+or synthesis fails, that utterance is read by the device's own voice automatically — the fallback
+needs no toggling. Barge-in ("hey buddy stop", push-to-talk) halts server-voice playback exactly
+like local speech. The web client still uses the browser's `SpeechSynthesis` (its server-voice
+playback is on the roadmap), and on-device TTS remains the whole story when `SPAWNER_TTS_URL` is
+unset. Voice selection (Kokoro ships dozens) is server-configured via `SPAWNER_TTS_VOICE` for now;
+a per-device voice picker is planned (see `TODO.md`).
+
 ### Detached background jobs that outlive a turn
 
 Each turn drives a **fresh** headless `claude` process (resumed from disk), so Claude's own

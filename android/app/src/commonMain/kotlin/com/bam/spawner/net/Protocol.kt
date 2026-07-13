@@ -20,7 +20,7 @@ import kotlinx.serialization.json.putJsonObject
  * JVM-only and this file is now shared between the Android and web clients).
  */
 sealed interface ServerMsg {
-    data class HelloOk(val serverVersion: String, val whisperModel: String, val whisperModelFast: String = "", val whisperModels: List<String> = emptyList(), val whisperModelsLocal: List<String> = emptyList()) : ServerMsg
+    data class HelloOk(val serverVersion: String, val whisperModel: String, val whisperModelFast: String = "", val whisperModels: List<String> = emptyList(), val whisperModelsLocal: List<String> = emptyList(), val tts: Boolean = false) : ServerMsg
     // The resident servers' current models, server-global: accurate ("full") +
     // fast draft/detection ("quick"; empty = no fast server configured). `models`
     // is the English-model catalogue offered as a picker; `local` is the subset
@@ -59,6 +59,15 @@ sealed interface ServerMsg {
     data class Diff(val text: String) : ServerMsg // post-turn `git diff --stat` review
     data class Ask(val name: String, val questions: List<AskQuestion>) : ServerMsg // interactive clarification
     data object StopSpeaking : ServerMsg
+    // Server-side TTS (the Kokoro epic): heads one synthesized utterance — the
+    // binary frames that follow, up to the matching SpeakEnd, are its audio in
+    // `codec` (the format the client asked for in its `speak`). Speaks are
+    // serviced one at a time per connection, in request order, so frames never
+    // interleave across utterances.
+    data class SpeakAudio(val id: String, val codec: String) : ServerMsg
+    // Closes a speak stream. error empty = success; non-empty (tts disabled,
+    // synthesis failed, queue full, …) = fall back to on-device TTS for it.
+    data class SpeakEnd(val id: String, val error: String) : ServerMsg
     data class SpeechMode(val summaryOnly: Boolean) : ServerMsg // speak only the final result (intermediate steps beep) vs everything
     data class Listing(val path: String, val parent: String, val entries: List<BrowseEntry>) : ServerMsg
     data class FileSaved(val path: String) : ServerMsg // an upload landed on the target host
@@ -75,7 +84,7 @@ sealed interface ServerMsg {
         fun parse(raw: String): ServerMsg {
             val o = json.parseToJsonElement(raw).jsonObject
             return when (o.str("type")) {
-                "hello_ok" -> HelloOk(o.str("server_version"), o.str("whisper_model"), o.str("whisper_model_fast"), readStrings(o.arr("whisper_models")), readStrings(o.arr("whisper_models_local")))
+                "hello_ok" -> HelloOk(o.str("server_version"), o.str("whisper_model"), o.str("whisper_model_fast"), readStrings(o.arr("whisper_models")), readStrings(o.arr("whisper_models_local")), o.bool("tts"))
                 "whisper_model" -> WhisperModel(o.str("model"), o.str("fast_model"), readStrings(o.arr("whisper_models")), readStrings(o.arr("whisper_models_local")))
                 "whisper_download" -> WhisperDownload(o.str("model"), o.bool("fast"), o.long("received"), o.long("total"), o.bool("done"), o.str("error"))
                 "say" -> Say(o.str("text"))
@@ -118,6 +127,8 @@ sealed interface ServerMsg {
                 "diff" -> Diff(o.str("text"))
                 "ask" -> Ask(o.str("name"), readAsk(o.arr("questions")))
                 "stop_speaking" -> StopSpeaking
+                "speak_audio" -> SpeakAudio(o.str("id"), o.str("codec"))
+                "speak_end" -> SpeakEnd(o.str("id"), o.str("error"))
                 "speech_mode" -> SpeechMode(o.bool("summary_only"))
                 "listing" -> Listing(o.str("path"), o.str("parent"), readEntries(o.arr("entries")))
                 "file_saved" -> FileSaved(o.str("path"))
@@ -390,6 +401,15 @@ object Outbound {
     // bounce that recreates from the existing image
     fun restart(rebuild: Boolean) = buildJsonObject { put("type", "restart"); put("rebuild", rebuild) }.toString()
 
+    // Ask the server to synthesize `text` (markdown already stripped) via Kokoro.
+    // `id` is echoed on the speak_audio/speak_end response stream; empty voice /
+    // format mean the server defaults (Android asks for "pcm" — raw 24 kHz s16le
+    // mono it can stream straight into an AudioTrack).
+    fun speak(id: String, text: String, voice: String = "", format: String = "") = buildJsonObject {
+        put("type", "speak"); put("id", id); put("text", text)
+        if (voice.isNotEmpty()) put("voice", voice)
+        if (format.isNotEmpty()) put("format", format)
+    }.toString()
     fun wake(codec: String, handsFree: Boolean = false, calibrate: Boolean = false) =
         buildJsonObject {
             put("type", "wake"); put("codec", codec)

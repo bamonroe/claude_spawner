@@ -145,6 +145,11 @@ class WebAppController(private val prefs: Prefs) : AppController {
     // Live model-download progress; null when no fetch is in flight.
     private val _whisperDownload = MutableStateFlow<WhisperDownloadInfo?>(null)
     override val whisperDownload: StateFlow<WhisperDownloadInfo?> = _whisperDownload.asStateFlow()
+    // Whether the server offers Kokoro TTS (hello_ok `tts`). The web client's
+    // playback of it lands in the epic's M4; until then browser SpeechSynthesis
+    // does the speaking regardless of the toggle.
+    private val _serverTtsAvailable = MutableStateFlow(false)
+    override val serverTtsAvailable: StateFlow<Boolean> = _serverTtsAvailable.asStateFlow()
     private val _ask = MutableStateFlow<List<AskQuestion>?>(null)
     override val ask: StateFlow<List<AskQuestion>?> = _ask.asStateFlow()
 
@@ -205,6 +210,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
                 prefs.whisperFastModel = msg.whisperModelFast
                 _whisperModels.value = msg.whisperModels
                 _whisperModelsLocal.value = msg.whisperModelsLocal
+                _serverTtsAvailable.value = msg.tts
                 discover()
                 if (prefs.lastSession.isNotBlank()) {
                     client?.send(Outbound.attach(prefs.lastSession, prefs.lastSessionId, silent = true))
@@ -246,6 +252,10 @@ class WebAppController(private val prefs: Prefs) : AppController {
                 }
             }
             is ServerMsg.StopSpeaking -> { cancelSpeech(); _speaking.value = false }
+            // Server-TTS audio streams (Kokoro): the web client doesn't request
+            // them yet — playback lands in the epic's M4 (see TODO.md).
+            is ServerMsg.SpeakAudio -> {}
+            is ServerMsg.SpeakEnd -> {}
             is ServerMsg.SpeechMode -> prefs.summaryOnlySpeech = msg.summaryOnly // voice toggle mirrors the audio-settings switch
             is ServerMsg.ContextReset -> _lastTurnUsage.value = null
             is ServerMsg.Activity -> _activity.value = msg.text

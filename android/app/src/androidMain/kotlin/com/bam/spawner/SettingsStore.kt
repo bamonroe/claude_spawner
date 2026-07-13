@@ -97,6 +97,11 @@ class SettingsStore(context: Context) : Prefs {
         get() = prefs.getBoolean("summary_only_speech", false)
         set(v) = prefs.edit().putBoolean("summary_only_speech", v).apply()
 
+    /** Server-side Kokoro voice vs on-device TTS (default on; falls back automatically). */
+    override var serverTts: Boolean
+        get() = prefs.getBoolean("server_tts", true)
+        set(v) = prefs.edit().putBoolean("server_tts", v).apply()
+
     /** Spoken word that commits a hands-free message ("beep" by default). */
     override var endToken: String
         get() = prefs.getString("end_token", Prefs.DEFAULT_END_TOKEN)?.ifBlank { Prefs.DEFAULT_END_TOKEN } ?: Prefs.DEFAULT_END_TOKEN

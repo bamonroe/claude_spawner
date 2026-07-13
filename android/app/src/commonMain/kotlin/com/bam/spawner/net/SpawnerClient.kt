@@ -71,6 +71,9 @@ class SpawnerClient(
     private val hello: HelloConfig,
     private val onMessage: (ServerMsg) -> Unit,
     private val onConnected: (Boolean) -> Unit,
+    // Server→client binary frames are exclusively speak audio (see docs/protocol.md:
+    // each stream is bracketed by speak_audio/speak_end on the same ordered socket).
+    private val onAudio: (ByteArray) -> Unit = {},
 ) {
     private val client: HttpClient = spawnerHttpClient()
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
@@ -102,6 +105,8 @@ class SpawnerClient(
                                 val msg = ServerMsg.parse(frame.readText())
                                 if (msg is ServerMsg.HelloOk) onConnected(true)
                                 onMessage(msg)
+                            } else if (frame is Frame.Binary) {
+                                onAudio(frame.data)
                             }
                         }
                     } finally {

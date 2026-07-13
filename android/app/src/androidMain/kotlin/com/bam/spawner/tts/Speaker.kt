@@ -86,6 +86,10 @@ class Speaker(context: Context) {
         speakingCb?.invoke(n > 0)
     }
 
+    /** Whether TTS is muted (Mute output) — server-TTS callers check before asking
+     *  the server to synthesize anything for this client. */
+    fun isMuted() = muted
+
     fun speak(text: String) {
         if (muted || text.isBlank()) return
         if (ready) speakNow(text) else pending.addLast(text)
@@ -99,9 +103,142 @@ class Speaker(context: Context) {
     fun stop() {
         pending.clear()
         clearBeeps()
+        streamStop()
         if (::tts.isInitialized) tts.stop()
         outstanding.set(0)
         speakingCb?.invoke(false)
+    }
+
+    // --- Server-TTS stream playback (the Kokoro epic, see TODO.md) -------------
+    //
+    // The server synthesizes speech and streams raw PCM (24 kHz s16le mono, the
+    // `pcm` speak format) as binary WebSocket frames; this section plays them on
+    // a MODE_STREAM AudioTrack. Like the beeps, all track access happens on one
+    // dedicated worker thread fed by a queue — AudioTrack.write blocks until the
+    // track buffer has room, which must never stall the network reader thread.
+    // Routing matches spoken TTS: echo-cancelled comms audio in hands-free (so
+    // voice barge-in works while it talks), the media speaker otherwise.
+
+    private sealed interface StreamEvt {
+        data object Begin : StreamEvt
+        class Data(val bytes: ByteArray) : StreamEvt
+        data object End : StreamEvt
+    }
+
+    private val streamQueue = LinkedBlockingQueue<StreamEvt>()
+    @Volatile private var streamWorker: Thread? = null
+    private var streamTrack: AudioTrack? = null // worker-thread-owned
+    private var streamTrackUsage = -1
+    @Volatile private var streamDirty = false // barge-in flushed the track: rebuild on next Begin
+    @Volatile private var streamBumped = false // this stream counted itself in `outstanding`
+    private var streamFramesWritten = 0L
+
+    /** An utterance's audio stream is starting (speak_audio arrived). */
+    fun streamBegin() {
+        if (muted) return
+        ensureStreamWorker()
+        streamQueue.offer(StreamEvt.Begin)
+    }
+
+    /** One binary frame of the current utterance's PCM. */
+    fun streamWrite(data: ByteArray) {
+        if (muted) return
+        streamQueue.offer(StreamEvt.Data(data))
+    }
+
+    /** The current utterance's stream closed cleanly (speak_end). */
+    fun streamEnd() {
+        streamQueue.offer(StreamEvt.End)
+    }
+
+    /** Silence server-TTS playback immediately (barge-in / mute / disconnect) and
+     *  drop whatever is queued. The caller stops forwarding the rest of the
+     *  in-flight stream; the next streamBegin rebuilds the track. */
+    fun streamStop() {
+        streamQueue.clear()
+        streamDirty = true
+        // pause+flush from another thread also unblocks a worker stuck in write().
+        runCatching { streamTrack?.pause(); streamTrack?.flush() }
+        if (streamBumped) { streamBumped = false; bump(-1) }
+    }
+
+    @Synchronized
+    private fun ensureStreamWorker() {
+        if (streamWorker?.isAlive == true) return
+        streamWorker = Thread {
+            while (true) {
+                val evt = try {
+                    streamQueue.take()
+                } catch (_: InterruptedException) {
+                    break
+                }
+                runCatching {
+                    when (evt) {
+                        is StreamEvt.Begin -> streamBeginOnWorker()
+                        is StreamEvt.Data -> {
+                            val t = streamTrack
+                            if (t != null && !streamDirty) {
+                                val n = t.write(evt.bytes, 0, evt.bytes.size)
+                                if (n > 0) streamFramesWritten += n / 2 // 16-bit mono: 2 bytes/frame
+                            }
+                        }
+                        is StreamEvt.End -> streamEndOnWorker()
+                    }
+                }
+            }
+        }.apply { isDaemon = true; name = "tts-stream"; start() }
+    }
+
+    // Worker-only: (re)build the track when first used, when the route (media vs
+    // comms) changed, or after a barge-in flush, then start playback.
+    private fun streamBeginOnWorker() {
+        val usage = if (commMode) AudioAttributes.USAGE_VOICE_COMMUNICATION else AudioAttributes.USAGE_MEDIA
+        if (streamTrack == null || streamTrackUsage != usage || streamDirty) {
+            runCatching { streamTrack?.release() }
+            streamTrack = try {
+                val minBuf = AudioTrack.getMinBufferSize(
+                    STREAM_RATE, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT,
+                )
+                AudioTrack(
+                    AudioAttributes.Builder()
+                        .setUsage(usage)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build(),
+                    AudioFormat.Builder()
+                        .setSampleRate(STREAM_RATE)
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                        .build(),
+                    maxOf(minBuf, STREAM_RATE) /* ≥ half a second buffered */,
+                    AudioTrack.MODE_STREAM, AudioManager.AUDIO_SESSION_ID_GENERATE,
+                )
+            } catch (_: Exception) {
+                null
+            }
+            streamTrackUsage = if (streamTrack != null) usage else -1
+            streamDirty = false
+        }
+        streamFramesWritten = 0
+        val t = streamTrack ?: return
+        runCatching { t.play() }
+        if (!streamBumped) { streamBumped = true; bump(1) } // drives onSpeakingChanged like spoken TTS
+    }
+
+    // Worker-only: let the buffered tail play out (so the speaking indicator and
+    // the hands-free recorder gating stay honest), then stop the track.
+    private fun streamEndOnWorker() {
+        val t = streamTrack
+        if (t != null && !streamDirty) {
+            val deadline = System.nanoTime() +
+                ((streamFramesWritten * 1000L / STREAM_RATE) + 1000L) * 1_000_000L
+            while (System.nanoTime() < deadline) {
+                val head = runCatching { t.playbackHeadPosition.toLong() and 0xffffffffL }.getOrNull() ?: break
+                if (head >= streamFramesWritten || t.playState != AudioTrack.PLAYSTATE_PLAYING) break
+                try { Thread.sleep(40) } catch (_: InterruptedException) { break }
+            }
+            runCatching { t.stop() }
+        }
+        if (streamBumped) { streamBumped = false; bump(-1) }
     }
 
     // The warm-beep waveform (PCM16 mono), synthesized once and replayed. It is a
@@ -282,15 +419,21 @@ class Speaker(context: Context) {
     fun shutdown() {
         clearBeeps()
         beepWorker?.interrupt()
+        streamStop()
+        streamWorker?.interrupt()
         runCatching { beepTrack?.release() }
         runCatching { chirpTrack?.release() }
+        runCatching { streamTrack?.release() }
         beepTrack = null
         chirpTrack = null
+        streamTrack = null
         tts.stop()
         tts.shutdown()
     }
 }
 
+// Kokoro's `pcm` speak format: raw 24 kHz 16-bit little-endian mono (docs/protocol.md).
+private const val STREAM_RATE = 24000
 private const val BEEP_RATE = 44100
 private const val BEEP_MS = 200L
 private const val BEEP_FREQ = 420.0    // low and round — warm, not shrill

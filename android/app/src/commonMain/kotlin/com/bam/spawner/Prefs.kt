@@ -56,6 +56,11 @@ interface Prefs {
      *  soft beep instead of being read aloud. Toggled by voice ("summary only" /
      *  "speak everything") and by the audio-settings switch. */
     var summaryOnlySpeech: Boolean
+    /** Speak with the server's Kokoro voice (synthesized server-side, streamed
+     *  down as audio) instead of on-device TTS. Only takes effect when the
+     *  server offers TTS (hello_ok `tts`); on-device speech remains the
+     *  automatic fallback (and handles any speak the server refuses). */
+    var serverTts: Boolean
     /** Spoken word that commits a hands-free message ("beep" by default). */
     var endToken: String
     /** Custom wake word(s), comma-separated for several misheard variants,

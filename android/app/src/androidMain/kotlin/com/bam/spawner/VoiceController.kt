@@ -290,6 +290,20 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     private val _whisperModelsLocal = MutableStateFlow<List<String>>(emptyList())
     override val whisperModelsLocal: StateFlow<List<String>> = _whisperModelsLocal.asStateFlow()
 
+    // Whether the connected server offers Kokoro TTS (hello_ok `tts`).
+    private val _serverTtsAvailable = MutableStateFlow(false)
+    override val serverTtsAvailable: StateFlow<Boolean> = _serverTtsAvailable.asStateFlow()
+
+    // --- Server-TTS (Kokoro) speak bookkeeping --------------------------------
+    // Everything the net thread and the UI thread both touch sits under speakLock.
+    private val speakLock = Any()
+    private var speakSeq = 0L
+    // id -> stripped text of each in-flight speak, kept for the on-device
+    // fallback when the server refuses (error-bearing speak_end).
+    private val speakTexts = LinkedHashMap<String, String>()
+    private var speakStreamId: String? = null // utterance whose binary frames are arriving
+    private var speakStreamLive = false // false = cancelled/foreign: drop its remaining frames
+
     // Live model-download progress; null when no fetch is in flight.
     private val _whisperDownload = MutableStateFlow<WhisperDownloadInfo?>(null)
     override val whisperDownload: StateFlow<WhisperDownloadInfo?> = _whisperDownload.asStateFlow()
@@ -376,7 +390,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     // Apply an output: MUTE suppresses TTS (no device routing); anything else
     // unmutes and routes the device. Returns whether it took effect.
     private fun applyAudioOutput(out: AudioOutput): Boolean =
-        if (out == AudioOutput.MUTE) { speaker.setMuted(true); true }
+        if (out == AudioOutput.MUTE) { cancelServerSpeech(); speaker.setMuted(true); true }
         else { speaker.setMuted(false); audioRouter.setOutput(out) }
 
     /** Re-scan available outputs (call when opening the picker to catch a
@@ -425,7 +439,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
             settings.whisperUrl, settings.brief, settings.interactive,
             settings.warmCompress, settings.autoCompress, settings.autoCompressThreshold,
         )
-        client = SpawnerClient(url, token, settings.clientId, hello, ::onMessage, ::onConnected)
+        client = SpawnerClient(url, token, settings.clientId, hello, ::onMessage, ::onConnected, ::onSpeakFrame)
             .also { it.connect() }
     }
 
@@ -734,7 +748,77 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     }
 
     /** Stop the TTS readout (the on-screen tap-to-stop). */
-    fun stopSpeaking() = speaker.stop()
+    fun stopSpeaking() {
+        cancelServerSpeech()
+        speaker.stop()
+    }
+
+    // --- Server-TTS (Kokoro) playback ------------------------------------------
+
+    /** Speak [text] (already markdown-stripped): with the server's Kokoro voice
+     *  when the toggle is on and the server offers TTS, else on-device. The
+     *  server streams PCM back bracketed by speak_audio/speak_end; an
+     *  error-bearing speak_end falls back to the on-device voice. */
+    private fun speakText(text: String) {
+        if (text.isBlank() || speaker.isMuted()) return
+        if (settings.serverTts && _serverTtsAvailable.value && _connected.value) {
+            val id = synchronized(speakLock) {
+                val id = "s${++speakSeq}"
+                speakTexts[id] = text
+                // Runaway guard; the server refuses past 32 queued anyway.
+                while (speakTexts.size > 64) speakTexts.remove(speakTexts.keys.first())
+                id
+            }
+            client?.send(Outbound.speak(id, text, voice = "", format = "pcm"))
+        } else {
+            speaker.speak(text)
+        }
+    }
+
+    /** speak_audio: the next binary frames are this utterance's PCM. Anything we
+     *  didn't ask for (or a codec we can't stream) is dropped and falls back on
+     *  its speak_end. */
+    private fun onSpeakAudio(msg: ServerMsg.SpeakAudio) = synchronized(speakLock) {
+        speakStreamId = msg.id
+        speakStreamLive = msg.codec == "pcm" && speakTexts.containsKey(msg.id)
+        if (speakStreamLive) speaker.streamBegin()
+    }
+
+    /** A server→client binary frame — always speak audio (the only binary the
+     *  server sends; ordered on the same socket as its speak_audio header). */
+    private fun onSpeakFrame(data: ByteArray) {
+        val live = synchronized(speakLock) { speakStreamLive }
+        if (live) speaker.streamWrite(data)
+    }
+
+    private fun onSpeakEnd(msg: ServerMsg.SpeakEnd) {
+        val wasLive: Boolean
+        val text: String?
+        synchronized(speakLock) {
+            wasLive = speakStreamLive && speakStreamId == msg.id
+            if (speakStreamId == msg.id) {
+                speakStreamId = null
+                speakStreamLive = false
+            }
+            text = speakTexts.remove(msg.id)
+        }
+        if (wasLive) speaker.streamEnd()
+        // Refused (tts disabled / queue full / synthesis failed) → on-device voice.
+        // A stream that died part-way (wasLive) already spoke partially; don't
+        // replay the whole utterance on top of it.
+        if (msg.error.isNotEmpty() && text != null && !wasLive) speaker.speak(text)
+    }
+
+    /** Forget all in-flight server speaks and silence their playback (barge-in,
+     *  mute, disconnect). Frames still arriving for a cancelled utterance are
+     *  dropped until its speak_end passes. */
+    private fun cancelServerSpeech() {
+        synchronized(speakLock) {
+            speakTexts.clear()
+            speakStreamLive = false
+        }
+        speaker.streamStop()
+    }
 
     /** Change the resident whisper model (server-global; the server broadcasts the
      *  new value back to every client). */
@@ -864,6 +948,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
             return
         }
         if (hfOn) return // hands-free owns the mic
+        cancelServerSpeech()
         speaker.stop() // barge-in
         if (!recorder.start()) {
             _mic.value = "⚠️ mic unavailable"
@@ -911,6 +996,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     private fun onConnected(up: Boolean) {
         _connected.value = up
         _status.value = if (up) "connected" else "reconnecting…"
+        if (!up) cancelServerSpeech() // a dropped socket orphans any in-flight speak streams
         if (!up) persist(currentKey) // flush the visible session to disk so it's available offline
         // Dropped mid-turn: arm the watchdog. If the server is alive it'll re-deliver
         // the reply (or a "still working" breadcrumb) on reconnect and disarm this;
@@ -933,7 +1019,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                 if (hfOn) _voiceState.value = VoiceState.LISTENING
                 val note = "⚠️ lost the connection while working — that turn may have been interrupted. Try again if you don't hear back."
                 addChat(Role.SYSTEM, note)
-                speaker.speak("that turn may have been interrupted. try again if you don't hear back.")
+                speakText("that turn may have been interrupted. try again if you don't hear back.")
             }
         }
     }
@@ -961,6 +1047,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                 settings.whisperFastModel = msg.whisperModelFast
                 _whisperModels.value = msg.whisperModels
                 _whisperModelsLocal.value = msg.whisperModelsLocal
+                _serverTtsAvailable.value = msg.tts
                 discover() // the drawer lists ALL machine sessions (discovery is the source)
                 client?.send(Outbound.digest()) // validate the offline transcript cache (bodies-free)
                 settings.lastSession.takeIf { it.isNotEmpty() }?.let {
@@ -992,7 +1079,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                 clearTurnInFlight()
                 _activity.value = ""
                 _mic.value = "" // a terminal `say` (e.g. "didn't catch that") ends the PTT clip; clear "transcribing…"
-                addChat(Role.SYSTEM, msg.text); speaker.speak(Markdown.toSpeech(msg.text))
+                addChat(Role.SYSTEM, msg.text); speakText(Markdown.toSpeech(msg.text))
             }
             is ServerMsg.Output -> {
                 // Summary-only mode: don't read the intermediate streamed steps aloud —
@@ -1008,19 +1095,19 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                     turnStreamed = true
                     _activity.value = "" // prose is arriving — drop the "thinking" breadcrumb
                     addChat(Role.CLAUDE, msg.text)
-                    if (summaryOnly) speaker.beep() else speaker.speak(Markdown.toSpeech(msg.text))
+                    if (summaryOnly) speaker.beep() else speakText(Markdown.toSpeech(msg.text))
                 } else {
                     clearTurnInFlight()
                     _activity.value = "" // turn done — stop the thinking indicator
                     if (!turnStreamed) { // no live stream reached us (buffered reply on reconnect)
-                        addChat(Role.CLAUDE, msg.text, msg.usage); speaker.speak(Markdown.toSpeech(msg.text))
+                        addChat(Role.CLAUDE, msg.text, msg.usage); speakText(Markdown.toSpeech(msg.text))
                     } else {
                         // Streamed turn: the bubble already exists from chunks, so badge it
                         // in place — the closing message isn't re-rendered as a new bubble.
                         if (msg.usage != null) attachUsageToLastClaude(msg.usage)
                         // In summary-only mode the chunks only beeped, so speak the final
                         // result now (the closing message carries the full reply text).
-                        if (summaryOnly) speaker.speak(Markdown.toSpeech(msg.text))
+                        if (summaryOnly) speakText(Markdown.toSpeech(msg.text))
                     }
                     turnStreamed = false
                     // Anchor the cache-warm countdown to the turn's real completion
@@ -1067,7 +1154,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                 if (hfOn) _voiceState.value = VoiceState.LISTENING
                 _ask.value = msg.questions
                 addChat(Role.SYSTEM, "❓ " + msg.questions.joinToString("  ") { it.q })
-                speaker.speak(spokenQuestions(msg.questions)) // read aloud so you can answer by voice
+                speakText(spokenQuestions(msg.questions)) // read aloud so you can answer by voice
             }
             is ServerMsg.Transcript -> {
                 _ask.value = null // a spoken/typed reply answers any pending questions
@@ -1085,7 +1172,12 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                 if (hfOn) _voiceState.value = if (msg.text.isEmpty()) VoiceState.LISTENING else VoiceState.CAPTURING
             }
             is ServerMsg.Calibration -> onCalibrationSample(msg.text)
-            is ServerMsg.StopSpeaking -> speaker.stop()
+            is ServerMsg.StopSpeaking -> {
+                cancelServerSpeech()
+                speaker.stop()
+            }
+            is ServerMsg.SpeakAudio -> onSpeakAudio(msg)
+            is ServerMsg.SpeakEnd -> onSpeakEnd(msg)
             is ServerMsg.SpeechMode -> settings.summaryOnlySpeech = msg.summaryOnly // "summary only" / "speak everything" voice toggle
             is ServerMsg.Dialog -> _status.value = "dialog: ${msg.state}"
             is ServerMsg.Attached -> {
@@ -1219,12 +1311,13 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                 _activity.value = ""
                 if (hfOn) _voiceState.value = VoiceState.LISTENING
                 addChat(Role.SYSTEM, "⚠️ turn interrupted (${msg.reason}) — say it again.")
-                speaker.speak("that turn got interrupted — the server restarted. say it again.")
+                speakText("that turn got interrupted — the server restarted. say it again.")
             }
             is ServerMsg.TurnStopped -> {
                 clearTurnInFlight()
                 turnStreamed = false
                 _activity.value = ""
+                cancelServerSpeech()
                 speaker.stop() // also quiet any reply already being read
                 if (hfOn) _voiceState.value = VoiceState.LISTENING
                 addChat(Role.SYSTEM, "⏹ stopped that turn.")
@@ -1360,9 +1453,9 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     private fun onReadLast(count: Int) {
         val claude = _chat.value.filter { it.role == Role.CLAUDE }.takeLast(count.coerceAtLeast(1))
         if (claude.isEmpty()) {
-            speaker.speak("nothing to read yet")
+            speakText("nothing to read yet")
         } else {
-            speaker.speak(claude.joinToString(". … ") { Markdown.toSpeech(it.text) })
+            speakText(claude.joinToString(". … ") { Markdown.toSpeech(it.text) })
         }
         _scrollTick.value = _scrollTick.value + 1
     }

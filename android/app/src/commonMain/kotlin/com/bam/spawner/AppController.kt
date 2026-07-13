@@ -85,6 +85,9 @@ interface AppController : HostsIdentitiesController {
     val whisperModelsLocal: StateFlow<List<String>>
     // Live progress of an on-demand model download; null when none is in flight.
     val whisperDownload: StateFlow<WhisperDownloadInfo?>
+    // Whether the connected server offers Kokoro speech synthesis (hello_ok
+    // `tts`) — the audio-settings "Server voice" toggle only takes effect then.
+    val serverTtsAvailable: StateFlow<Boolean>
     val ask: StateFlow<List<AskQuestion>?>
     // AI backend registry (from the `agents` message): the backends + models the
     // new-session picker offers. Empty until the server advertises it on connect.

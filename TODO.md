@@ -57,8 +57,15 @@ Dates are `YYYY-MM-DD`.
         as an error-bearing `speak_end` so clients fall back to on-device TTS. Documented in
         `docs/protocol.md`, clientsync exemptions carry the M3/M4 pointers. Verified live on a
         scratch server: 44.8 KB opus streamed end-to-end over the WebSocket;
-        (3) Android playback + settings
-        toggle + fallback; (4) web playback; (5) the audio-settings voice dropdown + barge-in
+        (3) ✅ 2026-07-12 Android playback + settings toggle + fallback — `speak` gained an
+        optional `format` override (Android asks for `pcm`, raw 24 kHz s16le mono, and streams
+        the binary frames into a MODE_STREAM AudioTrack on a dedicated worker in `Speaker.kt`;
+        no decoder). Routing decision stays client-local in `speakText` (VoiceController): the
+        "Server voice" audio-settings toggle (default on, enabled only when `hello_ok` says
+        `tts`) picks Kokoro, and any error-bearing `speak_end` falls back to on-device TTS.
+        Barge-in/mute/disconnect cancel in-flight speaks and silence the stream; the clientsync
+        speak exemptions are removed (Kotlin wire strings exist now);
+        (4) web playback; (5) the audio-settings voice dropdown + barge-in
         polish + phone verification.
 
 - [x] 2026-07-12 — **Collapsed spawner-server host mounts.** With SSH-native turns, host FS access

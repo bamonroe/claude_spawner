@@ -892,6 +892,24 @@ fun AudioSettings(
             }
             Switch(checked = summaryOnly, onCheckedChange = { summaryOnly = it; settings.summaryOnlySpeech = it })
         }
+        var serverTts by remember { mutableStateOf(settings.serverTts) }
+        val ttsAvailable by controller.serverTtsAvailable.collectAsState()
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Server voice", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    if (ttsAvailable)
+                        "Speak with the server's Kokoro voice, streamed to this device. Off (or on any failure) the device's own voice is used."
+                    else
+                        "This server doesn't offer speech synthesis — the device's own voice is used.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
+                )
+            }
+            Switch(
+                checked = serverTts, enabled = ttsAvailable,
+                onCheckedChange = { serverTts = it; settings.serverTts = it },
+            )
+        }
 
         HorizontalDivider()
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
