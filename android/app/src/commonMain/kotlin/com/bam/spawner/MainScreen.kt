@@ -354,7 +354,7 @@ fun MainScreen(
     // the new AI — the dialog warns before you commit.
     editTarget?.let { d ->
         var newName by remember(d) { mutableStateOf(d.name) }
-        val curAgent = d.agent.ifBlank { "claude" } // "" on the wire == the default Claude backend
+        val curAgent = d.agent.ifBlank { defaultAgentId(agents) } // "" on the wire == the server's default backend
         var selAgent by remember(d) { mutableStateOf(curAgent) }
         val agentInfo = agents.firstOrNull { it.id == selAgent }
         var selModel by remember(d) { mutableStateOf(d.model) }

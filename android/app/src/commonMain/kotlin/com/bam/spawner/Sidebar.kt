@@ -58,14 +58,14 @@ const val LOCAL_HOST = "localhost"
 /**
  * A compact "Backend · model" label for a session, using the advertised backend
  * display name (falling back to a capitalized id on a pre-agent server). The
- * backend prefix is dropped for the default Claude backend so single-backend
+ * backend prefix is dropped for the server's default backend so single-backend
  * setups show just the model alias; returns "" when there's nothing to show.
  */
 fun backendBadge(agents: List<AgentInfo>, agentId: String, model: String): String {
     val name = agents.firstOrNull { it.id == agentId }?.name
         ?: agentId.replaceFirstChar { it.uppercase() }
     return when {
-        agentId.isBlank() || agentId == "claude" -> model
+        agentId.isBlank() || agentId == defaultAgentId(agents) -> model
         model.isBlank() -> name
         else -> "$name · $model"
     }

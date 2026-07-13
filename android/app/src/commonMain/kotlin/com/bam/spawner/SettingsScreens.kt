@@ -358,6 +358,10 @@ fun HostsSettings(controller: HostsIdentitiesController, onBack: () -> Unit) {
                     FilterChip(selected = identity == id.name, onClick = { identity = id.name }, label = { Text(id.name) })
                 }
             }
+            // "claude" here is deliberate, not a default-backend placeholder: the host's
+            // `claude_bin` field overrides ONLY the Claude backend's binary on that host
+            // (server: SSHPool.binFor). Other backends resolve their binaries from their
+            // own config (e.g. SPAWNER_SSH_CODEX_BIN), never from this field.
             OutlinedTextField(claudeBin, { claudeBin = it }, label = { Text("Remote claude binary (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
