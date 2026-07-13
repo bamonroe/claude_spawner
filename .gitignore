@@ -31,3 +31,4 @@ deploy/tls/
 # only the placeholder is tracked so the Dockerfile COPY target always exists.
 /server/webdist/*
 !/server/webdist/.gitkeep
+brian_notes
