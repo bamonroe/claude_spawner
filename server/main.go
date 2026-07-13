@@ -25,6 +25,7 @@ import (
 	"github.com/bam/claude_spawner/server/internal/session"
 	"github.com/bam/claude_spawner/server/internal/tmux"
 	"github.com/bam/claude_spawner/server/internal/transcribe"
+	"github.com/bam/claude_spawner/server/internal/tts"
 )
 
 func main() {
@@ -175,6 +176,24 @@ func main() {
 		}
 	} else {
 		log.Printf("transcription: DISABLED (set SPAWNER_WHISPER_MODEL); audio frames rejected, text utterances still work")
+	}
+
+	// Server-side speech synthesis (Kokoro). M1 of the TTS epic: the client is
+	// constructed and health-checked here; the gateway starts serving `speak`
+	// requests from it in the protocol milestone (see TODO.md).
+	if cfg.TTSURL != "" {
+		kokoro := tts.New(cfg.TTSURL, cfg.TTSVoice, cfg.TTSFormat)
+		go func() {
+			voices, err := kokoro.Voices(context.Background())
+			if err != nil {
+				log.Printf("tts: kokoro server at %s not answering: %v", cfg.TTSURL, err)
+				return
+			}
+			log.Printf("tts: kokoro at %s (%d voices; default %s, format %s)",
+				cfg.TTSURL, len(voices), cfg.TTSVoice, cfg.TTSFormat)
+		}()
+	} else {
+		log.Printf("tts: DISABLED (set SPAWNER_TTS_URL); clients use on-device speech")
 	}
 
 	proj := projects.New(cfg.SpawnRoots)

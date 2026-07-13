@@ -45,7 +45,11 @@ Dates are `YYYY-MM-DD`.
         fed by the server relaying Kokoro's `/v1/audio/voices` list — same pattern as the
         whisper-model picker (server-supplied options in settings; free default from
         `SPAWNER_TTS_VOICE` until the user picks).
-      - Milestones: (1) compose service + `internal/tts` + config/docs, CLI-tested;
+      - Milestones: (1) ✅ 2026-07-12 compose service + `internal/tts` + config/docs, CLI-tested —
+        `kokoro` service live on the GPU (~810 MiB VRAM alongside whisper), 68 voices, opus
+        synthesis verified via curl + the Go client against the running server; model persists in
+        the `kokoro-models` volume; gateway health-check logs the voice count at startup
+        (`SPAWNER_TTS_URL` set in the live env, takes effect on next rebuild);
         (2) `speak` protocol + gateway plumbing + drift tests; (3) Android playback + settings
         toggle + fallback; (4) web playback; (5) the audio-settings voice dropdown + barge-in
         polish + phone verification.

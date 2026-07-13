@@ -149,6 +149,11 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
   mount at `/models`; when set, its model names are sent to clients as a settings picker —
   empty = free-text entry only),
   `SPAWNER_WHISPER_FAST_MAX_SEC` (`2.5`; clips shorter than this use the fast server).
+- Server-side TTS (the Kokoro epic, see `TODO.md`): `SPAWNER_TTS_URL` (base URL of the resident
+  Kokoro-FastAPI server, e.g. `http://localhost:8880` — the `kokoro` compose service; empty
+  disables server TTS and clients use on-device speech), `SPAWNER_TTS_VOICE` (`af_heart`; default
+  Kokoro voice until a client picks one), `SPAWNER_TTS_FORMAT` (`opus`; synthesis response format:
+  mp3 | wav | opus | flac | pcm).
 - Sandbox sessions (per-session `target: sandbox` execution): `SPAWNER_SANDBOX_IMAGE` (container
   image; **empty disables** the sandbox target), `SPAWNER_SANDBOX_RUNTIME` (`podman`; the container
   CLI — rootless so no host root), `SPAWNER_SANDBOX_CLAUDE_BIN` (`claude`; the binary inside the

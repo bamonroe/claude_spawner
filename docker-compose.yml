@@ -3,12 +3,15 @@
 #
 #   docker compose up -d --build
 #
-# Two services:
+# Three services:
 #   spawner-server — the Go gateway. This container builds the binary from ./server
 #                    and drives the HOST over SSH (unconditionally): `claude` for host
 #                    turns and rootless Podman for sandbox turns both run on the host.
 #   whisper        — the resident whisper.cpp transcription server on :8571 (CUDA).
 #                    spawner-server points at it via SPAWNER_WHISPER_URL.
+#   kokoro         — the resident Kokoro TTS server on :8880 (CUDA, shares the GPU
+#                    with whisper). spawner-server points at it via SPAWNER_TTS_URL;
+#                    optional — without it clients fall back to on-device speech.
 #
 # Prereqs FIRST (see deploy/README.md for the full first-run guide): copy
 # deploy/spawner-container.env.example to deploy/spawner-container.env and fill it in
@@ -75,3 +78,31 @@ services:
     ports:
       - "8571:8571"
     restart: unless-stopped
+
+  # Resident Kokoro TTS server (Kokoro-FastAPI, OpenAI-compatible /v1/audio/speech),
+  # sharing the same Nvidia GPU as whisper (Kokoro-82M needs ~2-3 GB VRAM at inference).
+  # The gateway points at http://localhost:8880 via SPAWNER_TTS_URL. The model
+  # auto-downloads (<1 GB) on first start into the named volume, so recreates don't
+  # re-fetch it.
+  kokoro:
+    image: ghcr.io/remsky/kokoro-fastapi-gpu:latest
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities:
+                - gpu
+                - compute
+    volumes:
+      - kokoro-models:/app/api/src/models
+    ports:
+      - "8880:8880"
+    restart: unless-stopped
+
+volumes:
+  kokoro-models:

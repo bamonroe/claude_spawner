@@ -59,6 +59,15 @@ type Config struct {
 	// resident whisper servers mount at /models. When set, the gateway lists
 	// its ggml-*.bin files so clients can offer a model picker; empty = no list.
 	WhisperModelsDir string
+	// TTSURL points at a resident Kokoro TTS server (Kokoro-FastAPI's base URL,
+	// e.g. http://localhost:8880). When set, the server offers speech synthesis
+	// to clients; empty disables it (clients fall back to on-device TTS).
+	TTSURL string
+	// TTSVoice is the default Kokoro voice used when a client hasn't picked one.
+	TTSVoice string
+	// TTSFormat is the synthesis response_format requested from the TTS server
+	// (mp3 | wav | opus | flac | pcm).
+	TTSFormat string
 	// WhisperModel is the path to a ggml model file. Empty disables transcription
 	// (the audio path returns not_implemented; text utterances still work).
 	WhisperModel string
@@ -150,6 +159,9 @@ func Load() (*Config, error) {
 		WhisperModelName:     env("SPAWNER_WHISPER_MODEL_NAME", "medium.en"),
 		WhisperFastModelName: env("SPAWNER_WHISPER_FAST_MODEL_NAME", "base.en"),
 		WhisperModelsDir:     os.Getenv("SPAWNER_WHISPER_MODELS_DIR"),
+		TTSURL:               os.Getenv("SPAWNER_TTS_URL"),
+		TTSVoice:             env("SPAWNER_TTS_VOICE", "af_heart"),
+		TTSFormat:            env("SPAWNER_TTS_FORMAT", "opus"),
 		WhisperModel:         os.Getenv("SPAWNER_WHISPER_MODEL"),
 		WhisperModelFast:     os.Getenv("SPAWNER_WHISPER_MODEL_FAST"),
 		WhisperModelBase:     os.Getenv("SPAWNER_WHISPER_MODEL_BASE"),

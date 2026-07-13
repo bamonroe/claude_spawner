@@ -82,6 +82,17 @@ on demand. Pre-dropping a `ggml-*.bin` still works and skips the download. The w
 the model named in the compose `command:` (default `ggml-medium.en.bin`), so that one must be
 present (auto-downloaded on first use or placed by hand). See [`../whisper/README.md`](../whisper/README.md).
 
+### Kokoro TTS (optional)
+
+The `kokoro` compose service is a resident [Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI)
+speech-synthesis server on `:8880`, sharing the GPU with whisper (~2–3 GB VRAM at inference).
+`SPAWNER_TTS_URL` in `deploy/spawner-container.env` points the gateway at it; leave it unset and
+clients fall back to their on-device voices. The Kokoro model (<1 GB) auto-downloads on the
+service's first start into a named Docker volume, so recreates don't re-fetch it. Voice and audio
+format defaults are `SPAWNER_TTS_VOICE` / `SPAWNER_TTS_FORMAT` (see `CLAUDE.md`'s config section).
+Bring it up with `docker compose up -d kokoro`; it needs the same Nvidia container toolkit as
+whisper.
+
 ### Getting a client
 
 The server alone is just a WebSocket gateway — you talk to it through the **Android app** or the
