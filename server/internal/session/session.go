@@ -134,7 +134,7 @@ type Driver struct {
 	// after NewDriver.
 	Agents *agent.Registry
 	// AgentBins overrides a backend's binary per (agent id, target) from config —
-	// e.g. {"codex": {host: SPAWNER_CODEX_BIN, sandbox: SPAWNER_SANDBOX_CODEX_BIN}}.
+	// e.g. {"codex": {host: SPAWNER_SSH_CODEX_BIN, sandbox: SPAWNER_SANDBOX_CODEX_BIN}}.
 	// A non-empty entry wins for that target; a missing/empty one falls through to
 	// the agent's own Bin (then the executor's per-target config). Claude is absent
 	// here — it defers to each executor's Bin (SPAWNER_CLAUDE_BIN /

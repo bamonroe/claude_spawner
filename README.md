@@ -309,9 +309,9 @@ declares how to invoke it and how to read its output, so they share one interfac
 
 - **Claude Code** (the default) — `claude` headless in stream-json mode.
 - **Codex** (OpenAI's CLI) — `codex exec`; the server captures Codex's own session id and resumes
-  it turn to turn. Needs `codex` installed and logged in (`codex login`); set `SPAWNER_CODEX_BIN` if
-  it isn't on the server's `PATH` (and `SPAWNER_SANDBOX_CODEX_BIN` / `SPAWNER_SSH_CODEX_BIN` for the
-  sandbox and SSH targets, analogous to the per-target Claude binaries).
+  it turn to turn. Needs `codex` installed and logged in (`codex login`); host turns run over SSH, so
+  set `SPAWNER_SSH_CODEX_BIN` if `codex` isn't on the host's `PATH` (and `SPAWNER_SANDBOX_CODEX_BIN`
+  for the sandbox target, analogous to the per-target Claude binaries).
 
 Pick the backend when you spawn — by **voice**, "hey buddy, spawn a codex session" (or "…on codex")
 creates a Codex session; a plain spawn uses Claude. In the **visual New-session picker** (the app or
@@ -391,10 +391,12 @@ Each session picks an **execution target** at spawn time, a durable per-session 
   between turns — and is destroyed when you delete the session. Set `SPAWNER_SANDBOX_IMAGE` to an
   image carrying `claude` + your toolchain to enable it; the voice spawn dialog then adds a "host or
   sandbox?" step, and the visual sidebar's new-session screen shows a **host/sandbox toggle** (host
-  by default) so you can pick the target when starting a project there too. The working directory is bind-mounted at the same path so edits land there, and
-  the server's whole `$HOME` is bind-mounted **read-write at the same path** by default so your
-  dotfiles, `~/.claude`, and checkouts are available and writable in the container just like on the
-  host. Tune with the other `SPAWNER_SANDBOX_*` vars. A ready-to-build Arch image and the rootless-Podman
+  by default) so you can pick the target when starting a project there too. The working directory is bind-mounted into the **sandbox container**
+  at the same path so edits land there, and the host user's `$HOME` is bind-mounted **read-write at
+  the same path** by default so your dotfiles, `~/.claude`, `~/.codex`, and checkouts are available
+  and writable in the container just like on the host. (This home mount is the **sandbox
+  container's** — the spawner-server container itself mounts no host home; it reads everything over
+  SSH.) Tune with the other `SPAWNER_SANDBOX_*` vars. A ready-to-build Arch image and the rootless-Podman
   config live in [`sandbox/`](./sandbox/README.md). Because the server is containerized and
   SSH-native, the container has no runtime of its own, so it drives rootless Podman
   **on the host over SSH** (the same connection host turns use) — set the `SPAWNER_SANDBOX_*` vars in

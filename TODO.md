@@ -34,9 +34,18 @@ Dates are `YYYY-MM-DD`.
         and read over SSH — the sandbox's podman already runs there, so its files live on the host.
         Also made SSH-native **unconditional** (dropped the `SPAWNER_SSH` toggle; `HostExecutor` + the
         local-child-process paths survive only as the hermetic unit-test executor). `docker-compose.yml`
-        now mounts only `state` + `/data/storage/whisper`. Follow-up: `SPAWNER_CODEX_BIN` is now
-        vestigial (superseded by `SPAWNER_SSH_CODEX_BIN`); the old `~/.local/share/whisper` model copies
-        can be deleted once verified live.
+        now mounts only `state` + `/data/storage/whisper`. Follow-up: the old `~/.local/share/whisper`
+        model copies can be deleted once verified live.
+  - [x] 2026-07-12 — **Deploy portability + full doc pass.** De-hardcoded the deploy off the
+        maintainer's machine: `rebuild-container.sh` derives the repo root from its own location and
+        the target user from the repo owner (`SPAWNER_DEPLOY_USER` overrides); parameterized the
+        whisper models dir in `docker-compose.yml` as `${SPAWNER_WHISPER_MODELS_DIR}`; synced the env
+        templates + added a first-run guide (whisper models, sandbox image) to `deploy/README.md`.
+        Fixed the Codex-in-sandbox gap (mount `~/.codex` + `SPAWNER_SANDBOX_CODEX_BIN`) and documented
+        it. **Removed the vestigial `SPAWNER_CODEX_BIN`/`cfg.CodexBin`** (written once, never read —
+        superseded by `SPAWNER_SSH_CODEX_BIN`). Swept all docs for stale "home/roots mounted" and
+        `SPAWNER_SSH` toggle references (README, `server/Dockerfile`, `docs/architecture.md`) — the
+        server mounts no host home; everything reads over SSH.
 - [x] 2026-07-12 — **Restart button: optional rebuild.** The restart dialog has a *Rebuild from
       source* checkbox (default on). The `restart` message carries a `rebuild` flag (nil/absent =
       rebuild, back-compat); the server substitutes the `%REBUILD%` token in `SPAWNER_RESTART_CMD`

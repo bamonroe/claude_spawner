@@ -130,9 +130,9 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
   `SPAWNER_IDENTITIES` (`identities.json`; the app-managed SSH identity registry — names + public
   keys), `SPAWNER_SSH_KEYS` (`ssh_keys`; directory holding each identity's private key, `0600`; the
   private material never leaves the server, the app only sees/copies the public key),
-  `SPAWNER_CLAUDE_BIN` (`claude`), `SPAWNER_CODEX_BIN` (`codex`; the host binary for
-  Codex-backend sessions — the second entry in the AI backend registry, see
-  `docs/architecture.md`).
+  `SPAWNER_CLAUDE_BIN` (`claude`; the host binary for Claude-backend sessions — the first entry
+  in the AI backend registry, see `docs/architecture.md`. Codex's per-target binaries are
+  `SPAWNER_SSH_CODEX_BIN` for host/SSH turns and `SPAWNER_SANDBOX_CODEX_BIN` for the sandbox).
 - Transport TLS (all optional; empty = plain `ws://`, fine behind Tailscale): `SPAWNER_TLS_CERT`
   and `SPAWNER_TLS_KEY` (PEM cert/key — set **both** to serve `wss://`; one without the other is a
   startup error), `SPAWNER_TLS_CLIENT_CA` (PEM CA bundle — when set, the app must present a client
@@ -168,8 +168,7 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
   app records its key trust-on-first-use, deleting the host forgets it, and the running pool reloads
   the file so it takes effect without a restart), `SPAWNER_SSH_CLAUDE_BIN`
   (`claude`; the remote claude binary), `SPAWNER_SSH_CODEX_BIN` (`codex`; the remote codex binary for
-  Codex-backend SSH sessions — SSH reuses the host target, so this is the host codex binary; it
-  supersedes `SPAWNER_CODEX_BIN`, now vestigial).
+  Codex-backend SSH sessions — SSH reuses the host target, so this is the host codex binary).
 - Restart: `SPAWNER_RESTART_CMD` — a shell command fired by the app's restart button; empty disables
   restart. The server runs in a Docker container that builds the Go binary and drives the host over
   SSH (host `claude` turns and the rootless sandbox runtime both execute on the host — no separate

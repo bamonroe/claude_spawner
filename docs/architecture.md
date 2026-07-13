@@ -105,7 +105,8 @@ session.go`), which `exec`s the `claude` binary in the session's `Dir` and parse
 feature reduces to making that launch pluggable:
 
 - An **`Executor`** interface (start a `claude` turn given `Dir` + args, return a stdout stream).
-  The direct-`exec` is the `host` executor (`HostExecutor`); a `sandbox` executor
+  The direct-`exec` `HostExecutor` is now **test-only** — in production the `host` target uses
+  `SSHExecutor` (SSH-native execution is unconditional; see below). A `sandbox` executor
   (`SandboxExecutor`) runs the turn inside a container. `Turn()` selects one and is otherwise
   unchanged — the NDJSON parsing, `Setpgid` group-kill, and event fan-out all stay put.
 - An **execution-target field** on the `Session` record (`store.go`), set at spawn time and
@@ -164,9 +165,9 @@ session's Claude transcript back over it, and enforces the `SPAWNER_ROOT` jail i
 (the last hop before any launch). No component holds host root: the server is an unprivileged
 container and sandboxes use a rootless runtime on the host. Recipe: the root `docker-compose.yml`
 (the `spawner-server` service alongside `whisper`, so one `docker compose up -d --build` launches the
-whole backend; host networking so `localhost:22` is the host sshd; home + roots mounted at the same
-paths so discovery/browse read where the host writes). See the Dockerfile at
-`server/Dockerfile`.
+whole backend; host networking so `localhost:22` is the host sshd; only durable state and the
+whisper models dir are mounted — discovery, browse, and transcript reads all run on the host over
+SSH, not off a host home/root mount). See the Dockerfile at `server/Dockerfile`.
 
 > **Design note — the containerized-server + broker detour (reverted 2026-07-06).** An earlier design
 > ran the server in a container and put a small host-side **broker** daemon (`cmd/broker`, dialed
@@ -211,8 +212,9 @@ migrated to `localhost` on load; discovered sessions, found by scanning this mac
 container's own loopback — which has no sshd — *unless* the container shares the host's network. The
 `spawner-server` service in the root `docker-compose.yml` uses **host networking** precisely so that
 `localhost:22` inside the container is the **host's** sshd: the seeded
-`localhost` host then drives the host machine, and the mounted home/roots line up with the paths the
-host writes. A container *without* host networking can't reach the host as `localhost` — that's a
+`localhost` host then drives the host machine over SSH (there is no host home/root mount — all of it,
+including transcript reads and discovery, goes over that SSH connection). A container *without* host
+networking can't reach the host as `localhost` — that's a
 deployment where you'd delete the `localhost` entry and register the host (and any others) as
 explicit remotes instead.
 
@@ -228,9 +230,10 @@ restart or manual `rm` is transparently recreated. Spawn-time `Ensure` is best-e
 fatal); a hard runtime failure surfaces on the first turn. Use a **rootless Podman / rootless
 Docker** runtime (`SPAWNER_SANDBOX_RUNTIME`) so none of this needs host root — the sandbox gets
 root *inside itself* and a disposable FS. Session `Dir` is bind-mounted same-path (so the
-transcript's project encoding matches the host); the server's whole `$HOME` is also bind-mounted
-**read-write at the same path** by default (`SandboxExecutor.HomeMount`, set from `$HOME`), so
-dotfiles, `~/.claude`, and project checkouts are writable inside the sandbox exactly as on the host.
+transcript's project encoding matches the host); the host user's `$HOME` is also bind-mounted into
+the **sandbox container** **read-write at the same path** by default (`SandboxExecutor.HomeMount`,
+set from `$HOME`), so dotfiles, `~/.claude`, `~/.codex`, and project checkouts are writable inside
+the sandbox exactly as on the host.
 Add anything outside `$HOME` via `SPAWNER_SANDBOX_MOUNTS`. Lifecycle hooks live in the gateway spawn (`ensureSandbox`) and
 delete (`removeSandbox`) paths; `Driver.EnsureContainer`/`RemoveContainer` bridge to the executor.
 At startup `Driver.ReconcileContainers` sweeps **orphans** — managed containers (matched by the
