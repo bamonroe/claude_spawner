@@ -57,16 +57,30 @@ run_args: [ "--userns=keep-id" ]               # escape hatch, appended to podma
 
 ### Substitution context
 
-Variables resolved from config + the target host + the session, e.g.:
+**Resolved 2026-07-13.** A small fixed set of **built-in, host/session-derived** variables, plus an
+open-ended **user-defined `vars` map** so new setup-specific values never require a code change or a
+new named variable (the trap we explicitly wanted to avoid).
 
-| Var              | Source                                                        |
-|------------------|---------------------------------------------------------------|
-| `{{.Home}}`      | the login user's home on the executing host                   |
-| `{{.OllamaHost}}`| a config value (new `SPAWNER_*` or a profile-level constant)  |
-| `{{.OpencodeAuth}}` | path to the staged `auth.json` on the executing host       |
-| `{{.Session}}`   | session id / dir (for per-session scratch mounts)             |
+Built-ins (resolved at turn time from the executing host + the session):
 
-Exact variable set is TBD in phase 3; keep it small and explicit.
+| Var             | Source                                                         |
+|-----------------|---------------------------------------------------------------|
+| `{{.Home}}`     | the login user's home on the executing host                   |
+| `{{.Session}}`  | the session id                                                 |
+| `{{.Dir}}`      | the session's working directory                               |
+
+User-defined (the extensible part):
+
+| Var                | Source                                                                      |
+|--------------------|----------------------------------------------------------------------------|
+| `{{.Vars.X}}`      | value `X` from the merged vars map — a global set from config, overlaid by  |
+|                    | the profile's own `vars` (profile wins on a name clash). e.g. `{{.Vars.OllamaHost}}`. |
+
+Deferred to phase 6: an opencode-auth path variable, once credential staging exists to produce it.
+
+Templating applies to every string-bearing profile field — `image`, `home_mount`, each `mounts` /
+`creds` / `run_args` entry, and each `env` value. An unknown `{{.Vars.X}}` is a resolve-time error
+(fail loud, don't silently mount an empty path). Keep the built-in set small; grow `vars`, not it.
 
 ## The three decisions that shaped this
 
