@@ -12,8 +12,12 @@
 # recreate, leaving the running container in place. Safe to run repeatedly.
 set -euo pipefail
 
-REPO=/data/claude_spawner
-TARGET_USER=bam
+# Repo root is derived from this script's own location (it lives in <repo>/deploy), so
+# the deploy is not pinned to any one checkout path. The target user defaults to whoever
+# owns the checkout (that's the user with docker + the state files); override with
+# SPAWNER_DEPLOY_USER if your setup differs.
+REPO="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+TARGET_USER="${SPAWNER_DEPLOY_USER:-$(stat -c %U "$REPO")}"
 
 # If invoked as root, hand back to the ordinary user — docker (group membership) and
 # the mounted state are owned by that user.
