@@ -99,6 +99,7 @@ func TestServerHandlesOnlyClientSentTypes(t *testing.T) {
 		"compress":      "voice-command path only (arrives as utterance)",
 		"cancel":        "voice-command path only (dialog cancel arrives as utterance)",
 		"ping":          "app-level keepalive for clients that can't use WebSocket ping frames; current clients don't need it",
+		"speak":         "server-side TTS request; client playback lands in the Kokoro epic's M3/M4 (see TODO.md)",
 	}
 	root := repoRoot(t)
 	sent := clientSentTypes(t, root)
@@ -121,6 +122,8 @@ func TestClientParsesAllServerTypes(t *testing.T) {
 	exempt := map[string]string{
 		"session_list": "sidebar is fed by discovered (the superset); list refreshes ride along unparsed",
 		"pong":         "reply to the app-level ping keepalive, which current clients don't send",
+		"speak_audio":  "server-side TTS stream header; client playback lands in the Kokoro epic's M3/M4 (see TODO.md)",
+		"speak_end":    "server-side TTS stream close; client playback lands in the Kokoro epic's M3/M4 (see TODO.md)",
 	}
 	root := repoRoot(t)
 	parsed := clientParsedTypes(t, root)

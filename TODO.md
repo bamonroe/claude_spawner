@@ -50,7 +50,14 @@ Dates are `YYYY-MM-DD`.
         synthesis verified via curl + the Go client against the running server; model persists in
         the `kokoro-models` volume; gateway health-check logs the voice count at startup
         (`SPAWNER_TTS_URL` set in the live env, takes effect on next rebuild);
-        (2) `speak` protocol + gateway plumbing + drift tests; (3) Android playback + settings
+        (2) ✅ 2026-07-12 `speak` protocol + gateway plumbing + drift tests — client sends
+        `speak {id, text, voice?}`, server streams `speak_audio {id, codec}` + binary frames +
+        `speak_end {id, error?}` (a per-connection ordered worker, so streams never interleave);
+        `hello_ok` gains a `tts` capability flag; refusals (disabled/blank/queue-full) come back
+        as an error-bearing `speak_end` so clients fall back to on-device TTS. Documented in
+        `docs/protocol.md`, clientsync exemptions carry the M3/M4 pointers. Verified live on a
+        scratch server: 44.8 KB opus streamed end-to-end over the WebSocket;
+        (3) Android playback + settings
         toggle + fallback; (4) web playback; (5) the audio-settings voice dropdown + barge-in
         polish + phone verification.
 

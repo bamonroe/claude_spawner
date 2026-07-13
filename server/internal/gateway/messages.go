@@ -60,6 +60,8 @@ type inbound struct {
 	Password              string            `json:"password"`                // on `identity_create`/`identity_import`: optional SSH password (server-only)
 	GenKey                *bool             `json:"gen_key"`                 // on `identity_create`: generate a keypair (nil = yes, for older clients)
 	SetPassword           bool              `json:"set_password"`            // on `identity_update`: apply Password (else keep the current one)
+	ID                    string            `json:"id"`                      // on `speak`: client-chosen correlation id, echoed on speak_audio/speak_end
+	Voice                 string            `json:"voice"`                   // on `speak`: Kokoro voice override ("" = the server default, SPAWNER_TTS_VOICE)
 }
 
 // msgAgents advertises the AI backend registry to the app so the visual
@@ -84,7 +86,7 @@ func msgAgents(reg *agent.Registry) map[string]any {
 	return map[string]any{"type": "agents", "agents": agents, "default": def}
 }
 
-func msgHelloOK(sessionID, whisperModel, whisperFastModel string, whisperModels, whisperModelsLocal []string) map[string]any {
+func msgHelloOK(sessionID, whisperModel, whisperFastModel string, whisperModels, whisperModelsLocal []string, tts bool) map[string]any {
 	if whisperModels == nil {
 		whisperModels = []string{}
 	}
@@ -95,6 +97,7 @@ func msgHelloOK(sessionID, whisperModel, whisperFastModel string, whisperModels,
 		"type": "hello_ok", "server_version": serverVersion, "session_id": sessionID,
 		"whisper_model": whisperModel, "whisper_model_fast": whisperFastModel,
 		"whisper_models": whisperModels, "whisper_models_local": whisperModelsLocal,
+		"tts": tts,
 	}
 }
 
@@ -367,6 +370,21 @@ func msgTurnStopped(name string) map[string]any {
 
 // msgStopSpeaking tells the app to stop any in-progress text-to-speech (barge-in).
 func msgStopSpeaking() map[string]any { return map[string]any{"type": "stop_speaking"} }
+
+// msgSpeakAudio heads one synthesized utterance (response to `speak`): the
+// binary frames that follow, up to the matching speak_end, are its audio in
+// the named codec (SPAWNER_TTS_FORMAT: "opus" | "mp3" | …). Speaks are
+// serviced one at a time per connection, so streams never interleave.
+func msgSpeakAudio(id, codec string) map[string]any {
+	return map[string]any{"type": "speak_audio", "id": id, "codec": codec}
+}
+
+// msgSpeakEnd closes a speak stream. `error` is "" on success; non-empty when
+// synthesis failed or was refused (tts disabled, empty text, queue full) — the
+// client should fall back to on-device TTS for that utterance.
+func msgSpeakEnd(id, errStr string) map[string]any {
+	return map[string]any{"type": "speak_end", "id": id, "error": errStr}
+}
 
 // msgSpeechMode tells the app whether to speak only the final result of a turn
 // (summary_only true: intermediate streamed steps beep instead of being read

@@ -178,11 +178,12 @@ func main() {
 		log.Printf("transcription: DISABLED (set SPAWNER_WHISPER_MODEL); audio frames rejected, text utterances still work")
 	}
 
-	// Server-side speech synthesis (Kokoro). M1 of the TTS epic: the client is
-	// constructed and health-checked here; the gateway starts serving `speak`
-	// requests from it in the protocol milestone (see TODO.md).
+	// Server-side speech synthesis (Kokoro): the gateway serves client `speak`
+	// requests from it (nil = disabled, clients keep their on-device TTS). The
+	// health check is async so a slow/absent Kokoro doesn't delay startup.
+	var kokoro *tts.Client
 	if cfg.TTSURL != "" {
-		kokoro := tts.New(cfg.TTSURL, cfg.TTSVoice, cfg.TTSFormat)
+		kokoro = tts.New(cfg.TTSURL, cfg.TTSVoice, cfg.TTSFormat)
 		go func() {
 			voices, err := kokoro.Voices(context.Background())
 			if err != nil {
@@ -199,7 +200,7 @@ func main() {
 	proj := projects.New(cfg.SpawnRoots)
 	log.Printf("project index: %d dirs under roots %v", len(proj.List(1<<30)), cfg.SpawnRoots)
 
-	gw := gateway.New(cfg, store, hostStore, idStore, sshConns, driver, tmuxMgr, stt, proj)
+	gw := gateway.New(cfg, store, hostStore, idStore, sshConns, driver, tmuxMgr, stt, kokoro, proj)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {

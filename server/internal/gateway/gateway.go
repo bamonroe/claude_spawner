@@ -28,6 +28,7 @@ import (
 	"github.com/bam/claude_spawner/server/internal/session"
 	"github.com/bam/claude_spawner/server/internal/tmux"
 	"github.com/bam/claude_spawner/server/internal/transcribe"
+	"github.com/bam/claude_spawner/server/internal/tts"
 	"github.com/bam/claude_spawner/server/internal/usage"
 )
 
@@ -42,6 +43,7 @@ type Server struct {
 	tmuxMgr  *tmux.Manager
 	stt      transcribe.Transcriber // nil disables the audio path
 	fastStt  transcribe.Transcriber // fast model for live drafts/detection; nil → use stt
+	tts      *tts.Client            // server-side Kokoro synthesis; nil = clients use on-device TTS
 	projects *projects.Index        // fuzzy directory lookup for the spawn dialog
 	up       websocket.Upgrader
 
@@ -321,8 +323,9 @@ type clientState struct {
 }
 
 // New builds a gateway Server. stt may be nil, in which case audio frames are
-// rejected but text `utterance` messages still work.
-func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, ids *session.IdentityStore, sshPool *session.SSHPool, driver *session.Driver, tmuxMgr *tmux.Manager, stt transcribe.Transcriber, proj *projects.Index) *Server {
+// rejected but text `utterance` messages still work. ttsClient may be nil, in
+// which case `speak` requests are refused and clients use on-device TTS.
+func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, ids *session.IdentityStore, sshPool *session.SSHPool, driver *session.Driver, tmuxMgr *tmux.Manager, stt transcribe.Transcriber, ttsClient *tts.Client, proj *projects.Index) *Server {
 	var fast transcribe.Transcriber
 	if cfg.WhisperFastURL != "" {
 		fast = &transcribe.RemoteWhisper{URL: cfg.WhisperFastURL}
@@ -362,6 +365,7 @@ func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, ids
 		tmuxMgr:      tmuxMgr,
 		stt:          stt,
 		fastStt:      fast,
+		tts:          ttsClient,
 		projects:     proj,
 		clients:      map[string]*clientState{},
 		downloading:  map[string]bool{},
@@ -446,6 +450,14 @@ func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
 	}
 	s.register(c)
 	defer s.unregister(c)
+	if s.tts != nil {
+		// One worker per connection drains speak requests in order; closing the
+		// channel (after the read loop — its handlers are the only senders) ends it,
+		// and the ctx cancel aborts any in-flight synthesis.
+		c.speakCh = make(chan speakReq, speakQueueLen)
+		go c.speakWorker()
+		defer close(c.speakCh)
+	}
 	c.restoreState() // re-attach / resume dialog from a previous connection
 
 	// Keepalive: require traffic (pongs to our pings, or any frame) within pongWait
@@ -568,6 +580,8 @@ type conn struct {
 	aliases       map[string]string      // mis-transcription -> canonical command word
 	stt           transcribe.Transcriber // per-conn override (app-set whisper URL); nil = server default
 	scratch       bool                   // scratch mode: while detached, echo each transcription back aloud (STT test)
+
+	speakCh chan speakReq // queued `speak` requests, drained in order by speakWorker; nil = server TTS disabled
 }
 
 // transcriber returns this connection's STT — an app-set override if present,
@@ -595,6 +609,20 @@ func (c *conn) send(v any) error {
 	defer c.wmu.Unlock()
 	_ = c.ws.SetWriteDeadline(time.Now().Add(writeWait))
 	if err := c.ws.WriteJSON(v); err != nil {
+		log.Printf("ws write: %v", err)
+		return err
+	}
+	return nil
+}
+
+// sendBinary writes one binary frame (server→client TTS audio) under the same
+// write lock as JSON messages, so audio frames and control traffic never
+// interleave mid-write.
+func (c *conn) sendBinary(data []byte) error {
+	c.wmu.Lock()
+	defer c.wmu.Unlock()
+	_ = c.ws.SetWriteDeadline(time.Now().Add(writeWait))
+	if err := c.ws.WriteMessage(websocket.BinaryMessage, data); err != nil {
 		log.Printf("ws write: %v", err)
 		return err
 	}
@@ -644,7 +672,7 @@ func (c *conn) authenticate() bool {
 	// The whisper model is server-global: the app reads it here rather than pushing
 	// its own (so two clients don't bounce it), and changes it via set_whisper_model.
 	model, fastModel := c.srv.currentWhisperModels()
-	c.send(msgHelloOK("ws", model, fastModel, c.srv.catalogWhisperModels(), c.srv.availableWhisperModels()))
+	c.send(msgHelloOK("ws", model, fastModel, c.srv.catalogWhisperModels(), c.srv.availableWhisperModels(), c.srv.tts != nil))
 	// Advertise the AI backend registry so the app's new-session picker can offer a
 	// backend + model choice (and badge sessions by backend).
 	c.send(msgAgents(c.srv.driver.Registry()))
@@ -747,6 +775,7 @@ var wireHandlers = map[string]func(c *conn, in inbound){
 		c.srv.setAutoCompress(in.WarmCompress, in.AutoCompress, in.AutoCompressThreshold)
 	},
 	"restart":       func(c *conn, in inbound) { c.doRestart(in.Rebuild) },
+	"speak":         func(c *conn, in inbound) { c.handleSpeak(in.ID, in.Text, in.Voice) },
 	"wake":          func(c *conn, in inbound) { c.startAudio(in.Codec, in.HandsFree, in.Calibrate) },
 	"commit":        func(c *conn, in inbound) { c.commitMessage() }, // silence-timeout commit of the hands-free buffer
 	"discard_draft": func(c *conn, in inbound) { c.clearBuffer() },   // drop the uncommitted hands-free draft
