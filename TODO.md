@@ -46,6 +46,18 @@ Dates are `YYYY-MM-DD`.
         superseded by `SPAWNER_SSH_CODEX_BIN`). Swept all docs for stale "home/roots mounted" and
         `SPAWNER_SSH` toggle references (README, `server/Dockerfile`, `docs/architecture.md`) — the
         server mounts no host home; everything reads over SSH.
+  - [x] 2026-07-12 — **Fresh-clone runnability pass.** Simulated a new user cloning + following the
+        docs; fixed every hard failure found: dropped `depends_on: whisper` (the documented text-only
+        `up … spawner-server` dragged in the GPU-requiring whisper service), de-personalized the env
+        template (placeholder `you` for user/home, `EDIT EVERY VALUE` header, sandbox target ships
+        DISABLED, restart cmd path is an explicit edit-me), server now **rejects the template token
+        `change-me`** at startup, fixed whisper/README's phantom `whisper-fast` compose service,
+        added a Prerequisites section (sshd is load-bearing; claude/codex logged in) + "Getting a
+        client" to deploy/README, fixed the root-owned-bind-mount `mkdir` ordering trap, corrected
+        the compose header's stale "seed known_hosts" claim, root README got a Quick start pointer,
+        android/README rewritten for the KMP layout (SDK bootstrap, Ktor not OkHttp, real
+        default-URL story, `SPAWNER_DEBUG_KEYSTORE`, emulator marked maintainer-specific), and JDK
+        guidance standardized to 17+ (web-client.md's hardcoded JAVA_HOME dropped).
 - [x] 2026-07-12 — **Restart button: optional rebuild.** The restart dialog has a *Rebuild from
       source* checkbox (default on). The `restart` message carries a `rebuild` flag (nil/absent =
       rebuild, back-compat); the server substitutes the `%REBUILD%` token in `SPAWNER_RESTART_CMD`

@@ -30,21 +30,23 @@ the compute backend.
 
 ## How it's wired
 
-Two servers run side by side (see [`../docker-compose.yml`](../docker-compose.yml)):
+The compose stack ships **one** resident server (see [`../docker-compose.yml`](../docker-compose.yml)):
 
-- **`whisper`** → host `:8571`, accurate model (`medium.en`) — real dictation.
-- **`whisper-fast`** → host `:8572`, fast draft model (`base.en`) — the live hands-free draft +
-  end-token detection, so the cheap high-frequency work never blocks the accurate model.
+- **`whisper`** → host `:8571`, accurate model (`medium.en`) — it handles both real dictation and
+  the live hands-free draft.
 
-The server points at them with `SPAWNER_WHISPER_URL` / `SPAWNER_WHISPER_FAST_URL` (set in
-`deploy/spawner-container.env.example`). Start the two servers with `docker compose up -d whisper
-whisper-fast`; if neither URL is set the server falls back to forking `whisper-cli` locally.
+The gateway points at it with `SPAWNER_WHISPER_URL`. An optional **second, fast draft server**
+(`base.en` on `:8572`) can offload the high-frequency draft + end-token detection so it never
+blocks the accurate model: duplicate the `whisper` service block in the compose file (new name,
+port `8572:8571`, `-m /models/ggml-base.en.bin`) and set `SPAWNER_WHISPER_FAST_URL` (a commented
+line ships in `deploy/spawner-container.env.example`). If neither URL is set the server falls back
+to forking `whisper-cli` locally.
 
 ## Build & run standalone
 
 ```bash
 # GPU (this host)
-docker compose up -d --build whisper whisper-fast
+docker compose up -d --build whisper
 
 # or a single CPU server by hand
 docker build -f whisper/Dockerfile -t whisper-cpu whisper/

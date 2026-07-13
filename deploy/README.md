@@ -23,6 +23,20 @@ through. It carries `restart: unless-stopped`, so once created it survives reboo
 draft model on `:8572` (`whisper-fast`) can offload the live hands-free draft — start it and set
 `SPAWNER_WHISPER_FAST_URL` to enable it. See [`../whisper/README.md`](../whisper/README.md).
 
+## Prerequisites
+
+The host (the machine the stack runs on) needs, before the first `up`:
+
+- **Docker** with the compose plugin (the whole stack is `docker compose`-driven).
+- **A running sshd with public-key auth enabled.** This is load-bearing, not optional: every host
+  turn, spawn, discovery/transcript read, and the restart button reach the host over
+  `localhost:22`. No sshd → everything but the handshake fails with connection-refused.
+- **`claude` installed and logged in** for the login user (`SPAWNER_SSH_USER`) — turns run it on
+  the host over SSH, so the host needs the CLI and its credentials (`~/.claude`). Likewise `codex`
+  (`codex login`) if you'll use the Codex backend.
+- Optional, for voice: an **Nvidia GPU + container toolkit** (the whisper service; text works
+  without it). Optional, for sandbox sessions: **rootless podman** (see below).
+
 ## Running the whole stack — one command
 
 The `spawner-server` service uses **host networking** (so `localhost:22` is the host's own sshd and
@@ -37,9 +51,13 @@ The server comes up **bare** — it mints its own SSH identity and seeds its own
 nothing to place by hand up front:
 
 ```bash
-cp deploy/spawner-container.env.example deploy/spawner-container.env   # edit the token
-mkdir -p deploy/state
-# Run the server as you (so it can read/write the mounts). Put these in the git-ignored
+cp deploy/spawner-container.env.example deploy/spawner-container.env
+$EDITOR deploy/spawner-container.env   # token, HOME, SPAWNER_SSH_USER, roots — every `you` placeholder
+mkdir -p deploy/state /data/storage/whisper   # state + whisper models (see below) — create
+                                              # them as YOUR user *before* `up`, or Docker
+                                              # makes them root-owned and the non-root
+                                              # server can't write them
+# Run the server as you (so it can write the mounts). Put these in the git-ignored
 # root .env once (cp .env.example .env; set your uid/gid) and drop the prefix thereafter:
 SPAWNER_UID=$(id -u) SPAWNER_GID=$(id -g) docker compose up -d --build
 ```
@@ -47,20 +65,36 @@ SPAWNER_UID=$(id -u) SPAWNER_GID=$(id -g) docker compose up -d --build
 That single command builds the Go binary, starts the gateway, and brings up the whisper server.
 (Text-only / no GPU: `docker compose up -d --build spawner-server` runs just the gateway.)
 
+Two follow-ups complete the first run: **authorize the server's SSH key** (next section — until
+you do, session listing and turns fail with SSH auth errors; that's expected, not a bug) and
+**get a client** (below).
+
 ### Whisper models
 
 The two containers share a host directory of ggml model files, `SPAWNER_WHISPER_MODELS_DIR`
 (default `/data/storage/whisper`; set it in the root `.env` **and** `deploy/spawner-container.env`
-— they must match, since it's the in-container path too). Just create it before the first `up`:
-
-```bash
-mkdir -p /data/storage/whisper   # or your SPAWNER_WHISPER_MODELS_DIR
-```
+— they must match, since it's the in-container path too). It's the `mkdir` in the quick-start:
+create it as your user before the first `up` (a Docker-created bind source is root-owned, and the
+gateway then can't download models into it).
 
 You don't have to pre-place model files — the gateway **downloads** catalogue models into this dir
 on demand. Pre-dropping a `ggml-*.bin` still works and skips the download. The whisper service boots
 the model named in the compose `command:` (default `ggml-medium.en.bin`), so that one must be
 present (auto-downloaded on first use or placed by hand). See [`../whisper/README.md`](../whisper/README.md).
+
+### Getting a client
+
+The server alone is just a WebSocket gateway — you talk to it through the **Android app** or the
+**browser client**, both built from `android/` (they share one Compose codebase):
+
+- **Web**: build the Wasm bundle (`./android/gradlew -p android :app:wasmJsBrowserDistribution`,
+  no Android SDK needed), then run `deploy/rebuild-container.sh` — it bakes the bundle into the
+  image, served at `http://<host>:8098/`. The first manual `up --build` ships **no** web client
+  (a fresh clone has no bundle built yet), so do this once after bring-up.
+- **App**: build and install the APK per [`../android/README.md`](../android/README.md).
+
+Either client needs the server URL and the `SPAWNER_TOKEN` value entered in its settings on first
+run.
 
 ### Sandbox sessions (optional)
 
@@ -142,7 +176,9 @@ Point the app at `:8557` to exercise it; promote by recreating the real containe
 Prints the exact conversation (your dictated input + Claude's replies) for a spawner session,
 resolved from the session store (`SPAWNER_STATE`, default
 `~/.local/share/claude_spawner/sessions.json`) to the on-disk
-`~/.claude/projects/<dir>/<session_id>.jsonl`. Needs `jq`.
+`~/.claude/projects/<dir>/<session_id>.jsonl`. Needs `jq`. The containerized deploy keeps its
+store on the state volume, so point the helper there:
+`SPAWNER_STATE=deploy/state/sessions.json deploy/claude-log.sh …`.
 
 ```bash
 deploy/claude-log.sh                 # list known sessions (name + dir)

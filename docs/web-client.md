@@ -22,16 +22,19 @@ The client is one Gradle module (`android/app`) with three source sets:
   (mic + SpeechSynthesis), `WebPrefs` (localStorage backend), `WebTransfer.kt` (file pick/save),
   `WebRoot.kt` (entry point).
 
-The compile gate for **both** targets (run before any commit that touches shared code):
+The compile gate for **both** targets (run before any commit that touches shared code) needs
+JDK 17 or newer on `JAVA_HOME` (the Gradle 8.x wrapper handles the rest):
 
 ```bash
-cd android && JAVA_HOME=/home/bam/opt/jdk-21.0.11+10 \
-  ./gradlew :app:compileKotlinWasmJs :app:compileDebugKotlinAndroid --no-daemon
+cd android && ./gradlew :app:compileKotlinWasmJs :app:compileDebugKotlinAndroid --no-daemon
 ```
 
-A `commonMain` change that compiles on only one target is not done. The production bundle build
+A `commonMain` change that compiles on only one target is not done. The wasmJs tasks need **no
+Android SDK** (the first build downloads Gradle/Node/Binaryen from the network); the Android
+compile does need one (see `android/README.md`). The production bundle build
 (`:app:wasmJsBrowserDistribution`) additionally runs `wasm-opt` and takes **minutes** — use the
-compile task for iteration and build the bundle once at the end.
+compile task for iteration and build the bundle once at the end; output lands in
+`android/app/build/dist/wasmJs/productionExecutable`.
 
 ## The `js()` interop idiom
 

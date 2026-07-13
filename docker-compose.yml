@@ -10,10 +10,13 @@
 #   whisper        — the resident whisper.cpp transcription server on :8571 (CUDA).
 #                    spawner-server points at it via SPAWNER_WHISPER_URL.
 #
-# Prereqs (see deploy/README.md): fill in deploy/spawner-container.env (token, SSH
-# key/known_hosts, whisper URL, sandbox), seed deploy/state/known_hosts, and set
+# Prereqs FIRST (see deploy/README.md for the full first-run guide): copy
+# deploy/spawner-container.env.example to deploy/spawner-container.env and fill it in
+# (token, HOME, SSH user, roots) — `up` hard-fails if that env_file is missing — and set
 # SPAWNER_UID/SPAWNER_GID so the server runs as you (they're in the git-ignored .env —
 # copy .env.example, or prefix: SPAWNER_UID=$(id -u) SPAWNER_GID=$(id -g) docker compose ...).
+# SSH keys and known_hosts need NO seeding — the server mints and trusts its own on
+# first boot (you just authorize its public key afterwards; see deploy/README.md).
 #
 # Text-only / no GPU: `docker compose up -d --build spawner-server` runs just the
 # gateway; voice needs the whisper service (and an Nvidia GPU + the container toolkit).
@@ -32,8 +35,9 @@ services:
     network_mode: host
     user: "${SPAWNER_UID:?set SPAWNER_UID=$(id -u) (or put it in .env)}:${SPAWNER_GID:?set SPAWNER_GID=$(id -g) (or put it in .env)}"
     env_file: deploy/spawner-container.env
-    depends_on:
-      - whisper
+    # No depends_on whisper: the gateway only dials it lazily over localhost, and tying
+    # them together would drag the GPU-requiring whisper service into the documented
+    # text-only `up … spawner-server` (hard-failing hosts without the nvidia toolkit).
     volumes:
       # Whisper ggml models, mounted directly (rw) so the gateway can download
       # catalogue models on demand; the whisper service mounts the same dir ro at

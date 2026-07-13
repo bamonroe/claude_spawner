@@ -42,35 +42,42 @@ Open work (verifying the hands-free voice model on a real device, etc.) is track
 
 ## Layout
 
+One Kotlin Multiplatform module (`app`) with three source sets (there is no `src/main/java`):
+
 ```
-app/src/main/java/com/bam/spawner/
-  MainActivity.kt         Compose UI (chat, drawer, settings, browser, commands screen)
-  VoiceController.kt      orchestration: WS + audio + TTS -> UI state
-  Spawner.kt              process-wide singleton holding the shared VoiceController
-  SettingsStore.kt        server URL / token / voice prefs (SharedPreferences)
-  Notifier.kt             backgrounded turn-completion notifications
-  net/Protocol.kt         ServerMsg parsing + Outbound builders (org.json)
-  net/SpawnerClient.kt    OkHttp WebSocket transport (+ keepalive)
-  audio/HandsFreeRecorder.kt  always-listening VAD capture -> Opus clips
-  audio/OpusRecorder.kt   push-to-talk Opus capture
-  audio/OpusOggEncoder.kt PCM16 -> Ogg/Opus encoder (shared by both recorders)
-  audio/Endpointer.kt     RMS VAD (onset/silence)
-  audio/AudioRouter.kt    earpiece/speaker/Bluetooth output routing
-  audio/LevelMeter.kt     mic level meter for the audio settings page
-  tts/Speaker.kt          TextToSpeech wrapper (VOICE_COMMUNICATION)
-  tts/Markdown.kt         strip markdown -> plain text before speaking
-  ui/MarkdownText.kt      Compose renderer for markdown in the chat log
-  ui/Theme.kt             Material3 theme (system/light/dark)
-  service/VoiceService.kt  foreground mic service for background listening
-build.gradle.kts          `generateCommands` task: docs/commands.json -> generated Commands.kt (COMMANDS)
+app/src/commonMain/kotlin/   shared UI + logic: every composable, VoiceController,
+                             net/Protocol.kt (wire messages), net/SpawnerClient.kt
+                             (Ktor WebSocket transport), Prefs, tts/Markdown.kt
+app/src/androidMain/kotlin/  Android-only: MainActivity, Opus/VAD recorders, Android TTS,
+                             SettingsStore (SharedPreferences), VoiceService, Notifier
+app/src/wasmJsMain/kotlin/   browser-only client — see ../docs/web-client.md
+build.gradle.kts             `generateCommands` task: docs/commands.json -> generated Commands.kt
 ```
 
 ## Build
 
-Needs Android SDK (platform 35, build-tools 35) and JDK 17. Easiest is Android Studio, or the
-containerized build used in this repo (matches the host's SDK, avoids a JDK-version mismatch):
+All builds need JDK 17 or newer on `JAVA_HOME` (the Gradle 8.x wrapper handles the rest).
+
+**Web bundle** (`./gradlew :app:wasmJsBrowserDistribution`): needs **no Android SDK** — works on a
+fresh clone; the first build downloads Gradle/Node/Binaryen from the network (~6 min). Output lands
+in `app/build/dist/wasmJs/productionExecutable`. See [`../docs/web-client.md`](../docs/web-client.md).
+
+**APK** (`./gradlew :app:assembleDebug`): additionally needs an Android SDK (platform 35,
+build-tools 35) — without one the build fails with "SDK location not found". Android Studio
+provides it, or bootstrap headless: install the [command-line tools](https://developer.android.com/studio#command-line-tools-only),
+set `ANDROID_HOME` (or `sdk.dir` in `local.properties`), then
 
 ```bash
+sdkmanager "platforms;android-35" "build-tools;35.0.0"
+sdkmanager --licenses
+```
+
+Or the containerized build used in this repo (both mounted host dirs must **pre-exist** — Docker
+creates missing bind sources root-owned, breaking the non-root build — and `~/Android/Sdk` must be
+a provisioned SDK as above):
+
+```bash
+mkdir -p ~/.gradle
 docker run --rm --user "$(id -u):$(id -g)" \
   -e HOME=/gradlehome -e GRADLE_USER_HOME=/gradlehome -e ANDROID_SDK_ROOT=/sdk \
   -v "$PWD:/project" -v "$HOME/Android/Sdk:/sdk" -v "$HOME/.gradle:/gradlehome" \
@@ -78,17 +85,27 @@ docker run --rm --user "$(id -u):$(id -g)" \
 # -> app/build/outputs/apk/debug/app-debug.apk
 ```
 
-## Run on the headless emulator (this repo's `/data/android`)
+Set `SPAWNER_DEBUG_KEYSTORE` to a keystore path to pin the debug signing key (see
+`app/build.gradle.kts`); without it each environment mints its own debug key, so an
+`adb install -r` over an APK from a different build environment fails with a signature mismatch.
+
+## Run
+
+Any Android device or standard emulator over adb works: `adb install -r app-debug.apk`.
+
+On first run, set **your** server URL + token in Settings → Server — the baked-in defaults are the
+maintainer's private dev values, not anything a fresh install can reach.
+
+### Maintainer-specific: the headless emulator
+
+The `android-emulator` container below comes from the maintainer's private `/data/android` setup,
+not this repo — use any emulator/device instead:
 
 ```bash
 docker cp app/build/outputs/apk/debug/app-debug.apk android-emulator:/tmp/
 docker exec android-emulator adb install -r /tmp/app-debug.apk
 docker exec android-emulator adb shell monkey -p com.bam.spawner -c android.intent.category.LAUNCHER 1
 ```
-
-The default server URL is `ws://100.64.0.2:8558/ws` (the host's tailnet IP, where the containerized
-server listens), token `devsecret` — change it in Settings → Server. NOTE: from the Dockerized
-emulator the host is reachable at that tailnet IP, not `10.0.2.2` (which is the emulator's container).
 
 ## Config / permissions
 

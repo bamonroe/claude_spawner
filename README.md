@@ -7,6 +7,11 @@ and manages **Claude Code sessions**, driving them headless. The app is a hands-
 say a command and it runs; attach to a session and your dictation goes straight to Claude, with
 replies streamed back and read aloud.
 
+**Quick start:** the first-run guide — prerequisites, one-command bring-up, SSH key authorization,
+and getting a client — is [`deploy/README.md`](./deploy/README.md). Clients build per
+[`android/README.md`](./android/README.md) (APK) and
+[`docs/web-client.md`](./docs/web-client.md) (browser).
+
 ## How it works
 
 You start every command with the wake word **"hey buddy"**:
@@ -479,7 +484,8 @@ The same UI as the Android app also runs **in a browser** via Kotlin/Wasm — on
 renders identical composables on both. Build the web bundle and let the server host it:
 
 ```bash
-# build the web bundle (index.html + spawnerweb.js + .wasm) — needs JDK 21
+# build the web bundle (index.html + spawnerweb.js + .wasm) — JDK 17+ on JAVA_HOME,
+# no Android SDK needed (first build downloads Gradle/Node/Binaryen)
 ./android/gradlew -p android :app:wasmJsBrowserDistribution
 #   output: android/app/build/dist/wasmJs/productionExecutable/
 
