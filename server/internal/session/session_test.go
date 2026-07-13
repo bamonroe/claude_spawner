@@ -25,7 +25,6 @@ func TestNewSessionID(t *testing.T) {
 	}
 }
 
-
 func TestStoreRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.json")
 
