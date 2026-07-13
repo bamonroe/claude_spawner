@@ -72,3 +72,23 @@ func TestProfileEnvListSorted(t *testing.T) {
 		t.Errorf("envList = %v, want %v", got, want)
 	}
 }
+
+// TestShippedExampleProfilesLoad guards deploy/profiles.example.json so the
+// documented preset can't silently rot into something the loader rejects.
+func TestShippedExampleProfilesLoad(t *testing.T) {
+	path := filepath.Join("..", "..", "..", "deploy", "profiles.example.json")
+	reg, err := LoadProfiles(path, ExecProfile{Name: DefaultProfileName, HomeMount: "/home/you"})
+	if err != nil {
+		t.Fatalf("example profiles failed to load: %v", err)
+	}
+	locked := reg.Resolve("locked")
+	if locked == nil || locked.Name != "locked" {
+		t.Fatalf("example is missing a 'locked' profile; got %+v", locked)
+	}
+	if locked.HomeMount != "" {
+		t.Errorf("'locked' profile must not carry a home mount, got %q", locked.HomeMount)
+	}
+	if open := reg.Resolve("open"); open == nil || open.HomeMount == "" {
+		t.Errorf("'open' profile should carry a home mount, got %+v", open)
+	}
+}

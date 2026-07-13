@@ -1,0 +1,29 @@
+{
+  "_comment": "Example SPAWNER_PROFILES catalogue. Copy to the path SPAWNER_PROFILES points at (e.g. /state/profiles.json) and edit. These profiles are added ON TOP OF the built-in 'default' profile, which is seeded from the flat SPAWNER_SANDBOX_* env vars and mounts the server's HOME. Paths are HOST paths (sandbox turns drive rootless podman on the host). Templating ({{.Var}}) is not wired yet, so use literal paths for now. Adjust /home/you and the claude/codex mounts to your host layout.",
+
+  "profiles": [
+    {
+      "name": "locked",
+      "target": "sandbox",
+      "home_mount": "",
+      "mounts": [
+        "/opt/claude-code:/opt/claude-code:ro",
+        "/usr/bin/claude:/usr/bin/claude:ro",
+        "/home/you/.claude:/home/you/.claude",
+        "/home/you/.claude.json:/home/you/.claude.json"
+      ],
+      "run_args": ["--userns=keep-id", "-e", "HOME=/home/you"]
+    },
+
+    {
+      "name": "open",
+      "target": "sandbox",
+      "home_mount": "/home/you",
+      "mounts": [
+        "/opt/claude-code:/opt/claude-code:ro",
+        "/usr/bin/claude:/usr/bin/claude:ro"
+      ],
+      "run_args": ["--userns=keep-id", "-e", "HOME=/home/you"]
+    }
+  ]
+}

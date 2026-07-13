@@ -121,7 +121,8 @@ time.
    sandbox config becomes the built-in `default`. No behavior change for sessions that do not name a
    profile.
 2. ✅ 2026-07-13 — **Mounts + credential injection primitives** (env and file) are executable from
-   the profile file. Still to do: ship documented `locked` / `open` examples.
+   the profile file. Documented `locked` / `open` example presets ship in
+   `deploy/profiles.example.json` (a loader guard test keeps them valid).
 3. ✅ 2026-07-13 — **Profile selection wire slot.** Clients receive the `profiles` catalogue, can
    send `spawn_at.profile`, and registered-session messages echo the chosen non-default profile.
 4. ✅ 2026-07-13 — **Visible new-session picker controls.** `BrowseScreen` shows profile chips,

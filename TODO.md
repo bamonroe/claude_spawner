@@ -23,7 +23,8 @@ Dates are `YYYY-MM-DD`.
         sessions with no profile behave exactly as before. Profile env now reaches host/SSH turns and
         host-side short commands; sandbox profiles can override image, mounts, credential mounts, env,
         and run args when the persistent container is created. Covered by focused session/gateway
-        tests. Remaining: templating variables and documented example profiles.
+        tests. Documented `locked`/`open` example presets now ship in
+        `deploy/profiles.example.json`, guarded by a loader test. Remaining: templating variables.
       - [x] 2026-07-13 — Protocol/client advertisement slice: server now pushes a `profiles`
         message after `agents`, carrying each profile's `name` and advisory `target` plus default
         name. Android and web parse and retain it on `AppController.profiles`.
