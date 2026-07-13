@@ -174,6 +174,11 @@ func Load() (*Config, error) {
 	if c.AuthToken == "" {
 		return nil, fmt.Errorf("SPAWNER_TOKEN is required (refusing to run without auth)")
 	}
+	// The env template ships this literal; anyone who can reach the socket can run
+	// arbitrary commands as the server's user, so a well-known token is no auth at all.
+	if c.AuthToken == "change-me" {
+		return nil, fmt.Errorf("SPAWNER_TOKEN is still the template placeholder %q — set a real secret", c.AuthToken)
+	}
 	if (c.TLSCert == "") != (c.TLSKey == "") {
 		return nil, fmt.Errorf("SPAWNER_TLS_CERT and SPAWNER_TLS_KEY must be set together")
 	}
