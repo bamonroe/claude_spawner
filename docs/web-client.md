@@ -19,7 +19,7 @@ The client is one Gradle module (`android/app`) with three source sets:
   `SettingsStore` (SharedPreferences backend), the Activity. (Wake-word matching is server-side,
   in the transcript — no on-device engine here.)
 - **`wasmJsMain`** — browser-only: `WebAppController` (the browser `AppController`), `WebAudio.kt`
-  (mic + SpeechSynthesis), `WebPrefs` (localStorage backend), `WebTransfer.kt` (file pick/save),
+  (mic + SpeechSynthesis + server-TTS playback via Web Audio), `WebPrefs` (localStorage backend), `WebTransfer.kt` (file pick/save),
   `WebRoot.kt` (entry point).
 
 The compile gate for **both** targets (run before any commit that touches shared code) needs

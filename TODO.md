@@ -65,7 +65,13 @@ Dates are `YYYY-MM-DD`.
         `tts`) picks Kokoro, and any error-bearing `speak_end` falls back to on-device TTS.
         Barge-in/mute/disconnect cancel in-flight speaks and silence the stream; the clientsync
         speak exemptions are removed (Kotlin wire strings exist now);
-        (4) web playback; (5) the audio-settings voice dropdown + barge-in
+        (4) ✅ 2026-07-12 web playback — the browser asks for `mp3` (decodeAudioData wants one
+        complete clip and mp3 decodes everywhere incl. Safari), accumulates the binary frames,
+        and on speak_end decodes + queues the clip on a shared AudioContext so utterances play
+        in order (WebAudio.kt server-TTS section); same speak() router/fallback/cancel shape as
+        Android in WebAppController, and the hands-free VAD echo-triple + SPEAKING pill treat
+        server playback like SpeechSynthesis;
+        (5) the audio-settings voice dropdown + barge-in
         polish + phone verification.
 
 - [x] 2026-07-12 — **Collapsed spawner-server host mounts.** With SSH-native turns, host FS access

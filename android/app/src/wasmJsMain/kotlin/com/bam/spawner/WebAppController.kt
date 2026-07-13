@@ -107,6 +107,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
         _audioOutput.value = o
         prefs.audioOutput = o.name.lowercase()
         if (o == AudioOutput.MUTE) {
+            cancelServerSpeech()
             cancelSpeech()
             _speaking.value = false
         }
@@ -145,11 +146,19 @@ class WebAppController(private val prefs: Prefs) : AppController {
     // Live model-download progress; null when no fetch is in flight.
     private val _whisperDownload = MutableStateFlow<WhisperDownloadInfo?>(null)
     override val whisperDownload: StateFlow<WhisperDownloadInfo?> = _whisperDownload.asStateFlow()
-    // Whether the server offers Kokoro TTS (hello_ok `tts`). The web client's
-    // playback of it lands in the epic's M4; until then browser SpeechSynthesis
-    // does the speaking regardless of the toggle.
+    // Whether the server offers Kokoro TTS (hello_ok `tts`) — with the Server
+    // voice toggle on, replies are synthesized server-side and streamed back
+    // (see speak() below); browser SpeechSynthesis remains the fallback.
     private val _serverTtsAvailable = MutableStateFlow(false)
     override val serverTtsAvailable: StateFlow<Boolean> = _serverTtsAvailable.asStateFlow()
+
+    // Server-TTS speak bookkeeping (single-threaded on the JS main loop, so no
+    // locking): id -> stripped text of each in-flight speak, kept for the
+    // SpeechSynthesis fallback when the server refuses (error-bearing speak_end).
+    private var speakSeq = 0L
+    private val speakTexts = LinkedHashMap<String, String>()
+    private var speakStreamId: String? = null // utterance whose binary frames are arriving
+    private var speakStreamLive = false // false = cancelled/foreign: drop its remaining frames
     private val _ask = MutableStateFlow<List<AskQuestion>?>(null)
     override val ask: StateFlow<List<AskQuestion>?> = _ask.asStateFlow()
 
@@ -181,7 +190,14 @@ class WebAppController(private val prefs: Prefs) : AppController {
         client = SpawnerClient(
             url = url, token = token, clientId = prefs.clientId, hello = hello,
             onMessage = ::onMessage,
-            onConnected = { up -> _connected.value = up; if (!up) _status.value = "reconnecting…" },
+            onConnected = { up ->
+                _connected.value = up
+                if (!up) {
+                    _status.value = "reconnecting…"
+                    cancelServerSpeech() // a dropped socket orphans any in-flight speak streams
+                }
+            },
+            onAudio = ::onSpeakFrame,
         ).also { it.connect() }
     }
 
@@ -251,11 +267,9 @@ class WebAppController(private val prefs: Prefs) : AppController {
                     }
                 }
             }
-            is ServerMsg.StopSpeaking -> { cancelSpeech(); _speaking.value = false }
-            // Server-TTS audio streams (Kokoro): the web client doesn't request
-            // them yet — playback lands in the epic's M4 (see TODO.md).
-            is ServerMsg.SpeakAudio -> {}
-            is ServerMsg.SpeakEnd -> {}
+            is ServerMsg.StopSpeaking -> { cancelServerSpeech(); cancelSpeech(); _speaking.value = false }
+            is ServerMsg.SpeakAudio -> onSpeakAudio(msg)
+            is ServerMsg.SpeakEnd -> onSpeakEnd(msg)
             is ServerMsg.SpeechMode -> prefs.summaryOnlySpeech = msg.summaryOnly // voice toggle mirrors the audio-settings switch
             is ServerMsg.ContextReset -> _lastTurnUsage.value = null
             is ServerMsg.Activity -> _activity.value = msg.text
@@ -430,7 +444,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
     /** Mic button pressed: barge-in over any speech, then start capturing. */
     fun startTalking() {
         if (capturing) return
-        cancelSpeech(); _speaking.value = false // barge-in
+        cancelServerSpeech(); cancelSpeech(); _speaking.value = false // barge-in
         capturing = true
         _micText.value = "listening…"
         startMic().then<JsAny?> { res: JsString ->
@@ -465,7 +479,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
     }
 
     /** Stop-speaking button / "stop" barge-in: halt TTS now. */
-    fun stopSpeaking() { cancelSpeech(); _speaking.value = false }
+    fun stopSpeaking() { cancelServerSpeech(); cancelSpeech(); _speaking.value = false }
 
     // --- Hands-free (VAD-gated always-listening) --------------------------------
     // The browser analogue of the phone: one open mic, a JS-side energy VAD that
@@ -491,7 +505,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
                             // Reflect what the mic is doing; SPEAKING (our own TTS) wins so the
                             // pill doesn't flicker to CAPTURING on echo the VAD didn't fully reject.
                             _voiceState.value = when {
-                                speechActive() -> VoiceState.SPEAKING
+                                speechActive() || serverSpeechActive() -> VoiceState.SPEAKING
                                 handsFreeCapturing() -> VoiceState.CAPTURING
                                 else -> VoiceState.LISTENING
                             }
@@ -517,20 +531,68 @@ class WebAppController(private val prefs: Prefs) : AppController {
         _voiceState.value = VoiceState.OFF
     }
 
-    // Speak a reply through the browser (markdown stripped, same as the phone). Utterances
-    // queue in the engine; a lightweight poll flips `speaking` off once the queue drains so
-    // the SpeakingBar and its stop button track real playback.
+    // Speak a reply (markdown stripped, same as the phone): with the server's Kokoro
+    // voice when the toggle is on and the server offers TTS (the audio streams back
+    // and plays via Web Audio), else the browser's SpeechSynthesis. A lightweight
+    // poll flips `speaking` off once every engine and in-flight request drains, so
+    // the SpeakingBar and its stop button track real playback either way.
     private fun speak(text: String) {
         if (_audioOutput.value == AudioOutput.MUTE) return
         val spoken = Markdown.toSpeech(text)
         if (spoken.isBlank()) return
-        speakText(spoken)
+        if (prefs.serverTts && _serverTtsAvailable.value && _connected.value) {
+            val id = "s${++speakSeq}"
+            speakTexts[id] = spoken
+            // Runaway guard; the server refuses past 32 queued anyway.
+            while (speakTexts.size > 64) speakTexts.remove(speakTexts.keys.first())
+            client?.send(Outbound.speak(id, spoken, voice = "", format = "mp3"))
+        } else {
+            speakText(spoken)
+        }
         _speaking.value = true
         if (speakWatch?.isActive != true) {
             speakWatch = scope.launch {
-                while (speechActive()) delay(250)
+                while (speakTexts.isNotEmpty() || speechActive() || serverSpeechActive()) delay(250)
                 _speaking.value = false
             }
         }
+    }
+
+    /** speak_audio: the next binary frames are this utterance's audio. Anything we
+     *  didn't ask for (or a codec we can't decode) is dropped and falls back on
+     *  its speak_end. */
+    private fun onSpeakAudio(msg: ServerMsg.SpeakAudio) {
+        speakStreamId = msg.id
+        speakStreamLive = msg.codec == "mp3" && speakTexts.containsKey(msg.id)
+        if (speakStreamLive) serverSpeakBegin()
+    }
+
+    /** A server→client binary frame — always speak audio (the only binary the
+     *  server sends; ordered on the same socket as its speak_audio header). */
+    private fun onSpeakFrame(data: ByteArray) {
+        if (speakStreamLive) serverSpeakChunk(Base64.encode(data))
+    }
+
+    private fun onSpeakEnd(msg: ServerMsg.SpeakEnd) {
+        val wasLive = speakStreamLive && speakStreamId == msg.id
+        if (speakStreamId == msg.id) {
+            speakStreamId = null
+            speakStreamLive = false
+        }
+        val text = speakTexts.remove(msg.id)
+        if (wasLive) serverSpeakEnd() // decode the clip and queue it for playback
+        // Refused (tts disabled / queue full / synthesis failed) → browser voice.
+        // A stream that died part-way (wasLive) already queued partial audio;
+        // don't also replay the whole utterance over it.
+        if (msg.error.isNotEmpty() && text != null && !wasLive) speakText(text)
+    }
+
+    /** Forget all in-flight server speaks and silence their playback (barge-in,
+     *  mute, disconnect). Frames still arriving for a cancelled utterance are
+     *  dropped until its speak_end passes. */
+    private fun cancelServerSpeech() {
+        speakTexts.clear()
+        speakStreamLive = false
+        cancelServerSpeechPlayback()
     }
 }

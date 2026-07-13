@@ -50,7 +50,7 @@ type speechRequest struct {
 // defaults) and returns the audio stream plus its Content-Type. The caller
 // must Close it. Per-request formats let each client kind pull the encoding
 // its playback path wants (Android streams raw pcm into an AudioTrack; the
-// browser decodes compressed opus).
+// browser decodes compressed mp3).
 func (c *Client) Speak(ctx context.Context, text, voice, format string) (io.ReadCloser, string, error) {
 	if voice == "" {
 		voice = c.Voice

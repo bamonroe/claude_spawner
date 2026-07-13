@@ -240,10 +240,10 @@ streams the audio straight back down the WebSocket, and the app plays it as it a
 synthesized for muted or summary-only-beeping clients, since they never ask. If the server refuses
 or synthesis fails, that utterance is read by the device's own voice automatically — the fallback
 needs no toggling. Barge-in ("hey buddy stop", push-to-talk) halts server-voice playback exactly
-like local speech. The web client still uses the browser's `SpeechSynthesis` (its server-voice
-playback is on the roadmap), and on-device TTS remains the whole story when `SPAWNER_TTS_URL` is
-unset. Voice selection (Kokoro ships dozens) is server-configured via `SPAWNER_TTS_VOICE` for now;
-a per-device voice picker is planned (see `TODO.md`).
+like local speech. The web client has the same switch and fallback — it asks for mp3 and plays the
+clip via Web Audio (the phone streams raw PCM) — and on-device speech remains the whole story when
+`SPAWNER_TTS_URL` is unset. Voice selection (Kokoro ships dozens) is server-configured via
+`SPAWNER_TTS_VOICE` for now; a per-device voice picker is planned (see `TODO.md`).
 
 ### Detached background jobs that outlive a turn
 
@@ -543,9 +543,10 @@ Bluetooth keyboard paired to the Android app.
 **Voice works in the browser too**: hold the mic button to talk — the client captures the microphone
 via the Web Audio API, downsamples it to 16 kHz mono PCM16, and streams the clip to the server's
 Whisper over the same socket (the `pcm16` codec — no Opus/ffmpeg needed), exactly like the phone's
-push-to-talk. Replies are **read aloud** with the browser's built-in `SpeechSynthesis`, and the stop
-button (or the "stop" barge-in) halts playback. The mic needs a **secure context** (https or
-localhost) and microphone permission.
+push-to-talk. Replies are **read aloud** — with the server's Kokoro voice when it offers TTS (see
+"Server voice" above), else the browser's built-in `SpeechSynthesis` — and the stop button (or the
+"stop" barge-in) halts playback. The mic needs a **secure context** (https or localhost) and
+microphone permission.
 
 **Hands-free (always-listening) works in the browser too**: swipe the mic button up to switch it on
 and the client keeps the mic open, running a Web-Audio voice-activity detector that mirrors the

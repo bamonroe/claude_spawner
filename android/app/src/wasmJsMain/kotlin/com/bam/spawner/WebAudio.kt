@@ -138,8 +138,10 @@ fun startHandsFreeMic(thresholdRms: Int, onsetMs: Int, silenceMs: Int, maxMs: In
             for (i = 0; i < n; i++) sum += frame[i] * frame[i];
             var rms = Math.sqrt(sum / n) * 32768;
             var thr = H.thr;
-            // Triple the bar while we're speaking, so our own TTS doesn't self-trigger.
-            if (window.speechSynthesis && window.speechSynthesis.speaking) thr = thr * 3;
+            // Triple the bar while we're speaking (browser voice OR server-voice
+            // playback), so our own TTS doesn't self-trigger.
+            if ((window.speechSynthesis && window.speechSynthesis.speaking) ||
+                (window.__spawnerTts && window.__spawnerTts.playing)) thr = thr * 3;
             var voiced = rms >= thr;
             if (!H.capturing) {
               if (voiced) {
@@ -204,6 +206,89 @@ fun stopHandsFreeMic(): Unit = js(
         try { H.ctx.close(); } catch(e){}
         H.pend = []; H.chunks = []; H.ready = []; H.capturing = false;
       }
+    }
+    """,
+)
+
+// ── Server-TTS playback (the Kokoro epic, see TODO.md) ───────────────────────
+// The server synthesizes speech (the `speak` protocol) and streams the audio back
+// as binary WebSocket frames. The web client asks for mp3 — decodeAudioData wants
+// one complete compressed clip (unlike Android's frame-by-frame pcm AudioTrack),
+// and mp3 decodes in every browser (Safari has no ogg/opus). Frames accumulate on
+// a window global; on speak_end the clip is decoded and queued so back-to-back
+// utterances play in order without overlapping. Base64 crosses the Wasm→JS
+// boundary the same way the mic path does.
+
+/** Start accumulating a new server-voice utterance (speak_audio arrived). */
+fun serverSpeakBegin(): Unit = js(
+    """
+    {
+      var T = window.__spawnerTts = window.__spawnerTts || { queue: [], playing: false, src: null };
+      T.chunks = [];
+    }
+    """,
+)
+
+/** Append one binary frame (base64) to the utterance being accumulated. */
+fun serverSpeakChunk(b64: String): Unit = js(
+    """
+    {
+      var T = window.__spawnerTts;
+      if (!T || !T.chunks) return;
+      var bin = atob(b64), n = bin.length, bytes = new Uint8Array(n);
+      for (var i = 0; i < n; i++) bytes[i] = bin.charCodeAt(i);
+      T.chunks.push(bytes);
+    }
+    """,
+)
+
+/** The utterance's stream closed cleanly: decode the whole clip and queue it for
+ *  sequential playback (utterances never overlap; one shared AudioContext). */
+fun serverSpeakEnd(): Unit = js(
+    """
+    {
+      var T = window.__spawnerTts;
+      if (!T || !T.chunks || !T.chunks.length) return;
+      var total = 0, i;
+      for (i = 0; i < T.chunks.length; i++) total += T.chunks[i].length;
+      var flat = new Uint8Array(total), off = 0;
+      for (i = 0; i < T.chunks.length; i++){ flat.set(T.chunks[i], off); off += T.chunks[i].length; }
+      T.chunks = [];
+      try {
+        var AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return;
+        if (!window.__spawnerTtsCtx) window.__spawnerTtsCtx = new AC();
+        var ctx = window.__spawnerTtsCtx;
+        if (ctx.state === 'suspended') ctx.resume();
+        var pump = function(){
+          if (T.playing || !T.queue.length) return;
+          var buf = T.queue.shift();
+          var src = ctx.createBufferSource();
+          src.buffer = buf;
+          src.connect(ctx.destination);
+          src.onended = function(){ T.playing = false; T.src = null; pump(); };
+          T.playing = true; T.src = src;
+          src.start();
+        };
+        ctx.decodeAudioData(flat.buffer, function(decoded){ T.queue.push(decoded); pump(); }, function(){});
+      } catch (e) {}
+    }
+    """,
+)
+
+/** Whether server-voice audio is playing or queued (drives the speaking pill and
+ *  the hands-free echo rejection, alongside SpeechSynthesis). */
+fun serverSpeechActive(): Boolean = js("(!!(window.__spawnerTts && (window.__spawnerTts.playing || (window.__spawnerTts.queue && window.__spawnerTts.queue.length > 0))))")
+
+/** Halt server-voice playback immediately and drop everything queued or accumulating. */
+fun cancelServerSpeechPlayback(): Unit = js(
+    """
+    {
+      var T = window.__spawnerTts;
+      if (!T) return;
+      T.chunks = []; T.queue = [];
+      try { if (T.src) T.src.stop(); } catch (e) {}
+      T.playing = false; T.src = null;
     }
     """,
 )
