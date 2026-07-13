@@ -36,6 +36,11 @@ Dates are `YYYY-MM-DD`.
         chips when more than one profile is advertised, defaults to the server's first/default
         profile, applies the profile's advisory host/sandbox target on selection, and sends the
         chosen profile for both "start here" and "new folder" spawns.
+      - [ ] Profile-scope the sandbox home mount (found in the 2026-07-13 review). Today
+        `SandboxExecutor.HomeMount` is bind-mounted read-write into every container regardless of
+        the selected profile, so a `locked` profile with empty `mounts`/`creds` still exposes the
+        whole host home — `mounts` can only add to a fixed baseline, not subtract it. Fold the home
+        mount into the profile so `locked` can actually lock down. See `EXEC_PROFILES_DESIGN.md`.
 
 - [ ] **Kokoro server-side TTS** — synthesize reply speech on the server (Kokoro-82M via
       [Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI), OpenAI-compatible

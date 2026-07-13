@@ -45,6 +45,15 @@ run_args: [ "--userns=keep-id" ]               # escape hatch, appended to podma
 
 - **"Locked down" vs "open" is just two profiles.** `locked` = empty mounts/creds/env. `open` =
   mounts `/home`. No new mechanism.
+  - ⚠️ **Known gap (found in the 2026-07-13 review): the sandbox home mount is not yet profile-scoped,
+    so `locked` cannot actually lock the box down.** `SandboxExecutor.HomeMount` (seeded from the
+    server's `HOME` in `main.go`) is bind-mounted read-write into every container by `createArgsFor`
+    *regardless of the selected profile* — it sits on the executor, outside the profile. A `locked`
+    profile with empty `mounts`/`creds` therefore still exposes the whole host home inside the
+    sandbox. To make locked-vs-open behave as described, fold the home mount into the profile (e.g. a
+    profile `home_mount` field, or treat the built-in `default` as the only profile that carries it)
+    so a profile can omit it. Until then, the `mounts` field only *adds* to a fixed baseline; it
+    can't subtract the home mount.
 - **Templatable** = `{{.Var}}` substitution (Go `text/template`) so one profile adapts per host
   without duplication.
 
