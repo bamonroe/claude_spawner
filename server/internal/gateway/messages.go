@@ -62,6 +62,7 @@ type inbound struct {
 	SetPassword           bool              `json:"set_password"`            // on `identity_update`: apply Password (else keep the current one)
 	ID                    string            `json:"id"`                      // on `speak`: client-chosen correlation id, echoed on speak_audio/speak_end
 	Voice                 string            `json:"voice"`                   // on `speak`: Kokoro voice override ("" = the server default, SPAWNER_TTS_VOICE)
+	Format                string            `json:"format"`                  // on `speak`: response-format override ("" = the server default, SPAWNER_TTS_FORMAT)
 }
 
 // msgAgents advertises the AI backend registry to the app so the visual

@@ -46,15 +46,21 @@ type speechRequest struct {
 	Stream bool `json:"stream"`
 }
 
-// Speak synthesizes text with the given voice (empty = the client default) and
-// returns the audio stream plus its Content-Type. The caller must Close it.
-func (c *Client) Speak(ctx context.Context, text, voice string) (io.ReadCloser, string, error) {
+// Speak synthesizes text with the given voice and format (empty = the client
+// defaults) and returns the audio stream plus its Content-Type. The caller
+// must Close it. Per-request formats let each client kind pull the encoding
+// its playback path wants (Android streams raw pcm into an AudioTrack; the
+// browser decodes compressed opus).
+func (c *Client) Speak(ctx context.Context, text, voice, format string) (io.ReadCloser, string, error) {
 	if voice == "" {
 		voice = c.Voice
 	}
+	if format == "" {
+		format = c.Format
+	}
 	body, err := json.Marshal(speechRequest{
 		Model: "kokoro", Input: text, Voice: voice,
-		ResponseFormat: c.Format, Stream: true,
+		ResponseFormat: format, Stream: true,
 	})
 	if err != nil {
 		return nil, "", fmt.Errorf("tts: encode request: %w", err)

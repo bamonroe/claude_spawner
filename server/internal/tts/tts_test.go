@@ -26,7 +26,7 @@ func TestSpeak(t *testing.T) {
 	defer srv.Close()
 
 	c := New(srv.URL, "af_heart", "opus")
-	body, mime, err := c.Speak(context.Background(), "hello there", "")
+	body, mime, err := c.Speak(context.Background(), "hello there", "", "")
 	if err != nil {
 		t.Fatalf("Speak: %v", err)
 	}
@@ -57,13 +57,32 @@ func TestSpeakVoiceOverride(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := New(srv.URL, "af_heart", "opus")
-	body, _, err := c.Speak(context.Background(), "hi", "bf_emma")
+	body, _, err := c.Speak(context.Background(), "hi", "bf_emma", "")
 	if err != nil {
 		t.Fatalf("Speak: %v", err)
 	}
 	body.Close()
 	if got.Voice != "bf_emma" {
 		t.Errorf("voice = %q, want bf_emma", got.Voice)
+	}
+}
+
+// TestSpeakFormatOverride: an explicit response format wins over the client
+// default (per-request formats let each client kind pull its playback codec).
+func TestSpeakFormatOverride(t *testing.T) {
+	var got speechRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&got)
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "af_heart", "opus")
+	body, _, err := c.Speak(context.Background(), "hi", "", "pcm")
+	if err != nil {
+		t.Fatalf("Speak: %v", err)
+	}
+	body.Close()
+	if got.ResponseFormat != "pcm" {
+		t.Errorf("response_format = %q, want pcm", got.ResponseFormat)
 	}
 }
 
@@ -74,7 +93,7 @@ func TestSpeakError(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := New(srv.URL, "af_heart", "opus")
-	if _, _, err := c.Speak(context.Background(), "hi", "nope"); err == nil {
+	if _, _, err := c.Speak(context.Background(), "hi", "nope", ""); err == nil {
 		t.Fatal("want error on 400")
 	}
 }
