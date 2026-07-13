@@ -129,6 +129,10 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
   spawn-dir jail), `SPAWNER_STATE` (`sessions.json`), `SPAWNER_PROFILES` (`profiles.json`; optional
   JSON execution-profile catalogue. Missing file = only the built-in `default` profile, whose image /
   mounts / run args come from the flat sandbox env vars below),
+  `SPAWNER_PROFILE_VARS` (optional JSON object of string values — the server-wide `{{.Vars.X}}`
+  substitution set for profile templating, e.g. `{"OllamaHost":"pickle.bam.net"}`. A profile's own
+  `vars` overlay these; profile-derived built-ins are `{{.Home}}`, `{{.Session}}`, `{{.Dir}}`.
+  Referencing an undefined var fails the turn loudly. Empty = no global vars),
   `SPAWNER_HOSTS` (`hosts.json`; the
   app-managed SSH host registry — the app is the source of truth, this file just persists it),
   `SPAWNER_IDENTITIES` (`identities.json`; the app-managed SSH identity registry — names + public

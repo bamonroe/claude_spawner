@@ -24,6 +24,16 @@
         "/usr/bin/claude:/usr/bin/claude:ro"
       ],
       "run_args": ["--userns=keep-id", "-e", "HOME=/home/you"]
+    },
+
+    {
+      "name": "ollama",
+      "target": "sandbox",
+      "home_mount": "{{.Home}}",
+      "mounts": ["{{.Home}}/.opencode:{{.Home}}/.opencode:ro"],
+      "vars": {"OllamaHost": "pickle.bam.net"},
+      "env": {"OLLAMA_BASE_URL": "http://{{.Vars.OllamaHost}}:11434", "HOME": "{{.Home}}"},
+      "run_args": ["--userns=keep-id"]
     }
   ]
 }

@@ -144,6 +144,11 @@ type Driver struct {
 	// Profiles is the execution-environment profile registry. Empty/unknown
 	// session profile names resolve to the built-in default profile.
 	Profiles *ProfileRegistry
+	// Home is the {{.Home}} template value — the login user's home on the
+	// executing host. GlobalVars are the server-wide {{.Vars.X}} values a profile's
+	// own vars overlay. Both feed profile templating in ProfileFor.
+	Home       string
+	GlobalVars map[string]string
 	// Bypass adds --dangerously-skip-permissions when true (project default).
 	Bypass bool
 	// UsageDir is the working directory for the account-global /usage check. It has
@@ -222,12 +227,24 @@ func (d *Driver) ProfileRegistry() *ProfileRegistry {
 	return d.Profiles
 }
 
-// ProfileFor resolves the execution profile a session uses.
-func (d *Driver) ProfileFor(s *Session) *ExecProfile {
-	if s == nil {
-		return d.ProfileRegistry().Resolve("")
+// ProfileFor resolves the execution profile a session uses and renders its
+// {{.Var}} templates against the session + global context. A template referencing
+// an undefined var is a hard error, surfaced to the caller (and thus the turn).
+func (d *Driver) ProfileFor(s *Session) (*ExecProfile, error) {
+	name := ""
+	ctx := RenderContext{Home: d.Home}
+	if s != nil {
+		name = s.Profile
+		ctx.Session = s.Name
+		ctx.Dir = s.Dir
 	}
-	return d.ProfileRegistry().Resolve(s.Profile)
+	p := d.ProfileRegistry().Resolve(name)
+	ctx.Vars = mergeVars(d.GlobalVars, p.Vars)
+	rendered, err := p.render(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("profile %q: %w", p.Name, err)
+	}
+	return rendered, nil
 }
 
 // executor resolves a Target to its Executor, falling back to the host executor
@@ -249,7 +266,11 @@ func (d *Driver) EnsureContainer(ctx context.Context, s *Session) error {
 		return nil
 	}
 	if lc, ok := d.Execs[TargetSandbox].(SandboxLifecycle); ok {
-		s.ResolvedProfile = d.ProfileFor(s)
+		p, err := d.ProfileFor(s)
+		if err != nil {
+			return err
+		}
+		s.ResolvedProfile = p
 		return lc.Ensure(ctx, s)
 	}
 	return nil
@@ -478,7 +499,11 @@ func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool fun
 	// owns process-group/abort semantics; Turn only builds args and parses stdout.
 	// The backend command (claude/codex) is resolved from the agent; "" lets the
 	// executor use its own configured binary (the Claude path).
-	s.ResolvedProfile = d.ProfileFor(s)
+	p, err := d.ProfileFor(s)
+	if err != nil {
+		return "", Usage{}, err
+	}
+	s.ResolvedProfile = p
 	proc, err := d.executor(s.Target).Start(ctx, s, d.binFor(ag, s.Target), args)
 	if err != nil {
 		return "", Usage{}, err

@@ -4,6 +4,7 @@ package config
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -27,6 +28,10 @@ type Config struct {
 	// ProfilesPath is the optional JSON file defining named execution profiles.
 	// Missing files are ignored; the built-in default profile is always present.
 	ProfilesPath string
+	// ProfileVars is the server-wide {{.Vars.X}} substitution set for profile
+	// templating, parsed from SPAWNER_PROFILE_VARS (a JSON object). A profile's own
+	// vars overlay these. Empty/unset means no global vars.
+	ProfileVars map[string]string
 	// HostsPath is the file where the app-managed SSH host registry is persisted
 	// (the source of truth is the app; the server just stores it so it survives
 	// restarts and is shared across clients).
@@ -186,6 +191,11 @@ func Load() (*Config, error) {
 		SSHKnownHosts:        os.Getenv("SPAWNER_SSH_KNOWN_HOSTS"),
 		SSHClaudeBin:         env("SPAWNER_SSH_CLAUDE_BIN", "claude"),
 		SSHCodexBin:          env("SPAWNER_SSH_CODEX_BIN", "codex"),
+	}
+	if v := os.Getenv("SPAWNER_PROFILE_VARS"); v != "" {
+		if err := json.Unmarshal([]byte(v), &c.ProfileVars); err != nil {
+			return nil, fmt.Errorf("SPAWNER_PROFILE_VARS must be a JSON object of string values: %w", err)
+		}
 	}
 	if c.AuthToken == "" {
 		return nil, fmt.Errorf("SPAWNER_TOKEN is required (refusing to run without auth)")

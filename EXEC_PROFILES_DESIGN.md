@@ -142,7 +142,11 @@ time.
 4. ✅ 2026-07-13 — **Visible new-session picker controls.** `BrowseScreen` shows profile chips,
    defaults to the advertised default, applies the profile's advisory target on selection, and sends
    the chosen profile on both existing spawn paths.
-5. **Network/endpoint config + `{{.Var}}` templating.** Unlocks Ollama-across-hosts.
+5. ✅ 2026-07-13 — **Network/endpoint config + `{{.Var}}` templating.** Every string-bearing
+   profile field is rendered per turn against built-ins `{{.Home}}` / `{{.Session}}` / `{{.Dir}}`
+   plus a user-defined `{{.Vars.X}}` map (global `SPAWNER_PROFILE_VARS` overlaid by the profile's
+   own `vars`). An undefined var fails the turn loudly. Unlocks Ollama-across-hosts — see the
+   `ollama` preset in `deploy/profiles.example.json`.
 6. **opencode backend spike** drops in on top: an `opencode.go` agent + a profile that injects its
    creds and points at the Ollama endpoint. (See the multi-backend epic in `TODO.md`.)
 

@@ -73,6 +73,70 @@ func TestProfileEnvListSorted(t *testing.T) {
 	}
 }
 
+func TestProfileRenderExpandsAllFields(t *testing.T) {
+	p := &ExecProfile{
+		Name:      "ollama",
+		Image:     "img",
+		HomeMount: "{{.Home}}",
+		Mounts:    []string{"{{.Home}}/src:/src:rw", "{{.Dir}}:/work:rw"},
+		Creds:     []string{"{{.Home}}/.secrets/{{.Session}}.json:/creds:ro"},
+		Env:       map[string]string{"OLLAMA_BASE_URL": "http://{{.Vars.OllamaHost}}:11434"},
+		RunArgs:   []string{"--add-host", "ollama:{{.Vars.OllamaIP}}"},
+	}
+	ctx := RenderContext{
+		Home:    "/home/bam",
+		Session: "proj",
+		Dir:     "/work/proj",
+		Vars:    map[string]string{"OllamaHost": "pickle.bam.net", "OllamaIP": "10.0.0.8"},
+	}
+	got, err := p.render(ctx)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	checks := map[string]string{
+		"HomeMount": got.HomeMount, "mount0": got.Mounts[0], "mount1": got.Mounts[1],
+		"cred0": got.Creds[0], "env": got.Env["OLLAMA_BASE_URL"], "runarg1": got.RunArgs[1],
+	}
+	want := map[string]string{
+		"HomeMount": "/home/bam", "mount0": "/home/bam/src:/src:rw", "mount1": "/work/proj:/work:rw",
+		"cred0": "/home/bam/.secrets/proj.json:/creds:ro",
+		"env":   "http://pickle.bam.net:11434", "runarg1": "ollama:10.0.0.8",
+	}
+	for k, w := range want {
+		if checks[k] != w {
+			t.Errorf("%s = %q, want %q", k, checks[k], w)
+		}
+	}
+	if p.HomeMount != "{{.Home}}" {
+		t.Errorf("render mutated the source profile: HomeMount = %q", p.HomeMount)
+	}
+}
+
+func TestProfileRenderUnknownVarFailsLoud(t *testing.T) {
+	p := &ExecProfile{Name: "bad", Env: map[string]string{"X": "{{.Vars.Missing}}"}}
+	if _, err := p.render(RenderContext{Vars: map[string]string{}}); err == nil {
+		t.Fatal("render succeeded with an undefined var; expected a hard error")
+	}
+}
+
+func TestProfileForMergesVarsProfileWins(t *testing.T) {
+	reg, err := NewProfileRegistry(
+		ExecProfile{Name: DefaultProfileName},
+		ExecProfile{Name: "p", Env: map[string]string{"U": "{{.Vars.A}}-{{.Vars.B}}"}, Vars: map[string]string{"B": "prof"}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := &Driver{Profiles: reg, GlobalVars: map[string]string{"A": "glob", "B": "glob"}}
+	got, err := d.ProfileFor(&Session{Name: "s", Dir: "/d", Profile: "p"})
+	if err != nil {
+		t.Fatalf("ProfileFor: %v", err)
+	}
+	if got.Env["U"] != "glob-prof" {
+		t.Errorf("merged env = %q, want %q (profile var should win)", got.Env["U"], "glob-prof")
+	}
+}
+
 // TestShippedExampleProfilesLoad guards deploy/profiles.example.json so the
 // documented preset can't silently rot into something the loader rejects.
 func TestShippedExampleProfilesLoad(t *testing.T) {

@@ -24,7 +24,13 @@ Dates are `YYYY-MM-DD`.
         host-side short commands; sandbox profiles can override image, mounts, credential mounts, env,
         and run args when the persistent container is created. Covered by focused session/gateway
         tests. Documented `locked`/`open` example presets now ship in
-        `deploy/profiles.example.json`, guarded by a loader test. Remaining: templating variables.
+        `deploy/profiles.example.json`, guarded by a loader test.
+      - [x] 2026-07-13 — `{{.Var}}` templating: every string-bearing profile field is rendered per
+        turn (in `Driver.ProfileFor`) against built-ins `{{.Home}}`/`{{.Session}}`/`{{.Dir}}` plus a
+        user-defined `{{.Vars.X}}` map — global `SPAWNER_PROFILE_VARS` (JSON) overlaid by the
+        profile's own `vars`, profile winning on a clash. An undefined var is a hard error that
+        surfaces on the turn. Unlocks Ollama-across-hosts (see the `ollama` preset). Covered by render
+        + merge + fail-loud tests.
       - [x] 2026-07-13 — Protocol/client advertisement slice: server now pushes a `profiles`
         message after `agents`, carrying each profile's `name` and advisory `target` plus default
         name. Android and web parse and retain it on `AppController.profiles`.

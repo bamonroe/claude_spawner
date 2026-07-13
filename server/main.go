@@ -65,6 +65,8 @@ func main() {
 		log.Fatalf("execution profiles: %v", err)
 	}
 	driver.Profiles = profiles
+	driver.Home = os.Getenv("HOME")
+	driver.GlobalVars = cfg.ProfileVars
 	log.Printf("execution profiles loaded: %d profile(s)", len(profiles.List()))
 	if len(cfg.SpawnRoots) > 0 {
 		// The account-global /usage check runs claude in this dir; use a spawn root so

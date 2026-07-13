@@ -64,7 +64,11 @@ func HookSettingsJSON(home string) string {
 // (`spawner-job list --json`, `tail`, `reap`) and by staging; it is NOT the turn
 // path (turns stream via Driver.Turn).
 func (d *Driver) RunOnTarget(ctx context.Context, s *Session, cmd string) ([]byte, error) {
-	s.ResolvedProfile = d.ProfileFor(s)
+	p, err := d.ProfileFor(s)
+	if err != nil {
+		return nil, err
+	}
+	s.ResolvedProfile = p
 	switch e := d.executor(s.Target).(type) {
 	case SandboxExecutor:
 		if s.Container == "" {
