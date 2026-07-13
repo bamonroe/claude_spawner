@@ -815,7 +815,7 @@ var wireHandlers = map[string]func(c *conn, in inbound){
 	"upload":            func(c *conn, in inbound) { c.doUpload(in.Path, in.Name, in.HostName, in.Content) },
 	"download":          func(c *conn, in inbound) { c.doDownload(in.Path, in.HostName) },
 	"spawn_at": func(c *conn, in inbound) {
-		c.doSpawnAt(in.Path, session.Target(in.Target), in.Create, in.HostName, in.Agent, in.Model, in.Profile)
+		c.doSpawnAt(in.Path, session.Target(in.Target), in.Create, in.HostName, in.Agent, in.Model, in.Profile, "", false)
 	},
 	"cancel":            func(c *conn, in inbound) { c.cancelDialog() },
 	"abort":             func(c *conn, in inbound) { c.abortTurn() },

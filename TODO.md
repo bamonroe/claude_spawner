@@ -12,6 +12,20 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-13 — **One-shot voice spawn with defaults.** "hey buddy, new session [called <name>]
+      [in <location>] [on <provider>] [with <profile> profile]" now creates + attaches immediately,
+      defaulting each unspoken part: location → the user's **home directory**, provider → the default
+      backend (Claude), profile → the marked-default profile. The command parser gained `Intent.Name`
+      + `Intent.Profile` and `extractSpawnProfile`/`beforeAny` (name via "called"/"named" bounded by
+      the location prep; profile via "with <name> profile" or "profile <name>"). The gateway's new
+      `spawnCommand` fast-path resolves the location (home default) and, when it pins a concrete
+      folder (not a root/namespace, not a fuzzy guess), calls `doSpawnAt` (now taking a custom name +
+      announce flag, returning the session) to create + attach; it falls back to the browse dialog for
+      a new *project*, an unresolved/fuzzy location, or a container of sub-projects. Fast-path dirs are
+      always under `SPAWNER_ROOT`, so the voice jail holds. Registry aliases + `docs/commands.json`
+      regenerated; `docs/commands.md`, `README.md` updated. Parser + gateway tests green. Not yet
+      tap/voice-tested on the phone against the live server.
+
 - [ ] **Session execution-environment profiles** — named, per-session, templatable bundles of
       mounts / credential injection / network endpoints for host + sandbox turns, replacing the flat
       global `SPAWNER_SANDBOX_*` config (which becomes the built-in `default` profile). Prerequisite

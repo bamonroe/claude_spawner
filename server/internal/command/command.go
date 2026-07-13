@@ -50,6 +50,10 @@ type Intent struct {
 	New      bool
 	Count    int    // for ReadLast: how many recent replies to re-read; for UseModel: the 1-based model number
 	Agent    string // for Spawn: the AI backend chosen inline ("codex"); empty = default backend
+	Profile  string // for Spawn: the execution profile spoken inline ("sandbox"); empty = default profile
+	// Name, for Spawn, is the session's spoken name ("called trashbot"); empty
+	// means default to the folder basename.
+	Name string
 }
 
 // wakePhrases is the single source of truth for the wake token — the spoken
@@ -88,6 +92,7 @@ var commandVocab = []string{
 	"stop", "abort", "help", "read last", "replay", "clear", "compress", "compact",
 	"usage", "rename", "session", "project", "model", "models", "codex", "opencode",
 	"scratch", "summary", "job", "jobs", "restart", "rebuild", "server",
+	"called", "named", "profile",
 }
 
 // Vocabulary returns the control words worth biasing STT toward: the canonical
@@ -347,15 +352,20 @@ func Parse(text string) Intent {
 	// Spawn: "spawn … session/project", or a leading new-session/project phrase.
 	case first == "spawn" && contains(t, "session", "project"),
 		leadsWith(t, "new session", "new project", "create a session", "create a project", "start a session", "start a project"):
-		// Pull an inline backend choice ("spawn a codex session", "… on codex") out
-		// first, so its word doesn't leak into the parsed location.
+		// Pull the inline backend ("… on codex") and profile ("… with sandbox
+		// profile") choices out first, so their words don't leak into the parsed
+		// name/location.
 		agentID, rest := extractSpawnAgent(t)
+		profile, rest := extractSpawnProfile(rest)
+		// A spoken session name: the words after "called"/"named", up to the
+		// location preposition ("new session called bug fix in data" -> "bug fix").
+		name := strings.TrimSpace(beforeAny(afterAny(rest, "called", "named"), "in", "at", "under", "inside"))
 		// Prefer an explicit preposition ("spawn a session in git personal"); if
-		// there's none, take whatever path was spoken right after "session"/
-		// "project" ("spawn a new session bam git personal") so a one-shot command
-		// with an inline location still jumps straight there instead of dropping it.
+		// there's none AND no name was given, take whatever path was spoken right
+		// after "session"/"project" ("spawn a new session bam git personal") so a
+		// one-shot command with an inline location still jumps straight there.
 		loc := afterAny(rest, "in", "at", "under", "inside")
-		if loc == "" {
+		if loc == "" && name == "" {
 			loc = afterAny(rest, "session", "project")
 		}
 		return Intent{
@@ -365,6 +375,8 @@ func Parse(text string) Intent {
 			New:      contains(rest, "new project", "new repo", "new folder", "create a project", "start a project"),
 			Location: loc,
 			Agent:    agentID,
+			Profile:  profile,
+			Name:     name,
 		}
 
 	// Detach: bare "detach"/"detach now", or an explicit phrase.
@@ -616,6 +628,73 @@ func extractSpawnAgent(t string) (agentID, rest string) {
 	return agentID, strings.Join(out, " ")
 }
 
+// extractSpawnProfile pulls an inline execution-profile choice out of a spawn
+// utterance and returns the spoken profile phrase (empty if none) plus the
+// utterance with that phrase removed, so name/location parse cleanly. "profile"
+// is the anchor word: the run of ordinary words right before it is the profile
+// ("with sandbox profile" -> "sandbox", "bare metal profile" -> "bare metal"), or
+// the single word right after it in the "profile <name>" form. A leading
+// "with"/"using" is dropped too. The profile name is left for the gateway to
+// resolve against the registry (unknown -> the default profile).
+func extractSpawnProfile(t string) (profile, rest string) {
+	words := strings.Fields(t)
+	for i, w := range words {
+		if w != "profile" && w != "profiles" {
+			continue
+		}
+		drop := map[int]bool{i: true}
+		// A "with"/"using" before "profile" (with no other boundary in between)
+		// bounds a possibly multi-word name: "with bare metal profile".
+		withAt := -1
+		for k := i - 1; k >= 0; k-- {
+			if words[k] == "with" || words[k] == "using" {
+				withAt = k
+				break
+			}
+			if isSpawnBoundary(words[k]) {
+				break
+			}
+		}
+		switch {
+		case withAt >= 0 && withAt < i-1: // "with <name…> profile"
+			profile = strings.Join(words[withAt+1:i], " ")
+			for k := withAt; k < i; k++ {
+				drop[k] = true
+			}
+		case i-1 >= 0 && !isSpawnBoundary(words[i-1]): // single word "sandbox profile"
+			profile = words[i-1]
+			drop[i-1] = true
+		case i+1 < len(words): // "profile <name>" form
+			profile = words[i+1]
+			drop[i+1] = true
+			if i-1 >= 0 && (words[i-1] == "with" || words[i-1] == "using") {
+				drop[i-1] = true
+			}
+		}
+		out := make([]string, 0, len(words))
+		for k, ww := range words {
+			if !drop[k] {
+				out = append(out, ww)
+			}
+		}
+		return profile, strings.Join(out, " ")
+	}
+	return "", t
+}
+
+// isSpawnBoundary reports whether w is a spawn-grammar keyword that bounds a
+// spoken name or profile phrase (a preposition, selector, or filler word), so the
+// extractors don't swallow it into the value.
+func isSpawnBoundary(w string) bool {
+	switch w {
+	case "in", "at", "under", "inside", "on", "using", "with",
+		"called", "named", "session", "project", "new", "a", "an", "the",
+		"spawn", "create", "start":
+		return true
+	}
+	return false
+}
+
 // modelIndex extracts the 1-based model number from a UseModel command: the
 // first number-bearing token anywhere in the utterance (digit or word), so both
 // "use model 3" and "use model three" work. 0 if none was spoken (the gateway
@@ -669,6 +748,21 @@ func afterAny(t string, keywords ...string) string {
 		}
 	}
 	return ""
+}
+
+// beforeAny returns everything preceding the first occurrence of any keyword (as
+// a whole word), e.g. beforeAny("bug fix in data", "in") -> "bug fix". Returns the
+// whole string if no keyword is present.
+func beforeAny(t string, keywords ...string) string {
+	words := strings.Fields(t)
+	for i, w := range words {
+		for _, kw := range keywords {
+			if w == kw {
+				return strings.Join(words[:i], " ")
+			}
+		}
+	}
+	return t
 }
 
 // argAfter returns the token following a keyword. Keywords are tried in priority

@@ -31,8 +31,8 @@ type Command struct {
 // docs/commands.md. The app renders these alphabetically; order here is for
 // human readability only.
 var Registry = []Command{
-	{Spawn, "spawn", []string{"spawn a new session", "spawn a session in <dir>", "new project in <dir>"},
-		"Start a new session or project", "spawn a new session"},
+	{Spawn, "spawn", []string{"spawn a new session", "new session called <name> in <dir>", "new session on <provider>", "new session with <profile> profile", "new project in <dir>"},
+		"Start a session — name, location, provider, and profile are optional; unspoken ones use defaults (home directory, default backend, default profile)", "spawn a new session"},
 	{Attach, "attach", []string{"attach to <name>"},
 		"Attach to a session by name", "attach to bam"},
 	{Detach, "detach", []string{"detach", "stop dictating"},

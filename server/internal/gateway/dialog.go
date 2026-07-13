@@ -34,6 +34,107 @@ type dialog struct {
 	agentID string
 }
 
+// spawnCommand handles a voice "spawn"/"new session" utterance. It takes the
+// FAST path — resolve a location (defaulting to the user's home directory), then
+// create the session and attach right away, filling in the default provider and
+// profile for anything the user didn't name — whenever it can pin a concrete
+// directory. It falls back to the interactive browse dialog only when it can't:
+// a new *project* (which needs a folder created + named), a spoken location that
+// doesn't resolve or only fuzzily matches, or a location that lands on a root or
+// namespace with child projects to choose among.
+//
+// The fast path only ever spawns in a directory derived from matchRoot/descend or
+// the home default, all of which live under SPAWNER_ROOT — so the voice jail is
+// preserved even though doSpawnAt itself isn't jailed.
+func (c *conn) spawnCommand(intent command.Intent) {
+	if intent.New {
+		c.startSpawn(intent.New, intent.Location, intent.Agent)
+		return
+	}
+	if c.srv.projects != nil {
+		c.srv.projects.Refresh()
+	}
+	dir, ok := c.resolveSpawnDir(intent.Location)
+	if !ok || c.isRoot(dir) || projects.IsNamespace(dir) {
+		c.startSpawn(intent.New, intent.Location, intent.Agent)
+		return
+	}
+	profileID := c.resolveProfileName(intent.Profile)
+	name := sanitizeName(strings.Join(projects.Terms(intent.Name), "-"))
+	c.doSpawnAt(dir, "", false, session.LocalHost, intent.Agent, "", profileID, name, true)
+}
+
+// resolveSpawnDir turns a spoken location into a concrete directory. An empty
+// location defaults to the user's home directory. A spoken location is matched to
+// a root and descended; it returns ok=false when the root doesn't match or the
+// descent only landed via a fuzzy stretch (so the caller falls back to the dialog,
+// which confirms a misheard folder before committing).
+func (c *conn) resolveSpawnDir(location string) (string, bool) {
+	terms := projects.Terms(location)
+	if len(terms) == 0 {
+		return c.homeSpawnDir(), true
+	}
+	root := c.matchRoot(terms[0])
+	if root == "" {
+		return "", false
+	}
+	dir, inexact := c.descend(root, terms[1:])
+	if inexact {
+		return "", false
+	}
+	return dir, true
+}
+
+// homeSpawnDir is the default spawn location when none is spoken: the user's home
+// directory, but only if it's inside a SPAWNER_ROOT (keeping the voice jail); else
+// the first configured root.
+func (c *conn) homeSpawnDir() string {
+	home := os.Getenv("HOME")
+	if home == "" {
+		home, _ = os.UserHomeDir()
+	}
+	if home != "" && c.underRoots(home) {
+		return home
+	}
+	if len(c.srv.cfg.SpawnRoots) > 0 {
+		return c.srv.cfg.SpawnRoots[0]
+	}
+	return home
+}
+
+// underRoots reports whether dir is one of the configured spawn roots or lives
+// beneath one.
+func (c *conn) underRoots(dir string) bool {
+	for _, r := range c.srv.cfg.SpawnRoots {
+		if dir == r || strings.HasPrefix(dir, r+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
+}
+
+// resolveProfileName maps a spoken profile term to a registered profile name,
+// tolerating spacing and case ("bare metal" -> "bare-metal"). An empty term or no
+// match returns "" — the spawn then uses the default profile.
+func (c *conn) resolveProfileName(term string) string {
+	if strings.TrimSpace(term) == "" {
+		return ""
+	}
+	want := sanitizeName(strings.Join(projects.Terms(term), "-"))
+	profiles := c.srv.driver.ProfileRegistry().List()
+	for _, p := range profiles {
+		if strings.EqualFold(p.Name, want) {
+			return p.Name
+		}
+	}
+	for _, p := range profiles { // loose match, e.g. "sand" -> "sandbox"
+		if strings.Contains(strings.ToLower(p.Name), want) {
+			return p.Name
+		}
+	}
+	return ""
+}
+
 // startSpawn begins the spawn dialog. isNew selects create-a-new-project mode;
 // location is an optional spoken path ("git personal") to jump straight to;
 // agentID is the backend chosen inline ("spawn a codex session"), empty = default.

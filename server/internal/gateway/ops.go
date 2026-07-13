@@ -45,7 +45,7 @@ func (c *conn) dispatch(text string) {
 func (c *conn) runCommand(intent command.Intent) bool {
 	switch intent.Kind {
 	case command.Spawn:
-		c.startSpawn(intent.New, intent.Location, intent.Agent)
+		c.spawnCommand(intent)
 	case command.List:
 		c.doList()
 	case command.Attach:

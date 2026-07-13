@@ -369,24 +369,38 @@ func TestParseSpawn(t *testing.T) {
 		new      bool
 		location string
 		agent    string
+		profile  string
+		name     string
 	}{
-		{"spawn a new session", false, "", ""},
-		{"spawn a session in git personal", false, "git personal", ""},
-		{"spawn a new project in git personal", true, "git personal", ""},
-		{"spawn a new project", true, "", ""},
-		{"start a project under data", true, "data", ""},
+		{"spawn a new session", false, "", "", "", ""},
+		{"spawn a session in git personal", false, "git personal", "", "", ""},
+		{"spawn a new project in git personal", true, "git personal", "", "", ""},
+		{"spawn a new project", true, "", "", "", ""},
+		{"start a project under data", true, "data", "", "", ""},
 		// Inline location with no preposition: the path after "session"/"project"
 		// is still captured so a one-shot command jumps straight there.
-		{"spawn a new session bam git personal", false, "bam git personal", ""},
-		{"new project data askii", true, "data askii", ""},
+		{"spawn a new session bam git personal", false, "bam git personal", "", "", ""},
+		{"new project data askii", true, "data askii", "", "", ""},
 		// Inline backend selection: the backend word is pulled out and doesn't
 		// leak into the location.
-		{"spawn a codex session", false, "", "codex"},
-		{"spawn a codex session in git personal", false, "git personal", "codex"},
-		{"spawn a session on codex", false, "", "codex"},
-		{"spawn a new codex project in data askii", true, "data askii", "codex"},
+		{"spawn a codex session", false, "", "codex", "", ""},
+		{"spawn a codex session in git personal", false, "git personal", "codex", "", ""},
+		{"spawn a session on codex", false, "", "codex", "", ""},
+		{"spawn a new codex project in data askii", true, "data askii", "codex", "", ""},
 		// "codex" in path position (not a selector) stays part of the location.
-		{"spawn a session in data codex work", false, "data codex work", ""},
+		{"spawn a session in data codex work", false, "data codex work", "", "", ""},
+		// Inline session name via "called"/"named" — bounded by the location prep,
+		// and it suppresses the no-preposition location fallback.
+		{"spawn a session called trashbot", false, "", "", "", "trashbot"},
+		{"new session named bug fix in data", false, "data", "", "", "bug fix"},
+		// Inline profile: "with <name> profile" and the "profile <name>" form; the
+		// profile phrase (and a leading with/using) is stripped from name/location.
+		{"spawn a session in data with sandbox profile", false, "data", "", "sandbox", ""},
+		{"new session called api in git personal with locked profile", false, "git personal", "", "locked", "api"},
+		{"spawn a session profile sandbox", false, "", "", "sandbox", ""},
+		{"spawn a session in data with bare metal profile", false, "data", "", "bare metal", ""},
+		// Everything at once: name, location, provider, and profile.
+		{"new session called api in data on opencode with sandbox profile", false, "data", "opencode", "sandbox", "api"},
 	}
 	for _, c := range cases {
 		got := Parse(c.in)
@@ -394,9 +408,10 @@ func TestParseSpawn(t *testing.T) {
 			t.Errorf("Parse(%q).Kind = %s, want spawn", c.in, got.Kind)
 			continue
 		}
-		if got.New != c.new || got.Location != c.location || got.Agent != c.agent {
-			t.Errorf("Parse(%q) = {new:%v loc:%q agent:%q}, want {new:%v loc:%q agent:%q}",
-				c.in, got.New, got.Location, got.Agent, c.new, c.location, c.agent)
+		if got.New != c.new || got.Location != c.location || got.Agent != c.agent || got.Profile != c.profile || got.Name != c.name {
+			t.Errorf("Parse(%q) = {new:%v loc:%q agent:%q profile:%q name:%q}, want {new:%v loc:%q agent:%q profile:%q name:%q}",
+				c.in, got.New, got.Location, got.Agent, got.Profile, got.Name,
+				c.new, c.location, c.agent, c.profile, c.name)
 		}
 	}
 }

@@ -79,7 +79,7 @@ Reject paths that escape the allowed root unless the user explicitly opts in.
 
 | Intent          | Canonical phrasing                       | Effect                                            |
 |-----------------|------------------------------------------|---------------------------------------------------|
-| `spawn`         | "spawn a new session" / "spawn a session in git personal" / "spawn a new project in git personal" | Starts the spawn dialog (see below). An inline location after "in"/"at" jumps straight there; "new project" switches to create mode. An inline **backend** — "spawn a **codex** session" or "spawn a session **on codex**" — picks the AI for the new session (default is Claude); the session is stamped with that backend and its default model. When a sandbox image is configured (`SPAWNER_SANDBOX_IMAGE`), the dialog also asks whether to run the session on the **host** or in a **sandbox**. |
+| `spawn`         | "spawn a new session" / "new session called bugfix in data" / "new session in git personal on codex with sandbox profile" / "spawn a new project in git personal" | Starts a session. Everything after the noun is optional; anything you don't say uses a default. **Name** — "called <name>" / "named <name>" (default: the folder basename). **Location** — after "in"/"at"/"under" (default: your **home directory**). **Provider** — "on codex" / "on opencode" / "a codex session" (default: Claude); the session is stamped with that backend and its default model. **Profile** — "with <name> profile" / "profile <name>" (default: the marked-default execution profile). When the location resolves to a concrete folder (or is omitted → home), the server **skips the dialog and creates + attaches immediately** with those defaults. It falls back to the interactive dialog (below) for "new project" (folder creation), a location it can't resolve or only fuzzily matches, or one that lands on a root/namespace with sub-folders to choose among. |
 | `attach`        | "attach to `<name>`"                     | Attaches; subsequent speech is dictated           |
 | `detach`        | "detach" / "stop dictating"              | Leaves passthrough mode                            |
 | `list`          | "list sessions" / "what sessions"        | Reads back known sessions                          |
@@ -117,6 +117,16 @@ swiping back down, tapping anywhere outside it (the chat, the bars), or tapping 
 start typing.
 
 ## Dialog: spawn a new session
+
+**Fast path first.** For a plain "new session" (not "new project"), the server tries a one-shot spawn
+before falling back to this dialog: it resolves the spoken location (or defaults to the user's home
+directory), and if that pins a concrete folder — not a root/namespace, and not a fuzzy guess — it
+creates the session and attaches right away, applying the default provider and profile for whatever
+wasn't named ("hey buddy, new session called bugfix in data on opencode"). The fast path only ever
+targets a directory under `SPAWNER_ROOT` (matched roots, descended paths, or the home default, which
+must itself be under a root), so the voice jail still holds. The dialog below runs only when the fast
+path bows out: a new *project* (needs a folder made + named), an unresolved or fuzzy location, or a
+landing on a container of sub-projects.
 
 A small state machine. The server drives the prompts; the app speaks them (TTS) and streams the
 user's replies back. Navigation is **hierarchical**: pick a root (the basename of each configured

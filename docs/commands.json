@@ -154,10 +154,12 @@
       "title": "spawn",
       "aliases": [
         "spawn a new session",
-        "spawn a session in <dir>",
+        "new session called <name> in <dir>",
+        "new session on <provider>",
+        "new session with <profile> profile",
         "new project in <dir>"
       ],
-      "description": "Start a new session or project"
+      "description": "Start a session — name, location, provider, and profile are optional; unspoken ones use defaults (home directory, default backend, default profile)"
     },
     {
       "title": "status",

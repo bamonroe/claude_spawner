@@ -51,7 +51,9 @@ App:   (attached — now everything you say is dictated to Claude Code)
 
 All prefixed with **"hey buddy"**:
 
-- `spawn a new session` — interactive dialog for directory + attach
+- `spawn a new session` — one-shot when you give enough ("new session called bugfix in data on opencode
+  with sandbox profile"), else an interactive dialog. Name, location, provider, and profile are all
+  optional; unspoken ones default (home directory, Claude, your default profile)
 - `attach to <name>`
 - `detach`
 - `list sessions`
