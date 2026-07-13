@@ -54,27 +54,33 @@ func (s *Server) reconcileJobs(sess *session.Session) {
 		return // swallow — malformed output
 	}
 
-	// Index the server's current view so we can tell newly-finished jobs from ones
-	// already announced, and adopt jobs Claude started that we haven't recorded yet.
-	known := map[string]*session.BackgroundJob{}
+	// Index the server's current view BY POSITION so we can tell newly-finished
+	// jobs from ones already announced, and adopt jobs Claude started that we
+	// haven't recorded yet. Indexes (not pointers) because the loop appends to
+	// sess.Jobs — an append can reallocate the backing array, and a pointer taken
+	// before it would keep writing to the dead copy, silently losing the Notified
+	// flag and re-announcing the job forever. Drops are deferred past the loop for
+	// the same reason: rebuilding the slice mid-loop would invalidate the indexes.
+	idx := map[string]int{}
 	for i := range sess.Jobs {
-		known[sess.Jobs[i].ID] = &sess.Jobs[i]
+		idx[sess.Jobs[i].ID] = i
 	}
 
 	changed := false
 	var breadcrumbs []string
+	var reaped []string
 	for _, r := range recs {
-		bj := known[r.ID]
-		if bj == nil {
+		i, ok := idx[r.ID]
+		if !ok {
 			// A job we hadn't recorded (Claude launched it this or a prior turn) — adopt it.
 			sess.Jobs = append(sess.Jobs, session.BackgroundJob{
 				ID: r.ID, Cmd: r.Cmd, Started: r.Started, Done: r.Done, ExitCode: r.Exit,
 			})
-			known[r.ID] = &sess.Jobs[len(sess.Jobs)-1]
-			bj = known[r.ID]
+			i = len(sess.Jobs) - 1
+			idx[r.ID] = i
 			changed = true
 		}
-		if !r.Done || bj.Notified {
+		if !r.Done || sess.Jobs[i].Notified {
 			continue // still running, or already announced
 		}
 		// Newly finished: grab a bounded log tail and frame a note.
@@ -83,16 +89,19 @@ func (s *Server) reconcileJobs(sess *session.Session) {
 			tail = capTail(string(t))
 		}
 		sess.PendingNotes = append(sess.PendingNotes, jobNote(r.Cmd, tail))
-		bj.Done = true
-		bj.Notified = true
-		bj.ExitCode = r.Exit
+		sess.Jobs[i].Done = true
+		sess.Jobs[i].Notified = true
+		sess.Jobs[i].ExitCode = r.Exit
 		changed = true
 		breadcrumbs = append(breadcrumbs, r.Cmd)
 		// Reap so logs don't accumulate on the target.
 		if _, rerr := s.driver.RunOnTarget(ctx, sess, shellQuoteArg(script)+" reap "+shellQuoteArg(r.ID)); rerr == nil {
-			// Drop the reaped job from our view — its work is done and announced.
-			sess.Jobs = dropJobByID(sess.Jobs, r.ID)
+			reaped = append(reaped, r.ID) // drop below, after the loop
 		}
+	}
+	// Drop reaped jobs from our view — their work is done and announced.
+	for _, id := range reaped {
+		sess.Jobs = dropJobByID(sess.Jobs, id)
 	}
 
 	if changed {

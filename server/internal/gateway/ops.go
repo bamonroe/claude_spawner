@@ -378,7 +378,7 @@ func (c *conn) doSetAgent(sessionID, dir, agentID, modelAlias string) {
 		}
 	}
 	if attachedHere {
-		c.attached = rec
+		c.setAttached(rec)
 		c.send(msgAttached(rec, nil)) // refresh the app's backend/model badge in place
 	}
 	c.sendSessionList()
@@ -639,7 +639,7 @@ func (c *conn) doAttach(name string, silent bool) {
 		c.srv.unbindJob(c, c.attached.SessionID)
 	}
 	c.clearBuffer() // fresh message buffer for the new session
-	c.attached = s
+	c.setAttached(s)
 	c.send(msgAttached(s, c.srv.driver.LastContextUsage(s.Agent, s.Host, s.TranscriptIDs())))
 	if !silent {
 		c.send(msgSay("attached to " + s.Name + "."))
@@ -764,7 +764,7 @@ func (c *conn) doDetach() {
 	}
 	c.srv.unbindJob(c, c.attached.SessionID)
 	c.clearBuffer()
-	c.attached = nil
+	c.setAttached(nil)
 	c.send(msgDetached())
 	c.send(msgSay("detached."))
 }
@@ -918,7 +918,7 @@ func (c *conn) removeSession(name string) bool {
 		return false
 	}
 	if c.attached != nil && c.attached.Name == s.Name {
-		c.attached = nil
+		c.setAttached(nil)
 		c.send(msgDetached())
 	}
 	// Purge every on-disk trace of the session (transcript, sidecar, per-session
@@ -974,7 +974,7 @@ func (c *conn) doRename(old, newName string) bool {
 	// keyed by session_id (stable across a rename), so nothing there needs re-keying;
 	// just refresh the attached record and update the app's title in place.
 	if c.attached != nil && c.attached.Name == old {
-		c.attached = c.srv.store.Get(newName)
+		c.setAttached(c.srv.store.Get(newName))
 		c.send(msgRenamed(old, newName, c.attached.SessionID)) // update the attached-session title in place (matched by id)
 	}
 	c.sendSessionList() // push the refreshed list back to the app (quietly)

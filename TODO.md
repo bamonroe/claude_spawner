@@ -80,6 +80,25 @@ Dates are `YYYY-MM-DD`.
         rebuild ships the server TTS code (the feature is default-on; flip the Server voice
         switch off to compare).
 
+- [ ] **Per-session record locking** (1.0 quality pass, deferred item). The store hands out
+      shared `*session.Session` pointers; a running turn's goroutine mutates the record
+      (Started/PendingSeed/primes + Put) while another device's read loop can mutate it too
+      (kill-job, set_agent/model, rename). The one-writer invariant covers turn-vs-turn and
+      reconcile, but not turn-vs-ops or two devices. Wants a deliberate design (per-record
+      mutex or store-mediated mutation), not a drive-by — scoped out of the 2026-07-13
+      concurrency fixes below.
+
+- [x] 2026-07-13 — **Gateway concurrency fixes** (the 1.0 quality pass, part 2). Verified the
+      audit's claims against the code and fixed the real ones: `reconcileJobs` held pointers into
+      `sess.Jobs` across appends/drops (a realloc could lose the Notified flag → finished jobs
+      re-announced forever) — now index-based with deferred drops; `conn.closed` was read by job
+      sinks without synchronization — now rides under `wmu`; `NotifyShutdown` read `c.attached`
+      from outside the read loop — now via the new locked `attachedSession()` reader (writes go
+      through `setAttached`). Documented the conn goroutine model (read-loop ownership, the three
+      locked exceptions, job-hub lock ordering) on the struct. Verified-clean (no change): speak
+      streaming (deferred Close covers all paths), SSH pool (dials under the pool lock), job hub
+      lock ordering. `go test -race ./internal/gateway` passes.
+
 - [x] 2026-07-13 — **AI backends made fully self-contained** (the 1.0 quality pass, part 1).
       Each backend now owns its stream parser (`Agent.ParseTurn`) and declares its transcript
       layout (`Agent.Transcript`), replacing the session driver's `Format` switches — `Turn` has

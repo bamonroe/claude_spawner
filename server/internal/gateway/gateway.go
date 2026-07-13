@@ -473,8 +473,11 @@ func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
 	close(stopPing)
 
 	// Connection gone: stop delivering job events to it (so an in-flight turn
-	// buffers its result for the next reconnect instead of dropping it).
+	// buffers its result for the next reconnect instead of dropping it). closed
+	// is read by job sinks on other goroutines, so it rides under wmu.
+	c.wmu.Lock()
 	c.closed = true
+	c.wmu.Unlock()
 	if c.attached != nil {
 		c.srv.unbindJob(c, c.attached.SessionID)
 	}
@@ -505,11 +508,14 @@ func (s *Server) NotifyShutdown() {
 	}
 	s.connsMu.Unlock()
 	for _, c := range cs {
-		if c.attached == nil {
+		// Not the read loop: use the locked reader (the loop may be re-attaching
+		// this very moment).
+		sess := c.attachedSession()
+		if sess == nil {
 			continue
 		}
-		if j := s.job(c.attached.Name); j != nil && j.isRunning() {
-			c.send(msgTurnInterrupted(c.attached.Name, "server restarting"))
+		if j := s.job(sess.Name); j != nil && j.isRunning() {
+			c.send(msgTurnInterrupted(sess.Name, "server restarting"))
 		}
 	}
 }
@@ -541,7 +547,10 @@ func (s *Server) job(name string) *sessionJob {
 // result for delivery on reconnect instead of treating it as delivered and lost.
 func (c *conn) jobSink() func(any) bool {
 	return func(v any) bool {
-		if c.closed {
+		c.wmu.Lock()
+		closed := c.closed
+		c.wmu.Unlock()
+		if closed {
 			return false
 		}
 		return c.send(v) == nil
@@ -549,17 +558,34 @@ func (c *conn) jobSink() func(any) bool {
 }
 
 // conn is the per-connection state and read loop.
+//
+// Concurrency model: every field below is owned by the connection's READ LOOP
+// — inbound messages are dispatched serially from loop(), so handlers never
+// race each other — with three deliberate exceptions:
+//
+//   - wmu serializes websocket WRITES, because job goroutines (startTurn fan-out)
+//     and the speak worker write concurrently with the read loop. closed rides
+//     under wmu too: it's set after the read loop exits and read by job sinks.
+//   - attachedMu guards `attached` for the rare cross-goroutine READER
+//     (Server.NotifyShutdown). The read loop remains the only writer, via
+//     setAttached; loop-side reads of c.attached need no lock.
+//   - speakMu guards speakCancel (read loop's speak_stop vs the speak worker).
+//
+// Turn goroutines never touch conn state directly: startTurn captures the
+// *session.Session and talks back through the locked sessionJob hub (see
+// jobs.go for its lock-ordering note: j.mu -> conn.wmu, never the reverse).
 type conn struct {
 	srv      *Server
 	ws       *websocket.Conn
 	ctx      context.Context
 	clientID string // stable per-app id from hello, for resume
 
-	wmu    sync.Mutex // guards writes (job goroutines also write)
+	wmu    sync.Mutex // guards writes (job goroutines also write) AND closed
 	closed bool       // set once the connection is gone (guards job delivery)
 
-	attached *session.Session // non-nil when in passthrough mode
-	dlg      *dialog          // non-nil while a dialog is in progress
+	attachedMu sync.Mutex       // guards attached for cross-goroutine readers; see setAttached
+	attached   *session.Session // non-nil when in passthrough mode
+	dlg        *dialog          // non-nil while a dialog is in progress
 
 	collecting bool   // between `wake` and `audio_end`
 	audio      []byte // accumulated audio for the current utterance
@@ -584,6 +610,24 @@ type conn struct {
 	speakCh     chan speakReq      // queued `speak` requests, drained in order by speakWorker; nil = server TTS disabled
 	speakMu     sync.Mutex         // guards speakCancel (read loop vs speak worker)
 	speakCancel context.CancelFunc // aborts the in-flight synthesis (speak_stop); nil = none running
+}
+
+// setAttached records which session this connection is attached to (nil =
+// detached). Read-loop only — it is the single writer; the lock exists so the
+// cross-goroutine reader (attachedSession) sees a consistent value.
+func (c *conn) setAttached(s *session.Session) {
+	c.attachedMu.Lock()
+	c.attached = s
+	c.attachedMu.Unlock()
+}
+
+// attachedSession is the cross-goroutine-safe reader for c.attached, for the
+// few places outside the read loop that need it (Server.NotifyShutdown). Code
+// running IN the read loop just reads c.attached directly.
+func (c *conn) attachedSession() *session.Session {
+	c.attachedMu.Lock()
+	defer c.attachedMu.Unlock()
+	return c.attached
 }
 
 // transcriber returns this connection's STT — an app-set override if present,
