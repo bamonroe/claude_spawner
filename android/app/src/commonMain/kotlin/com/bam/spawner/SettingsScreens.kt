@@ -414,6 +414,7 @@ private fun mapToLines(m: Map<String, String>): String = m.entries.joinToString(
  * "Default" is a per-profile marker set from the list rows; a session with no explicit
  * choice runs the default profile.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ProfilesSettings(controller: ProfilesController, onBack: () -> Unit) {
     val profiles by controller.profiles.collectAsState()
