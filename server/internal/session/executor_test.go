@@ -188,6 +188,24 @@ func TestSandboxCreateArgsUsesProfile(t *testing.T) {
 	}
 }
 
+func TestSandboxCreateArgsHomeMountProfileScoped(t *testing.T) {
+	// The executor carries a home mount, but the profile decides whether the
+	// container actually gets it: an "open" profile with HomeMount set mounts the
+	// host home, a "locked" profile with an empty HomeMount drops it entirely.
+	s := SandboxExecutor{Runtime: "podman", Image: "img", HomeMount: "/home/bam"}
+	homeArg := "-v /home/bam:/home/bam"
+
+	open := &ExecProfile{Name: "open", Image: "img", HomeMount: "/home/bam"}
+	if got := strings.Join(s.createArgsFor("spawner-x", "/work/proj", open), " "); !strings.Contains(got, homeArg) {
+		t.Errorf("open profile should mount the home dir %q\n got: %s", homeArg, got)
+	}
+
+	locked := &ExecProfile{Name: "locked", Image: "img"}
+	if got := strings.Join(s.createArgsFor("spawner-x", "/work/proj", locked), " "); strings.Contains(got, homeArg) {
+		t.Errorf("locked profile must not mount the host home\n got: %s", got)
+	}
+}
+
 func TestReconcileContainersNoReaper(t *testing.T) {
 	// Host-only driver: nothing to reconcile, no error.
 	d := &Driver{Execs: map[Target]Executor{TargetHost: HostExecutor{}}}

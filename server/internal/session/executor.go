@@ -279,18 +279,22 @@ func (s SandboxExecutor) createArgs(name, dir string) []string {
 
 func (s SandboxExecutor) createArgsFor(name, dir string, p *ExecProfile) []string {
 	image, mounts, creds, env, runArgs := s.Image, s.Mounts, []string(nil), map[string]string(nil), s.RunArgs
+	homeMount := s.HomeMount
 	if p != nil {
 		image = p.Image
 		mounts = p.Mounts
 		creds = p.Creds
 		env = p.Env
 		runArgs = p.RunArgs
+		// The home mount is profile-scoped: only profiles that carry HomeMount get the
+		// host home bind-mounted, so a "locked" profile (empty HomeMount) can drop it.
+		homeMount = p.HomeMount
 	}
 	args := []string{"run", "-d", "--name", name, "-w", dir, "-v", dir + ":" + dir}
-	if s.HomeMount != "" && s.HomeMount != dir {
+	if homeMount != "" && homeMount != dir {
 		// Whole host home, read-write, at the same path — dotfiles/.claude/checkouts
 		// writable inside the sandbox exactly as on the host.
-		args = append(args, "-v", s.HomeMount+":"+s.HomeMount)
+		args = append(args, "-v", homeMount+":"+homeMount)
 	}
 	for _, m := range mounts {
 		args = append(args, "-v", m)

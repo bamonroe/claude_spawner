@@ -37,6 +37,7 @@ also carry mounts/creds). Rough shape:
 name:     "ollama-open"
 target:   sandbox            # host | sandbox (advisory default; session target still wins)
 image:    "<override>"       # sandbox only; empty = SPAWNER_SANDBOX_IMAGE
+home_mount: "{{.Home}}"      # sandbox only; host home bind-mounted rw at the same path. Empty = omit
 mounts:   [ "{{.Home}}:/home:rw" ]              # bind mounts (sandbox)
 env:      { OLLAMA_BASE_URL: "http://{{.OllamaHost}}:11434" }
 creds:    [ "{{.OpencodeAuth}}:/root/.local/share/opencode/auth.json:ro" ]   # file injections
@@ -45,15 +46,12 @@ run_args: [ "--userns=keep-id" ]               # escape hatch, appended to podma
 
 - **"Locked down" vs "open" is just two profiles.** `locked` = empty mounts/creds/env. `open` =
   mounts `/home`. No new mechanism.
-  - ⚠️ **Known gap (found in the 2026-07-13 review): the sandbox home mount is not yet profile-scoped,
-    so `locked` cannot actually lock the box down.** `SandboxExecutor.HomeMount` (seeded from the
-    server's `HOME` in `main.go`) is bind-mounted read-write into every container by `createArgsFor`
-    *regardless of the selected profile* — it sits on the executor, outside the profile. A `locked`
-    profile with empty `mounts`/`creds` therefore still exposes the whole host home inside the
-    sandbox. To make locked-vs-open behave as described, fold the home mount into the profile (e.g. a
-    profile `home_mount` field, or treat the built-in `default` as the only profile that carries it)
-    so a profile can omit it. Until then, the `mounts` field only *adds* to a fixed baseline; it
-    can't subtract the home mount.
+  - ✅ **Resolved 2026-07-13 (was a review finding): the sandbox home mount is now profile-scoped.**
+    The home mount moved off the executor onto the profile as a `home_mount` field, and
+    `createArgsFor` mounts the host home only when the resolved profile carries it. The built-in
+    `default` profile is seeded with the server's `HOME` (so existing behavior is unchanged), while a
+    `locked` profile leaves `home_mount` empty and gets no host home inside the box. A profile can now
+    *subtract* the home mount, not only *add* to a fixed baseline.
 - **Templatable** = `{{.Var}}` substitution (Go `text/template`) so one profile adapts per host
   without duplication.
 

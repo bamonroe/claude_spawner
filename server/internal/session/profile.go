@@ -16,13 +16,14 @@ var envNameRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // session stores only Profile (the name); Driver resolves that name to one of
 // these before a turn or sandbox lifecycle operation runs.
 type ExecProfile struct {
-	Name    string            `json:"name"`
-	Target  Target            `json:"target,omitempty"`
-	Image   string            `json:"image,omitempty"`
-	Mounts  []string          `json:"mounts,omitempty"`
-	Creds   []string          `json:"creds,omitempty"`
-	Env     map[string]string `json:"env,omitempty"`
-	RunArgs []string          `json:"run_args,omitempty"`
+	Name      string            `json:"name"`
+	Target    Target            `json:"target,omitempty"`
+	Image     string            `json:"image,omitempty"`
+	HomeMount string            `json:"home_mount,omitempty"`
+	Mounts    []string          `json:"mounts,omitempty"`
+	Creds     []string          `json:"creds,omitempty"`
+	Env       map[string]string `json:"env,omitempty"`
+	RunArgs   []string          `json:"run_args,omitempty"`
 }
 
 // ProfileRegistry is the ordered execution-profile catalogue advertised to

@@ -53,11 +53,12 @@ func main() {
 	driver := session.NewDriver()
 	driver.RestartCmd = cfg.RestartCmd
 	defaultProfile := session.ExecProfile{
-		Name:    session.DefaultProfileName,
-		Target:  session.TargetHost,
-		Image:   cfg.SandboxImage,
-		Mounts:  cfg.SandboxMounts,
-		RunArgs: cfg.SandboxRunArgs,
+		Name:      session.DefaultProfileName,
+		Target:    session.TargetHost,
+		Image:     cfg.SandboxImage,
+		HomeMount: os.Getenv("HOME"),
+		Mounts:    cfg.SandboxMounts,
+		RunArgs:   cfg.SandboxRunArgs,
 	}
 	profiles, err := session.LoadProfiles(cfg.ProfilesPath, defaultProfile)
 	if err != nil {
