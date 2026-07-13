@@ -80,6 +80,15 @@ Dates are `YYYY-MM-DD`.
         rebuild ships the server TTS code (the feature is default-on; flip the Server voice
         switch off to compare).
 
+- [x] 2026-07-13 — **AI backends made fully self-contained** (the 1.0 quality pass, part 1).
+      Each backend now owns its stream parser (`Agent.ParseTurn`) and declares its transcript
+      layout (`Agent.Transcript`), replacing the session driver's `Format` switches — `Turn` has
+      no per-backend branching left. `internal/agent` restructured: one file per backend
+      (`claude.go`, `codex.go`, each the full backend: entry + args + parser + tests), shared turn
+      vocabulary in `turn.go` (`ToolUse`/`Usage`/`RateLimit` moved from session, aliased back).
+      New "Adding an AI backend" checklist in `docs/architecture.md` — a Gemini/local backend is
+      one new file plus registration + env wiring.
+
 - [x] 2026-07-13 — **Whisper anti-hallucination: server-side Silero VAD + non-speech-token
       suppression.** Whisper filled silent stretches in push-to-talk/hands-free clips with looped
       YouTube-outro phrases ("Thanks for watching…"). All three whisper images now bake in the

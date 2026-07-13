@@ -119,16 +119,22 @@ Status: **implemented** (`internal/agent`). The `Executor` seam above answers *w
 (host / sandbox / SSH). A second, orthogonal seam answers *which AI* runs it and *how* to invoke
 and parse it — so the server drives more than `claude`.
 
-- An **`Agent`** (`internal/agent/agent.go`) is a headless backend: an id (persisted on the
-  session), a `Bin` (the command to launch), an output `Format`, a `DefaultModel`, a catalogue of
-  selectable `Models` (each by a short spoken alias — `opus`/`sonnet`/`fable`, or Codex's presets),
-  and a per-backend **arg builder** (`Agent.Args(TurnSpec)`) that emits that backend's exact command
-  line. The `Registry` holds the known agents; an empty/unknown id resolves to the default (Claude),
-  so records predating the field just run on Claude.
+- An **`Agent`** (`internal/agent`) is a **self-contained** headless backend, one file per backend
+  (`claude.go`, `codex.go`): an id (persisted on the session), a `Bin` (the command to launch), a
+  `DefaultModel`, a catalogue of selectable `Models` (each by a short spoken alias —
+  `opus`/`sonnet`/`fable`, or Codex's presets), a per-backend **arg builder**
+  (`Agent.Args(TurnSpec)`) that emits that backend's exact command line, its own **stream parser**
+  (`Agent.ParseTurn`, normalizing the backend's output to the shared `TurnResult` — reply, usage,
+  self-assigned session id), and a declared **transcript layout** (`Agent.Transcript`). The
+  backend-neutral turn vocabulary (`ToolUse`/`Usage`/`RateLimit`, `TurnCallbacks`, `TurnResult`)
+  lives in `agent/turn.go`. The `Registry` holds the known agents; an empty/unknown id resolves to
+  the default (Claude), so records predating the field just run on Claude.
 - `Session` gains a durable **`Agent`** (backend id) and **`Model`** (alias). `Driver.Turn` resolves
   the agent, asks it to build the args, passes the resolved backend binary to the `Executor`
   (`Driver.binFor` — empty defers to the executor's own `SPAWNER_*_CLAUDE_BIN`, keeping Claude
-  unchanged), and dispatches the output parser on the agent's `Format`.
+  unchanged), and hands the stream to the agent's own `ParseTurn`. **`Turn` contains no per-backend
+  branching** — the only conditionals are on declarative Agent fields (`SelfAssignsID`,
+  `Transcript`), never on which backend it is.
 - **Backend × target is a matrix, not a special case.** Because *which AI* and *where* are separate
   seams, any backend runs on any target: the arg builder never mentions host/sandbox/SSH, and the
   Executor never mentions claude/codex. Adding a backend touches neither the executors nor the
@@ -137,23 +143,45 @@ and parse it — so the server drives more than `claude`.
 **Two backends ship today.** *Claude* (`--output-format stream-json`; the server mints the
 `session_id` and passes `--session-id`/`--resume`). *Codex* (`codex exec` / `codex exec resume`,
 `--json` JSONL): Codex **mints its own** session id (`thread_id`, read from the first output event),
-so `Agent.SelfAssignsID` tells `Turn` to capture it from the stream and adopt it as the session id
-rather than supplying one. Each `Format` has its own parser (`parseStream` / `parseCodexStream`)
-normalizing to the same `(reply, usage)` the rest of the server already consumes. Model availability
+so `Agent.SelfAssignsID` tells `Turn` to adopt the id `ParseTurn` returns in
+`TurnResult.SessionID` rather than supplying one. Model availability
 can be **plan-dependent** (on a ChatGPT-account Codex, only `gpt-5.5` is `-m`-selectable, so its
 alternates are reasoning-effort presets); the registry is the single place that catalogue lives.
 
 **Reattach replays each backend's own on-disk transcript.** A session has no live process, so the
 `history` page and the on-attach context badge are rebuilt from disk — and *where* that record lives
-and *how* it's shaped differs by backend, so the reader is chosen by `Agent.Format`
-(`Driver.transcriptReaderFor`). Claude writes `~/.claude/projects/*/<session_id>.jsonl` (read by
-`claudeFS`); Codex writes a **rollout** JSONL at
+and *how* it's shaped differs by backend, so the reader is chosen by the agent's declared
+`Transcript` layout (`Driver.transcriptReaderFor`). Claude writes
+`~/.claude/projects/*/<session_id>.jsonl` (read by `claudeFS`); Codex writes a **rollout** JSONL at
 `~/.codex/sessions/YYYY/MM/DD/rollout-<ts>-<thread_id>.jsonl` in an unrelated schema — conversation
 prose as `event_msg` `user_message`/`agent_message` lines, context size as `token_count` lines — read
 by `codexFS` (`internal/session/codex_transcript.go`). Both normalize to the same `[]Message` /
 `ContextSnapshot` the gateway already sends, so a Codex session's past turns replay on reattach exactly
 like a Claude session's. (This rollout schema is the persisted record; it is *not* the live
-`codex exec --json` stream `parseCodexStream` consumes during a turn.)
+`codex exec --json` stream the agent's `ParseTurn` consumes during a turn.)
+
+### Adding an AI backend (e.g. Gemini CLI, a local model)
+
+The checklist, in dependency order — the design goal is that a new backend is **one new file plus
+wiring**, and nothing in the gateway, executors, or clients changes:
+
+1. **`internal/agent/<backend>.go`** — the whole backend in one file, `claude.go` as the template:
+   a constructor returning an `*Agent` (id, name, `Bin`, models + default, `SelfAssignsID`,
+   `Transcript`), its `build` func (the exact CLI for first-turn / resume / bypass / model), and
+   its `ParseTurn` (stream → `TurnResult`, fanning live events out via `TurnCallbacks`). Add parser
+   tests beside it (`parse_test.go` has the pattern, with real captured event shapes).
+2. **Register it** in `agent.Default()`.
+3. **Transcript reader** — if the backend's on-disk history layout isn't Claude-shaped, add a
+   `TranscriptKind` constant and a reader in `internal/session` (see `codex_transcript.go`), and
+   teach `transcriptReaderFor` the new kind. If it never persists transcripts, declare
+   `TranscriptClaude` and reattach simply replays nothing.
+4. **Binaries per target** — env vars in `internal/config` (host + sandbox, following
+   `SPAWNER_SSH_CODEX_BIN` / `SPAWNER_SANDBOX_CODEX_BIN`), wired into `Driver.AgentBins` in
+   `main.go`. Document them in `CLAUDE.md` (the docsync test enforces this).
+5. **Voice spawn vocabulary** — add the backend's spoken name to `spawnAgentWords` in
+   `internal/command` so "spawn a <backend> session" works (the visual picker needs nothing: the
+   `agents` message advertises the registry dynamically).
+6. **Docs** — update the backend list here; `docs/protocol.md` and the clients need no changes.
 
 ### The server runs in a container, driving the host over SSH (no broker)
 
@@ -338,7 +366,7 @@ uppercase letters by voice. Acceptable; documented in `docs/commands.md`.
                                   lists the chosen host's FS over SSH from "/" (not the local roots)
     messages.go                 wire message constructors
     *_test.go                   httptest+ws integration (auth, spawn, dictation, ask, stream)
-  internal/agent/agent.go       AI backend registry: Agent (id/bin/format/models/arg-builder), Claude + Codex
+  internal/agent/               AI backend registry: Agent type + Registry (agent.go), shared turn vocabulary (turn.go), one self-contained file per backend (claude.go, codex.go)
   internal/session/session.go   headless driver: Driver.Turn (per-agent args + parser), parseStream/parseCodexStream
   internal/session/executor.go  pluggable Executor: HostExecutor (direct exec) + SandboxExecutor (runtime)
   internal/session/store.go     durable session registry (file-backed, atomic writes); Session.Target/Container
