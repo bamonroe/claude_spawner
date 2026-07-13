@@ -160,6 +160,51 @@ func TestProfilesAdvertisedOnConnect(t *testing.T) {
 	}
 }
 
+// TestProfileCrudBroadcasts drives the app-managed profile CRUD wire: put, set
+// default, and delete each mutate the store and broadcast the updated catalogue.
+func TestProfileCrudBroadcasts(t *testing.T) {
+	ts, _, gw := newTestServerGW(t, nil)
+	reg, err := session.NewProfileRegistry(session.ExecProfile{Name: "host", Target: session.TargetHost, Default: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gw.driver.Profiles = reg
+
+	ws := dial(t, ts)
+	send(t, ws, map[string]any{"type": "hello", "token": "secret", "client_id": "pc"})
+	readUntil(t, ws, "hello_ok")
+	readUntil(t, ws, "profiles") // initial push on connect
+
+	// Add a profile → broadcast with two entries.
+	send(t, ws, map[string]any{"type": "profile_put", "profile_def": map[string]any{"name": "sandbox", "target": "sandbox"}})
+	msg := readUntil(t, ws, "profiles")
+	if items := msg["profiles"].([]any); len(items) != 2 {
+		t.Fatalf("after put: %d profiles, want 2", len(items))
+	}
+
+	// Move the default marker to the new profile.
+	send(t, ws, map[string]any{"type": "profile_set_default", "name": "sandbox"})
+	if msg = readUntil(t, ws, "profiles"); msg["default"] != "sandbox" {
+		t.Fatalf("default after set = %#v, want sandbox", msg["default"])
+	}
+
+	// Delete it → falls back to the remaining profile as default.
+	send(t, ws, map[string]any{"type": "profile_delete", "name": "sandbox"})
+	msg = readUntil(t, ws, "profiles")
+	if items := msg["profiles"].([]any); len(items) != 1 {
+		t.Fatalf("after delete: %d profiles, want 1", len(items))
+	}
+	if msg["default"] != "host" {
+		t.Fatalf("default after delete = %#v, want host", msg["default"])
+	}
+
+	// A nameless profile is rejected with bad_profile.
+	send(t, ws, map[string]any{"type": "profile_put", "profile_def": map[string]any{"name": ""}})
+	if e := readUntil(t, ws, "error"); e["code"] != "bad_profile" {
+		t.Fatalf("error code = %#v, want bad_profile", e["code"])
+	}
+}
+
 // readUntil reads messages until one with the given type arrives (or times out).
 func readUntil(t *testing.T, ws *websocket.Conn, typ string) map[string]any {
 	t.Helper()

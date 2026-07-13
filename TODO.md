@@ -39,9 +39,11 @@ Dates are `YYYY-MM-DD`.
           falls back to the marked profile else the first; an empty `image` falls back to
           `SPAWNER_SANDBOX_IMAGE`. First run seeds `bare-metal`/`sandbox`/`locked` from the sandbox
           env vars and persists them. Store CRUD + seeding + default-marker + example-load tests green.
-        - [ ] Wire + gateway CRUD: `profile_put`/`profile_delete`/`profile_set_default` handlers that
-          mutate + `broadcast(msgProfiles)`, richer `msgProfiles` fields, `bad_profile` error,
-          `docs/protocol.md` + docsync/clientsync + `Protocol.kt` builders.
+        - [x] 2026-07-13 — Wire + gateway CRUD: `profile_put`/`profile_delete`/`profile_set_default`
+          handlers (`gateway/profiles.go`) mutate + `broadcast(msgProfiles)`; `msgProfiles` now emits
+          the full ExecProfile per entry; `bad_profile` error; `docs/protocol.md` + docsync/clientsync
+          + `Protocol.kt` (`profilePut`/`profileDelete`/`profileSetDefault`, enriched `ProfileInfo`).
+          Gateway CRUD-broadcast test green.
         - [ ] App profiles settings page: `ProfilesSettings` Compose screen (list + add/edit/delete +
           set-default), `set_profiles` hub row + routing, controller impls in both clients.
       - [x] 2026-07-13 — Protocol/client advertisement slice: server now pushes a `profiles`

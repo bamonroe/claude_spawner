@@ -136,7 +136,8 @@ func wireFieldSet(t *testing.T, root string) map[string]bool {
 		messagesGoWireKeys(t, root),
 		structJSONTags(t, filepath.Join(gw, "ask.go"), "askQuestion"),
 		structJSONTags(t, filepath.Join(sess, "hosts.go"), "Host"),
-		structJSONTags(t, filepath.Join(ag, "turn.go"), "Usage"), // aliased as session.Usage
+		structJSONTags(t, filepath.Join(sess, "profile.go"), "ExecProfile"), // in profiles + profile_put
+		structJSONTags(t, filepath.Join(ag, "turn.go"), "Usage"),            // aliased as session.Usage
 		structJSONTags(t, filepath.Join(sess, "transcript.go"), "Message"),
 	} {
 		for _, f := range group {

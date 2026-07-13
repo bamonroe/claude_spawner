@@ -11,7 +11,9 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 
 /**
@@ -211,7 +213,12 @@ sealed interface ServerMsg {
         private fun readProfiles(arr: JsonArray?): List<ProfileInfo> {
             if (arr == null) return emptyList()
             return arr.map { it.jsonObject }.map { p ->
-                ProfileInfo(p.str("name"), p.str("target"))
+                ProfileInfo(
+                    p.str("name"), p.str("target"), p.bool("default"),
+                    p.str("image"), p.str("home_mount"),
+                    p.strList("mounts"), p.strList("creds"),
+                    p.strMap("env"), p.strList("run_args"), p.strMap("vars"),
+                )
             }
         }
 
@@ -243,6 +250,10 @@ private fun JsonObject.bool(key: String, def: Boolean = false): Boolean = this[k
 private fun JsonObject.dbl(key: String, def: Double = 0.0): Double = this[key]?.jsonPrimitive?.doubleOrNull ?: def
 private fun JsonObject.obj(key: String): JsonObject? = this[key] as? JsonObject
 private fun JsonObject.arr(key: String): JsonArray? = this[key] as? JsonArray
+private fun JsonObject.strList(key: String): List<String> =
+    (this[key] as? JsonArray)?.mapNotNull { it.jsonPrimitive.contentOrNull } ?: emptyList()
+private fun JsonObject.strMap(key: String): Map<String, String> =
+    (this[key] as? JsonObject)?.mapValues { it.value.jsonPrimitive.contentOrNull ?: "" } ?: emptyMap()
 
 /**
  * Per-turn token accounting from the final `output` message (see docs/protocol.md).
@@ -263,7 +274,21 @@ data class TokenUsage(val input: Int, val output: Int, val cacheWrite: Int, val 
 data class AgentInfo(val id: String, val name: String, val defaultModel: String, val models: List<String>)
 
 /** One execution environment profile advertised by the server. */
-data class ProfileInfo(val name: String, val target: String)
+/** An execution profile (Settings → Profiles). The app manages the catalogue; the
+ *  server persists it. `default` marks the one a no-choice session resolves to.
+ *  String fields are `{{.Var}}`-templated server-side per turn. */
+data class ProfileInfo(
+    val name: String,
+    val target: String = "",
+    val default: Boolean = false,
+    val image: String = "",
+    val homeMount: String = "",
+    val mounts: List<String> = emptyList(),
+    val creds: List<String> = emptyList(),
+    val env: Map<String, String> = emptyMap(),
+    val runArgs: List<String> = emptyList(),
+    val vars: Map<String, String> = emptyMap(),
+)
 
 /**
  * The Claude subscription's usage-window state (see docs/protocol.md `rate_limit`).
@@ -522,4 +547,21 @@ object Outbound {
         put("set_password", setPassword); put("password", password)
     }.toString()
     fun identityDelete(name: String) = buildJsonObject { put("type", "identity_delete"); put("name", name) }.toString()
+
+    // Execution profiles (Settings → Profiles). The app owns the catalogue; the
+    // server persists it and broadcasts an updated `profiles` after every change.
+    fun profilePut(p: ProfileInfo) = buildJsonObject {
+        put("type", "profile_put")
+        putJsonObject("profile_def") {
+            put("name", p.name); put("target", p.target); put("default", p.default)
+            put("image", p.image); put("home_mount", p.homeMount)
+            putJsonArray("mounts") { p.mounts.forEach { add(it) } }
+            putJsonArray("creds") { p.creds.forEach { add(it) } }
+            putJsonObject("env") { p.env.forEach { (k, v) -> put(k, v) } }
+            putJsonArray("run_args") { p.runArgs.forEach { add(it) } }
+            putJsonObject("vars") { p.vars.forEach { (k, v) -> put(k, v) } }
+        }
+    }.toString()
+    fun profileDelete(name: String) = buildJsonObject { put("type", "profile_delete"); put("name", name) }.toString()
+    fun profileSetDefault(name: String) = buildJsonObject { put("type", "profile_set_default"); put("name", name) }.toString()
 }

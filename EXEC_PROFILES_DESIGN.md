@@ -164,10 +164,12 @@ set, so a `locked` profile with no mounts is genuinely isolated.
      "Default" became a per-profile marker (no built-in `default` profile); resolution falls back to
      the marked profile, else the first. First run seeds `bare-metal`/`sandbox`/`locked` starters
      from the sandbox env vars. Covered by store CRUD + seeding + default-marker tests.
-   - ⬜ **Wire + gateway CRUD.** `profile_put` / `profile_delete` / `profile_set_default` inbound
-     handlers that mutate the store and `broadcast(msgProfiles(...))`; enrich `msgProfiles` to carry
-     the full profile fields (so the editor can round-trip them); `bad_profile` error code;
-     `docs/protocol.md` + docsync/clientsync + `Protocol.kt` builders kept green.
+   - ✅ 2026-07-13 — **Wire + gateway CRUD.** `profile_put` / `profile_delete` / `profile_set_default`
+     inbound handlers (`gateway/profiles.go`) mutate the store and `broadcast(msgProfiles(...))`;
+     `msgProfiles` now carries the full ExecProfile per entry so the editor can round-trip them;
+     `bad_profile` error code; `docs/protocol.md` + docsync/clientsync + `Protocol.kt` builders
+     (`profilePut`/`profileDelete`/`profileSetDefault`) + enriched `ProfileInfo` all green. Covered by
+     a gateway CRUD-broadcast test.
    - ⬜ **App profiles settings page.** A `ProfilesSettings` Compose screen (mirroring
      `HostsSettings`) with list + add/edit/delete + set-default, a `set_profiles` hub row, and
      controller impls in both `VoiceController` and `WebAppController`.

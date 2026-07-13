@@ -845,9 +845,12 @@ var wireHandlers = map[string]func(c *conn, in inbound){
 	"identity_create": func(c *conn, in inbound) {
 		c.doIdentityCreate(in.Name, in.User, in.Password, in.GenKey == nil || *in.GenKey)
 	},
-	"identity_import": func(c *conn, in inbound) { c.doIdentityImport(in.Name, in.User, in.Password, in.KeyPath) },
-	"identity_update": func(c *conn, in inbound) { c.doIdentityUpdate(in.Name, in.User, in.SetPassword, in.Password) },
-	"identity_delete": func(c *conn, in inbound) { c.doIdentityDelete(in.Name) },
+	"identity_import":     func(c *conn, in inbound) { c.doIdentityImport(in.Name, in.User, in.Password, in.KeyPath) },
+	"identity_update":     func(c *conn, in inbound) { c.doIdentityUpdate(in.Name, in.User, in.SetPassword, in.Password) },
+	"identity_delete":     func(c *conn, in inbound) { c.doIdentityDelete(in.Name) },
+	"profile_put":         func(c *conn, in inbound) { c.doProfilePut(in.ProfileDef) },
+	"profile_delete":      func(c *conn, in inbound) { c.doProfileDelete(in.Name) },
+	"profile_set_default": func(c *conn, in inbound) { c.doProfileSetDefault(in.Name) },
 }
 
 // loop reads and dispatches messages until the socket closes. Text frames are
