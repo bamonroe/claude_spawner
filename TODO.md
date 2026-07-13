@@ -30,7 +30,8 @@ Dates are `YYYY-MM-DD`.
       - **Server**: new `internal/tts` package mirroring `transcribe/remote.go` (HTTP POST to
         `SPAWNER_TTS_URL`, empty = disabled → clients fall back to local TTS). Env vars:
         `SPAWNER_TTS_URL`, `SPAWNER_TTS_VOICE`, `SPAWNER_TTS_FORMAT` (opus default). New compose
-        service `kokoro` (GPU like whisper; ~2–3 GB VRAM at inference, model <1 GB).
+        service `kokoro` — **shares the GPU with whisper** (decided 2026-07-12; room to spare:
+        ~2–3 GB VRAM at inference, model <1 GB).
       - **Android**: stream into a `MODE_STREAM` AudioTrack in `Speaker.kt` (the warm-track beep
         machinery and `AudioRouter` earpiece/speaker/headset routing already exist); on-device
         TTS remains the fallback and a settings toggle picks server-vs-local voice. Barge-in
@@ -40,9 +41,13 @@ Dates are `YYYY-MM-DD`.
       - **Latency**: v1 synthesizes the final reply + `say` lines (Kokoro-FastAPI streams
         sentence-by-sentence, so first audio is fast); live chunk-by-chunk speech of streaming
         prose stays on-device initially, revisit after latency is measured.
+      - **Voice picker** (decided 2026-07-12): a dropdown in the app's **audio settings tab**,
+        fed by the server relaying Kokoro's `/v1/audio/voices` list — same pattern as the
+        whisper-model picker (server-supplied options in settings; free default from
+        `SPAWNER_TTS_VOICE` until the user picks).
       - Milestones: (1) compose service + `internal/tts` + config/docs, CLI-tested;
         (2) `speak` protocol + gateway plumbing + drift tests; (3) Android playback + settings
-        toggle + fallback; (4) web playback; (5) voice picker (`/v1/audio/voices`) + barge-in
+        toggle + fallback; (4) web playback; (5) the audio-settings voice dropdown + barge-in
         polish + phone verification.
 
 - [x] 2026-07-12 — **Collapsed spawner-server host mounts.** With SSH-native turns, host FS access
