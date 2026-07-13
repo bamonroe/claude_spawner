@@ -170,9 +170,15 @@ set, so a `locked` profile with no mounts is genuinely isolated.
      `bad_profile` error code; `docs/protocol.md` + docsync/clientsync + `Protocol.kt` builders
      (`profilePut`/`profileDelete`/`profileSetDefault`) + enriched `ProfileInfo` all green. Covered by
      a gateway CRUD-broadcast test.
-   - ⬜ **App profiles settings page.** A `ProfilesSettings` Compose screen (mirroring
-     `HostsSettings`) with list + add/edit/delete + set-default, a `set_profiles` hub row, and
-     controller impls in both `VoiceController` and `WebAppController`.
+   - 🟡 **App profiles settings page — code written, build-verify pending.** A `ProfilesSettings`
+     Compose screen (mirroring `HostsSettings`): list with per-row default marker + "Make default" +
+     Edit/Delete, and an add/edit form (name, target chips, image, home_mount, and multiline
+     mounts/creds/env/run_args/vars). A `ProfilesController` interface (`profiles` + put/delete/
+     set-default), impls in both `VoiceController` and `WebAppController`, a `set_profiles` hub row,
+     and routing in `MainActivity.kt` + `WebRoot.kt`. **Not yet compiled/tap-tested:** the local
+     Gradle toolchain is broken — `~/.gradle/gradle.properties` pins `org.gradle.java.home` to a
+     removed JDK 21, and the box only has JDK 25/26 which Gradle 8.10.2 rejects. Needs a working JDK
+     (17/21) to build the APK, install on the emulator, then the Pixel 8a, and tap-test the editor.
 7. **opencode backend spike** drops in on top: an `opencode.go` agent + a profile that injects its
    creds and points at the Ollama endpoint. (See the multi-backend epic in `TODO.md`.)
 

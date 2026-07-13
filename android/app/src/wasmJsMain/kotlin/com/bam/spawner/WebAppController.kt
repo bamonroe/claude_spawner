@@ -439,6 +439,9 @@ class WebAppController(private val prefs: Prefs) : AppController {
         client?.send(Outbound.identityUpdate(name, user, setPassword, password))
     }
     override fun deleteIdentity(name: String) { client?.send(Outbound.identityDelete(name)) }
+    override fun putProfile(p: ProfileInfo) { client?.send(Outbound.profilePut(p)) }
+    override fun deleteProfile(name: String) { client?.send(Outbound.profileDelete(name)) }
+    override fun setDefaultProfile(name: String) { client?.send(Outbound.profileSetDefault(name)) }
 
     override fun requestUsage() { _usageLoading.value = true; _usageReport.value = null; client?.send(Outbound.usage()) }
     override fun setUsageBenchmark() { client?.send(Outbound.usageSet()) }

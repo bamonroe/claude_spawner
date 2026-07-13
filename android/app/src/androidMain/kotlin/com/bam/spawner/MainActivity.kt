@@ -251,6 +251,7 @@ private fun AppRoot(
         )
         "set_hosts" -> HostsSettings(controller, onBack = { screen = "settings" })
         "set_identities" -> IdentitiesSettings(controller, onBack = { screen = "settings" })
+        "set_profiles" -> ProfilesSettings(controller, onBack = { screen = "settings" })
         "set_debug" -> DebugSettings(settings, onBack = { screen = "settings" })
         "set_appearance" -> AppearanceSettings(
             settings, themeMode, onThemeChange,

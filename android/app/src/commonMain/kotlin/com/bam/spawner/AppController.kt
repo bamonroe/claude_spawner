@@ -3,7 +3,6 @@ package com.bam.spawner
 import com.bam.spawner.net.AgentInfo
 import com.bam.spawner.net.AskQuestion
 import com.bam.spawner.net.DiscoveredInfo
-import com.bam.spawner.net.ProfileInfo
 import com.bam.spawner.net.RateLimitInfo
 import com.bam.spawner.net.ServerMsg
 import com.bam.spawner.net.TokenUsage
@@ -41,7 +40,7 @@ data class WhisperDownloadInfo(
  * Extends [HostsIdentitiesController] (which already contributes `connected`/`hosts`/
  * `identities` and their editing methods) so a single interface covers the whole UI.
  */
-interface AppController : HostsIdentitiesController {
+interface AppController : HostsIdentitiesController, ProfilesController {
     // --- Connection / status -------------------------------------------------
     val status: StateFlow<String>
 
@@ -97,9 +96,8 @@ interface AppController : HostsIdentitiesController {
     // AI backend registry (from the `agents` message): the backends + models the
     // new-session picker offers. Empty until the server advertises it on connect.
     val agents: StateFlow<List<AgentInfo>>
-    // Execution profiles (from the `profiles` message): environment bundles the
-    // new-session picker will offer. Empty until the server advertises it.
-    val profiles: StateFlow<List<ProfileInfo>>
+    // Execution profiles (`profiles` message) come from [ProfilesController], shared
+    // with the Settings → Profiles editor; the new-session picker reads them too.
 
     // --- File browse / transfer ----------------------------------------------
     val listing: StateFlow<ServerMsg.Listing?>

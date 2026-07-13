@@ -503,6 +503,15 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     /** Delete an identity by name; broadcasts identity_list. */
     override fun deleteIdentity(name: String) = client?.send(Outbound.identityDelete(name)).let {}
 
+    /** Add or update an execution profile; the server broadcasts the refreshed profiles. */
+    override fun putProfile(p: com.bam.spawner.net.ProfileInfo) = client?.send(Outbound.profilePut(p)).let {}
+
+    /** Delete a profile by name; broadcasts profiles. */
+    override fun deleteProfile(name: String) = client?.send(Outbound.profileDelete(name)).let {}
+
+    /** Mark a profile as the default; broadcasts profiles. */
+    override fun setDefaultProfile(name: String) = client?.send(Outbound.profileSetDefault(name)).let {}
+
     /** Adopt a discovered session into the registry and attach to it. */
     override fun adopt(sessionId: String, dir: String) = client?.send(Outbound.adopt(sessionId, dir)).let {}
 
