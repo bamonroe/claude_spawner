@@ -40,12 +40,30 @@ if [ "$MODE" = "bounce" ]; then
   echo "==> bounce: recreate the server container from the existing image (no rebuild)"
 else
   echo "==> rebuild image + recreate the server container (whisper left as-is)"
-  # Stage the pre-built web bundle into the image build context so it bakes into the
-  # image (served at SPAWNER_WEB_DIR=/srv/web) — no host mount. We do NOT run Gradle
-  # here: the bundle is built out-of-band by `:app:wasmJsBrowserDistribution` when the
-  # UI changes; a rebuild just packages whatever bundle is currently built. Preserve
+  # Stage the web bundle into the image build context so it bakes into the image
+  # (served at SPAWNER_WEB_DIR=/srv/web) — no host mount. Developers rebuild the bundle
+  # out-of-band with `:app:wasmJsBrowserDistribution` when the UI changes and a rebuild
+  # packages whatever is currently built — but on a fresh clone (no bundle yet) we build
+  # it here once, in a throwaway Gradle container, so the very first deploy ships the
+  # web client with no host JDK and no manual step. A failed bundle build is a warning,
+  # not fatal: the server is still useful without the browser client. Preserve
   # the tracked .gitkeep so the (gitignored) dir always exists for the Dockerfile COPY.
   WEB_SRC="$REPO/android/app/build/dist/wasmJs/productionExecutable"
+  if [ ! -d "$WEB_SRC" ] || [ -z "$(ls -A "$WEB_SRC" 2>/dev/null)" ]; then
+    echo "==> web bundle missing — building it in a container (one-time on a fresh clone; takes minutes)"
+    # A dedicated Gradle home, NOT ~/.gradle: mounting the host's would leak its
+    # gradle.properties (e.g. an org.gradle.java.home pointing at a host-only JDK) into
+    # the container and break the build. Pre-create it: Docker would make it root-owned.
+    GRADLE_CACHE="$HOME/.cache/claude_spawner-gradle"
+    mkdir -p "$GRADLE_CACHE"
+    # Mount the whole repo, not just android/: the build reads the repo-root
+    # docs/commands.json (rootProject.file("../docs/commands.json")).
+    docker run --rm --user "$(id -u):$(id -g)" \
+      -e HOME=/gradlehome -e GRADLE_USER_HOME=/gradlehome \
+      -v "$REPO:/project" -v "$GRADLE_CACHE:/gradlehome" \
+      -w /project/android gradle:8.10.2-jdk17 gradle :app:wasmJsBrowserDistribution --no-daemon \
+      || echo "==> WARNING: web bundle build failed — continuing; image will serve no web client"
+  fi
   mkdir -p server/webdist
   find server/webdist -mindepth 1 ! -name .gitkeep -delete
   if [ -d "$WEB_SRC" ] && [ -n "$(ls -A "$WEB_SRC" 2>/dev/null)" ]; then

@@ -58,6 +58,13 @@ Dates are `YYYY-MM-DD`.
         android/README rewritten for the KMP layout (SDK bootstrap, Ktor not OkHttp, real
         default-URL story, `SPAWNER_DEBUG_KEYSTORE`, emulator marked maintainer-specific), and JDK
         guidance standardized to 17+ (web-client.md's hardcoded JAVA_HOME dropped).
+  - [x] 2026-07-12 — **Web bundle auto-builds on first deploy.** `deploy/rebuild-container.sh` now
+        builds the Wasm bundle itself when it's missing — in a throwaway `gradle:8.10.2-jdk17`
+        container with an isolated Gradle home (`~/.cache/claude_spawner-gradle`, so host
+        `gradle.properties` can't leak a bad JDK path in) — so a fresh clone's first
+        `rebuild-container.sh` ships the browser client with no host JDK/SDK and no manual Gradle
+        step. Non-fatal on failure (server still deploys, just client-less). Verified: the exact
+        containerized command built the bundle from a cold cache.
 - [x] 2026-07-12 — **Restart button: optional rebuild.** The restart dialog has a *Rebuild from
       source* checkbox (default on). The `restart` message carries a `rebuild` flag (nil/absent =
       rebuild, back-compat); the server substitutes the `%REBUILD%` token in `SPAWNER_RESTART_CMD`

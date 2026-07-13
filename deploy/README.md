@@ -87,10 +87,13 @@ present (auto-downloaded on first use or placed by hand). See [`../whisper/READM
 The server alone is just a WebSocket gateway — you talk to it through the **Android app** or the
 **browser client**, both built from `android/` (they share one Compose codebase):
 
-- **Web**: build the Wasm bundle (`./android/gradlew -p android :app:wasmJsBrowserDistribution`,
-  no Android SDK needed), then run `deploy/rebuild-container.sh` — it bakes the bundle into the
-  image, served at `http://<host>:8098/`. The first manual `up --build` ships **no** web client
-  (a fresh clone has no bundle built yet), so do this once after bring-up.
+- **Web**: run `deploy/rebuild-container.sh` once after bring-up — it bakes the Wasm bundle into
+  the image, served at `http://<host>:8098/`. On a fresh clone (no bundle built yet) the script
+  first builds the bundle itself in a throwaway Gradle container, so this needs no host JDK or
+  Android SDK — just Docker and a few one-time minutes. (The first manual `up --build` alone
+  ships **no** web client: compose only packages a bundle that's already staged.) UI developers
+  rebuild the bundle out-of-band (see [`../docs/web-client.md`](../docs/web-client.md)); the
+  script then ships whatever is currently built.
 - **App**: build and install the APK per [`../android/README.md`](../android/README.md).
 
 Either client needs the server URL and the `SPAWNER_TOKEN` value entered in its settings on first
