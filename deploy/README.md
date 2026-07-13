@@ -26,11 +26,12 @@ draft model on `:8572` (`whisper-fast`) can offload the live hands-free draft �
 ## Running the whole stack — one command
 
 The `spawner-server` service uses **host networking** (so `localhost:22` is the host's own sshd and
-an empty `Session.Host` drives the host; `localhost:8571` reaches the whisper service) and mounts the
-user's home + project roots at the **same paths** the host uses (so the server browses and reads
-transcripts where the host writes them; `claude` runs on the host over SSH). Its config vars are
-documented in [`../CLAUDE.md`](../CLAUDE.md) (the config section — the authoritative list), templated
-in `spawner-container.env.example`.
+an empty `Session.Host` drives the host; `localhost:8571` reaches the whisper service). It mounts
+**no** host home or project roots: every turn, spawn-dir op, and transcript/discovery read runs on
+the host over SSH, so the only host mounts are durable state (`./deploy/state`) and the shared
+whisper models dir (`SPAWNER_WHISPER_MODELS_DIR`). Its config vars are documented in
+[`../CLAUDE.md`](../CLAUDE.md) (the config section — the authoritative list), templated in
+`spawner-container.env.example`.
 
 The server comes up **bare** — it mints its own SSH identity and seeds its own trust set, so there is
 nothing to place by hand up front:
@@ -45,6 +46,30 @@ SPAWNER_UID=$(id -u) SPAWNER_GID=$(id -g) docker compose up -d --build
 
 That single command builds the Go binary, starts the gateway, and brings up the whisper server.
 (Text-only / no GPU: `docker compose up -d --build spawner-server` runs just the gateway.)
+
+### Whisper models
+
+The two containers share a host directory of ggml model files, `SPAWNER_WHISPER_MODELS_DIR`
+(default `/data/storage/whisper`; set it in the root `.env` **and** `deploy/spawner-container.env`
+— they must match, since it's the in-container path too). Just create it before the first `up`:
+
+```bash
+mkdir -p /data/storage/whisper   # or your SPAWNER_WHISPER_MODELS_DIR
+```
+
+You don't have to pre-place model files — the gateway **downloads** catalogue models into this dir
+on demand. Pre-dropping a `ggml-*.bin` still works and skips the download. The whisper service boots
+the model named in the compose `command:` (default `ggml-medium.en.bin`), so that one must be
+present (auto-downloaded on first use or placed by hand). See [`../whisper/README.md`](../whisper/README.md).
+
+### Sandbox sessions (optional)
+
+Sessions with `target: sandbox` run in a rootless **Podman** container on the host instead of
+directly on it. The image ships **neither** backend binary — Claude and Codex (plus their auth) are
+bind-mounted in from the host at run time, so the sandbox uses the same CLIs and credentials you
+already have. Build the image and wire the `SPAWNER_SANDBOX_*` vars per
+[`../sandbox/README.md`](../sandbox/README.md); leave `SPAWNER_SANDBOX_IMAGE` empty to disable the
+sandbox target entirely.
 
 ### Enabling the restart button (and loopback host turns)
 

@@ -39,7 +39,7 @@ services:
       # catalogue models on demand; the whisper service mounts the same dir ro at
       # /models. The only host-path mount besides state — a deliberate shared artifact
       # dir, not a blanket assumption that the host's /data/$HOME mean anything here.
-      - "/data/storage/whisper:/data/storage/whisper"
+      - "${SPAWNER_WHISPER_MODELS_DIR:-/data/storage/whisper}:${SPAWNER_WHISPER_MODELS_DIR:-/data/storage/whisper}"
       # Durable server state (sessions.json, hosts.json, the server's SSH key) kept out
       # of the image.
       - "./deploy/state:/state"
@@ -54,7 +54,7 @@ services:
       context: ./whisper
       dockerfile: Dockerfile.cuda
     volumes:
-      - /data/storage/whisper:/models:ro             # ggml model files (only mount)
+      - ${SPAWNER_WHISPER_MODELS_DIR:-/data/storage/whisper}:/models:ro   # ggml model files (only mount)
     environment:
       NVIDIA_VISIBLE_DEVICES: all
       NVIDIA_DRIVER_CAPABILITIES: compute,utility
