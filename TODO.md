@@ -65,6 +65,12 @@ Dates are `YYYY-MM-DD`.
         `rebuild-container.sh` ships the browser client with no host JDK/SDK and no manual Gradle
         step. Non-fatal on failure (server still deploys, just client-less). Verified: the exact
         containerized command built the bundle from a cold cache.
+  - [x] 2026-07-12 — **Code-level vestigial-organs sweep** (three parallel audits: Go server,
+        Kotlin client, all docs vs code). Result: docs clean; Go had one stale comment
+        (`ssh_test.go` referencing the removed `SPAWNER_SSH` toggle — reworded); Kotlin had four
+        unused imports in `MainActivity.kt` — removed. The "Porcupine" mention the user saw on
+        GitHub is **master's** README (this branch fixed it; master is ~167 commits behind —
+        merge/default-branch switch pending user decision).
 - [x] 2026-07-12 — **Restart button: optional rebuild.** The restart dialog has a *Rebuild from
       source* checkbox (default on). The `restart` message carries a `rebuild` flag (nil/absent =
       rebuild, back-compat); the server substitutes the `%REBUILD%` token in `SPAWNER_RESTART_CMD`

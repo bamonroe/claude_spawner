@@ -242,7 +242,8 @@ func TestLiveSSHCancelKillsRemote(t *testing.T) {
 }
 
 // TestLiveSSHRealClaude drives a real Claude turn over loopback SSH through
-// Driver.Turn — the full path a live host session takes with SPAWNER_SSH on:
+// Driver.Turn — the full path every live host session takes (SSH-native execution
+// is unconditional):
 // SSHExecutor registered for TargetHost, Session.Host empty (loopback), the turn's
 // stream-json parsed back into a reply. Gated on SPAWNER_SSH_LIVE=1 (needs key-based
 // ssh to localhost and a real, authed claude on the box). Loopback keeps the local

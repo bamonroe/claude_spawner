@@ -112,7 +112,6 @@ import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import kotlin.math.log10
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.compose.runtime.mutableStateListOf
 import com.bam.spawner.audio.AudioInput
 import com.bam.spawner.audio.AudioOutput
 import com.bam.spawner.net.AskQuestion
@@ -127,10 +126,7 @@ import com.bam.spawner.ui.MarkdownText
 import com.bam.spawner.ui.SpawnerTheme
 import com.bam.spawner.ui.ThemeMode
 import com.bam.spawner.ui.parseThemeMode
-import kotlinx.coroutines.flow.drop
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 
 class MainActivity : ComponentActivity() {
     private lateinit var controller: VoiceController
