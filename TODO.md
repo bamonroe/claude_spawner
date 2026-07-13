@@ -12,6 +12,12 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [ ] **Session execution-environment profiles** — named, per-session, templatable bundles of
+      mounts / credential injection / network endpoints for host + sandbox turns, replacing the flat
+      global `SPAWNER_SANDBOX_*` config (which becomes the built-in `default` profile). Prerequisite
+      for the opencode backend and for reaching a local Ollama model across hosts/sandboxes. Full
+      design + phasing in `EXEC_PROFILES_DESIGN.md`. Proposed 2026-07-13.
+
 - [ ] **Kokoro server-side TTS** — synthesize reply speech on the server (Kokoro-82M via
       [Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI), OpenAI-compatible
       `/v1/audio/speech`, streaming, CUDA) and ship audio to clients, replacing on-device
