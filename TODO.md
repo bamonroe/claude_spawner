@@ -31,6 +31,14 @@ Dates are `YYYY-MM-DD`.
       earbuds — so it now polls ~6 s and succeeds the moment SCO goes live
       (`VoiceController.setAudioInput` / `verifyHeadsetMic`).
 
+- [x] 2026-07-14 — **Fix: Whisper repetition-loop hallucination in transcripts.** Long/low-energy
+      clips made Whisper loop a phrase ("X. X. X. …") which then hit the command/dictation seam.
+      Two fixes in `internal/transcribe`: run the decoder with **no-context** (CLI `-nc`, remote
+      `no_context=true`) so a window can't seed the next with its hallucinated tail, and add
+      `collapseRepeats()` in `clean()` (both paths) to drop back-to-back duplicate sentences and
+      3+ repeats of a short phrase. Unit-tested. Server-side trailing-silence trimming before
+      transcription is the remaining lever — deferred (bigger audio-path change).
+
 - [x] 2026-07-14 — **Feat: adaptive noise-floor VAD + optional headset noise suppression.** The
       hands-free endpointer tracked no ambient floor, so a fixed energy gate either passed noise or
       (raised) rejected quiet speech in noisy rooms. `Endpointer` now tracks the noise floor from

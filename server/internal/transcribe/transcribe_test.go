@@ -63,3 +63,52 @@ func TestWhisperCPPRequiresModel(t *testing.T) {
 		t.Error("expected error when no model configured")
 	}
 }
+
+func TestCollapseRepeats(t *testing.T) {
+	cases := []struct{ name, in, want string }{
+		{"empty", "", ""},
+		{"no repeats", "spawn a new session in data claude.", "spawn a new session in data claude."},
+		{
+			"the reported loop",
+			"And I had to have speaker set for output. And I had to have speaker set for output. And I had to have speaker set for output.",
+			"And I had to have speaker set for output.",
+		},
+		{
+			"loop after real speech",
+			"Set the output to speaker. Yes. Yes. Yes. Yes.",
+			"Set the output to speaker. Yes.",
+		},
+		{
+			"punctuation-only difference",
+			"okay. okay! okay?",
+			"okay.",
+		},
+		{
+			"non-adjacent duplicates preserved",
+			"go left. then go right. then go left.",
+			"go left. then go right. then go left.",
+		},
+		{
+			"phrase run without sentence punctuation",
+			"attach to the session go go go go go now",
+			"attach to the session go now",
+		},
+		{
+			"two-word phrase loop keeps the whole phrase",
+			"use model use model use model two",
+			"use model two",
+		},
+		{
+			"legit double word survives (only 2 reps)",
+			"no no thanks",
+			"no no thanks",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := collapseRepeats(tc.in); got != tc.want {
+				t.Errorf("collapseRepeats(%q)\n = %q\nwant %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}

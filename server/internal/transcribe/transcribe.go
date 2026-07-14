@@ -110,7 +110,11 @@ func (w *WhisperCPP) Transcribe(ctx context.Context, wav []byte, opt Options) (s
 	}
 	model := w.chooseModel(wav, opt)
 	log.Printf("whisper: %.1fs clip -> %s (%s)", float64(len(wav))/32000.0, filepath.Base(model), modeLabel(opt))
-	args := []string{"-m", model, "-f", path, "-nt", "-np"}
+	// -nc (no-context) stops whisper from seeding each 30s window with the
+	// previous window's text: that carry-forward is what sustains a repetition
+	// hallucination across a long clip ("X. X. X. …"). See collapseRepeats for
+	// the text-level safety net that catches loops within a single window.
+	args := []string{"-m", model, "-f", path, "-nt", "-np", "-nc"}
 	if opt.Prompt != "" {
 		args = append(args, "--prompt", opt.Prompt)
 	}
@@ -138,15 +142,132 @@ func modeLabel(opt Options) string {
 	return "dynamic"
 }
 
-// clean collapses whisper.cpp's output to a single trimmed line and drops the
-// non-speech markers it emits for silence.
+// clean collapses whisper.cpp's output to a single trimmed line, drops the
+// non-speech markers it emits for silence, and collapses repetition-loop
+// hallucinations (see collapseRepeats).
 func clean(s string) string {
 	s = strings.ReplaceAll(s, "\n", " ")
 	s = strings.Join(strings.Fields(s), " ")
 	for _, marker := range []string{"[BLANK_AUDIO]", "[ Silence ]", "(silence)"} {
 		s = strings.ReplaceAll(s, marker, "")
 	}
-	return strings.TrimSpace(s)
+	return collapseRepeats(strings.TrimSpace(s))
+}
+
+// collapseRepeats undoes whisper's repetition-loop hallucination, where the
+// decoder gets stuck emitting the same phrase over and over ("X. X. X. X. …").
+// It works on two levels, both conservative enough to leave normal speech alone:
+//
+//   - Consecutive identical sentences (split on . ! ?) collapse to one. Genuine
+//     speech almost never repeats a whole sentence back-to-back, and losing one
+//     accidental duplicate is harmless.
+//   - Within a run with no sentence punctuation, a short phrase repeated 3+ times
+//     in a row collapses to a single copy — catches loops like "go go go go …".
+//
+// Non-adjacent repeats are preserved, so legitimately recurring words survive.
+func collapseRepeats(s string) string {
+	if s == "" {
+		return s
+	}
+	sentences := splitSentences(s)
+	out := make([]string, 0, len(sentences))
+	var prevKey string
+	for _, sent := range sentences {
+		key := normalizeForRepeat(sent)
+		if key != "" && key == prevKey {
+			continue // drop a back-to-back duplicate sentence
+		}
+		out = append(out, collapsePhraseRuns(sent))
+		if key != "" {
+			prevKey = key
+		}
+	}
+	return strings.TrimSpace(strings.Join(out, " "))
+}
+
+// splitSentences breaks text into sentences, keeping each sentence's trailing
+// . ! ? punctuation attached. A final run with no terminator is its own segment.
+func splitSentences(s string) []string {
+	var out []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; c == '.' || c == '!' || c == '?' {
+			// absorb any run of terminators/spaces so "X.  Y" splits cleanly
+			j := i + 1
+			for j < len(s) && (s[j] == '.' || s[j] == '!' || s[j] == '?' || s[j] == ' ') {
+				j++
+			}
+			if seg := strings.TrimSpace(s[start:j]); seg != "" {
+				out = append(out, seg)
+			}
+			start = j
+			i = j - 1
+		}
+	}
+	if seg := strings.TrimSpace(s[start:]); seg != "" {
+		out = append(out, seg)
+	}
+	return out
+}
+
+// normalizeForRepeat lowercases a sentence and strips punctuation/spacing so two
+// sentences that differ only in trailing punctuation compare equal.
+func normalizeForRepeat(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == ' ' {
+			b.WriteRune(r)
+		}
+	}
+	return strings.Join(strings.Fields(b.String()), " ")
+}
+
+// collapsePhraseRuns collapses an immediately-repeated phrase (1..6 words)
+// occurring 3+ times in a row down to a single copy, for loops that lack the
+// sentence punctuation the sentence-level pass keys on.
+func collapsePhraseRuns(s string) string {
+	words := strings.Fields(s)
+	if len(words) < 3 {
+		return s
+	}
+	out := make([]string, 0, len(words))
+	i := 0
+	for i < len(words) {
+		collapsed := false
+		// Prefer the longest phrase so "a b a b a b" collapses as "a b", not "a".
+		maxLen := 6
+		if maxLen > (len(words)-i)/3 {
+			maxLen = (len(words) - i) / 3
+		}
+		for plen := maxLen; plen >= 1; plen-- {
+			reps := 1
+			for i+plen*(reps+1) <= len(words) && phraseEq(words, i, i+plen*reps, plen) {
+				reps++
+			}
+			if reps >= 3 {
+				out = append(out, words[i:i+plen]...)
+				i += plen * reps
+				collapsed = true
+				break
+			}
+		}
+		if !collapsed {
+			out = append(out, words[i])
+			i++
+		}
+	}
+	return strings.Join(out, " ")
+}
+
+// phraseEq reports whether the plen-word phrases at word offsets a and b match
+// (case-insensitive).
+func phraseEq(words []string, a, b, plen int) bool {
+	for k := 0; k < plen; k++ {
+		if !strings.EqualFold(words[a+k], words[b+k]) {
+			return false
+		}
+	}
+	return true
 }
 
 // OggOpusToPCM decodes an Ogg/Opus clip (what the app records over cellular) to

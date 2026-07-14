@@ -36,7 +36,12 @@ you don't need it for most turns. High-level "what it is" and the behavioral rul
   looks for the wake phrase (plus its mishearing variants and any custom wake tokens).
 - **Transcription (STT)**: server-side Whisper (whisper.cpp or a local Whisper service). The app
   streams captured (VAD-gated) audio; the server returns a transcript and applies the wake/command
-  grammar to it.
+  grammar to it. **Repetition-loop guard** (`internal/transcribe`): Whisper hallucinates by
+  looping a phrase on long/low-energy clips ("X. X. X. …"). Two mitigations, both in `transcribe`:
+  the decoder runs with **no-context** (CLI `-nc`; remote `no_context=true`) so a window can't seed
+  the next with its own hallucinated tail, and `clean()` runs `collapseRepeats()`, which drops
+  back-to-back duplicate sentences and 3+ repeats of a short phrase before the text hits the
+  wake/command seam.
 - **Transport**: a single WebSocket per app session carries audio up and transcripts/session
   output down. Use REST only for stateless control actions if needed.
 - **Session control**: the server shells out to `claude` headless (see below). Input is the prompt
