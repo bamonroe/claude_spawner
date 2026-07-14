@@ -144,6 +144,10 @@ type Driver struct {
 	// Profiles is the execution-environment profile registry. Empty/unknown
 	// session profile names resolve to the built-in default profile.
 	Profiles *ProfileRegistry
+	// Providers is the app-managed per-backend settings overlay (default model +
+	// voice-enumerable model subset). Nil is fine: every read falls back to the
+	// backend's compiled defaults (the store's methods are nil-safe).
+	Providers *agent.SettingsStore
 	// Home is the {{.Home}} template value — the login user's home on the
 	// executing host. GlobalVars are the server-wide {{.Vars.X}} values a profile's
 	// own vars overlay. Both feed profile templating in ProfileFor.
@@ -225,6 +229,17 @@ func (d *Driver) ProfileRegistry() *ProfileRegistry {
 		d.Profiles, _ = NewProfileRegistry(ExecProfile{Name: "bare-metal", Target: TargetHost, Default: true})
 	}
 	return d.Profiles
+}
+
+// ProviderSettings returns the app-managed per-backend settings overlay, creating
+// an empty in-memory store (bound to the backend registry) for tests and older
+// callers that build a Driver literal. The store's read methods are nil-safe, but
+// mutating handlers (provider_put) need a real store, so this never returns nil.
+func (d *Driver) ProviderSettings() *agent.SettingsStore {
+	if d.Providers == nil {
+		d.Providers, _ = agent.OpenSettingsStore("", d.agents())
+	}
+	return d.Providers
 }
 
 // ProfileFor resolves the execution profile a session uses and renders its

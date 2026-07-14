@@ -32,6 +32,11 @@ type Config struct {
 	// templating, parsed from SPAWNER_PROFILE_VARS (a JSON object). A profile's own
 	// vars overlay these. Empty/unset means no global vars.
 	ProfileVars map[string]string
+	// ProvidersPath is the optional JSON file where the app-managed provider
+	// (AI-backend) settings overlay is persisted — per-backend default model and the
+	// voice-enumerable model subset. The backends themselves are compile-time; this
+	// only stores the user's overrides. A missing file means no overrides yet.
+	ProvidersPath string
 	// HostsPath is the file where the app-managed SSH host registry is persisted
 	// (the source of truth is the app; the server just stores it so it survives
 	// restarts and is shared across clients).
@@ -162,6 +167,7 @@ func Load() (*Config, error) {
 		WebDir:               os.Getenv("SPAWNER_WEB_DIR"),
 		StatePath:            env("SPAWNER_STATE", "sessions.json"),
 		ProfilesPath:         env("SPAWNER_PROFILES", "profiles.json"),
+		ProvidersPath:        env("SPAWNER_PROVIDERS", "providers.json"),
 		HostsPath:            env("SPAWNER_HOSTS", "hosts.json"),
 		IdentitiesPath:       env("SPAWNER_IDENTITIES", "identities.json"),
 		SSHKeysDir:           env("SPAWNER_SSH_KEYS", "ssh_keys"),

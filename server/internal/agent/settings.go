@@ -1,0 +1,224 @@
+package agent
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"sync"
+)
+
+// Settings is the app-managed overlay on a compile-time [Agent] (an AI backend).
+// The backends and their model catalogues are fixed in code; the user can only
+// override, per backend:
+//
+//   - DefaultModel — which model a fresh spawn stamps onto a new session;
+//   - VoiceModels  — which models the voice "list models" / "use model N"
+//     commands enumerate (so hard-to-say or redundant models can be hidden from
+//     the spoken flow without removing them from the visual picker).
+//
+// One entry per agent id. A backend with no entry uses its compiled DefaultModel
+// and enumerates all its models by voice.
+type Settings struct {
+	Agent        string   `json:"agent"`                   // agent id these settings apply to
+	DefaultModel string   `json:"default_model,omitempty"` // model alias a fresh spawn stamps; "" = the agent's compiled DefaultModel
+	VoiceModels  []string `json:"voice_models"`            // model aliases the voice commands enumerate, in agent order; nil = all
+}
+
+// SettingsStore is a concurrency-safe, file-backed catalogue of per-backend
+// [Settings]. The app is the source of truth (it edits the overrides), the server
+// persists them to a JSON file and re-broadcasts the enriched `agents` message on
+// change — mirroring ProfileRegistry / HostStore. It validates every override
+// against the live [Registry] so a stored default/voice model always names a real
+// model of that backend.
+type SettingsStore struct {
+	path string
+	reg  *Registry
+	mu   sync.RWMutex
+	byID map[string]*Settings
+}
+
+// OpenSettingsStore loads the provider-settings overlay from path, validating
+// each entry against reg. A missing file is a clean first run (no overrides). An
+// existing file is read as either a JSON array or a {"providers":[...]} wrapper;
+// entries for unknown agents or naming unknown models are dropped (the backend
+// catalogue changed under a hand-edited file).
+func OpenSettingsStore(path string, reg *Registry) (*SettingsStore, error) {
+	s := &SettingsStore{path: path, reg: reg, byID: map[string]*Settings{}}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return s, nil
+		}
+		return nil, err
+	}
+	list, err := parseSettings(data, path)
+	if err != nil {
+		return nil, err
+	}
+	for _, st := range list {
+		if ag, ok := reg.Get(st.Agent); ok {
+			s.byID[st.Agent] = sanitize(ag, st.DefaultModel, st.VoiceModels)
+		}
+	}
+	return s, nil
+}
+
+func parseSettings(data []byte, path string) ([]Settings, error) {
+	var list []Settings
+	if err := json.Unmarshal(data, &list); err != nil {
+		var wrapped struct {
+			Providers []Settings `json:"providers"`
+		}
+		if werr := json.Unmarshal(data, &wrapped); werr != nil {
+			return nil, fmt.Errorf("parse provider settings %s: %w", path, err)
+		}
+		list = wrapped.Providers
+	}
+	return list, nil
+}
+
+// sanitize builds a validated Settings for ag: default is kept only if it names a
+// real model; voice is filtered to real aliases in the agent's own model order,
+// deduped. A nil voice slice stays nil (meaning "all"); a non-nil one is honored
+// as an exact subset (possibly empty = none).
+func sanitize(ag *Agent, defaultModel string, voice []string) *Settings {
+	st := &Settings{Agent: ag.ID}
+	if defaultModel != "" {
+		if _, ok := hasModel(ag, defaultModel); ok {
+			st.DefaultModel = defaultModel
+		}
+	}
+	if voice != nil {
+		want := map[string]bool{}
+		for _, a := range voice {
+			want[a] = true
+		}
+		st.VoiceModels = []string{}
+		for _, m := range ag.Models { // agent order, deduped by construction
+			if want[m.Alias] {
+				st.VoiceModels = append(st.VoiceModels, m.Alias)
+			}
+		}
+	}
+	return st
+}
+
+// hasModel reports whether alias is one of the agent's canonical model aliases
+// (not spoken forms — the settings overlay keys on the canonical alias only).
+func hasModel(ag *Agent, alias string) (Model, bool) {
+	for _, m := range ag.Models {
+		if m.Alias == alias {
+			return m, true
+		}
+	}
+	return Model{}, false
+}
+
+// get returns the stored settings for an agent id, or nil. Caller holds the lock.
+func (s *SettingsStore) get(id string) *Settings {
+	if s == nil {
+		return nil
+	}
+	return s.byID[id]
+}
+
+// DefaultModel is the model alias a fresh spawn should stamp for ag: the user's
+// override when set and valid, else the backend's compiled DefaultModel. Nil-safe.
+func (s *SettingsStore) DefaultModel(ag *Agent) string {
+	if s != nil {
+		s.mu.RLock()
+		st := s.byID[ag.ID]
+		s.mu.RUnlock()
+		if st != nil && st.DefaultModel != "" {
+			return st.DefaultModel
+		}
+	}
+	return ag.DefaultModel
+}
+
+// VoiceModels is the ordered subset of ag's models the voice "list models" /
+// "use model N" commands should enumerate: the user's chosen subset when set,
+// else all of ag's models. Nil-safe (unset store → all).
+func (s *SettingsStore) VoiceModels(ag *Agent) []Model {
+	var allow map[string]bool
+	if s != nil {
+		s.mu.RLock()
+		st := s.byID[ag.ID]
+		s.mu.RUnlock()
+		if st != nil && st.VoiceModels != nil {
+			allow = map[string]bool{}
+			for _, a := range st.VoiceModels {
+				allow[a] = true
+			}
+		}
+	}
+	if allow == nil {
+		return ag.Models
+	}
+	out := make([]Model, 0, len(ag.Models))
+	for _, m := range ag.Models {
+		if allow[m.Alias] {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// VoiceEnabled reports whether the model alias is enumerated by voice for ag
+// (used to badge the visual providers editor). Nil-safe (unset → all enabled).
+func (s *SettingsStore) VoiceEnabled(ag *Agent, alias string) bool {
+	for _, m := range s.VoiceModels(ag) {
+		if m.Alias == alias {
+			return true
+		}
+	}
+	return false
+}
+
+// Put upserts the overrides for an agent and persists. The agent must exist;
+// defaultModel (when non-empty) and every voice alias must name a real model of
+// that agent, or it is an error. A nil voiceModels means "leave voice at all";
+// pass a non-nil (possibly empty) slice to set an exact enumerated subset.
+func (s *SettingsStore) Put(agentID, defaultModel string, voiceModels []string) error {
+	ag, ok := s.reg.Get(agentID)
+	if !ok {
+		return fmt.Errorf("unknown backend %q", agentID)
+	}
+	if defaultModel != "" {
+		if _, ok := hasModel(ag, defaultModel); !ok {
+			return fmt.Errorf("backend %q has no model %q", agentID, defaultModel)
+		}
+	}
+	for _, a := range voiceModels {
+		if _, ok := hasModel(ag, a); !ok {
+			return fmt.Errorf("backend %q has no model %q", agentID, a)
+		}
+	}
+	s.mu.Lock()
+	s.byID[agentID] = sanitize(ag, defaultModel, voiceModels)
+	err := s.flush()
+	s.mu.Unlock()
+	return err
+}
+
+// flush writes the overlay atomically. Caller holds s.mu.
+func (s *SettingsStore) flush() error {
+	if s.path == "" {
+		return nil
+	}
+	out := make([]*Settings, 0, len(s.byID))
+	for _, ag := range s.reg.List() { // stable, registration order
+		if st := s.byID[ag.ID]; st != nil {
+			out = append(out, st)
+		}
+	}
+	data, err := json.MarshalIndent(map[string]any{"providers": out}, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := s.path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, s.path)
+}

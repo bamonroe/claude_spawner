@@ -335,7 +335,7 @@ func (c *conn) doSetAgent(sessionID, dir, agentID, modelAlias string) {
 	}
 	attachedHere := c.attached != nil && c.attached.SessionID == rec.SessionID
 	ag := c.srv.driver.Registry().Resolve(agentID)
-	model := ag.DefaultModel
+	model := c.srv.driver.ProviderSettings().DefaultModel(ag)
 	if modelAlias != "" {
 		if m, ok := ag.Model(modelAlias); ok {
 			model = m.Alias
@@ -826,18 +826,22 @@ func (c *conn) doListModels() {
 		return
 	}
 	ag := c.srv.driver.AgentFor(c.attached)
-	if ag == nil || len(ag.Models) == 0 {
+	// Only the voice-enumerable subset (per the Providers settings) is spoken and
+	// numbered, so hard-to-say or hidden models stay out of the spoken flow. The
+	// ordinals here must match doUseModel, which indexes the same subset.
+	models := c.srv.driver.ProviderSettings().VoiceModels(ag)
+	if ag == nil || len(models) == 0 {
 		c.send(msgSay("this session's AI has no selectable models."))
 		return
 	}
 	// An empty session Model means the backend's own default — mark that one.
 	current := c.attached.Model
 	if current == "" {
-		current = ag.DefaultModel
+		current = c.srv.driver.ProviderSettings().DefaultModel(ag)
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s has %d models. ", ag.Name, len(ag.Models))
-	for i, m := range ag.Models {
+	fmt.Fprintf(&b, "%s has %d models. ", ag.Name, len(models))
+	for i, m := range models {
 		mark := ""
 		if m.Alias == current {
 			mark = ", current"
@@ -857,15 +861,16 @@ func (c *conn) doUseModel(n int) {
 		return
 	}
 	ag := c.srv.driver.AgentFor(c.attached)
-	if ag == nil || len(ag.Models) == 0 {
+	models := c.srv.driver.ProviderSettings().VoiceModels(ag)
+	if ag == nil || len(models) == 0 {
 		c.send(msgSay("this session's AI has no selectable models."))
 		return
 	}
-	if n < 1 || n > len(ag.Models) {
-		c.send(msgSay(fmt.Sprintf("say a model number between 1 and %d — list models to hear them.", len(ag.Models))))
+	if n < 1 || n > len(models) {
+		c.send(msgSay(fmt.Sprintf("say a model number between 1 and %d — list models to hear them.", len(models))))
 		return
 	}
-	m := ag.Models[n-1]
+	m := models[n-1]
 	c.attached.Model = m.Alias
 	if err := c.srv.store.Put(c.attached); err != nil {
 		c.fail("internal", err.Error())
@@ -1149,7 +1154,7 @@ func (c *conn) newSession(base, dir string, target session.Target, agentID, prof
 	// default backend (Claude), so the visual picker (no backend choice yet) and
 	// old callers get Claude.
 	ag := c.srv.driver.Registry().Resolve(agentID)
-	s.Agent, s.Model = ag.ID, ag.DefaultModel
+	s.Agent, s.Model = ag.ID, c.srv.driver.ProviderSettings().DefaultModel(ag)
 	reg := c.srv.driver.ProfileRegistry()
 	if p := reg.Resolve(profileID); p != nil && p.Name != reg.DefaultName() {
 		s.Profile = p.Name

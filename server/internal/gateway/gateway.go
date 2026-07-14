@@ -721,7 +721,7 @@ func (c *conn) authenticate() bool {
 	c.send(msgHelloOK("ws", model, fastModel, c.srv.catalogWhisperModels(), c.srv.availableWhisperModels(), c.srv.tts != nil))
 	// Advertise the AI backend registry so the app's new-session picker can offer a
 	// backend + model choice (and badge sessions by backend).
-	c.send(msgAgents(c.srv.driver.Registry()))
+	c.send(msgAgents(c.srv.driver.Registry(), c.srv.driver.ProviderSettings()))
 	// Advertise execution profiles separately from hello_ok so older clients can
 	// ignore the message and still use the built-in default profile.
 	c.send(msgProfiles(c.srv.driver.ProfileRegistry()))
@@ -851,6 +851,7 @@ var wireHandlers = map[string]func(c *conn, in inbound){
 	"profile_put":         func(c *conn, in inbound) { c.doProfilePut(in.ProfileDef) },
 	"profile_delete":      func(c *conn, in inbound) { c.doProfileDelete(in.Name) },
 	"profile_set_default": func(c *conn, in inbound) { c.doProfileSetDefault(in.Name) },
+	"provider_put":        func(c *conn, in inbound) { c.doProviderPut(in.Agent, in.DefaultModel, in.VoiceModels) },
 }
 
 // loop reads and dispatches messages until the socket closes. Text frames are

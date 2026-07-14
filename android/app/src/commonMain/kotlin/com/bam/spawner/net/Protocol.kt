@@ -203,9 +203,11 @@ sealed interface ServerMsg {
         private fun readAgents(arr: JsonArray?): List<AgentInfo> {
             if (arr == null) return emptyList()
             return arr.map { it.jsonObject }.map { a ->
+                val models = (a.arr("models") ?: JsonArray(emptyList())).map { it.jsonObject }
                 AgentInfo(
                     a.str("id"), a.str("name"), a.str("default_model"),
-                    (a.arr("models") ?: JsonArray(emptyList())).map { it.jsonObject.str("alias") },
+                    models.map { it.str("alias") },
+                    models.filter { it.bool("voice") }.map { it.str("alias") },
                 )
             }
         }
@@ -268,10 +270,18 @@ data class TokenUsage(val input: Int, val output: Int, val cacheWrite: Int, val 
 
 /**
  * One AI backend from the `agents` message: its id (sent in `spawn_at`), display
- * name, default model alias, and the model aliases it offers. Used by the
- * new-session picker to choose a backend + model.
+ * name, *effective* default model alias (the Providers-tab override, else the
+ * compiled default), the model aliases it offers, and `voiceModels` — the subset
+ * the voice `list models`/`use model N` commands enumerate. Used by the
+ * new-session picker (backend + model) and the Providers settings tab.
  */
-data class AgentInfo(val id: String, val name: String, val defaultModel: String, val models: List<String>)
+data class AgentInfo(
+    val id: String,
+    val name: String,
+    val defaultModel: String,
+    val models: List<String>,
+    val voiceModels: List<String> = emptyList(),
+)
 
 /** One execution environment profile advertised by the server. */
 /** An execution profile (Settings → Profiles). The app manages the catalogue; the
@@ -564,4 +574,13 @@ object Outbound {
     }.toString()
     fun profileDelete(name: String) = buildJsonObject { put("type", "profile_delete"); put("name", name) }.toString()
     fun profileSetDefault(name: String) = buildJsonObject { put("type", "profile_set_default"); put("name", name) }.toString()
+
+    // Provider (AI-backend) settings overlay (Settings → Providers). The backends
+    // are compile-time; the app sets per-backend overrides — the model a spawn
+    // defaults to and which models the voice commands enumerate. The server persists
+    // them and re-broadcasts an updated `agents` after every change.
+    fun providerPut(agent: String, defaultModel: String, voiceModels: List<String>) = buildJsonObject {
+        put("type", "provider_put"); put("agent", agent); put("default_model", defaultModel)
+        putJsonArray("voice_models") { voiceModels.forEach { add(it) } }
+    }.toString()
 }

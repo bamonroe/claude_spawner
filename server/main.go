@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/bam/claude_spawner/server/internal/agent"
 	"github.com/bam/claude_spawner/server/internal/config"
 	"github.com/bam/claude_spawner/server/internal/gateway"
 	"github.com/bam/claude_spawner/server/internal/projects"
@@ -79,6 +80,11 @@ func main() {
 	driver.Home = os.Getenv("HOME")
 	driver.GlobalVars = cfg.ProfileVars
 	log.Printf("execution profiles loaded: %d profile(s)", len(profiles.List()))
+	providers, err := agent.OpenSettingsStore(cfg.ProvidersPath, driver.Registry())
+	if err != nil {
+		log.Fatalf("provider settings: %v", err)
+	}
+	driver.Providers = providers
 	if len(cfg.SpawnRoots) > 0 {
 		// The account-global /usage check runs claude in this dir; use a spawn root so
 		// it lands somewhere sane (rather than /tmp).

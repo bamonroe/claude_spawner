@@ -136,6 +136,14 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
   substitution set for profile templating, e.g. `{"OllamaHost":"pickle.bam.net"}`. A profile's own
   `vars` overlay these; profile-derived built-ins are `{{.Home}}`, `{{.Session}}`, `{{.Dir}}`.
   Referencing an undefined var fails the turn loudly. Empty = no global vars),
+  `SPAWNER_PROVIDERS` (`providers.json`; optional app-managed JSON overlay of
+  per-backend (AI-provider) settings — the model a fresh spawn defaults to and which
+  models the voice `list models`/`use model N` commands enumerate (Settings →
+  Providers). The backends themselves are compile-time; this only stores the user's
+  overrides, validated against the live registry. A missing file means no overrides
+  (compiled default model, all models voice-enabled). Like the profile/host
+  catalogues, the app is the source of truth and the server persists it and
+  re-broadcasts the `agents` message on change),
   `SPAWNER_HOSTS` (`hosts.json`; the
   app-managed SSH host registry — the app is the source of truth, this file just persists it),
   `SPAWNER_IDENTITIES` (`identities.json`; the app-managed SSH identity registry — names + public

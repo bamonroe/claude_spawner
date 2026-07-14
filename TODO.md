@@ -26,6 +26,19 @@ Dates are `YYYY-MM-DD`.
       regenerated; `docs/commands.md`, `README.md` updated. Parser + gateway tests green. Not yet
       tap/voice-tested on the phone against the live server.
 
+- [ ] 2026-07-13 — **Providers settings tab (Settings → Providers).** A per-backend settings overlay
+      that mirrors Profiles: pick the model a fresh spawn defaults to, and toggle which models the
+      voice `list models`/`use model N` commands enumerate. Backends stay compile-time; only the
+      overrides are stored.
+      - [x] Server layer: `agent.SettingsStore` (`SPAWNER_PROVIDERS`/`providers.json`, validated
+        against the registry, nil-safe reads), driver `Providers` field + `ProviderSettings()`, the
+        `provider_put` wire handler (`bad_provider`), enriched `agents` message (effective default +
+        per-model `voice` flag, re-broadcast on change), spawn default-model stamping + voice-command
+        filtering now honor the overlay. Kotlin `AgentInfo.voiceModels` + `providerPut` builder.
+        Docs + drift tests green.
+      - [ ] Client tab: `ProvidersController` + `ProvidersSettings` composable, `SettingsHub` row,
+        `MainActivity`/`WebRoot` nav branches, controller impls, APK build + phone install.
+
 - [ ] **Session execution-environment profiles** — named, per-session, templatable bundles of
       mounts / credential injection / network endpoints for host + sandbox turns, replacing the flat
       global `SPAWNER_SANDBOX_*` config (which becomes the built-in `default` profile). Prerequisite
