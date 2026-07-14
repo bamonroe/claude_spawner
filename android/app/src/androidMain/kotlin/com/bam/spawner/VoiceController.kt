@@ -423,6 +423,11 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     fun setAudioInput(inp: AudioInput) {
         _audioInput.value = inp
         settings.micSource = inp.pref
+        // An explicit pick is a deliberate (re)try, so clear any prior SCO-failure
+        // latch: re-selecting Headset must re-attempt the Bluetooth link rather than
+        // stay silently on the built-in mic (the latch otherwise only clears when the
+        // input *value* changes, forcing a Device→Headset round-trip).
+        headsetMicFailed = false
         if (hfOn) restartHandsFree()
         _audioInputs.value = audioRouter.availableInputs()
     }
@@ -716,10 +721,16 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
      *  the platform silently reverts to the mic-less A2DP link), latch the failure and
      *  restart on the built-in mic so the user is never left unheard. */
     private suspend fun verifyHeadsetMic() {
-        delay(2500)
-        if (!hfOn || !headsetMicOn) return
-        if (audioRouter.headsetMicActive()) return
-        headsetMicFailed = true // don't re-attempt SCO until the setting changes
+        // Poll the SCO link rather than judging it once: car kits and some earbuds
+        // take several seconds to bring the hands-free profile up, and a single early
+        // check wrongly latched failure and dropped to the built-in mic. Give it up to
+        // ~6 s, succeeding the moment the link is live.
+        repeat(12) {
+            delay(500)
+            if (!hfOn || !headsetMicOn) return
+            if (audioRouter.headsetMicActive()) return // link came up — keep the headset mic
+        }
+        headsetMicFailed = true // gave it a fair window; fall back so the user is heard
         _mic.value = "🟢 listening (headset mic unavailable — using built-in)…"
         restartHandsFree()
     }
