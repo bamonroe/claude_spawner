@@ -107,6 +107,8 @@ interface AppController : HostsIdentitiesController, ProfilesController, Provide
     fun sendText(text: String)
     fun attachTo(name: String)
     fun detach()
+    /** Toggle back to the previously attached session (server-tracked). */
+    fun swap()
     fun abortTurn()
     fun loadOlder()
     fun submitAnswers(text: String)

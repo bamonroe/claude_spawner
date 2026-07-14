@@ -12,6 +12,15 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-14 — **"swap" — jump back to the previous session (voice + swipe).** New `swap` command
+      that toggles back to the session attached just before the current one (a two-way ping-pong).
+      Server tracks the previous `session_id` per connection (recorded on every genuine attach and on
+      detach); `doSwap` re-attaches to it. Wired both ways: the voice command (`command.Swap`, Parse
+      case, registry entry, vocab) and a new `swap` WebSocket message fired by a **right-to-left
+      swipe** on the chat (right-edge strip in `MainScreen`, clear of the mic button). `Outbound.swap`
+      + `AppController.swap` in both controllers. Docs: commands.md, protocol.md, commands.json
+      regenerated. Server tests green. **APK install pending.**
+
 - [x] 2026-07-14 — **Settings reorg: session-behavior toggles moved to the Server page.** The
       **Brief replies** and **Ask before guessing** switches were on the Audio page but change how
       Claude responds, not audio — moved them to a new "Session behavior" section on the Server page

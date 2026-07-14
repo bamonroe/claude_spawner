@@ -302,6 +302,25 @@ fun MainScreen(
                         )
                     },
             )
+            // Right-edge swipe (right→left) to "swap" back to the previously attached
+            // session — the gesture twin of the voice "swap" command. A thin strip on the
+            // far right that captures a leftward drag; a generous threshold avoids accidental
+            // triggers, and a bottom inset keeps it clear of the mic / input bar below.
+            Box(
+                Modifier.align(Alignment.CenterEnd)
+                    .fillMaxHeight()
+                    .padding(bottom = 96.dp)
+                    .width(28.dp)
+                    .pointerInput(Unit) {
+                        val threshold = 64.dp.toPx()
+                        var dx = 0f
+                        detectHorizontalDragGestures(
+                            onDragStart = { dx = 0f },
+                            onHorizontalDrag = { _, delta -> dx += delta },
+                            onDragEnd = { if (dx <= -threshold) controller.swap() },
+                        )
+                    },
+            )
           }
         }
       }

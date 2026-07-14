@@ -16,6 +16,7 @@ const (
 	Spawn       Kind = "spawn"
 	Attach      Kind = "attach"
 	Detach      Kind = "detach"
+	Swap        Kind = "swap" // toggle back to the previously attached session
 	List        Kind = "list"
 	Kill        Kind = "kill"
 	Status      Kind = "status"
@@ -92,7 +93,7 @@ var commandVocab = []string{
 	"stop", "abort", "help", "read last", "replay", "clear", "compress", "compact",
 	"usage", "rename", "session", "project", "model", "models", "codex", "opencode",
 	"scratch", "summary", "job", "jobs", "restart", "rebuild", "server",
-	"called", "named", "profile",
+	"called", "named", "profile", "swap",
 }
 
 // Vocabulary returns the control words worth biasing STT toward: the canonical
@@ -382,6 +383,14 @@ func Parse(text string) Intent {
 	// Detach: bare "detach"/"detach now", or an explicit phrase.
 	case first == "detach" && n <= 2, contains(t, "stop dictating", "stop listening"):
 		return Intent{Kind: Detach}
+
+	// Swap: toggle back to the previously attached session — a two-way jump
+	// between the current session and the one attached just before it. Bare
+	// "swap"/"swap back", or an explicit "previous/last session" phrase.
+	case t == "swap" || (first == "swap" && n <= 3),
+		contains(t, "swap back", "swap session", "swap to the last", "switch back",
+			"previous session", "last session", "go back to the last", "go back to the previous"):
+		return Intent{Kind: Swap}
 
 	// SummaryOnly: speak only the final turn result, beeping through the
 	// intermediate streamed steps instead of reading each aloud. "summary

@@ -37,6 +37,8 @@ var Registry = []Command{
 		"Attach to a session by name", "attach to bam"},
 	{Detach, "detach", []string{"detach", "stop dictating"},
 		"Leave the current session", "detach"},
+	{Swap, "swap", []string{"swap", "swap back", "previous session", "last session"},
+		"Jump back to the session you were in just before this one (a two-way toggle)", "swap"},
 	{List, "list", []string{"list sessions", "what sessions"},
 		"List your sessions", "list sessions"},
 	{Status, "status", []string{"status", "what's it doing"},

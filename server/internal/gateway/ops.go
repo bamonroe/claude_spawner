@@ -52,6 +52,8 @@ func (c *conn) runCommand(intent command.Intent) bool {
 		c.doAttach(intent.Arg, false) // voice attach announces
 	case command.Detach:
 		c.doDetach()
+	case command.Swap:
+		c.doSwap()
 	case command.Kill:
 		c.doKill(intent.Arg)
 	case command.Status:
@@ -636,6 +638,12 @@ func (c *conn) doAttach(name string, silent bool) {
 		return
 	}
 	if c.attached != nil {
+		// Remember the session we're leaving so "swap" can toggle back to it —
+		// but only on a genuine move to a different session (re-attaching to the
+		// same one mustn't make swap a no-op).
+		if c.attached.SessionID != s.SessionID {
+			c.prevSessionID = c.attached.SessionID
+		}
 		c.srv.unbindJob(c, c.attached.SessionID)
 	}
 	c.clearBuffer() // fresh message buffer for the new session
@@ -762,11 +770,35 @@ func (c *conn) doDetach() {
 		c.send(msgSay("you're not attached to anything."))
 		return
 	}
+	// Detaching still leaves a "previous" session so a following "swap" jumps
+	// straight back to what you were just in.
+	c.prevSessionID = c.attached.SessionID
 	c.srv.unbindJob(c, c.attached.SessionID)
 	c.clearBuffer()
 	c.setAttached(nil)
 	c.send(msgDetached())
 	c.send(msgSay("detached."))
+}
+
+// doSwap toggles back to the session attached just before the current one — a
+// two-way jump between the two most-recent sessions. Shared by the voice "swap"
+// command and the app's right-to-left swipe. doAttach records the outgoing
+// session as the new previous, so repeated swaps ping-pong between the pair.
+func (c *conn) doSwap() {
+	if c.prevSessionID == "" {
+		c.send(msgSay("no previous session to swap to."))
+		return
+	}
+	prev := c.srv.store.GetBySessionID(c.prevSessionID)
+	if prev == nil { // the previous session was killed since we left it
+		c.prevSessionID = ""
+		c.send(msgSay("the previous session is gone."))
+		return
+	}
+	if c.attached != nil && c.attached.SessionID == prev.SessionID {
+		return // already there; nothing to toggle
+	}
+	c.doAttachBy(prev.SessionID, prev.Name, false)
 }
 
 // doClear rotates the attached session's Claude context: the current session_id is

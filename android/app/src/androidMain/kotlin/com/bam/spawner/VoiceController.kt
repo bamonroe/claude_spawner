@@ -555,6 +555,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     }
 
     override fun detach() = client?.send(Outbound.detach()).let {}
+    override fun swap() = client?.send(Outbound.swap()).let {}
 
     /** Abort the running turn on the attached session (kills the claude child). */
     override fun abortTurn() = client?.send(Outbound.abort()).let {}

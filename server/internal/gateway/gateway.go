@@ -586,9 +586,10 @@ type conn struct {
 	wmu    sync.Mutex // guards writes (job goroutines also write) AND closed
 	closed bool       // set once the connection is gone (guards job delivery)
 
-	attachedMu sync.Mutex       // guards attached for cross-goroutine readers; see setAttached
-	attached   *session.Session // non-nil when in passthrough mode
-	dlg        *dialog          // non-nil while a dialog is in progress
+	attachedMu    sync.Mutex       // guards attached for cross-goroutine readers; see setAttached
+	attached      *session.Session // non-nil when in passthrough mode
+	prevSessionID string           // session_id of the session attached just before this one — the "swap" target (survives renames)
+	dlg           *dialog          // non-nil while a dialog is in progress
 
 	collecting bool   // between `wake` and `audio_end`
 	audio      []byte // accumulated audio for the current utterance
@@ -809,6 +810,7 @@ var wireHandlers = map[string]func(c *conn, in inbound){
 	"reply":             func(c *conn, in inbound) { c.gated = false; c.handleUtterance(in.Text) },
 	"attach":            func(c *conn, in inbound) { c.doAttachBy(in.SessionID, in.Name, in.Silent) },
 	"detach":            func(c *conn, in inbound) { c.doDetach() },
+	"swap":              func(c *conn, in inbound) { c.doSwap() },
 	"list_sessions":     func(c *conn, in inbound) { c.sendSessionList() },
 	"discover":          func(c *conn, in inbound) { c.doDiscover() },
 	"adopt":             func(c *conn, in inbound) { c.doAdopt(in.SessionID, in.Path) },

@@ -393,6 +393,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
     }
     override fun attachTo(name: String) { client?.send(Outbound.attach(name)) }
     override fun detach() { client?.send(Outbound.detach()) }
+    override fun swap() { client?.send(Outbound.swap()) }
     override fun abortTurn() { client?.send(Outbound.abort()) }
     override fun loadOlder() {
         val before = oldest[currentKey] ?: return

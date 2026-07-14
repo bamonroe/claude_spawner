@@ -188,6 +188,16 @@
       "description": "Speak only the final result of a turn; intermediate steps beep quietly instead"
     },
     {
+      "title": "swap",
+      "aliases": [
+        "swap",
+        "swap back",
+        "previous session",
+        "last session"
+      ],
+      "description": "Jump back to the session you were in just before this one (a two-way toggle)"
+    },
+    {
       "title": "usage",
       "aliases": [
         "usage",
