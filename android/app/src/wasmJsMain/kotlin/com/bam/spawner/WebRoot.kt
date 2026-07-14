@@ -43,6 +43,7 @@ fun WebRoot() {
                 "set_server" -> ServerSettings(
                     prefs, controller,
                     onSaveConnect = { url, token -> prefs.url = url; prefs.token = token; reconnect(); screen = "settings" },
+                    onSttChanged = reconnect,
                     onBack = { screen = "settings" },
                 )
                 "set_hosts" -> HostsSettings(controller, onBack = { screen = "settings" })

@@ -247,6 +247,7 @@ private fun AppRoot(
         "set_server" -> ServerSettings(
             settings, controller,
             onSaveConnect = { url, token -> controller.connect(url, token); screen = "settings" },
+            onSttChanged = reconnect,
             onBack = { screen = "settings" },
         )
         "set_hosts" -> HostsSettings(controller, onBack = { screen = "settings" })

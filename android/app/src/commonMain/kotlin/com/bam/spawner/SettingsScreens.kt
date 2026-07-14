@@ -724,8 +724,8 @@ fun AppearanceSettings(settings: Prefs, themeMode: ThemeMode, onThemeChange: (Th
         var warm by remember { mutableStateOf(settings.cacheWarmTimer) }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("Cache-warm timer", style = MaterialTheme.typography.titleMedium)
-                Text("Count down the ~5-min window where the next turn reuses a warm prompt cache.",
+                Text("Warm-cache countdown", style = MaterialTheme.typography.titleMedium)
+                Text("Display-only: count down the ~5-min window where the next turn reuses a warm prompt cache.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
             }
             Switch(checked = warm, onCheckedChange = { warm = it; settings.cacheWarmTimer = it })
@@ -988,15 +988,17 @@ private fun AddAliasForCommandDialog(command: String, onAdd: (String) -> Unit, o
 }
 
 /**
- * Server connection settings: URL/token + Save & Connect, the server-global whisper
- * model picker, and the restart button. TLS is terminated at the reverse proxy (Caddy),
- * so the app just speaks `wss://` and authenticates with the token — no client cert.
+ * Server connection settings: URL/token + Save & Connect, context-compression triggers, the
+ * session-behavior toggles (brief replies, ask before guessing), and the restart button. TLS is
+ * terminated at the reverse proxy (Caddy), so the app just speaks `wss://` and authenticates with
+ * the token — no client cert.
  */
 @Composable
 fun ServerSettings(
     settings: Prefs,
     controller: AppController,
     onSaveConnect: (String, String) -> Unit,
+    onSttChanged: () -> Unit,
     onBack: () -> Unit,
 ) {
     var url by rememberSaveable { mutableStateOf(settings.url) }
@@ -1058,6 +1060,27 @@ fun ServerSettings(
         }
 
         HorizontalDivider()
+        Text("Session behavior", style = MaterialTheme.typography.titleMedium)
+        var brief by remember { mutableStateOf(settings.brief) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Brief replies", style = MaterialTheme.typography.titleMedium)
+                Text("Ask Claude to keep answers short, for text-to-speech.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            }
+            Switch(checked = brief, onCheckedChange = { brief = it; settings.brief = it; onSttChanged() })
+        }
+        var interactive by remember { mutableStateOf(settings.interactive) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Ask before guessing", style = MaterialTheme.typography.titleMedium)
+                Text("Let Claude ask clarifying questions mid-task instead of guessing.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            }
+            Switch(checked = interactive, onCheckedChange = { interactive = it; settings.interactive = it; onSttChanged() })
+        }
+
+        HorizontalDivider()
         Text("Restart server", style = MaterialTheme.typography.titleMedium)
         Text(
             "Restarts the server process on your machine. With Rebuild on, it recompiles from "
@@ -1097,10 +1120,11 @@ fun ServerSettings(
 }
 
 /**
- * Audio settings: VAD thresholds, TTS/interaction toggles, the resident-whisper URL, and the
+ * Audio settings: VAD thresholds, TTS toggles, the resident-whisper URL, and the
  * server-global transcription model pair (full + quick) — prefs backed by [Prefs], the models
  * read/pushed live via [controller]. (The end token, wake token, and silence auto-commit live on
- * the Commands page, since they're part of the command grammar.) [micMeter] is a platform slot
+ * the Commands page, since they're part of the command grammar; the "brief replies" and "ask
+ * before guessing" session-behavior toggles live on the Server page.) [micMeter] is a platform slot
  * that draws the live mic-level bar (Android reads the recorder; web is empty until M5's Web
  * Audio); it receives the current threshold so it can mark it on the bar.
  */
@@ -1153,24 +1177,6 @@ fun AudioSettings(
         // picker's Input section, alongside the output route, so it isn't set here.
 
         HorizontalDivider()
-        var brief by remember { mutableStateOf(settings.brief) }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("Brief replies", style = MaterialTheme.typography.titleMedium)
-                Text("Ask Claude to keep answers short, for text-to-speech.",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-            }
-            Switch(checked = brief, onCheckedChange = { brief = it; settings.brief = it; onSttChanged() })
-        }
-        var interactive by remember { mutableStateOf(settings.interactive) }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("Ask before guessing", style = MaterialTheme.typography.titleMedium)
-                Text("Let Claude ask clarifying questions mid-task instead of guessing.",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-            }
-            Switch(checked = interactive, onCheckedChange = { interactive = it; settings.interactive = it; onSttChanged() })
-        }
         var summaryOnly by remember { mutableStateOf(settings.summaryOnlySpeech) }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {

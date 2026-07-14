@@ -12,6 +12,14 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-14 — **Settings reorg: session-behavior toggles moved to the Server page.** The
+      **Brief replies** and **Ask before guessing** switches were on the Audio page but change how
+      Claude responds, not audio — moved them to a new "Session behavior" section on the Server page
+      (`ServerSettings` now takes `onSttChanged`, wired in `MainActivity.kt` + `WebRoot.kt`). Also
+      renamed the Appearance page's display-only **Cache-warm timer** → **Warm-cache countdown** to
+      stop it being confused with the Server page's **Warm compress** action. Whisper URL +
+      transcription models stay on Audio (deliberately). README label updated.
+
 - [x] 2026-07-14 — **Fix: push-to-talk hold cut short / narrow press target.** In a noisy room a
       held mic press felt like it stopped recording early. PTT has no VAD (raw capture until
       release), so the cut was the OS stealing the touch as a back/home edge gesture (the

@@ -401,8 +401,10 @@ from the headless `result` usage — no estimation. See [`docs/protocol.md`](./d
 - **Token badge** under each reply (toggle in Settings → Appearance): the turn's context and output
   tokens (`24k↑ 340↓`), a **⚡** when it reused a warm prompt cache, and a detailed mode that splits
   fresh vs. cached input.
-- **Cache-warm timer** — counts down the ~5-minute window in which your next turn reuses the warm
-  prompt cache rather than rebuilding the whole context.
+- **Warm-cache countdown** (toggle in Settings → Appearance) — counts down the ~5-minute window in
+  which your next turn reuses the warm prompt cache rather than rebuilding the whole context. This is
+  display-only; it's distinct from the Server page's **Warm compress**, which actually triggers a
+  compaction near that edge.
 - **Title bar** shows the attached session's current context size (`🧠 24k`).
 - **Session limit** at the bottom of the sessions drawer — which Claude usage window (rolling 5-hour
   or weekly) is binding and when it resets, from the CLI's `rate_limit_event` (refreshes each turn).
