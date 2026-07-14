@@ -124,9 +124,14 @@ directory), and if that pins a concrete folder — not a root/namespace, and not
 creates the session and attaches right away, applying the default provider and profile for whatever
 wasn't named ("hey buddy, new session called bugfix in data on opencode"). The fast path only ever
 targets a directory under `SPAWNER_ROOT` (matched roots, descended paths, or the home default, which
-must itself be under a root), so the voice jail still holds. The dialog below runs only when the fast
-path bows out: a new *project* (needs a folder made + named), an unresolved or fuzzy location, or a
-landing on a container of sub-projects.
+must itself be under a root), so the voice jail still holds. A **bare** "new session" — no location
+**and** no name/provider/profile — deliberately keeps the "where to?" dialog, since that's the entry
+point for browsing; but the moment the user names anything else (a name, a provider, or a profile),
+even with no location, that's an explicit one-shot and it spawns at the home default immediately
+(this also covers the case where `$HOME` is itself a configured root, which would otherwise look
+like a container to browse). The dialog below runs only when the fast path bows out: a bare
+no-location "new session", a new *project* (needs a folder made + named), an unresolved or fuzzy
+location, or a landing on a container of sub-projects.
 
 A small state machine. The server drives the prompts; the app speaks them (TTS) and streams the
 user's replies back. Navigation is **hierarchical**: pick a root (the basename of each configured

@@ -55,7 +55,19 @@ func (c *conn) spawnCommand(intent command.Intent) {
 		c.srv.projects.Refresh()
 	}
 	dir, ok := c.resolveSpawnDir(intent.Location)
-	if !ok || c.isRoot(dir) || projects.IsNamespace(dir) {
+	spoken := len(projects.Terms(intent.Location)) > 0
+	// A *spoken* location that lands on a root or namespace with child projects is
+	// ambiguous — drop into the browse dialog to choose among them.
+	ambiguous := spoken && (c.isRoot(dir) || projects.IsNamespace(dir))
+	// A no-location command normally keeps the classic "where do you want it?"
+	// dialog. But if the user named anything else — a name, a provider, or a profile
+	// — that's an explicit one-shot: honor the home default and spawn immediately,
+	// even when home happens to be a configured spawn root (SPAWNER_ROOT contains
+	// $HOME), which would otherwise trip the isRoot guard above.
+	parameterized := len(projects.Terms(intent.Name)) > 0 ||
+		strings.TrimSpace(intent.Agent) != "" || strings.TrimSpace(intent.Profile) != ""
+	bareNoLocation := !spoken && !parameterized
+	if !ok || ambiguous || bareNoLocation {
 		c.startSpawn(intent.New, intent.Location, intent.Agent)
 		return
 	}

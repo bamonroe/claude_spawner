@@ -682,6 +682,36 @@ func TestSpawnAsksTargetWhenSandboxConfigured(t *testing.T) {
 	}
 }
 
+// TestSpawnNamedNoLocationTakesFastPath: a no-location command that still names
+// something (here a "called <name>") is an explicit one-shot — it must spawn+attach
+// immediately at the home default, even when $HOME is itself a configured spawn root
+// and a sandbox is enabled. It must not fall into the browse dialog (the isRoot guard
+// only applies to a *spoken* location) nor stop to ask host-vs-sandbox.
+func TestSpawnNamedNoLocationTakesFastPath(t *testing.T) {
+	ts, root, gw := newSandboxTestServer(t)
+	// Home == a configured spawn root: the exact case that used to defeat the
+	// one-shot fast path and fall into the browse + target dialog.
+	t.Setenv("HOME", root)
+	ws := dial(t, ts)
+	send(t, ws, map[string]any{"type": "hello", "token": "secret"})
+	readUntil(t, ws, "hello_ok")
+
+	send(t, ws, map[string]any{"type": "utterance", "text": "hey buddy new session called scratch"})
+	// No await_child, no await_target — it attaches straight away.
+	a := readUntil(t, ws, "attached")
+	name, _ := a["name"].(string)
+	rec := gw.store.Get(name)
+	if rec == nil {
+		t.Fatalf("session %q not persisted", name)
+	}
+	if rec.Dir != root {
+		t.Errorf("Dir = %q, want home default %q", rec.Dir, root)
+	}
+	if rec.Target != session.TargetHost {
+		t.Errorf("Target = %q, want %q (fast path defaults to host)", rec.Target, session.TargetHost)
+	}
+}
+
 func TestAudioPathTranscribesAndDispatches(t *testing.T) {
 	stt := &fakeSTT{text: "hey buddy spawn a new session"}
 	ts, _ := newTestServer(t, stt)
