@@ -120,9 +120,45 @@ func (j *sessionJob) finish(final map[string]any) {
 	j.cancel = nil
 	if j.broadcast(final) {
 		j.delivered = true // reached at least one live client; no need to buffer
+		j.final = nil      // drop any now-stale buffer (this write reached someone)
 	} else {
-		j.final = final // nobody attached — buffer for the next reconnect
+		// The send failed (nobody attached, or the client is briefly unreachable —
+		// backgrounded / a mobile stall past the write deadline). Buffer this reply
+		// UNDELIVERED so flushPending / bindJob can redeliver it once the client is
+		// reachable again, instead of the next turn silently discarding it.
+		j.final = final
+		j.delivered = false
 	}
+}
+
+// flushPending redelivers a buffered-but-undelivered reply from an earlier turn
+// (its send failed because the client was momentarily unreachable) now that we
+// are about to write to the client again — e.g. at the next turn's "thinking"
+// ping, by which point a backgrounded/stalled socket has typically recovered.
+// If the write reaches a live sink the reply is finally delivered; otherwise it
+// stays buffered for the next attempt. Call WITHOUT j.mu held.
+func (j *sessionJob) flushPending() {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.final != nil && !j.delivered && j.broadcast(j.final) {
+		j.delivered = true
+		j.final = nil
+	}
+}
+
+// beginTurn moves the job into the running state for a new turn or compress. It
+// PRESERVES a still-undelivered buffered reply from an earlier turn (whose send
+// failed on a brief client stall) so flushPending can redeliver it, rather than
+// silently discarding it the way an unconditional reset did. Call with j.mu held.
+func (j *sessionJob) beginTurn(cancel context.CancelFunc) {
+	j.running = true
+	j.aborted = false
+	j.cancel = cancel
+	if j.delivered {
+		j.final = nil // prior reply already delivered — safe to drop
+		j.delivered = false
+	}
+	// else: keep the undelivered j.final (j.delivered already false) for flushPending.
 }
 
 // jobFor returns the session's job hub, creating it if absent. The hub persists
@@ -156,17 +192,14 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk, primeJo
 	// Background-derived (so the turn outlives the connection) but cancelable, so
 	// "abort" can kill the claude child on demand.
 	ctx, cancel := context.WithCancel(context.Background())
-	j.running = true
-	j.final = nil // a fresh turn supersedes any prior buffered result
-	j.delivered = false
-	j.aborted = false
-	j.cancel = cancel
+	j.beginTurn(cancel)
 	j.mu.Unlock()
 
 	s.inflight.add(sess.SessionID) // persist "running" so a restart can flag it interrupted
 	log.Printf("turn[%s] input: %q", sess.Name, logField(text))
 	go func() {
 		defer s.inflight.remove(sess.SessionID)
+		j.flushPending() // redeliver an earlier reply whose send failed, now that we're writing again
 		j.emit(msgActivity("🤔 thinking…"))
 		changed := map[string]bool{}
 		onTool := func(t session.ToolUse) {
@@ -314,17 +347,14 @@ func (s *Server) startCompress(sess *session.Session) bool {
 	// Background-derived so the summary outlives the connection, but cancelable so
 	// "abort" can kill it like any turn.
 	ctx, cancel := context.WithCancel(context.Background())
-	j.running = true
-	j.final = nil
-	j.delivered = false
-	j.aborted = false
-	j.cancel = cancel
+	j.beginTurn(cancel)
 	j.mu.Unlock()
 
 	s.inflight.add(sess.SessionID)
 	log.Printf("compress[%s] summarizing", sess.Name)
 	go func() {
 		defer s.inflight.remove(sess.SessionID)
+		j.flushPending() // an idle compress must not swallow a reply whose send failed
 		j.emit(msgActivity("🗜️ compressing context…"))
 		onRateLimit := func(rl session.RateLimit) {
 			s.setRateLimit(rl)
@@ -472,8 +502,18 @@ func (s *Server) bindJob(c *conn, sess *session.Session, silent bool) {
 		j.sinks = map[*conn]func(any) bool{}
 	}
 	j.sinks[c] = sink
-	switch {
-	case j.running:
+	// Hand back a buffered reply from an earlier turn that never reached a live
+	// client (its send failed while the client was unreachable). This is done
+	// INDEPENDENTLY of whether a new turn is now running — a running turn does not
+	// mean the earlier reply was delivered, and skipping it here (as the old
+	// running-first switch did) would strand it until a later turn wiped it.
+	if !j.delivered && j.final != nil {
+		if sink(j.final) {
+			j.delivered = true
+			j.final = nil
+		}
+	}
+	if j.running {
 		// Catch up just this new connection (not a fan-out). Silent reconnect
 		// auto-attach gets a quiet breadcrumb (so the app knows the turn survived
 		// and its interruption watchdog resets); a voice attach gets a spoken nudge.
@@ -481,13 +521,6 @@ func (s *Server) bindJob(c *conn, sess *session.Session, silent bool) {
 			sink(msgActivity("🤔 still working…"))
 		} else {
 			sink(msgSay("still working on it — one sec."))
-		}
-	case !j.delivered && j.final != nil:
-		// A turn finished with nobody attached; hand the buffered result to the
-		// first connection back, then free it.
-		if sink(j.final) {
-			j.delivered = true
-			j.final = nil
 		}
 	}
 }

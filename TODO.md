@@ -12,6 +12,23 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-14 — **Fix: turn reply silently dropped when the client stalls mid-turn.** A turn's
+      reply reached the app only if the phone's socket accepted the write at `finish` time. If the
+      phone was briefly unreachable then (backgrounded / a mobile stall past `c.send`'s write
+      deadline), the write failed and the reply was buffered **undelivered** — and the *next* turn's
+      `startTurn` (and background auto-compress) wiped that buffer before it was redelivered, so the
+      answer never appeared even though the server logged it. A slow local model made it common by
+      widening the stall window, but it was model-agnostic. Fix (`internal/gateway/jobs.go`): a new
+      `beginTurn` preserves an undelivered `j.final` across turn starts (only drops it once
+      delivered); `flushPending` redelivers it at the next turn's first write (thinking ping), by
+      which point a stalled socket has usually recovered; `finish` clears the buffer on a reaching
+      write and marks it undelivered otherwise; and `bindJob` now hands back a buffered reply on
+      reattach **independently** of whether a new turn is running (the old running-first `switch`
+      skipped it). Regression test `drop_repro_test.go` (`TestBufferedReplyRedeliveredAfterFailedSend`)
+      drives the real turn machinery with a stalled→recovered sink. `docs/protocol.md` `output` note
+      updated. Root cause was found while debugging why an opencode/Ollama "website" session's
+      follow-up replies never showed in the app.
+
 - [x] 2026-07-13 — **One-shot voice spawn with defaults.** "hey buddy, new session [called <name>]
       [in <location>] [on <provider>] [with <profile> profile]" now creates + attaches immediately,
       defaulting each unspoken part: location → the user's **home directory**, provider → the default
