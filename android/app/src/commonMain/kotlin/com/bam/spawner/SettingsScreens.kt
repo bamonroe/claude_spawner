@@ -1129,6 +1129,24 @@ fun AudioSettings(
         VadSlider("Silence to end / \"I'm done\" (ms)", settings.vadSilenceMs, 400, 2000, 100) {
             settings.vadSilenceMs = it; onVadChanged()
         }
+        var adaptive by remember { mutableStateOf(settings.vadAdaptive) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Adapt to background noise", style = MaterialTheme.typography.titleMedium)
+                Text("Track the room's noise floor and lift the mic threshold above it automatically. The slider above then acts as a minimum.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            }
+            Switch(checked = adaptive, onCheckedChange = { adaptive = it; settings.vadAdaptive = it; onVadChanged() })
+        }
+        var headsetNs by remember { mutableStateOf(settings.headsetNoiseSuppression) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Headset noise suppression", style = MaterialTheme.typography.titleMedium)
+                Text("Run the phone's noise suppressor on the headset mic path too. Helps steady background noise, but can attenuate far-field voice.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            }
+            Switch(checked = headsetNs, onCheckedChange = { headsetNs = it; settings.headsetNoiseSuppression = it; onVadChanged() })
+        }
 
         // The hands-free mic source (device vs headset) now lives in the top-bar audio
         // picker's Input section, alongside the output route, so it isn't set here.

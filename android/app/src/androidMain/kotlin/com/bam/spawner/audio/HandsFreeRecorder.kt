@@ -31,6 +31,9 @@ data class VadConfig(
     val rmsThreshold: Double = 500.0,
     val onsetMs: Int = 120,
     val silenceMs: Int = 800,
+    // When true, the energy bar tracks the room's ambient noise floor instead of
+    // sitting at a fixed [rmsThreshold]; see Endpointer.
+    val adaptive: Boolean = true,
 )
 
 class HandsFreeRecorder(
@@ -46,6 +49,10 @@ class HandsFreeRecorder(
     // there's nothing to echo-cancel).
     private val audioSource: Int = MediaRecorder.AudioSource.VOICE_COMMUNICATION,
     private val enableAec: Boolean = true,
+    // Whether to run the platform NoiseSuppressor. Defaults to follow [enableAec]
+    // (the AEC path always suppressed too); the headset/media path can force it on
+    // independently so ambient noise is filtered even with the echo canceller off.
+    private val enableNs: Boolean = enableAec,
 ) {
     companion object {
         const val CODEC = Codecs.OGG_OPUS
@@ -106,10 +113,11 @@ class HandsFreeRecorder(
             if (enableAec && AcousticEchoCanceler.isAvailable()) {
                 aec = AcousticEchoCanceler.create(sessionId)?.also { it.enabled = true }
             }
-            // Tie noise suppression to the same flag as echo cancellation: the media
-            // (headset) path wants raw far-field capture, where the suppressor would
-            // treat a voice a couple feet away as noise and attenuate it.
-            if (enableAec && NoiseSuppressor.isAvailable()) {
+            // Noise suppression is independent of echo cancellation: by default it
+            // follows the AEC path, but the headset/media path can opt in via
+            // [enableNs]. Left off there by default because the suppressor is tuned
+            // for a near mic and can treat far-field voice as noise and attenuate it.
+            if (enableNs && NoiseSuppressor.isAvailable()) {
                 ns = NoiseSuppressor.create(sessionId)?.also { it.enabled = true }
             }
         }
@@ -125,6 +133,7 @@ class HandsFreeRecorder(
             silenceMs = vad.silenceMs,
             rmsThreshold = vad.rmsThreshold,
             onsetMs = vad.onsetMs,
+            adaptive = vad.adaptive,
             onStart = { startReq = true },
             onEnd = { endReq = true },
         )

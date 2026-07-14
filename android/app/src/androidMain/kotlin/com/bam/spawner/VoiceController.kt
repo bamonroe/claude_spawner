@@ -628,10 +628,11 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
         rmsThreshold = settings.vadThreshold.toDouble(),
         onsetMs = settings.vadOnsetMs,
         silenceMs = settings.vadSilenceMs,
+        adaptive = settings.vadAdaptive,
     )
 
     // How to capture + play during hands-free, resolved from the current output route.
-    private data class MicProfile(val commMode: Boolean, val source: Int, val aec: Boolean)
+    private data class MicProfile(val commMode: Boolean, val source: Int, val aec: Boolean, val ns: Boolean)
 
     /** Resolve how to capture + play for hands-free straight from the two explicit
      *  picks — the [AudioInput] mic source and the [AudioOutput] route — with no
@@ -658,16 +659,18 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
         // Headset mic (SCO) → call-mode capture. Otherwise the device mic, whose
         // profile follows the output route.
         return when {
-            headsetMicOn -> MicProfile(true, android.media.MediaRecorder.AudioSource.VOICE_COMMUNICATION, true)
+            headsetMicOn -> MicProfile(true, android.media.MediaRecorder.AudioSource.VOICE_COMMUNICATION, true, true)
+            // Headset/media path: AEC stays off (TTS is in the user's ears), but the
+            // noise suppressor is an independent opt-in for filtering ambient noise.
             _audioOutput.value == AudioOutput.HEADSET ->
-                MicProfile(false, android.media.MediaRecorder.AudioSource.VOICE_RECOGNITION, false)
-            else -> MicProfile(true, android.media.MediaRecorder.AudioSource.VOICE_COMMUNICATION, true)
+                MicProfile(false, android.media.MediaRecorder.AudioSource.VOICE_RECOGNITION, false, settings.headsetNoiseSuppression)
+            else -> MicProfile(true, android.media.MediaRecorder.AudioSource.VOICE_COMMUNICATION, true, true)
         }
     }
 
     private fun newHandsFree(profile: MicProfile) = HandsFreeRecorder(
         app, vadConfig(), ::onHandsFreeSpeechStart, ::onHandsFreeUtterance,
-        { _micLevel.value = it }, profile.source, profile.aec,
+        { _micLevel.value = it }, profile.source, profile.aec, profile.ns,
     )
 
     /** Starts the always-listening pipeline. Returns false if the mic is unavailable. */

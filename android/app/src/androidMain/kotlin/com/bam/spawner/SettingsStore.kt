@@ -182,4 +182,14 @@ class SettingsStore(context: Context) : Prefs {
         get() = prefs.getInt("vad_silence_ms", Prefs.DEFAULT_VAD_SILENCE_MS)
         set(v) = prefs.edit().putInt("vad_silence_ms", v).apply()
 
+    /** Adapt the VAD energy bar to the room's ambient noise floor (default on). */
+    override var vadAdaptive: Boolean
+        get() = prefs.getBoolean("vad_adaptive", Prefs.DEFAULT_VAD_ADAPTIVE)
+        set(v) = prefs.edit().putBoolean("vad_adaptive", v).apply()
+
+    /** Run the platform noise suppressor on the headset/media capture path too. */
+    override var headsetNoiseSuppression: Boolean
+        get() = prefs.getBoolean("headset_ns", Prefs.DEFAULT_HEADSET_NOISE_SUPPRESSION)
+        set(v) = prefs.edit().putBoolean("headset_ns", v).apply()
+
 }

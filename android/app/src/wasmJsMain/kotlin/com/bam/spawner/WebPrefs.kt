@@ -149,4 +149,10 @@ class WebPrefs : Prefs {
     override var vadSilenceMs: Int
         get() = int("vad_silence_ms", Prefs.DEFAULT_VAD_SILENCE_MS)
         set(v) = putInt("vad_silence_ms", v)
+    override var vadAdaptive: Boolean
+        get() = bool("vad_adaptive", Prefs.DEFAULT_VAD_ADAPTIVE)
+        set(v) = putBool("vad_adaptive", v)
+    override var headsetNoiseSuppression: Boolean
+        get() = bool("headset_ns", Prefs.DEFAULT_HEADSET_NOISE_SUPPRESSION)
+        set(v) = putBool("headset_ns", v)
 }

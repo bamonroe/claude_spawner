@@ -109,6 +109,12 @@ interface Prefs {
     var vadOnsetMs: Int
     /** Silence (ms) after speech that ends the utterance ("I'm done talking"). */
     var vadSilenceMs: Int
+    /** Adapt the VAD energy bar to the room's ambient noise floor (default on).
+     *  The [vadThreshold] then acts as a lower bound rather than a fixed gate. */
+    var vadAdaptive: Boolean
+    /** Run the platform noise suppressor on the headset/media capture path too
+     *  (default off — it can attenuate far-field voice). */
+    var headsetNoiseSuppression: Boolean
 
     /** Parse the alias lines into a misheard->canonical map. */
     fun aliasMap(): Map<String, String> = commandAliases.lines().mapNotNull { line ->
@@ -182,5 +188,7 @@ interface Prefs {
         const val DEFAULT_VAD_THRESHOLD = 500
         const val DEFAULT_VAD_ONSET_MS = 120
         const val DEFAULT_VAD_SILENCE_MS = 800
+        const val DEFAULT_VAD_ADAPTIVE = true
+        const val DEFAULT_HEADSET_NOISE_SUPPRESSION = false
     }
 }

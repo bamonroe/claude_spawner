@@ -87,6 +87,16 @@ bug, beep"); everything else is discarded. Commands still work with no speak tok
 buddy, stop" always interrupts. Leave the switch off (or the speak token blank) to dictate everything
 as before. The speak token is comma-separated too, so you can give it a couple of variants.
 
+**Adapting to background noise (Settings → Audio).** The mic threshold slider sets how loud a frame
+must be to count as speech. With **Adapt to background noise** on (the default), that number isn't a
+fixed gate: the app continuously measures the room's ambient noise floor during silence and lifts the
+speech bar to sit above it, so it self-calibrates as you move between a quiet room and a noisy one —
+the slider then acts as a *minimum* rather than an absolute cutoff. Turn it off to go back to a fixed
+threshold you set by hand. Separately, **Headset noise suppression** runs the phone's built-in noise
+suppressor on the Bluetooth-headset capture path too (it's off there by default because that filter
+is tuned for a near mic and can attenuate a voice picked up from across the room); switch it on if
+steady background noise on your headset is getting transcribed.
+
 **When the end token misfires.** If "beep" isn't caught and the clip keeps growing, whatever you
 say next still lands in the same message — so you can just keep issuing commands: the server splits
 a committed message on **every** "hey buddy" and runs them in order ("hey buddy list, hey buddy
