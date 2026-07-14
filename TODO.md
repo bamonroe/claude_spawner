@@ -12,6 +12,33 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [ ] **Verify + re-apply the audio output route after selecting it (Bluetooth/car stickiness).**
+      `AudioRouter.setOutput` calls `setCommunicationDevice` fire-and-forget and returns its raw
+      boolean; `setAudioOutput` then commits `_audioOutput.value` even if the platform silently
+      reverted the grab (common with car BT stacks, which fall back to A2DP with no comm route). So
+      the app's state and the actual route diverge and the user has to re-pick a few times before it
+      "takes" (observed live: paired in the car, had to toggle output back and forth before speaker
+      engaged). Fix: after `setOutput`, re-read `AudioRouter.current()`/`communicationDevice` and, if
+      it didn't land on the requested device, retry (poll a short window like the SCO-mic
+      `verifyHeadsetMic` path already does) before trusting the selection — and surface a transient
+      state if it never engages. Needs real in-car BT testing to validate; deferred from the
+      2026-07-14 hands-free mic fixes. See `VoiceController.setAudioOutput` / `AudioRouter.setOutput`.
+
+- [x] 2026-07-14 — **Fix: hands-free Bluetooth mic needed toggling to engage.** The SCO-failure
+      latch only cleared when the input *value* changed, so re-tapping "Headset" was a no-op (had to
+      bounce Device→Headset to retry); now any explicit input pick clears it. And `verifyHeadsetMic`
+      judged the link with one check at 2.5 s and latched failure — too quick for car kits / some
+      earbuds — so it now polls ~6 s and succeeds the moment SCO goes live
+      (`VoiceController.setAudioInput` / `verifyHeadsetMic`).
+
+- [x] 2026-07-14 — **Feat: adaptive noise-floor VAD + optional headset noise suppression.** The
+      hands-free endpointer tracked no ambient floor, so a fixed energy gate either passed noise or
+      (raised) rejected quiet speech in noisy rooms. `Endpointer` now tracks the noise floor from
+      non-speech frames and lifts the onset bar to a multiple of it, never below the configured
+      threshold (quiet rooms unchanged); default on, Settings → Audio "Adapt to background noise",
+      the mic slider becomes a floor. Also split the platform NoiseSuppressor from AEC so the
+      headset/media path can opt in independently ("Headset noise suppression", off by default).
+
 - [x] 2026-07-14 — **Fix: turn reply silently dropped when the client stalls mid-turn.** A turn's
       reply reached the app only if the phone's socket accepted the write at `finish` time. If the
       phone was briefly unreachable then (backgrounded / a mobile stall past `c.send`'s write
