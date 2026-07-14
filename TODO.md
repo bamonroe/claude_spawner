@@ -1398,6 +1398,16 @@ the feature works as expected, as the ship step (see [[use-android-dev-skill-and
       aliases (→ `docs/commands.json` → `generateCommands` → app), so wake mishearings are visible
       and **editable in the app's alias editor** like regular commands. Server list is authoritative
       today; this makes it user-tunable on-device.
+- [ ] **Slim the Kokoro TTS runtime — drop the PyTorch VRAM tax.** The `kokoro` GPU service
+      (`ghcr.io/remsky/kokoro-fastapi-gpu`) is Python/PyTorch and pays a fixed ~1.5–2 GB VRAM
+      framework overhead for an 82M-param model (measured 2026-07-14: ~2.4 GB resident, vs
+      whisper.cpp's lean ~3.8 GB which is nearly all real large-v3 weights). Kokoro ships official
+      ONNX weights, so swap the service for a compiled ONNX runtime — [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)
+      (C++, Go/Rust/Python bindings, no PyTorch) or the Rust [Kokoros](https://github.com/lucasjinreal/Kokoros).
+      **Keep it on the GPU** (fast, and beats the host CPU) — the goal is only to cut the base
+      overhead to a few hundred MB (CUDA context), not move it off-device. Frees VRAM for whisper +
+      the LiveKit wake-word model. Same lesson as whisper.cpp vs PyTorch. Later item; tackle after
+      the detector epic lands.
 - [ ] On-device fallback STT when offline.
 - [ ] iOS app.
 
