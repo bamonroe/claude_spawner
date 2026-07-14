@@ -81,8 +81,9 @@ type inbound struct {
 func msgAgents(reg *agent.Registry, settings *agent.SettingsStore) map[string]any {
 	agents := make([]map[string]any, 0)
 	for _, a := range reg.List() {
-		models := make([]map[string]any, 0, len(a.Models))
-		for _, m := range a.Models {
+		cat := a.Catalog()
+		models := make([]map[string]any, 0, len(cat))
+		for _, m := range cat {
 			models = append(models, map[string]any{"alias": m.Alias, "voice": settings.VoiceEnabled(a, m.Alias)})
 		}
 		agents = append(agents, map[string]any{

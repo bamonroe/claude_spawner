@@ -17,7 +17,10 @@
 // any backend runs on any target.
 package agent
 
-import "io"
+import (
+	"io"
+	"sync"
+)
 
 // TranscriptKind declares which on-disk transcript layout a backend writes, so
 // the session driver can pick the matching reader for history replay, context
@@ -98,9 +101,30 @@ type Agent struct {
 	// for you. Must name one of Models. Spawn uses it so every session has an
 	// explicit model; voice can override later.
 	DefaultModel string
-	// Models is the ordered catalogue of selectable models (first is conventionally
-	// the strongest/default).
+	// Models is the ordered catalogue of selectable models the backend ships with
+	// (first is conventionally the strongest/default). It is the *fallback* list:
+	// when the backend also supports live discovery (DiscoverArgs) and a probe
+	// succeeds, the discovered catalogue replaces it — see Catalog. A backend with
+	// no discovery, or whose probe fails, always presents this compiled list.
 	Models []Model
+	// DiscoverArgs, when non-empty, is the argv (after the backend's binary) of a
+	// command whose stdout lists the models the backend can currently run, one per
+	// line — the mechanism that lets a backend report its live catalogue (e.g.
+	// opencode's `models ollama`) instead of relying only on the compiled Models.
+	// The session layer runs it on the host and hands the stdout to ParseModels.
+	// Empty means "no discovery — always use Models".
+	DiscoverArgs []string
+	// ParseModels turns the stdout of the DiscoverArgs command into a model
+	// catalogue. Required iff DiscoverArgs is set. Returning an empty slice (e.g.
+	// unparseable output) is treated as "discovery yielded nothing" and the
+	// compiled Models are kept.
+	ParseModels func(stdout []byte) []Model
+	// mu guards the discovered catalogue below, which RefreshModels writes at
+	// runtime while turns read it via Catalog.
+	mu sync.RWMutex
+	// dynamic is the last successfully discovered catalogue; nil until a probe
+	// succeeds. Once set it shadows Models everywhere the catalogue is read.
+	dynamic []Model
 	// ParseTurn consumes one turn's stdout stream until EOF and returns the clean
 	// reply, token usage, and (for self-assigning backends) the session id the
 	// stream announced. Live events fan out via the callbacks. Required — the
@@ -111,12 +135,45 @@ type Agent struct {
 	build func(a *Agent, s TurnSpec, m Model) []string
 }
 
+// Catalog is the agent's effective model list: the discovered catalogue when a
+// probe has succeeded (see RefreshModels), else the compiled Models. Every read
+// of an agent's models — resolution, the settings overlay, the `agents` wire
+// message — goes through here, so live discovery transparently takes over. Safe
+// for concurrent use with the runtime refresh.
+func (a *Agent) Catalog() []Model {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	if a.dynamic != nil {
+		return a.dynamic
+	}
+	return a.Models
+}
+
+// CanDiscover reports whether the backend supports live model discovery (it
+// declares both a probe command and a parser).
+func (a *Agent) CanDiscover() bool {
+	return len(a.DiscoverArgs) > 0 && a.ParseModels != nil
+}
+
+// SetDiscovered installs a discovered catalogue as the agent's effective model
+// list, shadowing the compiled Models. An empty/nil list is ignored, so a probe
+// that yields nothing leaves the fallback list in place.
+func (a *Agent) SetDiscovered(models []Model) {
+	if len(models) == 0 {
+		return
+	}
+	a.mu.Lock()
+	a.dynamic = models
+	a.mu.Unlock()
+}
+
 // Model resolves an alias or spoken form to one of the agent's models. The empty
 // string (or an unknown alias) resolves to DefaultModel. The bool reports whether
 // the input matched a real model (false = fell back to the default).
 func (a *Agent) Model(alias string) (Model, bool) {
+	models := a.Catalog()
 	if alias != "" {
-		for _, m := range a.Models {
+		for _, m := range models {
 			if m.Alias == alias {
 				return m, true
 			}
@@ -127,15 +184,16 @@ func (a *Agent) Model(alias string) (Model, bool) {
 			}
 		}
 	}
-	for _, m := range a.Models {
+	for _, m := range models {
 		if m.Alias == a.DefaultModel {
 			return m, false
 		}
 	}
-	// No DefaultModel match (misconfigured agent): fall back to the first model,
-	// or a zero Model if there are none.
-	if len(a.Models) > 0 {
-		return a.Models[0], false
+	// No DefaultModel match (misconfigured agent, or the default isn't in the
+	// discovered catalogue): fall back to the first model, or a zero Model if
+	// there are none.
+	if len(models) > 0 {
+		return models[0], false
 	}
 	return Model{}, false
 }

@@ -122,7 +122,13 @@ and parse it — so the server drives more than `claude`.
 - An **`Agent`** (`internal/agent`) is a **self-contained** headless backend, one file per backend
   (`claude.go`, `codex.go`): an id (persisted on the session), a `Bin` (the command to launch), a
   `DefaultModel`, a catalogue of selectable `Models` (each by a short spoken alias —
-  `opus`/`sonnet`/`fable`, or Codex's presets), a per-backend **arg builder**
+  `opus`/`sonnet`/`fable`, or Codex's presets). The `Models` slice is the compiled
+  **fallback**: a backend may also declare **live discovery** (`DiscoverArgs` + `ParseModels`) —
+  a command whose stdout lists the models it can *currently* run — and when a probe succeeds the
+  discovered catalogue **shadows** `Models` everywhere it's read (`Agent.Catalog`, guarded for the
+  runtime refresh). So a backend fronting an external model store (opencode → Ollama) reports its
+  real list with no rebuild, while backends with a fixed set (Claude, Codex) just carry `Models`. It
+  also has a per-backend **arg builder**
   (`Agent.Args(TurnSpec)`) that emits that backend's exact command line, its own **stream parser**
   (`Agent.ParseTurn`, normalizing the backend's output to the shared `TurnResult` — reply, usage,
   self-assigned session id), and a declared **transcript layout** (`Agent.Transcript`). The
@@ -150,7 +156,14 @@ alternates are reasoning-effort presets); the registry is the single place that 
 *opencode* (`opencode run` / `run -s <id>`, `--format json` JSONL) drives **local Ollama** models:
 like Codex it **self-assigns** its session id (a `ses_…` id on every event), its models are the
 `ollama/*` catalogue served by the provider block in the host user's `~/.config/opencode/opencode.jsonc`
-(pointed at the local Ollama server), and `--auto` is its skip-permissions equivalent. It persists
+(pointed at the local Ollama server), and `--auto` is its skip-permissions equivalent. It is also
+the first backend to use **live model discovery**: `DiscoverArgs` runs `opencode models ollama` on
+the host and `ParseModels` turns each `ollama/<id>` line into a model, so whatever opencode is
+configured to run appears in the app automatically — pulling a new Ollama model and wiring it into
+`opencode.jsonc` (both the user's job — the server treats opencode as the source of truth for what's
+runnable) is all it takes, no server rebuild. `Driver.RefreshModels` runs the probe over the SSH
+pool at boot (before the provider overlay is validated) and, throttled, on each client connect. It
+persists
 sessions in a SQLite DB rather than flat files, so its transcript reader shells out to opencode's own
 commands (see below).
 
@@ -181,6 +194,12 @@ wiring**, and nothing in the gateway, executors, or clients changes:
    `Transcript`), its `build` func (the exact CLI for first-turn / resume / bypass / model), and
    its `ParseTurn` (stream → `TurnResult`, fanning live events out via `TurnCallbacks`). Add parser
    tests beside it (`parse_test.go` has the pattern, with real captured event shapes).
+   - **Optional — live model discovery.** If the backend fronts an external, user-managed model set
+     (like opencode → Ollama) rather than a fixed catalogue, declare `DiscoverArgs` (the argv whose
+     stdout lists runnable models) and `ParseModels` (stdout → `[]Model`). `Driver.RefreshModels`
+     runs it over the host SSH pool and installs the result via `Agent.SetDiscovered`; `Models` stays
+     as the fallback when a probe fails. Keep discovered aliases in the same scheme as the fallback
+     so a stored provider-overlay default/voice choice survives either path.
 2. **Register it** in `agent.Default()`.
 3. **Transcript reader** — if the backend's on-disk history layout isn't Claude-shaped, add a
    `TranscriptKind` constant and a reader in `internal/session` (see `codex_transcript.go`), and

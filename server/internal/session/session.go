@@ -397,6 +397,42 @@ func (d *Driver) hostPool() *SSHPool {
 	return nil
 }
 
+// RefreshModels asks each backend that supports live discovery to report the
+// models it can currently run, and installs the result as that backend's
+// effective catalogue (agent.Agent.Catalog). Discovery runs the backend's probe
+// command on the host over the SSH pool (LocalHost), using the backend's host
+// binary — so, e.g., opencode's `opencode models ollama` surfaces whatever the
+// host's opencode is configured for, no server rebuild needed.
+//
+// Best-effort and per-backend isolated: no host pool, a failing probe, or an
+// empty/unparseable result each just leaves that backend on its compiled fallback
+// list. Safe to call repeatedly (boot prime + periodic refresh); it never errors
+// out the caller.
+func (d *Driver) RefreshModels(ctx context.Context) {
+	pool := d.hostPool()
+	if pool == nil {
+		return // test-only HostExecutor, or SSH disabled — keep compiled catalogues
+	}
+	for _, ag := range d.Registry().List() {
+		if !ag.CanDiscover() {
+			continue
+		}
+		cmd := shellJoinCmd(d.binFor(ag, TargetHost), ag.DiscoverArgs)
+		out, err := pool.Run(ctx, LocalHost, cmd)
+		if err != nil {
+			log.Printf("model discovery: %s (%q): %v — keeping compiled models", ag.ID, cmd, err)
+			continue
+		}
+		models := ag.ParseModels(out)
+		if len(models) == 0 {
+			log.Printf("model discovery: %s returned no models — keeping compiled models", ag.ID)
+			continue
+		}
+		ag.SetDiscovered(models)
+		log.Printf("model discovery: %s → %d model(s)", ag.ID, len(models))
+	}
+}
+
 // DeleteSessionsForDir removes a directory's Claude transcripts on the session's
 // host (empty host = local). Returns how many transcripts were removed.
 func (d *Driver) DeleteSessionsForDir(ctx context.Context, host, sessionID, dir string) (int, error) {

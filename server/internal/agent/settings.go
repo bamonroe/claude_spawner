@@ -7,9 +7,10 @@ import (
 	"sync"
 )
 
-// Settings is the app-managed overlay on a compile-time [Agent] (an AI backend).
-// The backends and their model catalogues are fixed in code; the user can only
-// override, per backend:
+// Settings is the app-managed overlay on an [Agent] (an AI backend). The backends
+// are fixed in code and their model catalogue is either compiled in or discovered
+// live from the backend ([Agent.Catalog]); either way the user can only override,
+// per backend:
 //
 //   - DefaultModel — which model a fresh spawn stamps onto a new session;
 //   - VoiceModels  — which models the voice "list models" / "use model N"
@@ -94,7 +95,7 @@ func sanitize(ag *Agent, defaultModel string, voice []string) *Settings {
 			want[a] = true
 		}
 		st.VoiceModels = []string{}
-		for _, m := range ag.Models { // agent order, deduped by construction
+		for _, m := range ag.Catalog() { // agent order, deduped by construction
 			if want[m.Alias] {
 				st.VoiceModels = append(st.VoiceModels, m.Alias)
 			}
@@ -106,7 +107,7 @@ func sanitize(ag *Agent, defaultModel string, voice []string) *Settings {
 // hasModel reports whether alias is one of the agent's canonical model aliases
 // (not spoken forms — the settings overlay keys on the canonical alias only).
 func hasModel(ag *Agent, alias string) (Model, bool) {
-	for _, m := range ag.Models {
+	for _, m := range ag.Catalog() {
 		if m.Alias == alias {
 			return m, true
 		}
@@ -152,11 +153,12 @@ func (s *SettingsStore) VoiceModels(ag *Agent) []Model {
 			}
 		}
 	}
+	models := ag.Catalog()
 	if allow == nil {
-		return ag.Models
+		return models
 	}
-	out := make([]Model, 0, len(ag.Models))
-	for _, m := range ag.Models {
+	out := make([]Model, 0, len(models))
+	for _, m := range models {
 		if allow[m.Alias] {
 			out = append(out, m)
 		}

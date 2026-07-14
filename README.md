@@ -350,6 +350,15 @@ declares how to invoke it and how to read its output, so they share one interfac
   `opencode` isn't on the host's `PATH` (and `SPAWNER_SANDBOX_OPENCODE_BIN` for the sandbox). opencode
   keeps sessions in a SQLite DB, so reattach replays history via `opencode export` (and delete uses
   `opencode session delete`) rather than reading files.
+  - **Models are discovered automatically.** The server asks opencode which models it can run
+    (`opencode models ollama`) at startup and, throttled, whenever an app connects — so the model
+    picker always reflects opencode's real catalogue with **no server rebuild and no app update**.
+    Adding a model is the usual two local steps, both yours (the server treats opencode as the source
+    of truth for what's runnable): `ollama pull <model>`, then add it under the `ollama` provider's
+    `models` in `opencode.jsonc`. It then shows up on your next connect. A model you pulled but didn't
+    wire into opencode stays hidden — opencode couldn't run it anyway. If the discovery probe ever
+    fails (opencode unreachable), the picker falls back to a built-in `qwen2.5-coder` / `llama3.1`
+    pair so it's never empty.
 
 Pick the backend when you spawn — by **voice**, "hey buddy, spawn a codex session" (or "…on
 opencode") creates that backend's session; a plain spawn uses Claude. In the **visual New-session picker** (the app or
@@ -363,7 +372,8 @@ the spawner picks for you, plus a short catalogue you can switch between by voic
 - **"hey buddy, list models"** — speaks the attached session's backend catalogue, numbered, marking
   the current one (Claude: `opus` / `sonnet` / `fable`; Codex on a ChatGPT-account plan: `gpt-5.5`
   and its low/high reasoning presets — the account decides which model ids are selectable; opencode:
-  the local Ollama models, e.g. `qwen` (qwen2.5-coder) / `llama`).
+  whatever it's configured to run, discovered live and named by model id, e.g. `qwen2.5-coder:7b` /
+  `llama3.1:8b`).
 - **"hey buddy, use model 2"** — switches to that numbered model (say the number — "two" or "2").
   Selecting by **number** is deliberate: it sidesteps having to pronounce awkward model names. The
   choice is durable on the session and takes effect on your next message.

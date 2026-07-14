@@ -56,6 +56,20 @@ Dates are `YYYY-MM-DD`.
       - [ ] Client tab: `ProvidersController` + `ProvidersSettings` composable, `SettingsHub` row,
         `MainActivity`/`WebRoot` nav branches, controller impls, APK build + phone install.
 
+- [x] 2026-07-14 — **Live model auto-discovery per backend.** A backend can now report its runnable
+      models at runtime instead of only from a compiled list, so no rebuild/APK update is needed when
+      a model changes. Generic two-mechanism seam on `agent.Agent`: the compiled `Models` slice is the
+      **fallback**, and optional `DiscoverArgs` + `ParseModels` declare a probe whose stdout is the
+      **live** catalogue; `Agent.Catalog()` shadows the fallback with discovered models everywhere the
+      list is read (resolution, provider overlay, `agents` message). `Driver.RefreshModels` runs each
+      probe over the host SSH pool — at boot before the provider overlay validates, and throttled on
+      each client connect (re-broadcasting `agents`). opencode is the first user: `opencode models
+      ollama` → `ollama/*` models, aliases as the bare model id (fallback aliases realigned to match).
+      Claude/Codex keep their compiled lists. Getting a model *into* opencode stays the user's job
+      (`ollama pull` + `opencode.jsonc`); the server only auto-surfaces what opencode reports. Parser +
+      catalog/fallback tests; `go test ./...` green; architecture + README + TODO updated. Server-only
+      change — no APK needed (the app already renders whatever `agents` advertises).
+
 - [ ] **Session execution-environment profiles** — named, per-session, templatable bundles of
       mounts / credential injection / network endpoints for host + sandbox turns, replacing the flat
       global `SPAWNER_SANDBOX_*` config (which becomes the built-in `default` profile). Prerequisite

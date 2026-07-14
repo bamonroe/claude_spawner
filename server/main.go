@@ -80,11 +80,6 @@ func main() {
 	driver.Home = os.Getenv("HOME")
 	driver.GlobalVars = cfg.ProfileVars
 	log.Printf("execution profiles loaded: %d profile(s)", len(profiles.List()))
-	providers, err := agent.OpenSettingsStore(cfg.ProvidersPath, driver.Registry())
-	if err != nil {
-		log.Fatalf("provider settings: %v", err)
-	}
-	driver.Providers = providers
 	if len(cfg.SpawnRoots) > 0 {
 		// The account-global /usage check runs claude in this dir; use a spawn root so
 		// it lands somewhere sane (rather than /tmp).
@@ -147,6 +142,22 @@ func main() {
 	} else {
 		log.Printf("trusted loopback host key (%s)", session.LocalHost)
 	}
+	// Prime each backend's live model catalogue from the host before validating the
+	// provider overlay below, so a backend that discovers its models (opencode →
+	// Ollama) presents its real list and the overlay validates against it. Bounded
+	// and best-effort: an unreachable host or a slow probe just leaves the compiled
+	// fallback list in place (see Driver.RefreshModels). The gateway refreshes again
+	// on client connect, so models added while the server runs appear without a boot.
+	func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		driver.RefreshModels(ctx)
+	}()
+	providers, err := agent.OpenSettingsStore(cfg.ProvidersPath, driver.Registry())
+	if err != nil {
+		log.Fatalf("provider settings: %v", err)
+	}
+	driver.Providers = providers
 	if cfg.SandboxImage != "" {
 		// SSH-native: a containerized server has no runtime of its own, so it drives
 		// rootless podman on the host over the same pool it runs host turns on. All

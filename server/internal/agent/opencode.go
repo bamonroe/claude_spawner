@@ -33,11 +33,22 @@ func opencode() *Agent {
 		Bin:           "opencode",
 		Transcript:    TranscriptOpencode,
 		SelfAssignsID: true,
-		DefaultModel:  "qwen",
+		DefaultModel:  "qwen2.5-coder:7b",
+		// Compiled fallback list, used only if live discovery (DiscoverArgs below)
+		// fails. Aliases match discovery's scheme — the bare `ollama/<id>` tail — so
+		// a stored default/voice override stays valid whether the catalogue is
+		// discovered or falls back. The curated Spoken forms give the two staple
+		// models nicer voice handles than the auto-generated ones.
 		Models: []Model{
-			{Alias: "qwen", Flag: "ollama/qwen2.5-coder:7b", Spoken: []string{"coder", "qwen coder", "qwen two five", "qwen 2.5"}},
-			{Alias: "llama", Flag: "ollama/llama3.1:8b", Spoken: []string{"llama three", "llama 3", "llama 3.1"}},
+			{Alias: "qwen2.5-coder:7b", Flag: "ollama/qwen2.5-coder:7b", Spoken: []string{"qwen", "coder", "qwen coder", "qwen two five", "qwen 2.5"}},
+			{Alias: "llama3.1:8b", Flag: "ollama/llama3.1:8b", Spoken: []string{"llama", "llama three", "llama 3", "llama 3.1"}},
 		},
+		// Live discovery: `opencode models ollama` prints one `ollama/<id>` per line
+		// — the models opencode is actually configured to run against Ollama. This
+		// replaces the compiled pair above whenever the probe succeeds, so a model
+		// added to opencode's config appears in the app with no server rebuild.
+		DiscoverArgs: []string{"models", "ollama"},
+		ParseModels:  parseOpencodeModels,
 		build: func(a *Agent, s TurnSpec, m Model) []string {
 			args := []string{"run"}
 			if s.Resume {
@@ -180,6 +191,45 @@ func parseOpencodeStream(r io.Reader, cb TurnCallbacks) (TurnResult, error) {
 	}
 	res.Reply = reply.String()
 	return res, nil
+}
+
+// parseOpencodeModels turns the stdout of `opencode models ollama` into a model
+// catalogue. Each non-empty line is a `provider/model` id (e.g.
+// "ollama/qwen2.5-coder:7b"); the full line is the Flag handed to `-m`, and the
+// alias is the tail after the provider so it reads as the bare model id
+// ("qwen2.5-coder:7b"). Duplicate and blank lines are dropped. Spoken forms are
+// auto-generated (punctuation → spaces) so voice-by-name has a chance; the
+// reliable path stays voice-by-number, which needs no nicknames.
+func parseOpencodeModels(stdout []byte) []Model {
+	var models []Model
+	seen := map[string]bool{}
+	for _, line := range strings.Split(string(stdout), "\n") {
+		line = strings.TrimSpace(line)
+		slash := strings.IndexByte(line, '/')
+		if slash < 0 {
+			continue // not a provider/model id
+		}
+		alias := line[slash+1:]
+		if alias == "" || seen[alias] {
+			continue
+		}
+		seen[alias] = true
+		models = append(models, Model{Alias: alias, Flag: line, Spoken: opencodeSpoken(alias)})
+	}
+	return models
+}
+
+// opencodeSpoken derives lightweight spoken forms for a discovered model alias so
+// "use model <name>" has a shot at matching — the alias with its ":" / "-" / "."
+// separators turned into spaces (e.g. "qwen2.5-coder:7b" → "qwen2 5 coder 7b").
+// Returns nothing when that adds no new form (no separators).
+func opencodeSpoken(alias string) []string {
+	spaced := strings.NewReplacer(":", " ", "-", " ", ".", " ").Replace(alias)
+	spaced = strings.Join(strings.Fields(spaced), " ")
+	if spaced == "" || spaced == alias {
+		return nil
+	}
+	return []string{spaced}
 }
 
 // strInput returns the string value at key in a tool part's input map, or "".

@@ -60,6 +60,9 @@ type Server struct {
 	connsMu sync.Mutex
 	conns   map[*conn]bool // currently-connected apps, for shutdown broadcasts
 
+	modelMu        sync.Mutex // guards modelRefreshed (live backend-catalogue discovery throttle)
+	modelRefreshed time.Time  // last model-discovery refresh; throttles the per-connect probe
+
 	whisperMu     sync.Mutex // guards the resident whisper servers' currently-loaded models
 	whisperLoaded string     // "<url>|<model>" last hot-loaded (accurate server), to skip redundant /load calls
 	currentModel  string     // the accurate server's model NAME (server-global; apps read it)
@@ -720,8 +723,11 @@ func (c *conn) authenticate() bool {
 	model, fastModel := c.srv.currentWhisperModels()
 	c.send(msgHelloOK("ws", model, fastModel, c.srv.catalogWhisperModels(), c.srv.availableWhisperModels(), c.srv.tts != nil))
 	// Advertise the AI backend registry so the app's new-session picker can offer a
-	// backend + model choice (and badge sessions by backend).
+	// backend + model choice (and badge sessions by backend). Also kick a throttled
+	// live re-discovery in the background: models added to a backend since boot land
+	// in every connected app moments later, no restart needed.
 	c.send(msgAgents(c.srv.driver.Registry(), c.srv.driver.ProviderSettings()))
+	go c.srv.refreshModelsOnConnect()
 	// Advertise execution profiles separately from hello_ok so older clients can
 	// ignore the message and still use the built-in default profile.
 	c.send(msgProfiles(c.srv.driver.ProfileRegistry()))
