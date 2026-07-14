@@ -442,6 +442,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
     override fun putProfile(p: ProfileInfo) { client?.send(Outbound.profilePut(p)) }
     override fun deleteProfile(name: String) { client?.send(Outbound.profileDelete(name)) }
     override fun setDefaultProfile(name: String) { client?.send(Outbound.profileSetDefault(name)) }
+    override fun putProvider(agent: String, defaultModel: String, voiceModels: List<String>) { client?.send(Outbound.providerPut(agent, defaultModel, voiceModels)) }
 
     override fun requestUsage() { _usageLoading.value = true; _usageReport.value = null; client?.send(Outbound.usage()) }
     override fun setUsageBenchmark() { client?.send(Outbound.usageSet()) }

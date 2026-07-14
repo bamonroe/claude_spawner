@@ -512,6 +512,10 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     /** Mark a profile as the default; broadcasts profiles. */
     override fun setDefaultProfile(name: String) = client?.send(Outbound.profileSetDefault(name)).let {}
 
+    /** Set a backend's default model + voice-enumerable models; broadcasts agents. */
+    override fun putProvider(agent: String, defaultModel: String, voiceModels: List<String>) =
+        client?.send(Outbound.providerPut(agent, defaultModel, voiceModels)).let {}
+
     /** Adopt a discovered session into the registry and attach to it. */
     override fun adopt(sessionId: String, dir: String) = client?.send(Outbound.adopt(sessionId, dir)).let {}
 
