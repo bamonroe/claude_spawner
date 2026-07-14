@@ -57,8 +57,12 @@ func (c *conn) spawnCommand(intent command.Intent) {
 	dir, ok := c.resolveSpawnDir(intent.Location)
 	spoken := len(projects.Terms(intent.Location)) > 0
 	// A *spoken* location that lands on a root or namespace with child projects is
-	// ambiguous — drop into the browse dialog to choose among them.
-	ambiguous := spoken && (c.isRoot(dir) || projects.IsNamespace(dir))
+	// ambiguous — drop into the browse dialog to choose among them. Naming the home
+	// default explicitly ("in bam" when $HOME is /home/bam) is *not* ambiguous: it's
+	// the same concrete target the bare no-location default spawns in, so honor it as
+	// a one-shot instead of forcing a browse of home's children.
+	namedHome := spoken && dir == c.homeSpawnDir()
+	ambiguous := spoken && !namedHome && (c.isRoot(dir) || projects.IsNamespace(dir))
 	// A no-location command normally keeps the classic "where do you want it?"
 	// dialog. But if the user named anything else — a name, a provider, or a profile
 	// — that's an explicit one-shot: honor the home default and spawn immediately,

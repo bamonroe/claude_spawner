@@ -712,6 +712,31 @@ func TestSpawnNamedNoLocationTakesFastPath(t *testing.T) {
 	}
 }
 
+// TestSpawnNamedHomeRootTakesFastPath: speaking the home root by name ("in bam"
+// when $HOME is /home/bam and that's a SPAWNER_ROOT) is *not* ambiguous — it names
+// the same concrete target the bare default spawns in, so it must spawn+attach at
+// home instead of dropping into the browse dialog to pick among home's children.
+func TestSpawnNamedHomeRootTakesFastPath(t *testing.T) {
+	ts, root, gw := newSandboxTestServer(t)
+	t.Setenv("HOME", root)
+	ws := dial(t, ts)
+	send(t, ws, map[string]any{"type": "hello", "token": "secret"})
+	readUntil(t, ws, "hello_ok")
+
+	// "spawner" matches the temp root's basename, resolving the spoken location
+	// straight to the home default.
+	send(t, ws, map[string]any{"type": "utterance", "text": "hey buddy spawn a new session in spawner"})
+	a := readUntil(t, ws, "attached")
+	name, _ := a["name"].(string)
+	rec := gw.store.Get(name)
+	if rec == nil {
+		t.Fatalf("session %q not persisted", name)
+	}
+	if rec.Dir != root {
+		t.Errorf("Dir = %q, want home default %q", rec.Dir, root)
+	}
+}
+
 func TestAudioPathTranscribesAndDispatches(t *testing.T) {
 	stt := &fakeSTT{text: "hey buddy spawn a new session"}
 	ts, _ := newTestServer(t, stt)
