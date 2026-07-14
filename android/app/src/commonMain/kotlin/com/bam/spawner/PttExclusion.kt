@@ -12,9 +12,11 @@ import androidx.compose.ui.Modifier
  * the pointer id vanishes, the gesture loop sees `change == null` ("lost-pointer") and
  * commits the truncated clip. `systemGestureExclusion` tells the OS not to interpret its
  * own gestures inside the given rect, so the touch stays with us for the whole hold. The
- * rect is grown down by [bottomPx] (into the nav-bar zone, past the button's inset) and
- * left by [leftPx] (along the cancel-drag track) since the button sits in the corner.
+ * rect is grown down by [bottomPx] (into the nav-bar zone, past the button's inset), left
+ * by [leftPx] (along the cancel-drag track) and right by [rightPx] (across the row's inset
+ * to the screen edge, where the back-swipe zone lives just past the button) since the
+ * button sits in the corner.
  *
  * Only Android has these edge gestures; the web/desktop actual is a no-op.
  */
-expect fun Modifier.pttGestureExclusion(active: Boolean, leftPx: Int, bottomPx: Int): Modifier
+expect fun Modifier.pttGestureExclusion(active: Boolean, leftPx: Int, rightPx: Int, bottomPx: Int): Modifier

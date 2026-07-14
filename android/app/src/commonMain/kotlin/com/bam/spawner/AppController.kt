@@ -93,11 +93,10 @@ interface AppController : HostsIdentitiesController, ProfilesController, Provide
     val ttsVoices: StateFlow<List<String>>
     val ttsVoiceDefault: StateFlow<String>
     val ask: StateFlow<List<AskQuestion>?>
-    // AI backend registry (from the `agents` message): the backends + models the
-    // new-session picker offers. Empty until the server advertises it on connect.
-    val agents: StateFlow<List<AgentInfo>>
-    // Execution profiles (`profiles` message) come from [ProfilesController], shared
-    // with the Settings → Profiles editor; the new-session picker reads them too.
+    // AI backend registry (`agents` message: the backends + models the new-session
+    // picker offers) comes from [ProvidersController]; execution profiles (`profiles`
+    // message) from [ProfilesController]. Both are shared with their Settings editors
+    // and read by the new-session picker. Empty until the server advertises them.
 
     // --- File browse / transfer ----------------------------------------------
     val listing: StateFlow<ServerMsg.Listing?>

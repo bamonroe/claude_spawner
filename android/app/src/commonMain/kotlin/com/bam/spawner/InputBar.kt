@@ -107,12 +107,15 @@ fun InputBar(
     // While hands-free owns the mic, push-to-talk is disabled.
     val pushToTalkEnabled = !handsFree
     val micLive = connected && pushToTalkEnabled
-    // While the button is a live mic, reserve its rect (grown down into the nav-bar
-    // zone and a little left) from the platform's edge gestures, so a hold that drifts
-    // toward the right/bottom screen edges isn't hijacked by the system back/home
-    // gesture and cut short as a "lost-pointer" (Android only; no-op on web).
-    val exclLeftPx = with(LocalDensity.current) { 40.dp.roundToPx() }
-    val exclBottomPx = with(LocalDensity.current) { 120.dp.roundToPx() }
+    // While the button is a live mic, reserve its rect (grown generously down into the
+    // nav-bar zone, left along the cancel track, and right across the row inset to the
+    // screen edge) from the platform's edge gestures, so a hold that drifts toward the
+    // right/bottom screen edges isn't hijacked by the system back/home gesture and cut
+    // short as a "lost-pointer" (Android only; no-op on web). Sized close to Android's
+    // 200dp-per-edge cap so even a wandering thumb stays inside the reserved zone.
+    val exclLeftPx = with(LocalDensity.current) { 72.dp.roundToPx() }
+    val exclRightPx = with(LocalDensity.current) { 96.dp.roundToPx() }
+    val exclBottomPx = with(LocalDensity.current) { 180.dp.roundToPx() }
     Column(Modifier.fillMaxWidth()) {
       // Only argument-free commands can be a one-tap button, so intersect the
       // user's tray selection with those. Kept in COMMANDS order for a stable layout.
@@ -211,7 +214,7 @@ fun InputBar(
         // The upward drag distance to switch into hands-free — shared so the visual
         // track is exactly as long as the finger must actually travel.
         val swipeUpDp = 120.dp
-        val trackWidth = 36.dp // 75% of the 48dp button
+        val trackWidth = 42.dp // 75% of the 56dp button
         Box(contentAlignment = Alignment.BottomCenter) {
             if (debugOverlays) {
                 // Ugly debug zones: where a hold gets reinterpreted. The real anchor is
@@ -298,9 +301,11 @@ fun InputBar(
                     else -> MaterialTheme.colorScheme.surfaceVariant
                 },
                 shape = CircleShape,
-                // Re-arm the gesture whenever the role changes.
-                modifier = Modifier.size(48.dp)
-                    .pttGestureExclusion(active = micLive, leftPx = exclLeftPx, bottomPx = exclBottomPx)
+                // Re-arm the gesture whenever the role changes. A roomy 56dp target (up
+                // from 48) so a slightly-off thumb still lands the press — the button is
+                // the primary voice control, worth the extra hit area.
+                modifier = Modifier.size(56.dp)
+                    .pttGestureExclusion(active = micLive, leftPx = exclLeftPx, rightPx = exclRightPx, bottomPx = exclBottomPx)
                     .pointerInput(hasText, handsFree, connected) {
                     // Distance the finger must travel upward for a hold to be
                     // reinterpreted as switching into hands-free instead of push-to-talk.

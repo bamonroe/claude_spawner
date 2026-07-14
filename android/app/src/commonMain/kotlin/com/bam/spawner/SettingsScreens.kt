@@ -581,6 +581,7 @@ fun ProvidersSettings(controller: ProvidersController, onBack: () -> Unit) {
 }
 
 /** One backend's editable settings card (default model + voice-enumerable set). */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ProviderCard(
     agent: AgentInfo,

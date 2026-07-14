@@ -12,6 +12,16 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-14 — **Fix: push-to-talk hold cut short / narrow press target.** In a noisy room a
+      held mic press felt like it stopped recording early. PTT has no VAD (raw capture until
+      release), so the cut was the OS stealing the touch as a back/home edge gesture (the
+      "lost-pointer" break in `InputBar.kt`), not Whisper. Grew the `pttGestureExclusion` rect while
+      the mic is live — left 40→72dp, bottom 120→180dp, and a **new right 96dp** past the button's
+      row inset to the screen edge where the back-swipe zone actually sits (added a `rightPx` param
+      to the expect/actual in `PttExclusion.*`). Also bumped the button 48→56dp so a slightly-off
+      thumb still lands the initial press. Installed on the Pixel 8a **and** the Tab S6 Lite. Real
+      in-hand validation in a noisy environment still pending.
+
 - [ ] **Verify + re-apply the audio output route after selecting it (Bluetooth/car stickiness).**
       `AudioRouter.setOutput` calls `setCommunicationDevice` fire-and-forget and returns its raw
       boolean; `setAudioOutput` then commits `_audioOutput.value` even if the platform silently
