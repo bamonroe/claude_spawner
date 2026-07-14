@@ -624,6 +624,52 @@ Dates are `YYYY-MM-DD`.
       name to pin an env-default model into `settings.json`. ⚠ needs a container rebuild (new env
       var + binary) to go live.
 
+### Dedicated wake-word / end-token detector via LiveKit (epic — proposed 2026-07-14)
+
+Replace Whisper-as-keyword-spotter with a purpose-built keyword-spotting model. Today all live
+hands-free detection funnels through `gatedChunk` (`internal/gateway/stream.go`): each VAD clip is
+fast-transcribed by the resident Whisper server and the wake word ("hey buddy") and end token are
+found by **string-matching the transcript** — backed by a hand-curated list of Whisper mishearings
+(`command.wakePhrases`) that also causes false triggers. That's the wrong tool: Whisper is a full
+transcription model, and on the live deploy it's the **heavy `large-v3`** doing double duty (detection
+on tiny clips + accurate transcription), which is both unreliable on short clips and wasteful.
+
+**Decision — going with LiveKit (`livekit/livekit-wakeword`), not openWakeWord.** Both are Apache-2.0.
+LiveKit replaces openWakeWord's simple classifier with a conv-attention model (claims ~100× fewer
+false positives), ships a **native Rust runtime crate** (mel + embedding compiled into the binary,
+loads only the small classifier `.onnx` at runtime — no Python), and a model we train ourselves on
+synthetic Piper TTS data is commercially unrestricted (the CC-BY-NC restriction is only on
+openWakeWord's *distributed* pre-trained models, not on self-trained weights or the Apache-2.0 Google
+embedding backbone). Its flagship conv-attention ONNX is **not** openWakeWord-loadable (only its
+fallback `dnn`→TFLite head is), so we commit to LiveKit's own runtime end-to-end rather than straddle.
+Accurate full transcription on commit stays on Whisper, untouched.
+
+- [ ] **Offline trainer (one-time).** On a Linux+GPU box: `pip install livekit-wakeword[train,eval,export]`
+      (needs espeak-ng/ffmpeg/sox/portaudio, Python 3.11+), write a YAML naming the phrase, run
+      `livekit-wakeword run <config>.yaml` → small classifier `.onnx`. Train "hey buddy"; train a
+      second model for the end token (default "beep") if we go trained-token.
+- [ ] **Rust sidecar service (the new component).** Thin Rust web server wrapping the
+      `livekit-wakeword` crate (`WakeWordModel::new(&["heybuddy.onnx", ...], 16000)` → `predict(chunk)`),
+      exposing an endpoint that takes PCM and returns per-phrase scores. Containerize like the
+      whisper/kokoro services; new `SPAWNER_WAKEWORD_URL` config (empty = disabled, fall back to the
+      current Whisper string-match). Design as a service so the Go gateway pings it — LiveKit ships a
+      *library*, not a server, so this wrapper is ours to write.
+- [ ] **Gateway swap (Go).** Introduce a `Detector` interface (in → clip/frames, out → wake + end-token
+      scores) and replace the fast-transcribe-and-string-match in `gatedChunk` with a call to it,
+      thresholding the score instead of matching text. Keep it behind a feature flag so we can A/B
+      against today's Whisper behavior; the accurate commit transcription (`commitMessage`) is unchanged.
+- [ ] **Docs:** `README.md` (setup: training a model + running the detector service), `docs/architecture.md`
+      (the detector seam + data flow), `CLAUDE.md` config section (`SPAWNER_WAKEWORD_URL`), and note the
+      retirement path for `command.wakePhrases` once the detector is trusted.
+
+**Open decisions (resolve before coding):**
+- **Frames vs. clips.** These models want a continuous stream of ~80 ms frames; our app sends one
+  VAD-gated clip per utterance. Running the detector over a clip's frames works to start, but true
+  streaming is a bigger Android-side change — decide whether it's worth it.
+- **Custom end token.** A trained model only knows its trained phrase. To keep the end token
+  user-configurable, either train a small set of preset tokens or keep the Whisper string-match as the
+  fallback for arbitrary tokens.
+
 ### Multi-backend AI registry + per-session model selection (epic — proposed 2026-07-09)
 
 Generalize the server from "drives `claude` only" to a registry of headless AI backends, each
