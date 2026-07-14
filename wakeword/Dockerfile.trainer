@@ -1,0 +1,24 @@
+# Wake-word trainer for claude_spawner.
+# PyTorch CUDA base ships a matching Python + torch/CUDA, avoiding the
+# numba/llvmlite Python-version conflict that bit the bare-metal install.
+FROM pytorch/pytorch:2.4.1-cuda12.4-cudnn9-runtime
+
+ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1
+
+# Speech-synthesis + audio system deps required by the training pipeline.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        espeak-ng \
+        sox \
+        ffmpeg \
+        libsndfile1 \
+        portaudio19-dev \
+        git \
+    && rm -rf /var/lib/apt/lists/*
+
+# The LiveKit wake-word trainer CLI (data-gen + train + eval + ONNX export).
+RUN pip install --no-cache-dir "livekit-wakeword[train,eval,export]"
+
+WORKDIR /work
+# configs/, data/ (downloaded corpora), and output/ (trained .onnx) are
+# bind-mounted at runtime so artifacts persist on the host.
+CMD ["bash"]
