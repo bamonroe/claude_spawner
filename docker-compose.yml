@@ -54,6 +54,10 @@ services:
       # Durable server state (sessions.json, hosts.json, the server's SSH key) kept out
       # of the image.
       - "./deploy/state:/state"
+      # Live wake-word training clips the in-app "add training data" flow records
+      # (SPAWNER_WAKEWORD_TRAIN_DIR). Bind-mounted rw so the gateway can write clips
+      # here, and the livekit-wakeword trainer picks them up from the same host dir.
+      - "/data/storage/livekit-wakeword/real:/data/storage/livekit-wakeword/real"
     restart: unless-stopped
 
   # Resident whisper.cpp server on the Nvidia GPU via CUDA. The server + app point at
