@@ -254,6 +254,15 @@ Context tokens are the main cost here, so default to the frugal path:
 - Server: idiomatic Go, `gofmt`, errors wrapped with context. Keep tmux interaction behind one
   package so the shell-out details are isolated and testable.
 - Android: Kotlin, keep audio/wake-word, networking, and UI in separate modules/packages.
+- **Build and test Android through `/data/android`.** For Android app work, first read the
+  `android-dev` skill in `/data/android/.claude/skills/android-dev` and the reference docs in
+  `/data/android/CLAUDE.md`. That directory is the single front door for both building and testing:
+  build APKs with the disposable Docker builder (`/data/android/build.sh <project-dir> [gradle-task]`)
+  instead of relying on a host JDK/SDK/Gradle toolchain, and use the skill scripts for emulator
+  install/launch/screenshots/UI dumps and physical-device targeting. Before building an APK that will
+  be installed on a physical device, run a clean build (for this app, `:app:clean :app:assembleDebug`)
+  or install the exact same APK already tap-tested on the emulator; Kotlin Multiplatform incremental
+  builds can otherwise ship stale shared-module dex.
 - **Promote stable builds to the phone.** Iterate on the Dockerized emulator (fast, disposable),
   but once a feature is shown to be quite stable there, also install the APK on the physical
   **Pixel 8a** over adb so it's running on real hardware. The two adb worlds and the exact install
