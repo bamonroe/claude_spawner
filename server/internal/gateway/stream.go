@@ -18,12 +18,17 @@ func (c *conn) gatedChunk(pcm []byte) {
 		c.audioPCM = append(c.audioPCM, pcm...)
 	} // else: end token never fired — stop growing; commit still uses what we have
 
+	// Score the end-token detector on THIS clip's raw audio up front, independent of
+	// the fast transcript — a pure end-token clip ("beep beep") that the tiny model
+	// renders as empty must still trip the gate, so the detector can't sit behind a
+	// non-empty-transcript guard. ok=false ⇒ no detector / it errored.
+	detFired, detOK := c.endTokenFired(pcm)
+
 	chunk, err := c.fastTranscriber().Transcribe(c.ctx, transcribe.PCM16WAV(pcm, audioSampleRate, audioChannels),
 		transcribe.Options{Mode: "fixed", Model: "tiny"})
-	if err != nil || strings.TrimSpace(chunk) == "" {
-		return
+	if err == nil && strings.TrimSpace(chunk) != "" {
+		c.buffer = append(c.buffer, chunk)
 	}
-	c.buffer = append(c.buffer, chunk)
 	joined := strings.Join(c.buffer, " ")
 	// Instant barge-in: a pure "hey buddy stop" (nothing dictated before it) halts
 	// the TTS the moment it shows up in the live draft — no end token required.
@@ -38,14 +43,13 @@ func (c *conn) gatedChunk(pcm []byte) {
 			return
 		}
 	}
-	// End-token gate: the purpose-trained detector scored on THIS clip's audio when
-	// the sidecar is configured (SPAWNER_WAKEWORD_URL) — that's where Whisper's
-	// end-token string-match gives false negatives — else fall back to matching the
-	// fast transcript. Either way, commitMessage does the accurate parse below.
-	var end bool
-	if fired, ok := c.endTokenFired(pcm); ok {
-		end = fired
-	} else {
+	// End-token gate: commit when EITHER the purpose-trained detector fires on this
+	// clip's audio (the "beep beep" token, where Whisper's string-match gives false
+	// negatives) OR the configured text end token appears in the fast transcript (a
+	// spoken token like "all set" that Whisper hears fine). The detector augments the
+	// string-match; it doesn't replace it, so a custom end token keeps working.
+	end := detOK && detFired
+	if !end {
 		_, _, end = splitEndToken(joined, c.endToken)
 	}
 	if !end {
@@ -73,6 +77,8 @@ func (c *conn) endTokenFired(pcm []byte) (fired, ok bool) {
 		log.Printf("wakeword: detect failed, falling back to whisper string-match: %v", err)
 		return false, false
 	}
+	log.Printf("wakeword: %s=%.4f %s=%.4f (thr %.3f)", detect.EndModel, scores[detect.EndModel],
+		detect.WakeModel, scores[detect.WakeModel], c.srv.wakeThreshold)
 	return scores[detect.EndModel] >= c.srv.wakeThreshold, true
 }
 
