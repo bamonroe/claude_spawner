@@ -24,7 +24,6 @@ import (
 
 	"github.com/bam/claude_spawner/server/internal/command"
 	"github.com/bam/claude_spawner/server/internal/config"
-	"github.com/bam/claude_spawner/server/internal/projects"
 	"github.com/bam/claude_spawner/server/internal/session"
 	"github.com/bam/claude_spawner/server/internal/tmux"
 	"github.com/bam/claude_spawner/server/internal/transcribe"
@@ -44,7 +43,6 @@ type Server struct {
 	stt      transcribe.Transcriber // nil disables the audio path
 	fastStt  transcribe.Transcriber // fast model for live drafts/detection; nil → use stt
 	tts      *tts.Client            // server-side Kokoro synthesis; nil = clients use on-device TTS
-	projects *projects.Index        // fuzzy directory lookup for the spawn dialog
 	up       websocket.Upgrader
 
 	clientsMu sync.Mutex
@@ -328,7 +326,7 @@ type clientState struct {
 // New builds a gateway Server. stt may be nil, in which case audio frames are
 // rejected but text `utterance` messages still work. ttsClient may be nil, in
 // which case `speak` requests are refused and clients use on-device TTS.
-func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, ids *session.IdentityStore, sshPool *session.SSHPool, driver *session.Driver, tmuxMgr *tmux.Manager, stt transcribe.Transcriber, ttsClient *tts.Client, proj *projects.Index) *Server {
+func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, ids *session.IdentityStore, sshPool *session.SSHPool, driver *session.Driver, tmuxMgr *tmux.Manager, stt transcribe.Transcriber, ttsClient *tts.Client) *Server {
 	var fast transcribe.Transcriber
 	if cfg.WhisperFastURL != "" {
 		fast = &transcribe.RemoteWhisper{URL: cfg.WhisperFastURL}
@@ -369,7 +367,6 @@ func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, ids
 		stt:          stt,
 		fastStt:      fast,
 		tts:          ttsClient,
-		projects:     proj,
 		clients:      map[string]*clientState{},
 		downloading:  map[string]bool{},
 		jobs:         map[string]*sessionJob{},

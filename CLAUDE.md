@@ -101,11 +101,12 @@ you're changing the data path, the session driver, or STT. Two load-bearing rule
   who can reach the WebSocket can spawn unrestricted Claude sessions.
 - Never expose the server to the public internet without auth + TLS. Prefer a private network
   / Tailscale / reverse proxy with auth.
-- The **voice** spawn dialog is constrained to the `SPAWNER_ROOT` roots (it matches spoken paths
-  against them). The **visual** "new session" picker is deliberately **not** jailed: it browses the
-  chosen host's whole filesystem over SSH (starting at `/`) and can spawn anywhere on it — the user
-  opted into this. Given the server is already trusted and Claude runs with permissions skipped,
-  that's consistent; keep the picker behind the authenticated WebSocket.
+- There is **no spawn-directory jail** — a session may spawn **anywhere** on the target host, by
+  voice or via the visual picker. The voice dialog takes a full spoken path and fuzzy-resolves each
+  segment against the target's real filesystem over SSH; the visual "new session" picker browses the
+  chosen host's whole filesystem over SSH (starting at `/`). The user opted into this, and given the
+  server is already trusted and Claude runs with permissions skipped, it's consistent — the whole
+  surface stays behind the authenticated WebSocket, which is what actually gates access.
 
 ## Build, run & repository layout — see `docs/architecture.md` and `README.md`
 
@@ -125,8 +126,8 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
   token-authenticated `/ws` handshake. In the containerized deploy the bundle is **baked into the
   image** at `/srv/web` — `deploy/rebuild-container.sh` stages the Gradle output into the build
   context (building it in a throwaway Gradle container if missing, so a fresh clone's first deploy
-  ships the client too), so a `rebuild` ships the current client with no host mount), `SPAWNER_ROOT` (colon-separated
-  spawn-dir jail), `SPAWNER_STATE` (`sessions.json`), `SPAWNER_PROFILES` (`profiles.json`; optional
+  ships the client too), so a `rebuild` ships the current client with no host mount),
+  `SPAWNER_STATE` (`sessions.json`), `SPAWNER_PROFILES` (`profiles.json`; optional
   app-managed JSON execution-profile catalogue — the app is the source of truth (like
   `hosts.json`/`identities.json`), the server persists it and re-broadcasts on change. A missing file
   is seeded on first run with starter profiles from the flat sandbox env vars below — `bare-metal`

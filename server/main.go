@@ -22,7 +22,6 @@ import (
 	"github.com/bam/claude_spawner/server/internal/agent"
 	"github.com/bam/claude_spawner/server/internal/config"
 	"github.com/bam/claude_spawner/server/internal/gateway"
-	"github.com/bam/claude_spawner/server/internal/projects"
 	"github.com/bam/claude_spawner/server/internal/session"
 	"github.com/bam/claude_spawner/server/internal/tmux"
 	"github.com/bam/claude_spawner/server/internal/transcribe"
@@ -34,11 +33,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("config: %v", err)
 	}
-	if len(cfg.SpawnRoots) == 0 {
-		log.Printf("WARNING: SPAWNER_ROOT is empty — sessions may be spawned in ANY directory " +
-			"(no path jail). Set SPAWNER_ROOT to a colon-separated allow-list to constrain spawn scope.")
-	}
-
 	store, err := session.OpenStore(cfg.StatePath)
 	if err != nil {
 		log.Fatalf("session store: %v", err)
@@ -80,11 +74,9 @@ func main() {
 	driver.Home = os.Getenv("HOME")
 	driver.GlobalVars = cfg.ProfileVars
 	log.Printf("execution profiles loaded: %d profile(s)", len(profiles.List()))
-	if len(cfg.SpawnRoots) > 0 {
-		// The account-global /usage check runs claude in this dir; use a spawn root so
-		// it lands somewhere sane (rather than /tmp).
-		driver.UsageDir = cfg.SpawnRoots[0]
-	}
+	// The account-global /usage check runs claude in this dir; the host user's home
+	// is a sane place to land (rather than /tmp).
+	driver.UsageDir = os.Getenv("HOME")
 	driver.HostBin(cfg.ClaudeBin)
 	// Per-agent binaries: Claude uses each executor's own Bin (host set above,
 	// sandbox below); other backends launch their own command per target. Host turns
@@ -246,10 +238,7 @@ func main() {
 		log.Printf("tts: DISABLED (set SPAWNER_TTS_URL); clients use on-device speech")
 	}
 
-	proj := projects.New(cfg.SpawnRoots)
-	log.Printf("project index: %d dirs under roots %v", len(proj.List(1<<30)), cfg.SpawnRoots)
-
-	gw := gateway.New(cfg, store, hostStore, idStore, sshConns, driver, tmuxMgr, stt, kokoro, proj)
+	gw := gateway.New(cfg, store, hostStore, idStore, sshConns, driver, tmuxMgr, stt, kokoro)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -288,8 +277,8 @@ func main() {
 				scheme = "wss+mTLS"
 			}
 		}
-		log.Printf("spawner listening on %s [%s] (roots: %v, %d known session(s))",
-			cfg.Addr, scheme, cfg.SpawnRoots, len(known))
+		log.Printf("spawner listening on %s [%s] (%d known session(s))",
+			cfg.Addr, scheme, len(known))
 		var err error
 		if cfg.TLSEnabled() {
 			// Certs are also referenced by TLSConfig-less path; passing the files

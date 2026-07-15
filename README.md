@@ -470,7 +470,7 @@ The **server runs in a Docker container** that builds the Go binary from source 
 supported deployment. It runs as your ordinary user (never root) and drives the host over **SSH**
 (unconditional): `claude` for host sessions and rootless Podman for sandbox sessions both execute
 **on the host**, over the same SSH connection, so the container needs no host root and no separate
-broker. It enforces the `SPAWNER_ROOT` jail. Transcription is a second container — a resident
+broker. A session may spawn anywhere on the host (no spawn-directory jail). Transcription is a second container — a resident
 whisper.cpp HTTP server ([`whisper/`](./whisper/README.md))
 on `:8571`. One model handles both dictation and the live hands-free draft; on fast enough hardware
 there's no need to split the load. An optional second **fast** draft/detection model on `:8572`
@@ -518,17 +518,17 @@ the single binary and run it directly:
 # build the server (the Go module is under server/)
 go build -C server -o ~/.local/bin/spawner-server .
 
-# run it on :8080 with a spawn jail; add SPAWNER_WHISPER_URL/_FAST_URL for voice
-SPAWNER_TOKEN=devsecret SPAWNER_ADDR=:8080 SPAWNER_ROOT="$HOME/git:/data" \
+# run it on :8080; add SPAWNER_WHISPER_URL/_FAST_URL for voice
+SPAWNER_TOKEN=devsecret SPAWNER_ADDR=:8080 \
   ~/.local/bin/spawner-server
 
 # drive it with the text client (spawn, then dictate to Claude Code)
 go run -C server ./cmd/wsclient -url ws://localhost:8080/ws
-#   hey buddy spawn a new session → git demo → yes → then dictate to Claude Code
+#   hey buddy spawn a new session → say a full path like /home/you/git/demo → yes → then dictate
 ```
 
 - `claude` authenticates via your host creds in `~/.claude` + `~/.claude.json` (or set
-  `ANTHROPIC_API_KEY`). Sessions spawn under `SPAWNER_ROOT`, which jails them.
+  `ANTHROPIC_API_KEY`). Sessions can spawn anywhere on the target host (no directory jail).
 - Voice end-to-end needs the resident whisper server running (`docker compose up -d whisper`)
   and `SPAWNER_WHISPER_URL` pointed at it.
 - To test a change without killing a live turn, run the fresh binary on a scratch port
@@ -546,7 +546,7 @@ renders identical composables on both. Build the web bundle and let the server h
 #   output: android/app/build/dist/wasmJs/productionExecutable/
 
 # point the server at it — served at "/" alongside the "/ws" gateway (one binary)
-SPAWNER_TOKEN=devsecret SPAWNER_ADDR=:8080 SPAWNER_ROOT="$HOME/git:/data" \
+SPAWNER_TOKEN=devsecret SPAWNER_ADDR=:8080 \
   SPAWNER_WEB_DIR=android/app/build/dist/wasmJs/productionExecutable \
   ~/.local/bin/spawner-server
 #   then open http://<host>:8080/ in a browser (needs a Wasm-GC browser — recent Firefox/Chrome)

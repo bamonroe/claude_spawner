@@ -177,7 +177,6 @@ port with a separate session store, leaving the live container running:
 go build -C server -o /tmp/spawner-dev .
 SPAWNER_TOKEN=devsecret SPAWNER_ADDR=:8557 \
   SPAWNER_STATE=$HOME/.local/share/claude_spawner_dev/sessions.json \
-  SPAWNER_ROOT=/data:$HOME \
   SPAWNER_WHISPER_URL=http://localhost:8571 \
   /tmp/spawner-dev
 ```

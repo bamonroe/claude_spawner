@@ -223,9 +223,9 @@ wiring**, and nothing in the gateway, executors, or clients changes:
 The server runs in a **Docker container** that builds the Go binary from source — the one supported
 deployment. It runs as the ordinary user (never host root) and reaches the host over **SSH**
 (unconditional — SSH-native is not a toggle): it runs `claude` for host turns and drives the
-rootless runtime for sandbox turns **on the host** over that same SSH connection, reads every
-session's Claude transcript back over it, and enforces the `SPAWNER_ROOT` jail itself
-(the last hop before any launch). No component holds host root: the server is an unprivileged
+rootless runtime for sandbox turns **on the host** over that same SSH connection, and reads every
+session's Claude transcript back over it. There is no spawn-directory jail — a session may launch
+anywhere on the target host. No component holds host root: the server is an unprivileged
 container and sandboxes use a rootless runtime on the host. Recipe: the root `docker-compose.yml`
 (the `spawner-server` service alongside `whisper`, so one `docker compose up -d --build` launches the
 whole backend; host networking so `localhost:22` is the host sshd; only durable state and the
@@ -413,7 +413,7 @@ uppercase letters by voice. Acceptable; documented in `docs/commands.md`.
   internal/command/command.go   utterance -> intent parser + StripWake
   internal/command/registry.go  Command registry (single source of truth) + RegistryJSON
   internal/transcribe/          Transcriber interface: WhisperCPP (CLI) + RemoteWhisper (HTTP)
-  internal/projects/projects.go spoken-path fuzzy matching against the spawn roots
+  internal/projects/projects.go spoken-path term tokenizing + fuzzy ranking (Terms/Rank) for the resolver
   internal/tmux/tmux.go         detect a live interactive `claude` in a pane (ClaudeDirs)
   internal/usage/               per-turn token cost tracking + Estimator (server-global usage %)
   internal/config/config.go     env config + spawn-path validation

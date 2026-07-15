@@ -12,13 +12,17 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
-- [ ] **Drop the SPAWNER_ROOT spawn jail; a directory is only a working dir, not a session
-      identity.** Two coupled changes. (1) **Multi-session-per-folder** _(done, see below)_: a spawn
-      always mints a NEW session; the store dedups on `session_id`, not directory. (2) **Remove the
-      roots**: delete `SPAWNER_ROOT`/`SpawnRoots`/`ValidateSpawnDir` and rewrite the voice spawn dialog
-      to take a **full spoken path** resolved segment-by-segment against the real target filesystem
-      (fuzzy-correct each component to the closest actually-existing child — "colmb" → "home"),
-      reprompting for the whole path on ambiguity. _(voice rewrite + config removal pending.)_
+- [x] 2026-07-15 — **Dropped the SPAWNER_ROOT spawn jail; voice spawn takes a full fuzzy-resolved
+      path.** Removed `SPAWNER_ROOT`/`SpawnRoots`/`ParseRoots`/`ValidateSpawnDir`/`under` and the
+      now-vestigial `projects.Index` wiring. The voice spawn dialog no longer anchors on roots: it
+      asks for a **full absolute path** (state `await_path`), parses spoken "/" or "slash" separators
+      (`parseSpokenPath`), and resolves it segment-by-segment against the target host's REAL
+      filesystem over SSH (`resolveSpokenPath` via `listDir` + `projects.Rank`), auto-correcting each
+      component to the closest actually-existing child ("colmb" → `home`) and reprompting on ambiguity
+      or no-match. New-project mode creates the final segment under the resolved parent. A session may
+      now spawn anywhere on the target. Docs updated (CLAUDE.md, README, architecture, commands.md,
+      protocol.md `bad_path`, deploy env/README); config + docsync green. **Voice spawn needs a live
+      phone test to confirm how spoken slashes transcribe and tune `parseSpokenPath`.**
 
 - [x] 2026-07-15 — **A folder can hold multiple sessions (directory ≠ identity).** Spawn (picker
       `doSpawnAt` + voice `beginAttachQuestion`) always creates a fresh session with a deduped name

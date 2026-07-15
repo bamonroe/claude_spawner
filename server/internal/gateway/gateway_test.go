@@ -13,7 +13,6 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/bam/claude_spawner/server/internal/config"
-	"github.com/bam/claude_spawner/server/internal/projects"
 	"github.com/bam/claude_spawner/server/internal/session"
 	"github.com/bam/claude_spawner/server/internal/tmux"
 	"github.com/bam/claude_spawner/server/internal/transcribe"
@@ -83,7 +82,6 @@ func newTestServerGW(t *testing.T, stt transcribe.Transcriber) (*httptest.Server
 	t.Cleanup(func() { os.RemoveAll(root) })
 	cfg := &config.Config{
 		AuthToken:  "secret",
-		SpawnRoots: []string{root},
 		StatePath:  filepath.Join(t.TempDir(), "sessions.json"),
 		ClaudeBin:  "claude",
 	}
@@ -102,7 +100,7 @@ func newTestServerGW(t *testing.T, stt transcribe.Transcriber) (*httptest.Server
 	if err != nil {
 		t.Fatal(err)
 	}
-	gw := New(cfg, store, hosts, ids, nil, driver, tmux.NewManager(), stt, nil, projects.New(cfg.SpawnRoots))
+	gw := New(cfg, store, hosts, ids, nil, driver, tmux.NewManager(), stt, nil)
 	ts := httptest.NewServer(http.HandlerFunc(gw.HandleWS))
 	t.Cleanup(ts.Close)
 	return ts, root, gw
@@ -220,6 +218,19 @@ func readUntil(t *testing.T, ws *websocket.Conn, typ string) map[string]any {
 	}
 }
 
+// spawnAttachVoice drives the new voice spawn flow to create and attach a session
+// in dir (which must already exist on the local FS), returning its name. Assumes
+// the test server has no sandbox configured (so no await_target step).
+func spawnAttachVoice(t *testing.T, ws *websocket.Conn, dir string) string {
+	t.Helper()
+	send(t, ws, map[string]any{"type": "utterance", "text": "hey buddy spawn a new session"})
+	readUntil(t, ws, "dialog") // await_path
+	send(t, ws, map[string]any{"type": "utterance", "text": dir})
+	readUntil(t, ws, "dialog") // await_attach
+	send(t, ws, map[string]any{"type": "utterance", "text": "yes"})
+	return readUntil(t, ws, "attached")["name"].(string)
+}
+
 func TestAuthRejectsBadToken(t *testing.T) {
 	ts, _ := newTestServer(t, nil)
 	ws := dial(t, ts)
@@ -333,22 +344,16 @@ func TestSpawnDialogAndDictation(t *testing.T) {
 	send(t, ws, map[string]any{"type": "hello", "token": "secret"})
 	readUntil(t, ws, "hello_ok")
 
-	// "hey buddy, spawn a new session" -> asks for a root.
+	// "hey buddy, spawn a new session" -> asks for the full path.
 	send(t, ws, map[string]any{"type": "utterance", "text": "hey buddy, spawn a new session"})
 	d := readUntil(t, ws, "dialog")
-	if d["state"] != "await_root" {
-		t.Fatalf("expected await_root, got %v", d["state"])
+	if d["state"] != "await_path" {
+		t.Fatalf("expected await_path, got %v", d["state"])
 	}
 
-	// Pick the root by its name -> it has children, so it asks which folder.
-	send(t, ws, map[string]any{"type": "utterance", "text": filepath.Base(root)})
-	d = readUntil(t, ws, "dialog")
-	if d["state"] != "await_child" {
-		t.Fatalf("expected await_child, got %v", d["state"])
-	}
-
-	// Navigate into myproj -> it's a leaf, so it moves to the attach question.
-	send(t, ws, map[string]any{"type": "utterance", "text": "myproj"})
+	// Speak the full path to an existing folder -> it resolves and moves straight
+	// to the attach question (no sandbox configured, so no target step).
+	send(t, ws, map[string]any{"type": "utterance", "text": filepath.Join(root, "myproj")})
 	d = readUntil(t, ws, "dialog")
 	if d["state"] != "await_attach" {
 		t.Fatalf("expected await_attach, got %v", d["state"])
@@ -370,10 +375,10 @@ func TestSpawnDialogAndDictation(t *testing.T) {
 	}
 }
 
-// TestSpawnFuzzyMatchConfirm: a spoken folder name that only fuzzy-matches an
-// existing folder ("mail" -> "mail_play") prompts a yes/no confirmation before
-// committing, so a misheard name doesn't silently attach to the wrong project.
-func TestSpawnFuzzyMatchConfirm(t *testing.T) {
+// TestSpawnFuzzyPathAutoCorrects: a spoken path whose last segment only
+// fuzzy-matches an existing folder ("mail" -> "mail_play") auto-corrects with no
+// confirmation step and resolves straight to the attach question.
+func TestSpawnFuzzyPathAutoCorrects(t *testing.T) {
 	ts, root := newTestServer(t, nil)
 	if err := os.MkdirAll(filepath.Join(root, "mail_play"), 0o755); err != nil {
 		t.Fatal(err)
@@ -383,33 +388,18 @@ func TestSpawnFuzzyMatchConfirm(t *testing.T) {
 	readUntil(t, ws, "hello_ok")
 
 	send(t, ws, map[string]any{"type": "utterance", "text": "hey buddy spawn a new session"})
-	readUntil(t, ws, "dialog") // await_root
-	send(t, ws, map[string]any{"type": "utterance", "text": filepath.Base(root)})
-	readUntil(t, ws, "dialog") // await_child
+	readUntil(t, ws, "dialog") // await_path
 
-	// "mail" fuzzy-matches "mail_play" -> confirm rather than attach.
-	send(t, ws, map[string]any{"type": "utterance", "text": "mail"})
-	if d := readUntil(t, ws, "dialog"); d["state"] != "await_confirm" {
-		t.Fatalf("expected await_confirm, got %v", d["state"])
-	}
-
-	// "no" backs up to the folder list.
-	send(t, ws, map[string]any{"type": "utterance", "text": "no"})
-	if d := readUntil(t, ws, "dialog"); d["state"] != "await_child" {
-		t.Fatalf("expected await_child after decline, got %v", d["state"])
-	}
-
-	// Try again and confirm -> proceeds to the attach question.
-	send(t, ws, map[string]any{"type": "utterance", "text": "mail"})
-	readUntil(t, ws, "dialog") // await_confirm
-	send(t, ws, map[string]any{"type": "utterance", "text": "yes"})
+	// The final segment "mail" fuzzy-matches "mail_play" -> auto-corrects and goes
+	// straight to attach (no confirm step in the new flow).
+	send(t, ws, map[string]any{"type": "utterance", "text": filepath.Join(root, "mail")})
 	if d := readUntil(t, ws, "dialog"); d["state"] != "await_attach" {
-		t.Fatalf("expected await_attach after confirm, got %v", d["state"])
+		t.Fatalf("expected await_attach after auto-correct, got %v", d["state"])
 	}
 }
 
-// TestSpawnExactMatchNoConfirm: an exact folder name skips the confirmation and
-// goes straight to attach (the confirm step is only for fuzzy hits).
+// TestSpawnExactMatchNoConfirm: an exact path resolves straight to the attach
+// question.
 func TestSpawnExactMatchNoConfirm(t *testing.T) {
 	ts, root := newTestServer(t, nil)
 	if err := os.MkdirAll(filepath.Join(root, "mail_play"), 0o755); err != nil {
@@ -420,10 +410,8 @@ func TestSpawnExactMatchNoConfirm(t *testing.T) {
 	readUntil(t, ws, "hello_ok")
 
 	send(t, ws, map[string]any{"type": "utterance", "text": "hey buddy spawn a new session"})
-	readUntil(t, ws, "dialog") // await_root
-	send(t, ws, map[string]any{"type": "utterance", "text": filepath.Base(root)})
-	readUntil(t, ws, "dialog") // await_child
-	send(t, ws, map[string]any{"type": "utterance", "text": "mail play"})
+	readUntil(t, ws, "dialog") // await_path
+	send(t, ws, map[string]any{"type": "utterance", "text": filepath.Join(root, "mail_play")})
 	if d := readUntil(t, ws, "dialog"); d["state"] != "await_attach" {
 		t.Fatalf("expected await_attach for exact match, got %v", d["state"])
 	}
@@ -441,14 +429,7 @@ func TestMultiDeviceLiveFanout(t *testing.T) {
 	a := dial(t, ts)
 	send(t, a, map[string]any{"type": "hello", "token": "secret"})
 	readUntil(t, a, "hello_ok")
-	send(t, a, map[string]any{"type": "utterance", "text": "hey buddy spawn a new session"})
-	readUntil(t, a, "dialog") // await_root
-	send(t, a, map[string]any{"type": "utterance", "text": filepath.Base(root)})
-	readUntil(t, a, "dialog") // await_child
-	send(t, a, map[string]any{"type": "utterance", "text": "myproj"})
-	readUntil(t, a, "dialog") // await_attach
-	send(t, a, map[string]any{"type": "utterance", "text": "yes"})
-	name := readUntil(t, a, "attached")["name"].(string)
+	name := spawnAttachVoice(t, a, filepath.Join(root, "myproj"))
 
 	// Device B: attach to the SAME session (passive watcher).
 	b := dial(t, ts)
@@ -520,9 +501,11 @@ func TestInflightTrackerRecoversPrior(t *testing.T) {
 	}
 }
 
-func TestSpawnCreatesNewFolder(t *testing.T) {
+// TestSpawnUnresolvedPathReprompts: in session mode a spoken path whose final
+// segment matches no real folder can't be placed, so the dialog reprompts and
+// stays in await_path rather than offering to create it.
+func TestSpawnUnresolvedPathReprompts(t *testing.T) {
 	ts, root := newTestServer(t, nil)
-	// Root needs a child so it prompts (await_child) rather than using itself.
 	if err := os.MkdirAll(filepath.Join(root, "existing"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -531,20 +514,12 @@ func TestSpawnCreatesNewFolder(t *testing.T) {
 	readUntil(t, ws, "hello_ok")
 
 	send(t, ws, map[string]any{"type": "utterance", "text": "hey buddy spawn a new session"})
-	readUntil(t, ws, "dialog") // await_root
-	send(t, ws, map[string]any{"type": "utterance", "text": filepath.Base(root)})
-	readUntil(t, ws, "dialog") // await_child
+	readUntil(t, ws, "dialog") // await_path
 
-	// A name that matches nothing -> offer to create it.
-	send(t, ws, map[string]any{"type": "utterance", "text": "brandnew"})
-	d := readUntil(t, ws, "dialog")
-	if d["state"] != "await_create" {
-		t.Fatalf("expected await_create, got %v", d["state"])
-	}
-	send(t, ws, map[string]any{"type": "utterance", "text": "yes"})
-	readUntil(t, ws, "dialog") // await_attach
-	if _, err := os.Stat(filepath.Join(root, "brandnew")); err != nil {
-		t.Fatalf("new folder not created: %v", err)
+	// A final segment that matches nothing -> reprompt, staying in await_path.
+	send(t, ws, map[string]any{"type": "utterance", "text": filepath.Join(root, "brandnew")})
+	if d := readUntil(t, ws, "dialog"); d["state"] != "await_path" {
+		t.Fatalf("expected await_path reprompt, got %v", d["state"])
 	}
 }
 
@@ -559,7 +534,6 @@ func newSandboxTestServer(t *testing.T) (*httptest.Server, string, *Server) {
 	t.Cleanup(func() { os.RemoveAll(root) })
 	cfg := &config.Config{
 		AuthToken:    "secret",
-		SpawnRoots:   []string{root},
 		StatePath:    filepath.Join(t.TempDir(), "sessions.json"),
 		ClaudeBin:    "claude",
 		SandboxImage: "spawner-sandbox:latest",
@@ -578,7 +552,7 @@ func newSandboxTestServer(t *testing.T) (*httptest.Server, string, *Server) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	gw := New(cfg, store, hosts, ids, nil, driver, tmux.NewManager(), nil, nil, projects.New(cfg.SpawnRoots))
+	gw := New(cfg, store, hosts, ids, nil, driver, tmux.NewManager(), nil, nil)
 	ts := httptest.NewServer(http.HandlerFunc(gw.HandleWS))
 	t.Cleanup(ts.Close)
 	return ts, root, gw
@@ -622,10 +596,8 @@ func TestSpawnAsksTargetWhenSandboxConfigured(t *testing.T) {
 	readUntil(t, ws, "hello_ok")
 
 	send(t, ws, map[string]any{"type": "utterance", "text": "hey buddy spawn a new session"})
-	readUntil(t, ws, "dialog") // await_root
-	send(t, ws, map[string]any{"type": "utterance", "text": filepath.Base(root)})
-	readUntil(t, ws, "dialog") // await_child
-	send(t, ws, map[string]any{"type": "utterance", "text": "myproj"})
+	readUntil(t, ws, "dialog") // await_path
+	send(t, ws, map[string]any{"type": "utterance", "text": filepath.Join(root, "myproj")})
 
 	// The new step: host or sandbox?
 	d := readUntil(t, ws, "dialog")
@@ -682,58 +654,45 @@ func TestSpawnAsksTargetWhenSandboxConfigured(t *testing.T) {
 	}
 }
 
-// TestSpawnNamedNoLocationTakesFastPath: a no-location command that still names
-// something (here a "called <name>") is an explicit one-shot — it must spawn+attach
-// immediately at the home default, even when $HOME is itself a configured spawn root
-// and a sandbox is enabled. It must not fall into the browse dialog (the isRoot guard
-// only applies to a *spoken* location) nor stop to ask host-vs-sandbox.
+// TestSpawnNamedNoLocationTakesFastPath: a spawn command with no spoken path can't
+// take a fast path (there are no roots / home default anymore), so it drops into
+// the interactive dialog and asks for the full path.
 func TestSpawnNamedNoLocationTakesFastPath(t *testing.T) {
-	ts, root, gw := newSandboxTestServer(t)
-	// Home == a configured spawn root: the exact case that used to defeat the
-	// one-shot fast path and fall into the browse + target dialog.
-	t.Setenv("HOME", root)
+	ts, _ := newTestServer(t, nil)
 	ws := dial(t, ts)
 	send(t, ws, map[string]any{"type": "hello", "token": "secret"})
 	readUntil(t, ws, "hello_ok")
 
-	send(t, ws, map[string]any{"type": "utterance", "text": "hey buddy new session called scratch"})
-	// No await_child, no await_target — it attaches straight away.
-	a := readUntil(t, ws, "attached")
-	name, _ := a["name"].(string)
-	rec := gw.store.Get(name)
-	if rec == nil {
-		t.Fatalf("session %q not persisted", name)
-	}
-	if rec.Dir != root {
-		t.Errorf("Dir = %q, want home default %q", rec.Dir, root)
-	}
-	if rec.Target != session.TargetHost {
-		t.Errorf("Target = %q, want %q (fast path defaults to host)", rec.Target, session.TargetHost)
+	send(t, ws, map[string]any{"type": "utterance", "text": "hey buddy spawn a session"})
+	if d := readUntil(t, ws, "dialog"); d["state"] != "await_path" {
+		t.Fatalf("expected await_path for a no-location spawn, got %v", d["state"])
 	}
 }
 
-// TestSpawnNamedHomeRootTakesFastPath: speaking the home root by name ("in bam"
-// when $HOME is /home/bam and that's a SPAWNER_ROOT) is *not* ambiguous — it names
-// the same concrete target the bare default spawns in, so it must spawn+attach at
-// home instead of dropping into the browse dialog to pick among home's children.
-func TestSpawnNamedHomeRootTakesFastPath(t *testing.T) {
-	ts, root, gw := newSandboxTestServer(t)
-	t.Setenv("HOME", root)
+// TestSpawnWithPathTakesFastPath: "spawn a session in <full path>" (no "new") with
+// a path that resolves cleanly spawns+attaches immediately, with no dialog.
+func TestSpawnWithPathTakesFastPath(t *testing.T) {
+	ts, root, gw := newTestServerGW(t, nil)
+	dir := filepath.Join(root, "myproj")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	ws := dial(t, ts)
 	send(t, ws, map[string]any{"type": "hello", "token": "secret"})
 	readUntil(t, ws, "hello_ok")
 
-	// "spawner" matches the temp root's basename, resolving the spoken location
-	// straight to the home default.
-	send(t, ws, map[string]any{"type": "utterance", "text": "hey buddy spawn a new session in spawner"})
+	send(t, ws, map[string]any{"type": "utterance", "text": "hey buddy spawn a session in " + dir})
 	a := readUntil(t, ws, "attached")
 	name, _ := a["name"].(string)
 	rec := gw.store.Get(name)
 	if rec == nil {
 		t.Fatalf("session %q not persisted", name)
 	}
-	if rec.Dir != root {
-		t.Errorf("Dir = %q, want home default %q", rec.Dir, root)
+	if rec.Dir != dir {
+		t.Errorf("Dir = %q, want %q", rec.Dir, dir)
+	}
+	if rec.Target != session.TargetHost {
+		t.Errorf("Target = %q, want %q (fast path defaults to host)", rec.Target, session.TargetHost)
 	}
 }
 
@@ -760,8 +719,8 @@ func TestAudioPathTranscribesAndDispatches(t *testing.T) {
 		t.Fatalf("transcript = %v, want %q", tr["text"], stt.text)
 	}
 	d := readUntil(t, ws, "dialog")
-	if d["state"] != "await_root" {
-		t.Fatalf("expected await_root from transcribed utterance, got %v", d["state"])
+	if d["state"] != "await_path" {
+		t.Fatalf("expected await_path from transcribed utterance, got %v", d["state"])
 	}
 	// And the transcriber must have received a real WAV (RIFF header).
 	if len(stt.gotWAV) < 44 || string(stt.gotWAV[:4]) != "RIFF" {
@@ -817,14 +776,7 @@ func TestRenameSession(t *testing.T) {
 	send(t, ws, map[string]any{"type": "hello", "token": "secret"})
 	readUntil(t, ws, "hello_ok")
 	// Spawn + attach to create a session record.
-	send(t, ws, map[string]any{"type": "utterance", "text": "hey buddy spawn a new session"})
-	readUntil(t, ws, "dialog") // await_root
-	send(t, ws, map[string]any{"type": "utterance", "text": filepath.Base(root)})
-	readUntil(t, ws, "dialog") // await_child
-	send(t, ws, map[string]any{"type": "utterance", "text": "myproj"})
-	readUntil(t, ws, "dialog") // await_attach
-	send(t, ws, map[string]any{"type": "utterance", "text": "yes"})
-	old := readUntil(t, ws, "attached")["name"].(string)
+	old := spawnAttachVoice(t, ws, filepath.Join(root, "myproj"))
 
 	// Rename it and expect the refreshed session_list to carry the new name.
 	send(t, ws, map[string]any{"type": "rename", "name": old, "new_name": "renamed"})
@@ -860,14 +812,7 @@ func TestVoiceRename(t *testing.T) {
 	ws := dial(t, ts)
 	send(t, ws, map[string]any{"type": "hello", "token": "secret"})
 	readUntil(t, ws, "hello_ok")
-	send(t, ws, map[string]any{"type": "utterance", "text": "hey buddy spawn a new session"})
-	readUntil(t, ws, "dialog")
-	send(t, ws, map[string]any{"type": "utterance", "text": filepath.Base(root)})
-	readUntil(t, ws, "dialog")
-	send(t, ws, map[string]any{"type": "utterance", "text": "myproj"})
-	readUntil(t, ws, "dialog")
-	send(t, ws, map[string]any{"type": "utterance", "text": "yes"})
-	readUntil(t, ws, "attached")
+	spawnAttachVoice(t, ws, filepath.Join(root, "myproj"))
 
 	// Rename the attached session by voice. Drain any buffered speech from the
 	// attach flow; wait for both the refreshed session_list carrying the new name
@@ -933,14 +878,7 @@ func TestDeleteSession(t *testing.T) {
 	ws := dial(t, ts)
 	send(t, ws, map[string]any{"type": "hello", "token": "secret"})
 	readUntil(t, ws, "hello_ok")
-	send(t, ws, map[string]any{"type": "utterance", "text": "hey buddy spawn a new session"})
-	readUntil(t, ws, "dialog")
-	send(t, ws, map[string]any{"type": "utterance", "text": filepath.Base(root)})
-	readUntil(t, ws, "dialog")
-	send(t, ws, map[string]any{"type": "utterance", "text": "myproj"})
-	readUntil(t, ws, "dialog")
-	send(t, ws, map[string]any{"type": "utterance", "text": "yes"})
-	name := readUntil(t, ws, "attached")["name"].(string)
+	name := spawnAttachVoice(t, ws, filepath.Join(root, "myproj"))
 
 	// Delete it; the refreshed list must no longer contain it.
 	send(t, ws, map[string]any{"type": "delete", "name": name})
@@ -1215,18 +1153,16 @@ func TestReconnectResumesDialog(t *testing.T) {
 	send(t, ws, map[string]any{"type": "hello", "token": "secret", "client_id": "c2"})
 	readUntil(t, ws, "hello_ok")
 	send(t, ws, map[string]any{"type": "utterance", "text": "hey buddy spawn a new session"})
-	readUntil(t, ws, "dialog") // await_root
-	send(t, ws, map[string]any{"type": "utterance", "text": filepath.Base(root)})
-	readUntil(t, ws, "dialog") // await_child
+	readUntil(t, ws, "dialog") // await_path
 	ws.Close()
 	time.Sleep(100 * time.Millisecond)
 
-	// Reconnect -> dialog resumes at await_child.
+	// Reconnect -> dialog resumes at await_path.
 	ws2 := dial(t, ts)
 	send(t, ws2, map[string]any{"type": "hello", "token": "secret", "client_id": "c2"})
 	readUntil(t, ws2, "hello_ok")
-	if got := readUntil(t, ws2, "dialog")["state"]; got != "await_child" {
-		t.Fatalf("resume dialog state = %v, want await_child", got)
+	if got := readUntil(t, ws2, "dialog")["state"]; got != "await_path" {
+		t.Fatalf("resume dialog state = %v, want await_path", got)
 	}
 }
 
@@ -1259,14 +1195,7 @@ func TestInteractiveAskInstructionPrimedOnce(t *testing.T) {
 	readUntil(t, ws, "hello_ok")
 
 	// Spawn + attach a session (fake claude runs only on dictation, not spawn).
-	send(t, ws, map[string]any{"type": "utterance", "text": "hey buddy, spawn a new session"})
-	readUntil(t, ws, "dialog")
-	send(t, ws, map[string]any{"type": "utterance", "text": filepath.Base(root)})
-	readUntil(t, ws, "dialog")
-	send(t, ws, map[string]any{"type": "utterance", "text": "myproj"})
-	readUntil(t, ws, "dialog")
-	send(t, ws, map[string]any{"type": "utterance", "text": "yes"})
-	readUntil(t, ws, "attached")
+	spawnAttachVoice(t, ws, filepath.Join(root, "myproj"))
 
 	send(t, ws, map[string]any{"type": "utterance", "text": "first turn"})
 	readUntil(t, ws, "output")
@@ -1309,14 +1238,7 @@ func TestCompressSummarizesAndSeedsNextTurn(t *testing.T) {
 	send(t, ws, map[string]any{"type": "hello", "token": "secret"})
 	readUntil(t, ws, "hello_ok")
 
-	send(t, ws, map[string]any{"type": "utterance", "text": "hey buddy, spawn a new session"})
-	readUntil(t, ws, "dialog")
-	send(t, ws, map[string]any{"type": "utterance", "text": filepath.Base(root)})
-	readUntil(t, ws, "dialog")
-	send(t, ws, map[string]any{"type": "utterance", "text": "myproj"})
-	readUntil(t, ws, "dialog")
-	send(t, ws, map[string]any{"type": "utterance", "text": "yes"})
-	name := readUntil(t, ws, "attached")["name"].(string)
+	name := spawnAttachVoice(t, ws, filepath.Join(root, "myproj"))
 
 	// First real turn establishes context.
 	send(t, ws, map[string]any{"type": "utterance", "text": "first turn"})

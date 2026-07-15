@@ -72,8 +72,9 @@ The server normalizes dictated path fragments into real paths:
 | "dash" / "hyphen"                       | `-`                   |
 | "dot"                                   | `.`                   |
 
-A leading bare word (no "slash") is interpreted relative to the configured **spawn root**.
-Reject paths that escape the allowed root unless the user explicitly opts in.
+A spawn location is a **full absolute path**, resolved segment-by-segment against the target host's
+real filesystem (over SSH) with per-segment fuzzy matching — there is no spawn-root jail, so a
+session may spawn anywhere on the target.
 
 ## Control commands
 
@@ -119,56 +120,30 @@ start typing.
 
 ## Dialog: spawn a new session
 
-**Fast path first.** For a plain "new session" (not "new project"), the server tries a one-shot spawn
-before falling back to this dialog: it resolves the spoken location (or defaults to the user's home
-directory), and if that pins a concrete folder — not a root/namespace, and not a fuzzy guess — it
-creates the session and attaches right away, applying the default provider and profile for whatever
-wasn't named ("hey buddy, new session called bugfix in data on opencode"). The fast path only ever
-targets a directory under `SPAWNER_ROOT` (matched roots, descended paths, or the home default, which
-must itself be under a root), so the voice jail still holds. A **bare** "new session" — no location
-**and** no name/provider/profile — deliberately keeps the "where to?" dialog, since that's the entry
-point for browsing; but the moment the user names anything else (a name, a provider, or a profile),
-even with no location, that's an explicit one-shot and it spawns at the home default immediately
-(this also covers the case where `$HOME` is itself a configured root, which would otherwise look
-like a container to browse). The dialog below runs only when the fast path bows out: a bare
-no-location "new session", a new *project* (needs a folder made + named), an unresolved or fuzzy
-location, or a landing on a container of sub-projects.
+**Fast path first.** For a plain "new session" (not "new project"), the server tries a one-shot
+spawn before falling back to the dialog: if the spoken location is a full path that resolves cleanly
+against the target host's filesystem, it creates the session and attaches right away, applying the
+default provider and profile for whatever wasn't named ("hey buddy, new session in slash home slash
+bam slash git on opencode"). A **bare** "new session" (no path), or one whose path is ambiguous or
+can't be found, drops into the dialog, which asks for — or reconfirms — the full path.
 
 A small state machine. The server drives the prompts; the app speaks them (TTS) and streams the
-user's replies back. Navigation is **hierarchical**: pick a root (the basename of each configured
-root, e.g. `git` / `data`), then walk down the directory tree. You can also say a whole path at
-once ("git personal askii").
+user's replies back. The user speaks a **full absolute path**, which the server resolves
+segment-by-segment against the real filesystem (see below).
 
 ```
 [idle]
   user: "hey buddy, spawn a new session"
-  app : "where to, bud? say git or data — then a folder, like 'git personal'."
-[await_root]
-  user: "git"                 -> go to that root
-  user: "git personal askii"  -> descend all matching segments in one go
-    -> land on a directory, then browseInto() decides:
-[await_child]   (when the landing dir is a root or a namespace of repos)
-  app : "which folder in <dir>? <a>, <b>, ..."   (<=8 kids) 
-        or "<dir> has a lot of folders — say a name, or 'list' to hear some."
-  user: "<subfolder>"   -> descend (best fuzzy match among children)
-  user: "personal"      -> namespace -> stays [await_child] one level deeper
-  user: "list" / "list all" / "list recent"  -> read child names (short sample /
-        everything alphabetical / everything newest-first by mtime), stays [await_child]
-  user: "here"/"use it" -> use the current folder -> [await_attach]
-  user: "<new name>"    -> nothing matches -> [await_create]
-[await_confirm]   (only when a leaf was reached by a *stretched* fuzzy match —
-                   the folder carries a token you never said, e.g. "mail" -> "mail_play")
-  app : "i don't see that exactly — did you mean <name>? yes or no."
-  user: "yes"  -> proceed with that folder -> [await_target]
-  user: "no"   -> back up to its parent -> [await_child]
-[await_create]
-  user: "yes"  -> mkdir <browse>/<name> (validated against roots) -> [await_target]
-  user: "no"   -> abort
+  app : "where to? say the full path, like slash home slash bam slash git."
+[await_path]
+  user: "slash home slash bam slash git"  -> resolve each segment against the real FS
+    -> resolves cleanly       -> [await_target]  (or [await_attach] when no sandbox)
+    -> ambiguous / not found  -> reprompt, stay [await_path]
+    (new-project mode: the last segment names a folder to create under the resolved parent)
 [await_target]   (only when SPAWNER_SANDBOX_IMAGE is configured; otherwise skipped)
   app : "run <dir> on the host, or in a sandbox?"
-  user: "host"                      -> Session.Target = host   -> [await_attach]
+  user: "host"                           -> Session.Target = host    -> [await_attach]
   user: "sandbox"/"container"/"isolated" -> Session.Target = sandbox -> [await_attach]
-    (no sandbox image configured -> target is always host, this state is skipped)
 [await_attach]
   app : "found <name>. want to attach?"
   user: "yes"  -> persist session + attach -> [attached]
@@ -176,39 +151,26 @@ once ("git personal askii").
   user: "cancel" -> abort, nothing persisted   (cancel works from any state)
 ```
 
-`browseInto(dir)` prompts for a subfolder when `dir` is a **root** or a **namespace** (a non-repo
-dir that contains git repos, e.g. `~/git/SparkyFitness`); otherwise `dir` is treated as the target
-(a git repo like `~/git/drat`, or a plain service dir like `/data/jellyfin`). This keeps you from
-having to spell exact paths while still stopping at the right level.
+**Path resolution.** A separator is either a literal "/" or the spoken word "slash"; each segment's
+remaining words are fuzzy-matched against the *real* immediate subdirectories at that level (listed
+over SSH on the target host — the machine the session will run on, not the server's container). A
+segment that matches exactly one child auto-corrects to it with no confirmation ("colmb" -> `home`
+when `home` is the closest real child of `/`); a segment matching several children with no clear
+winner, or none at all, reprompts for the whole path. Per-segment matching drops filler words (the,
+a, repo, folder, …) and is separator- and camelCase-aware.
 
-Per-segment matching drops filler words (the, a, repo, folder, …) and fuzzy-matches the remaining
-terms against a directory's immediate children (separator- and camelCase-aware), taking the best
-match. Roots come from `SPAWNER_ROOT` — a `:`-separated list (e.g. `/home/bam/git:/data`).
-
-**Transcription-error tolerance.** Root and folder matching use edit distance, so whisper slips
-like "get" → `git` or "personel" → `personal` still resolve. (`projects.Levenshtein` /
-`FuzzyEqual`, used in `matchRoot` and `Rank`.)
-
-**Fuzzy-match confirmation.** When navigating to a **leaf** project lands on a folder whose name
-carries a token you never said — the matcher stretched "mail" onto `mail_play` because no `mail`
-folder exists — the flow doesn't silently attach; it asks `[await_confirm]` ("did you mean
-mail_play?") first. Exact names and multi-word names you spoke in full ("mail play" → `mail_play`)
-skip the confirmation. Only leaf commits confirm; a stretch onto a root/namespace just keeps
-browsing, so it re-prompts anyway.
+**Transcription-error tolerance.** Segment matching uses edit distance, so whisper slips like "get"
+-> `git` or "colmb" -> `home` still resolve — the candidates are constrained to the directories that
+actually exist at each level, which is what makes the correction reliable. (`projects.Levenshtein` /
+`FuzzyEqual`, used in `Rank`.)
 
 **Entry points.** The whole path can ride on the command:
-- `spawn a session in git personal` → jump to `~/git/personal` and browse it (skip the "where?" prompt).
-- `spawn a new project in git personal` → jump there and go straight to `[await_newname]`:
-```
-[await_newname]
-  app : "what's the new project called, in personal?"
-  user: "<name>"  -> mkdir ~/git/personal/<name> -> [await_attach]
-```
-Location resolves the same root+segment way as interactive navigation (so it's fuzzy too).
+- `spawn a session in slash home slash bam slash git` -> resolve and spawn there (skip the "where?" prompt).
+- `spawn a new project in slash home slash bam slash newthing` -> resolve the parent, create the
+  final folder, then go straight to the attach question.
 
 Edge cases:
-- Root not recognized -> "start with git or data, bud."
-- Nothing matches a spoken subfolder -> offer to create it under the current folder.
+- Path ambiguous or not found -> "i couldn't place that path — say the full path again."
 - Spawn fails (claude not found, mkdir error) -> spoken error feedback.
 
 ## Dictation (attached mode)

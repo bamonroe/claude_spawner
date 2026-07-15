@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -19,10 +18,6 @@ type Config struct {
 	// AuthToken is the shared secret the app must present in its hello message.
 	// The server refuses to start if this is empty (no unauthenticated mode).
 	AuthToken string
-	// SpawnRoots constrains where sessions may be created and searched. A spawn
-	// path must live under one of these. Empty means "no restriction" (NOT
-	// recommended). Parsed from SPAWNER_ROOT as a ":"-separated list (like PATH).
-	SpawnRoots []string
 	// StatePath is the file where the durable session registry is persisted.
 	StatePath string
 	// ProfilesPath is the optional JSON file defining named execution profiles.
@@ -245,11 +240,6 @@ func Load() (*Config, error) {
 		}
 		c.SSHPort = n
 	}
-	roots, err := ParseRoots(os.Getenv("SPAWNER_ROOT"))
-	if err != nil {
-		return nil, err
-	}
-	c.SpawnRoots = roots
 	return c, nil
 }
 
@@ -281,59 +271,6 @@ func (c *Config) BuildTLSConfig() (*tls.Config, error) {
 		t.ClientAuth = tls.RequireAndVerifyClientCert
 	}
 	return t, nil
-}
-
-// ParseRoots parses a SPAWNER_ROOT value (":"-separated, like PATH) into absolute
-// directories, skipping empties. Exported so callers can build the same spawn jail
-// without loading the full server config.
-func ParseRoots(s string) ([]string, error) {
-	var roots []string
-	for _, r := range strings.Split(s, ":") {
-		r = strings.TrimSpace(r)
-		if r == "" {
-			continue
-		}
-		abs, err := filepath.Abs(r)
-		if err != nil {
-			return nil, fmt.Errorf("SPAWNER_ROOT %q: %w", r, err)
-		}
-		roots = append(roots, abs)
-	}
-	return roots, nil
-}
-
-// ValidateSpawnDir checks that `dir` lives under one of the configured roots.
-// Returns the cleaned absolute path or an error if it escapes all roots.
-func (c *Config) ValidateSpawnDir(dir string) (string, error) {
-	abs, err := filepath.Abs(dir)
-	if err != nil {
-		return "", err
-	}
-	if len(c.SpawnRoots) == 0 {
-		return abs, nil
-	}
-	for _, root := range c.SpawnRoots {
-		if under(root, abs) {
-			return abs, nil
-		}
-	}
-	return "", fmt.Errorf("path %q is outside the allowed roots %v", abs, c.SpawnRoots)
-}
-
-// under reports whether abs is root itself or nested within it. This is the
-// path-traversal jail check for spawn dirs, so each clause matters:
-//   - rel == "."                     → abs IS root (allowed)
-//   - rel == ".." or "../…"          → abs escapes upward out of root (rejected)
-//   - filepath.IsAbs(rel)            → different volume/root entirely (rejected;
-//     Rel returns an absolute path when the two share no common base)
-//
-// Everything else is a genuine descendant of root.
-func under(root, abs string) bool {
-	rel, err := filepath.Rel(root, abs)
-	if err != nil {
-		return false
-	}
-	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel))
 }
 
 func env(key, def string) string {
