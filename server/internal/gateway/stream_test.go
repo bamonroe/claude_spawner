@@ -1,10 +1,53 @@
 package gateway
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"github.com/bam/claude_spawner/server/internal/command"
+	"github.com/bam/claude_spawner/server/internal/detect"
 )
+
+// stubDetector returns canned scores (or an error) for endTokenFired tests.
+type stubDetector struct {
+	scores detect.Scores
+	err    error
+}
+
+func (s stubDetector) Detect(context.Context, []byte) (detect.Scores, error) {
+	return s.scores, s.err
+}
+
+func TestEndTokenFired(t *testing.T) {
+	cases := []struct {
+		name      string
+		detector  detect.Detector
+		threshold float64
+		wantFired bool
+		wantOK    bool
+	}{
+		// No detector → ok=false so the caller falls back to the whisper string-match.
+		{"nil-detector", nil, 0.5, false, false},
+		// End score above threshold → fired.
+		{"above", stubDetector{scores: detect.Scores{detect.EndModel: 0.91, detect.WakeModel: 0.02}}, 0.5, true, true},
+		// End score below threshold → not fired, but still ok (detector spoke).
+		{"below", stubDetector{scores: detect.Scores{detect.EndModel: 0.10}}, 0.5, false, true},
+		// Exactly at threshold counts as fired (>=).
+		{"at-threshold", stubDetector{scores: detect.Scores{detect.EndModel: 0.5}}, 0.5, true, true},
+		// Low threshold (the tuned operating point) catches a marginal token.
+		{"low-threshold", stubDetector{scores: detect.Scores{detect.EndModel: 0.06}}, 0.04, true, true},
+		// Detector error → ok=false, graceful fallback to whisper.
+		{"error", stubDetector{err: errors.New("sidecar down")}, 0.5, false, false},
+	}
+	for _, c := range cases {
+		cn := &conn{ctx: context.Background(), srv: &Server{detector: c.detector, wakeThreshold: c.threshold}}
+		fired, ok := cn.endTokenFired([]byte{0, 0})
+		if fired != c.wantFired || ok != c.wantOK {
+			t.Errorf("%s: endTokenFired = (%v,%v), want (%v,%v)", c.name, fired, ok, c.wantFired, c.wantOK)
+		}
+	}
+}
 
 func TestGateDictation(t *testing.T) {
 	speak := command.WakePhrase("take a note, dictate")

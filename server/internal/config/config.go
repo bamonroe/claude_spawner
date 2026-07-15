@@ -73,6 +73,10 @@ type Config struct {
 	// dedicated model instead of fast-transcribing the clip and string-matching;
 	// empty disables it and detection falls back to the Whisper string-match.
 	WakewordURL string
+	// WakewordThreshold is the score in [0,1] at/above which a token counts as
+	// detected (default 0.5; the trained models' optimal point is ~0.04–0.07, so
+	// lower it to trade a few false positives for near-zero misses).
+	WakewordThreshold float64
 	// TTSURL points at a resident Kokoro TTS server (Kokoro-FastAPI's base URL,
 	// e.g. http://localhost:8880). When set, the server offers speech synthesis
 	// to clients; empty disables it (clients fall back to on-device TTS).
@@ -232,6 +236,14 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("SPAWNER_WHISPER_FAST_MAX_SEC %q: %w", v, err)
 		}
 		c.WhisperFastMaxSeconds = f
+	}
+	c.WakewordThreshold = 0.5 // default detection cutoff
+	if v := os.Getenv("SPAWNER_WAKEWORD_THRESHOLD"); v != "" {
+		f, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return nil, fmt.Errorf("SPAWNER_WAKEWORD_THRESHOLD %q: %w", v, err)
+		}
+		c.WakewordThreshold = f
 	}
 	if v := os.Getenv("SPAWNER_SSH_PORT"); v != "" {
 		n, err := strconv.Atoi(v)

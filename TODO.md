@@ -698,7 +698,16 @@ Accurate full transcription on commit stays on Whisper, untouched.
       *misses* the wake word on today (drive down false negatives — the actual current pain), and
       normal dictation as real-world negatives (hold false positives down). Keep the synthetic base
       set in the mix so it still generalizes. Retrain (~5.5h) → live A/B vs the synthetic-only model.
-- [ ] **Gateway swap (Go) — DESIGN REFINED 2026-07-15.** The detector is a **per-clip gate**, not a
+- [x] 2026-07-15 — **Gateway swap (Go): end-token detector wired.** New `internal/detect` package
+      (`Detector` interface + `RemoteWakeword` HTTP client POSTing raw PCM16LE 16k to `/detect`,
+      unit-tested). `gatedChunk` now gates the end-token commit on the detector when
+      `SPAWNER_WAKEWORD_URL` is set (`conn.endTokenFired`, thresholded by `SPAWNER_WAKEWORD_THRESHOLD`
+      default 0.5), falling back to the Whisper string-match on nil/error — the A/B safety net.
+      `commitMessage` (accurate parse) untouched; fast transcript still drives the live draft +
+      barge-in. Build/vet/full `go test` green. Still TODO: (a) live A/B on the phone to confirm it
+      beats Whisper on real misses; (b) extend the `calibrate` path to report detector scores so the
+      threshold is field-tunable; (c) retire `command.wakePhrases` once the detector is trusted. The
+      DESIGN (kept for the record): the detector is a **per-clip gate**, not a
       transcription replacement. Both audio paths (push-to-talk *and* hands-free VAD) hand the server a
       **bounded clip** — there is **no always-on mic and no continuous stream** (so `/stream` and option
       (b) are NOT needed here; `/stream` stays for a possible future mid-word latency play only). The

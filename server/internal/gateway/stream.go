@@ -1,9 +1,11 @@
 package gateway
 
 import (
+	"log"
 	"strings"
 
 	"github.com/bam/claude_spawner/server/internal/command"
+	"github.com/bam/claude_spawner/server/internal/detect"
 	"github.com/bam/claude_spawner/server/internal/transcribe"
 )
 
@@ -36,7 +38,17 @@ func (c *conn) gatedChunk(pcm []byte) {
 			return
 		}
 	}
-	if _, _, found := splitEndToken(joined, c.endToken); !found {
+	// End-token gate: the purpose-trained detector scored on THIS clip's audio when
+	// the sidecar is configured (SPAWNER_WAKEWORD_URL) — that's where Whisper's
+	// end-token string-match gives false negatives — else fall back to matching the
+	// fast transcript. Either way, commitMessage does the accurate parse below.
+	var end bool
+	if fired, ok := c.endTokenFired(pcm); ok {
+		end = fired
+	} else {
+		_, _, end = splitEndToken(joined, c.endToken)
+	}
+	if !end {
 		// Draft only what would actually be dictated: with the dictation gate on,
 		// suppress pre-speak-token ambient speech so the note stays empty until the
 		// gate opens (and can't grow unbounded from background chatter). Gate off:
@@ -45,6 +57,23 @@ func (c *conn) gatedChunk(pcm []byte) {
 		return
 	}
 	c.commitMessage()
+}
+
+// endTokenFired reports whether this clip's audio trips the end-token detector.
+// ok=false means no detector is configured, or it errored — the caller then falls
+// back to the Whisper string-match, so a missing or flaky sidecar degrades
+// gracefully (the A/B safety net). Detection is the ONLY job here; the accurate
+// transcription still happens in commitMessage.
+func (c *conn) endTokenFired(pcm []byte) (fired, ok bool) {
+	if c.srv.detector == nil {
+		return false, false
+	}
+	scores, err := c.srv.detector.Detect(c.ctx, pcm)
+	if err != nil {
+		log.Printf("wakeword: detect failed, falling back to whisper string-match: %v", err)
+		return false, false
+	}
+	return scores[detect.EndModel] >= c.srv.wakeThreshold, true
 }
 
 // commitMessage re-transcribes the whole buffered audio accurately, strips the

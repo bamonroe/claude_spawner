@@ -178,7 +178,9 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
   scores, `POST /detect`). When set, live hands-free wake ("bump bump") / end ("beep beep") detection
   scores the dedicated model instead of fast-transcribing the clip and string-matching; empty
   disables it and detection falls back to the Whisper string-match. Accurate commit transcription is
-  unaffected either way.
+  unaffected either way. `SPAWNER_WAKEWORD_THRESHOLD` (`0.5`; the score in `[0,1]` at/above which a
+  token counts as detected — the trained models' optimal point is ~`0.04`–`0.07`, so lowering it
+  trades a few false positives for near-zero misses).
 - Server-side TTS (the Kokoro epic, see `TODO.md`): `SPAWNER_TTS_URL` (base URL of the resident
   Kokoro-FastAPI server, e.g. `http://localhost:8880` — the `kokoro` compose service; empty
   disables server TTS and clients use on-device speech), `SPAWNER_TTS_VOICE` (`af_heart`; default

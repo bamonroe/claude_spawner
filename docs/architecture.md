@@ -42,6 +42,17 @@ you don't need it for most turns. High-level "what it is" and the behavioral rul
   the next with its own hallucinated tail, and `clean()` runs `collapseRepeats()`, which drops
   back-to-back duplicate sentences and 3+ repeats of a short phrase before the text hits the
   wake/command seam.
+- **Token detection (optional, `SPAWNER_WAKEWORD_URL`)**: a purpose-trained keyword-spotting sidecar
+  (`spawner-wakeword`) can replace the *string-match* half of detection. When configured, `gatedChunk`
+  (`internal/gateway/stream.go`) scores each hands-free clip's raw PCM through `internal/detect`
+  (`RemoteWakeword` → sidecar `POST /detect`) for the end token instead of matching the fast
+  transcript — that string-match is where Whisper's mishearings cause *missed* commits. It's a **gate,
+  not a transcriber**: on a hit, `commitMessage` still re-transcribes the whole utterance with accurate
+  Whisper for the real parse, so command text is unaffected. Thresholded in Go (`SPAWNER_WAKEWORD_THRESHOLD`);
+  a nil/unreachable/erroring detector falls back to the Whisper string-match automatically (the A/B
+  safety net). The audio source is unchanged — still bounded VAD/push-to-talk clips, no always-on
+  stream (the sidecar left-pads short clips to its 2s window). The sidecar's `GET /stream` WebSocket
+  exists for a possible future mid-word-latency path but is **not** used by the gateway today.
 - **Transport**: a single WebSocket per app session carries audio up and transcripts/session
   output down. Use REST only for stateless control actions if needed.
 - **Session control**: the server shells out to `claude` headless (see below). Input is the prompt

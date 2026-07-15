@@ -24,6 +24,7 @@ import (
 
 	"github.com/bam/claude_spawner/server/internal/command"
 	"github.com/bam/claude_spawner/server/internal/config"
+	"github.com/bam/claude_spawner/server/internal/detect"
 	"github.com/bam/claude_spawner/server/internal/session"
 	"github.com/bam/claude_spawner/server/internal/tmux"
 	"github.com/bam/claude_spawner/server/internal/transcribe"
@@ -33,17 +34,23 @@ import (
 
 // Server holds the shared dependencies for all connections.
 type Server struct {
-	cfg      *config.Config
-	store    *session.Store
-	hosts    *session.HostStore     // app-managed SSH host registry (Settings → Hosts)
-	ids      *session.IdentityStore // app-managed SSH identity registry (Settings → Identities)
-	ssh      *session.SSHPool       // pooled SSH connections; nil when SSH-native is disabled
-	driver   *session.Driver
-	tmuxMgr  *tmux.Manager
-	stt      transcribe.Transcriber // nil disables the audio path
-	fastStt  transcribe.Transcriber // fast model for live drafts/detection; nil → use stt
-	tts      *tts.Client            // server-side Kokoro synthesis; nil = clients use on-device TTS
-	up       websocket.Upgrader
+	cfg     *config.Config
+	store   *session.Store
+	hosts   *session.HostStore     // app-managed SSH host registry (Settings → Hosts)
+	ids     *session.IdentityStore // app-managed SSH identity registry (Settings → Identities)
+	ssh     *session.SSHPool       // pooled SSH connections; nil when SSH-native is disabled
+	driver  *session.Driver
+	tmuxMgr *tmux.Manager
+	stt     transcribe.Transcriber // nil disables the audio path
+	fastStt transcribe.Transcriber // fast model for live drafts/detection; nil → use stt
+	tts     *tts.Client            // server-side Kokoro synthesis; nil = clients use on-device TTS
+
+	// detector gates the end token (and wake) on a clip via the purpose-trained
+	// sidecar; nil → fall back to the Whisper string-match. wakeThreshold is the
+	// score at/above which a token counts as fired.
+	detector      detect.Detector
+	wakeThreshold float64
+	up            websocket.Upgrader
 
 	clientsMu sync.Mutex
 	clients   map[string]*clientState // per-app resume state, keyed by client_id
@@ -331,6 +338,11 @@ func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, ids
 	if cfg.WhisperFastURL != "" {
 		fast = &transcribe.RemoteWhisper{URL: cfg.WhisperFastURL}
 	}
+	var detector detect.Detector
+	if cfg.WakewordURL != "" {
+		detector = &detect.RemoteWakeword{URL: cfg.WakewordURL}
+		log.Printf("wakeword: detector enabled at %s (threshold %.3g)", cfg.WakewordURL, cfg.WakewordThreshold)
+	}
 	inflightPath, usagePath, settingsPath := "", "", ""
 	if cfg.StatePath != "" {
 		inflightPath = filepath.Join(filepath.Dir(cfg.StatePath), "inflight.json")
@@ -357,27 +369,29 @@ func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, ids
 		}
 	}
 	s := &Server{
-		cfg:          cfg,
-		store:        store,
-		hosts:        hosts,
-		ids:          ids,
-		ssh:          sshPool,
-		driver:       driver,
-		tmuxMgr:      tmuxMgr,
-		stt:          stt,
-		fastStt:      fast,
-		tts:          ttsClient,
-		clients:      map[string]*clientState{},
-		downloading:  map[string]bool{},
-		jobs:         map[string]*sessionJob{},
-		conns:        map[*conn]bool{},
-		inflight:     inflight,
-		interrupted:  interrupted,
-		acFired:      map[string]int64{},
-		usage:        usage.Open(usagePath),
-		settings:     settings,
-		currentModel: bootModel, // persisted choice or env default; loaded below
-		currentFast:  bootFast,  // ditto, for the fast (draft/detection) server
+		cfg:           cfg,
+		store:         store,
+		hosts:         hosts,
+		ids:           ids,
+		ssh:           sshPool,
+		driver:        driver,
+		tmuxMgr:       tmuxMgr,
+		stt:           stt,
+		fastStt:       fast,
+		tts:           ttsClient,
+		detector:      detector,
+		wakeThreshold: cfg.WakewordThreshold,
+		clients:       map[string]*clientState{},
+		downloading:   map[string]bool{},
+		jobs:          map[string]*sessionJob{},
+		conns:         map[*conn]bool{},
+		inflight:      inflight,
+		interrupted:   interrupted,
+		acFired:       map[string]int64{},
+		usage:         usage.Open(usagePath),
+		settings:      settings,
+		currentModel:  bootModel, // persisted choice or env default; loaded below
+		currentFast:   bootFast,  // ditto, for the fast (draft/detection) server
 		up: websocket.Upgrader{
 			// The app authenticates with a token in the hello message, so origin
 			// checks add little; the network boundary (Tailscale/proxy) is the gate.

@@ -106,6 +106,17 @@ takes it away. And **"hey buddy, cancel"** (or "cancel that") is a reset point �
 before it (the dictation and any earlier commands), while commands after it still run, so you can
 self-correct mid-utterance. End on a cancel with nothing after it and the whole message is scrapped.
 
+**A dedicated end-token detector (optional).** Matching the end token in Whisper's transcript is the
+main source of *missed* commits — Whisper mishears "beep beep" and your message never sends. Point
+`SPAWNER_WAKEWORD_URL` at the `spawner-wakeword` sidecar (a small, purpose-trained keyword-spotting
+model) and the server instead scores each clip's audio directly for the wake and end tokens — far
+fewer misses on short tokens. It's a **gate, not a transcriber**: when it detects the end token, the
+whole utterance is still handed to accurate Whisper for the real parse, so nothing about your command
+text changes. `SPAWNER_WAKEWORD_THRESHOLD` (default `0.5`) tunes how eager it is — lower it toward the
+models' optimal ~`0.04`–`0.07` to trade a few false triggers for near-zero misses. Leave the URL empty
+and detection falls back to the Whisper string-match; if the sidecar is unreachable mid-turn, the
+server degrades to that fallback automatically rather than dropping the command.
+
 **The mic button (hold to talk).** With the box empty, **press and hold** the mic to record; release
 to send. The hold is *sticky* — it keeps recording even if your finger drifts off the small button —
 but two deliberate drags end it early: drag **up** past the track that appears (about 120 dp) to
