@@ -16,6 +16,13 @@
 //!                        this length so a token lands at the tail (matching training)
 //!   WAKEWORD_HOP_SEC     sliding-window hop, seconds (default 0.32) — how far the detection window
 //!                        advances between scores over a longer-than-window clip
+//!   WAKEWORD_TAIL_SEC    detect over only the last N seconds of the clip, seconds (default 0 = whole
+//!                        clip). The wake/end token lands at the END of a VAD segment (the segment
+//!                        closes right after the word), so scoring just the recent tail is both
+//!                        correct for hands-free detection and bounds the work to a fixed cost
+//!                        (~one window) regardless of how long the clip is — the "streaming" model:
+//!                        only recent audio matters. Set to ~2–3s in deployment; 0 keeps the full
+//!                        slide (needed only if a token can appear mid-clip, not the hands-free case).
 //!
 //! Wire contract:
 //!   GET  /health   -> 200 `{"status":"ok","models":["bump_bump","beep_beep"]}`
@@ -69,6 +76,8 @@ struct AppState {
     window_samples: usize,
     /// Detection-window hop in embeddings (>= 1).
     hop_embeddings: usize,
+    /// If > 0, score only the last this-many samples of the clip (the recent tail). 0 = whole clip.
+    tail_samples: usize,
 }
 
 #[derive(Serialize)]
@@ -85,8 +94,15 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or(16_000);
     let window_sec: f32 = env_f32("WAKEWORD_WINDOW_SEC", 2.0);
     let hop_sec: f32 = env_f32("WAKEWORD_HOP_SEC", 0.32);
+    let tail_sec: f32 = env_f32("WAKEWORD_TAIL_SEC", 0.0);
     let window_samples = ((window_sec * input_rate as f32) as usize).max(1);
     let hop_embeddings = ((hop_sec / EMBEDDING_PERIOD_SEC).round() as usize).max(1);
+    // 0 = disabled (whole clip). Otherwise keep only the last `tail_samples`, never below one window.
+    let tail_samples = if tail_sec > 0.0 {
+        ((tail_sec * input_rate as f32) as usize).max(window_samples)
+    } else {
+        0
+    };
 
     let specs = parse_models(&std::env::var("WAKEWORD_MODELS").unwrap_or_default());
     if specs.is_empty() {
@@ -107,8 +123,13 @@ async fn main() -> anyhow::Result<()> {
             .map_err(|e| anyhow::anyhow!("load {}: {e}", m.name))?;
         eprintln!("wakeword: model {} -> {}", m.name, m.path.display());
     }
+    let tail_desc = if tail_samples > 0 {
+        format!("{tail_sec}s tail")
+    } else {
+        "whole clip".to_string()
+    };
     eprintln!(
-        "wakeword: listening on {addr} (input rate {input_rate} Hz, min window {window_sec}s, hop {hop_sec}s = {hop_embeddings} embeddings)"
+        "wakeword: listening on {addr} (input rate {input_rate} Hz, min window {window_sec}s, hop {hop_sec}s = {hop_embeddings} embeddings, scoring {tail_desc})"
     );
 
     let state = AppState {
@@ -116,6 +137,7 @@ async fn main() -> anyhow::Result<()> {
         names: specs.into_iter().map(|m| m.name).collect(),
         window_samples,
         hop_embeddings,
+        tail_samples,
     };
 
     let app = Router::new()
@@ -180,6 +202,11 @@ async fn detect(
 /// Left-pad the clip to the minimum window, then slide the classifier across it (peak per model)
 /// on the resident model.
 fn run_predict(state: &AppState, mut pcm: Vec<i16>) -> anyhow::Result<HashMap<String, f32>> {
+    // Streaming/tail mode: the token lands at the clip's end, so keep only the recent tail. This
+    // bounds the embedding + slide work to a fixed cost no matter how long the clip is.
+    if state.tail_samples > 0 && pcm.len() > state.tail_samples {
+        pcm = pcm.split_off(pcm.len() - state.tail_samples);
+    }
     // A token in a short VAD clip ends at the clip's end; pad silence at the FRONT so it lands at
     // the tail of the (>=1) detection window(s), matching training.
     if pcm.len() < state.window_samples {
