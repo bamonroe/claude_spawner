@@ -285,12 +285,17 @@ fun MainScreen(
         ) {
           Box(Modifier.fillMaxSize()) {
             chatColumn { scope.launch { drawerState.open() } }
+            // Edge-swipe strips live below the top bar. They are transparent boxes
+            // layered over content, so covering the app bar would steal taps from
+            // buttons such as Settings before those buttons ever see the pointer.
+            val edgeGestureTopInset = 88.dp
             // Left-edge swipe to open the drawer: a narrow strip pinned to the far left
             // edge that opens the drawer on a rightward drag. Kept thin (and on the left,
             // away from the mic button on the right) so it doesn't steal normal touches.
             Box(
                 Modifier.align(Alignment.CenterStart)
                     .fillMaxHeight()
+                    .padding(top = edgeGestureTopInset)
                     .width(24.dp)
                     .pointerInput(Unit) {
                         val threshold = 24.dp.toPx()
@@ -309,7 +314,7 @@ fun MainScreen(
             Box(
                 Modifier.align(Alignment.CenterEnd)
                     .fillMaxHeight()
-                    .padding(bottom = 96.dp)
+                    .padding(top = edgeGestureTopInset, bottom = 96.dp)
                     .width(28.dp)
                     .pointerInput(Unit) {
                         val threshold = 64.dp.toPx()

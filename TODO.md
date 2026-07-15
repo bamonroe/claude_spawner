@@ -12,6 +12,12 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-15 — **Fix: settings gear tap intercepted by edge-swipe overlay.** The right-edge
+      swap strip added in `MainScreen` was a transparent full-height pointer target layered over the
+      chat, so it also covered the top app bar and stole taps from the Settings button before the
+      `IconButton` could see them. Kept the drawer/swap edge gestures, but starts both strips below
+      the top bar so app-bar controls stay directly tappable. `compileDebugKotlinAndroid` green.
+
 - [x] 2026-07-15 — **Dropped the SPAWNER_ROOT spawn jail; voice spawn takes a full fuzzy-resolved
       path.** Removed `SPAWNER_ROOT`/`SpawnRoots`/`ParseRoots`/`ValidateSpawnDir`/`under` and the
       now-vestigial `projects.Index` wiring. The voice spawn dialog no longer anchors on roots: it
