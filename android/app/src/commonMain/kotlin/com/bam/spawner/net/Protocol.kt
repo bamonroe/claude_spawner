@@ -36,7 +36,6 @@ sealed interface ServerMsg {
     data class Transcript(val text: String, val final: Boolean) : ServerMsg
     data class Pending(val text: String) : ServerMsg // live hands-free draft buffer
     data class Calibration(val text: String) : ServerMsg // what the detection model heard for a sample
-    data class TrainSaved(val path: String, val label: String) : ServerMsg // a training clip was persisted; advance to next prompt
     data class Activity(val text: String) : ServerMsg // live "Claude is thinking / editing X" indicator
     data object Transcribing : ServerMsg // committed hands-free clip is being re-transcribed accurately
     data class Files(val files: List<String>) : ServerMsg // files changed this turn
@@ -99,7 +98,6 @@ sealed interface ServerMsg {
                 "transcript" -> Transcript(o.str("text"), o.bool("final", true))
                 "pending" -> Pending(o.str("text"))
                 "calibration" -> Calibration(o.str("text"))
-                "train_saved" -> TrainSaved(o.str("path"), o.str("label"))
                 "activity" -> Activity(o.str("text"))
                 "transcribing" -> Transcribing
                 "files" -> Files(readStrings(o.arr("files")))
@@ -477,13 +475,6 @@ object Outbound {
             put("type", "wake"); put("codec", codec)
             put("hands_free", handsFree); put("calibrate", calibrate)
             if (sessionId.isNotEmpty()) put("session_id", sessionId)
-        }.toString()
-    // Open a labeled wake/end-token training recording (the "add live training data" flow).
-    // Binary frames + audioEnd() follow, exactly as for wake(). The server saves the clip.
-    fun trainClip(codec: String, model: String, category: String, label: String) =
-        buildJsonObject {
-            put("type", "train_clip"); put("codec", codec)
-            put("model", model); put("category", category); put("label", label)
         }.toString()
     fun audioEnd() = buildJsonObject { put("type", "audio_end") }.toString()
     fun commit() = buildJsonObject { put("type", "commit") }.toString() // silence-timeout commit

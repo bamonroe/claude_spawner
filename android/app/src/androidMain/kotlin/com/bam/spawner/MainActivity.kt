@@ -271,11 +271,6 @@ private fun AppRoot(
                 }) { Text("Test") }
                 if (calibrating) CalibrationDialog(controller, endTok) { controller.stopCalibration(); calibrating = false }
             },
-            trainData = {
-                var training by remember { mutableStateOf(false) }
-                OutlinedButton(onClick = { training = true; controller.startTraining() }) { Text("Add live training data") }
-                if (training) TrainingDialog(controller) { controller.stopTraining(); training = false }
-            },
         )
         "set_audio" -> AudioSettings(
             settings,
@@ -508,36 +503,3 @@ private fun CalibrationDialog(controller: VoiceController, token: String, onClos
     )
 }
 
-// Guided training-data capture: walk the scripted grid, record one clip per
-// prompt, review it, then cancel (redo) or send it to the server's labeled folder.
-@Composable
-private fun TrainingDialog(controller: VoiceController, onClose: () -> Unit) {
-    val st by controller.training.collectAsStateWithLifecycle()
-    val total = st.prompts.size
-    AlertDialog(
-        onDismissRequest = onClose,
-        title = { Text(if (st.done) "Training data" else "Training data  ${st.index + 1}/$total") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (st.done || st.current == null) {
-                    Text("Saved ${st.saved} clips. Thanks — these retrain the detector on your voice.")
-                } else {
-                    val p = st.current!!
-                    Text(p.label, style = MaterialTheme.typography.titleMedium)
-                    if (p.hint.isNotBlank()) Text(p.hint, style = MaterialTheme.typography.bodySmall)
-                    Text("(${p.model}, ${p.category})  •  ${st.saved} saved", style = MaterialTheme.typography.labelSmall)
-                    when (st.phase) {
-                        TrainPhase.PROMPT -> Button(onClick = { controller.trainRecord() }) { Text("Record") }
-                        TrainPhase.RECORDING -> Text("Listening… say the phrase, then pause.", color = MaterialTheme.colorScheme.primary)
-                        TrainPhase.REVIEW -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(onClick = { controller.trainPlay() }) { Text("Play") }
-                            OutlinedButton(onClick = { controller.trainCancel() }) { Text("Redo") }
-                            Button(onClick = { controller.trainSend() }) { Text("Send") }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = onClose) { Text(if (st.active) "Stop" else "Done") } },
-    )
-}

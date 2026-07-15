@@ -608,10 +608,6 @@ type conn struct {
 	audioSessionID string // app-declared target session for the current audio clip
 	gated          bool   // current utterance is hands-free (VAD-gated → accumulate)
 	calibrate      bool   // current utterance is an end-token calibration sample
-	training       bool   // current utterance is a labeled training-data sample (save, don't dispatch)
-	trainModel     string // on a training clip: which token model ("bump_bump" | "beep_beep")
-	trainCat       string // on a training clip: bucket ("positive" | "negative" | "background")
-	trainLabel     string // on a training clip: the exact phrase read aloud
 
 	buffer          []string               // hands-free rough draft (per-chunk fast transcripts, for detection)
 	audioPCM        []byte                 // hands-free raw PCM of all chunks, re-transcribed as one on commit
@@ -853,7 +849,6 @@ var wireHandlers = map[string]func(c *conn, in inbound){
 	"speak_stop":    func(c *conn, in inbound) { c.handleSpeakStop() },
 	"tts_voices":    func(c *conn, in inbound) { c.handleTTSVoices() },
 	"wake":          func(c *conn, in inbound) { c.startAudio(in.Codec, in.HandsFree, in.Calibrate, in.SessionID) },
-	"train_clip":    func(c *conn, in inbound) { c.startTrainClip(in.Codec, in.Model, in.Category, in.Label) },
 	"commit":        func(c *conn, in inbound) { c.commitMessage() }, // silence-timeout commit of the hands-free buffer
 	"discard_draft": func(c *conn, in inbound) { c.clearBuffer() },   // drop the uncommitted hands-free draft
 	"history":       func(c *conn, in inbound) { c.serveHistory(in.Name, in.Before, in.Limit, in.HaveHash) },
