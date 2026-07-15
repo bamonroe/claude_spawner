@@ -644,16 +644,19 @@ embedding backbone). Its flagship conv-attention ONNX is **not** openWakeWord-lo
 fallback `dnn`→TFLite head is), so we commit to LiveKit's own runtime end-to-end rather than straddle.
 Accurate full transcription on commit stays on Whisper, untouched.
 
-- [ ] **Offline trainer (one-time).** On a Linux+GPU box: `pip install livekit-wakeword[train,eval,export]`
-      (needs espeak-ng/ffmpeg/sox/portaudio, Python 3.11+), write a YAML naming the phrase, run
-      `livekit-wakeword run <config>.yaml` → small classifier `.onnx`. Train "hey buddy"; train a
-      second model for the end token (default "beep") if we go trained-token.
-- [ ] **Rust sidecar service (the new component).** Thin Rust web server wrapping the
-      `livekit-wakeword` crate (`WakeWordModel::new(&["heybuddy.onnx", ...], 16000)` → `predict(chunk)`),
-      exposing an endpoint that takes PCM and returns per-phrase scores. Containerize like the
-      whisper/kokoro services; new `SPAWNER_WAKEWORD_URL` config (empty = disabled, fall back to the
-      current Whisper string-match). Design as a service so the Go gateway pings it — LiveKit ships a
-      *library*, not a server, so this wrapper is ours to write.
+- [x] 2026-07-15 — **Offline trainer (one-time).** Docker trainer image (bare-metal abandoned:
+      numba/llvmlite vs Python 3.14). Tokens are **doubled monosyllables**: START = "bump bump"
+      (wake), END = "beep beep" (end); soft dropped-consonant forms are positives, each token lists
+      the other as negatives. Full `run configs/bump.yaml` (conv_attention/medium, 20k samples, 50k
+      steps) → `output/bump_bump/bump_bump.onnx`, **eval recall 99.7%, 0 FPPH over ~19h** (optimal
+      threshold ~0.07). Augmentation was parallelized across CPU cores (patch) to survive the 4-core
+      host. `beep.yaml` run is training now. Configs tracked in `wakeword/configs/`.
+- [x] 2026-07-15 — **Rust sidecar service (the new component).** `wakeword/service/` (axum,
+      pure-Rust `ort-tract`), image `spawner-wakeword:latest`. `GET /health`, `POST /detect` (LE i16
+      mono PCM → per-model scores). Env: `WAKEWORD_ADDR`, `WAKEWORD_MODELS` (comma `name=path`),
+      `WAKEWORD_INPUT_RATE`. **Verified with the real bump_bump model**: a 2s window ending at the
+      wake word scores ~0.98, real background scores ~0.003. New `SPAWNER_WAKEWORD_URL` config still
+      to be wired into `internal/config` + gateway (empty = disabled, fall back to Whisper).
 - [ ] **Gateway swap (Go).** Introduce a `Detector` interface (in → clip/frames, out → wake + end-token
       scores) and replace the fast-transcribe-and-string-match in `gatedChunk` with a call to it,
       thresholding the score instead of matching text. Keep it behind a feature flag so we can A/B
@@ -663,9 +666,15 @@ Accurate full transcription on commit stays on Whisper, untouched.
       retirement path for `command.wakePhrases` once the detector is trusted.
 
 **Open decisions (resolve before coding):**
-- **Frames vs. clips.** These models want a continuous stream of ~80 ms frames; our app sends one
-  VAD-gated clip per utterance. Running the detector over a clip's frames works to start, but true
-  streaming is a bigger Android-side change — decide whether it's worth it.
+- **Frames vs. clips — RESOLVED empirically (2026-07-15): must slide the window.** The classifier
+  scores the **last 16 embeddings ≈ the last 2s**, and training places the wake word at the **tail**
+  of that window. Verified: "bump bump" at the *start* of a longer clip with a command following
+  scores ~0.003 (misses); the same word at the *tail* of a 2s window scores ~0.98. So the gateway
+  **cannot** hand the sidecar one big "wake word + command" clip. It must score a **sliding 2s
+  window** over incoming audio and fire the instant a window ending at "now" crosses threshold —
+  which naturally happens right when "bump bump" completes, before the command is spoken. Options:
+  (a) gateway buffers a rolling 2s of PCM and re-scores on each new chunk; (b) sidecar goes stateful
+  streaming (hold one model, feed frames, emit peak) — richer but bigger. Start with (a).
 - **Custom end token.** A trained model only knows its trained phrase. To keep the end token
   user-configurable, either train a small set of preset tokens or keep the Whisper string-match as the
   fallback for arbitrary tokens.
