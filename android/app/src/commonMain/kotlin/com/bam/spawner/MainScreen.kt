@@ -300,6 +300,7 @@ fun MainScreen(
             Box(
                 Modifier.align(Alignment.CenterStart)
                     .fillMaxHeight()
+                    .imePadding()
                     .padding(top = edgeGestureTopInset, bottom = edgeGestureBottomInset)
                     .width(24.dp)
                     .pointerInput(Unit) {
@@ -319,6 +320,7 @@ fun MainScreen(
             Box(
                 Modifier.align(Alignment.CenterEnd)
                     .fillMaxHeight()
+                    .imePadding()
                     .padding(top = edgeGestureTopInset, bottom = edgeGestureBottomInset)
                     .width(swapStripWidth)
                     .pointerInput(Unit) {
