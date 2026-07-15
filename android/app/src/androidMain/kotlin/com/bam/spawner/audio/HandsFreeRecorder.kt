@@ -53,6 +53,11 @@ class HandsFreeRecorder(
     // (the AEC path always suppressed too); the headset/media path can force it on
     // independently so ambient noise is filtered even with the echo canceller off.
     private val enableNs: Boolean = enableAec,
+    // When > 0 the recorder ignores the VAD entirely and captures one fixed-length
+    // clip of this many milliseconds, then emits it via [onUtterance]. Used for the
+    // "stay silent" training prompt, where there is no speech to end-point on so the
+    // normal VAD-gated path would never terminate.
+    private val fixedMs: Int = 0,
 ) {
     companion object {
         const val CODEC = Codecs.OGG_OPUS
@@ -123,7 +128,41 @@ class HandsFreeRecorder(
         }
     }
 
+    /**
+     * Fixed-length capture: no VAD, no onset gate — encode every frame for [fixedMs]
+     * then emit the clip. Used for the "stay silent" prompt so a quiet take actually
+     * terminates and produces a clip.
+     */
+    private fun captureFixed(record: AudioRecord) {
+        val frame = ByteArray(FRAME_BYTES)
+        val file = File(context.cacheDir, "handsfree.ogg")
+        val enc = OpusOggEncoder()
+        if (!enc.start(file)) {
+            Log.e(TAG, "fixed capture: encoder start failed")
+            runCatching { record.stop() }; runCatching { record.release() }; return
+        }
+        onSpeechStart()
+        var elapsedMs = 0
+        try {
+            while (running && elapsedMs < fixedMs) {
+                val n = record.read(frame, 0, FRAME_BYTES)
+                if (n <= 0) continue
+                onLevel?.invoke(pcm16Rms(frame, n))
+                enc.feed(frame, n)
+                elapsedMs += FRAME_MS
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "fixed capture failed", e)
+        } finally {
+            running = false
+            val bytes = enc.finish()
+            runCatching { record.stop() }; runCatching { record.release() }
+            if (bytes != null && bytes.isNotEmpty()) onUtterance(bytes)
+        }
+    }
+
     private fun captureLoop(record: AudioRecord) {
+        if (fixedMs > 0) { captureFixed(record); return }
         val frame = ByteArray(FRAME_BYTES)
         val ring = ArrayDeque<ByteArray>(PREROLL_FRAMES + 1)
         var encoder: OpusOggEncoder? = null
