@@ -143,10 +143,25 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
         loadedFromCache.add(name)
         if (name in logs) return
         val c = cache.load(name) ?: return
-        logs[name] = c.messages.map { it.toChat() }
+        logs[name] = dedupeCachedLog(c.messages.map { it.toChat() })
         oldestIndex[name] = c.oldestIndex
         hasMore[name] = c.hasMore
         digestHeld[name] = c.count to c.hash
+    }
+
+    private fun dedupeCachedLog(messages: List<ChatMessage>): List<ChatMessage> {
+        val indexedText = messages
+            .filter { it.index >= 0 }
+            .map { it.role to it.text.trim() }
+            .toSet()
+        val seenIndexes = mutableSetOf<Int>()
+        return messages.filter { m ->
+            when {
+                m.index >= 0 -> seenIndexes.add(m.index)
+                indexedText.isNotEmpty() && (m.role to m.text.trim()) in indexedText -> false
+                else -> true
+            }
+        }
     }
 
     // persist writes a session's current log (minus live-only SYSTEM notes, which
@@ -154,7 +169,8 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     // to disk, so it survives an app restart and can be shown offline.
     private fun persist(name: String) {
         if (name.isEmpty()) return
-        val msgs = logs[name] ?: return
+        val msgs = dedupeCachedLog(logs[name] ?: return)
+        logs[name] = msgs
         val keep = msgs.filter { it.role != Role.SYSTEM }
         val d = digestHeld[name]
         cache.save(name, CachedSession(
@@ -1680,6 +1696,11 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                 serverDigest[msg.name] = msg.count to msg.hash
             }
             loadingOlder.remove(msg.name)
+            logs[msg.name]?.let { cleaned ->
+                val deduped = dedupeCachedLog(cleaned)
+                logs[msg.name] = deduped
+                if (msg.name == currentKey) _chat.value = deduped
+            }
             persist(msg.name)
             return
         }
@@ -1702,7 +1723,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
         // mid-turn breadcrumb not present in the fetched page) may be OLDER than the
         // history block, so `hist + existing` would strand it at the bottom, out of
         // order. Ordering by ts drops it back into its true chronological slot.
-        logs[msg.name] = ordered(hist + existing)
+        logs[msg.name] = dedupeCachedLog(ordered(hist + existing))
         if (msg.messages.isNotEmpty()) oldestIndex[msg.name] = msg.messages.first().index
         hasMore[msg.name] = msg.more
         loadingOlder.remove(msg.name)
