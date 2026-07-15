@@ -669,13 +669,35 @@ Accurate full transcription on commit stays on Whisper, untouched.
       the other as negatives. Full `run configs/bump.yaml` (conv_attention/medium, 20k samples, 50k
       steps) → `output/bump_bump/bump_bump.onnx`, **eval recall 99.7%, 0 FPPH over ~19h** (optimal
       threshold ~0.07). Augmentation was parallelized across CPU cores (patch) to survive the 4-core
-      host. `beep.yaml` run is training now. Configs tracked in `wakeword/configs/`.
+      host. `beep.yaml` **done 2026-07-15** → `output/beep_beep/beep_beep.onnx`, **eval recall 99.8%,
+      0 FPPH over ~19h** (optimal threshold ~0.04). Both tokens now trained + validated. Configs
+      tracked in `wakeword/configs/`.
 - [x] 2026-07-15 — **Rust sidecar service (the new component).** `wakeword/service/` (axum,
       pure-Rust `ort-tract`), image `spawner-wakeword:latest`. `GET /health`, `POST /detect` (LE i16
       mono PCM → per-model scores). Env: `WAKEWORD_ADDR`, `WAKEWORD_MODELS` (comma `name=path`),
       `WAKEWORD_INPUT_RATE`. **Verified with the real bump_bump model**: a 2s window ending at the
       wake word scores ~0.98, real background scores ~0.003. New `SPAWNER_WAKEWORD_URL` config still
       to be wired into `internal/config` + gateway (empty = disabled, fall back to Whisper).
+- [x] 2026-07-15 — **Live streaming path (`GET /stream`).** Decided (over the abandoned ort-backend
+      swap) to lean into the crate's streaming design instead of re-slicing whole clips: a persistent
+      WebSocket takes continuous PCM and keeps a rolling `WAKEWORD_WINDOW_SEC` buffer, re-scoring the
+      live edge every `WAKEWORD_HOP_SEC` of fresh audio. **Bounded ~one-window cost per score
+      regardless of utterance length** (release: a 2s window ≈ **360 ms** idle; whole-clip slide was
+      already 1.4s at 4s and climbs). Verified streaming a pre-filled buffer: token peaks ~0.985,
+      background ~0.003. Key correctness fix: a live stream must **not** silence-pad a partial buffer
+      (that fabricated ~0.57 on background) — it waits out the first full window, then scores real
+      audio only. `axum` gains the `ws` feature. Fires the instant "bump bump" completes, before the
+      command is even spoken — the latency win Whisper-on-closed-clips can't match.
+- [ ] **Collect the user's own voice for retraining (personalization — proposed 2026-07-15).** The
+      app already streams the user's live audio to the server, so capture it (explicitly opt-in, with
+      a clear on/off) as real-distribution training data: our voice, the Pixel 8a mic, our actual
+      rooms/car — closing the sim-to-real gap the synthetic Piper/TTS positives leave open. Store
+      clips under **`/data/storage/whisper/bam_audio`**. Weak-label for free from the accurate Whisper
+      transcript (token present → candidate positive, else negative); the user hand-validates the rare
+      positives + any near-misses, skims negatives. The real prize is **hard cases**: clips Whisper
+      *misses* the wake word on today (drive down false negatives — the actual current pain), and
+      normal dictation as real-world negatives (hold false positives down). Keep the synthetic base
+      set in the mix so it still generalizes. Retrain (~5.5h) → live A/B vs the synthetic-only model.
 - [ ] **Gateway swap (Go).** Introduce a `Detector` interface (in → clip/frames, out → wake + end-token
       scores) and replace the fast-transcribe-and-string-match in `gatedChunk` with a call to it,
       thresholding the score instead of matching text. Keep it behind a feature flag so we can A/B
