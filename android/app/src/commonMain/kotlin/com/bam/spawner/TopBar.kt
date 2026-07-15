@@ -59,6 +59,11 @@ fun TopBar(
     onOutputMenuOpened: () -> Unit,
 ) {
     Surface(tonalElevation = 2.dp) {
+        val compactSubtitle = when {
+            subtitle == "attached: $title" -> "attached"
+            subtitle.startsWith("attached: ") -> "attached"
+            else -> subtitle
+        }
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -68,7 +73,13 @@ fun TopBar(
             if (onMenu != null) IconButton(onClick = onMenu) { Icon(Icons.Filled.Menu, contentDescription = "Menu") }
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("· $subtitle", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                Text(
+                    "· $compactSubtitle",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
             // Attached session's backend/model badge, so the current AI + model is
             // visible without letting long provider/model names widen the top bar.
