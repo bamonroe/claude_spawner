@@ -273,6 +273,32 @@ Context tokens are the main cost here, so default to the frugal path:
   question in `docs/architecture.md`), record it in the owning doc and the README so it isn't
   re-litigated.
 
+### Worktrees: parallel app/server development
+
+This repo is checked out as **two git worktrees of the one repository**, so an app-focused agent and
+a server-focused agent can work at the same time without colliding on disk:
+
+- **`/data/claude_spawner`** — branch **`master`**, the **server** worktree (Go gateway, session
+  driver, docs, deploy). This is the primary/home checkout.
+- **`/data/claude_spawner_app`** — branch **`app`**, the **Android app** worktree (Kotlin client,
+  UI, settings screens, button layout/appearance).
+
+They share **one git history and one set of tracked files** — every doc (`CLAUDE.md`, `docs/`,
+`TODO.md`, `README.md`) exists identically in both trees, so nothing is lost between them; edit a
+doc in whichever tree you're in and it merges over. Rules:
+
+- **One agent per worktree.** Don't edit the same tree from two agents; that's the collision the
+  split exists to prevent. Stay in your tree's lane — the app worktree does client work, the server
+  worktree does server/docs work.
+- **The wire protocol is still shared and drift-tested.** A protocol change touches *both* sides
+  (`net/Protocol.kt` and the Go gateway), and the `docsync` build test still enforces it across the
+  merged history — so a protocol change is the one thing that isn't cleanly parallel: coordinate it,
+  land it, and merge before the other tree builds on it.
+- **Merge normally, often.** Each branch commits and pushes independently (both push to the same
+  `origin`); merge `app` ↔ `master` like any git merge to reconcile. Keep them from drifting far
+  apart, especially around shared docs and the protocol.
+- Manage worktrees with `git worktree list` / `git worktree add` / `git worktree remove`.
+
 ### Git: commit atomically, at will and frequently — and push freely
 
 This repo is under version control (remote `origin` = `git@github:bamonroe/claude_spawner`, using
