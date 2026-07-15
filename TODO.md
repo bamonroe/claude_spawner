@@ -751,10 +751,18 @@ Accurate full transcription on commit stays on Whisper, untouched.
       - [ ] **Phase 2:** serve the prompt grid from the trainer config (`target_phrases`/
             `custom_negative_phrases`) so it can't drift — `train_prompts`→`train_script` messages, app
             falls back to the hardcoded grid on older servers.
-      - [ ] **Phase 3:** trainer ingestion — new `real_samples_dir` config, and a patch that copies the
-            collected clips into the split dirs **after `generate`, before `augment`**, numbered past the
-            synthetic count (the `^clip_\d{6}\.wav$` regex + generate→inject→augment ordering are the
-            load-bearing constraints). Then retrain → live A/B.
+      - [x] **Phase 3 (built 2026-07-15):** trainer ingestion in `livekit-wakeword` (local, upstream
+            remote — not pushed). New `real_samples_dir` + `real_test_fraction` config fields and a
+            `run_copy_real` step (`data/real_samples.py`) wired as step 1b of `run` (**after
+            `generate`, before `augment`**) plus a standalone `copy-real` command. Copies
+            `<real_samples_dir>/<model_name>/<category>/*.wav` into the `<category>_{train,test}` split
+            dirs, renamed `clip_######.wav` past the synthetic count so augment/features pick them up
+            like synthetic originals. Deterministic interleave hold-out into `*_test`; idempotent via a
+            per-split `real_injected.txt` manifest (re-runs replace, don't duplicate; synthetic
+            untouched). `beep.yaml`/`bump.yaml` set `real_samples_dir: ./real` — **mount the host real
+            dir at `/work/real`** (`-v /data/storage/livekit-wakeword/real:/work/real`) in the training
+            `docker run`. Verified in-container: injection, past-synthetic numbering, idempotency, and
+            synthetic preservation. Remaining: retrain (~5.5h) → live A/B vs the synthetic-only model.
 - [x] 2026-07-15 — **Gateway swap (Go): end-token detector wired.** New `internal/detect` package
       (`Detector` interface + `RemoteWakeword` HTTP client POSTing raw PCM16LE 16k to `/detect`,
       unit-tested). `gatedChunk` now gates the end-token commit on the detector when
