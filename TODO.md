@@ -12,6 +12,21 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [ ] **Drop the SPAWNER_ROOT spawn jail; a directory is only a working dir, not a session
+      identity.** Two coupled changes. (1) **Multi-session-per-folder** _(done, see below)_: a spawn
+      always mints a NEW session; the store dedups on `session_id`, not directory. (2) **Remove the
+      roots**: delete `SPAWNER_ROOT`/`SpawnRoots`/`ValidateSpawnDir` and rewrite the voice spawn dialog
+      to take a **full spoken path** resolved segment-by-segment against the real target filesystem
+      (fuzzy-correct each component to the closest actually-existing child — "colmb" → "home"),
+      reprompting for the whole path on ambiguity. _(voice rewrite + config removal pending.)_
+
+- [x] 2026-07-15 — **A folder can hold multiple sessions (directory ≠ identity).** Spawn (picker
+      `doSpawnAt` + voice `beginAttachQuestion`) always creates a fresh session with a deduped name
+      instead of re-attaching to the folder's existing one; adopt/discovery key solely on
+      `session_id`; the store's self-heal collapses only records that share a `session_id`
+      (`dedupeBySessionID`), leaving distinct sessions in one dir alone. protocol.md `spawn_at`/`adopt`
+      rows updated; tests rewritten. Roots removal + voice full-path resolver still to come.
+
 - [x] 2026-07-14 — **"swap" — jump back to the previous session (voice + swipe).** New `swap` command
       that toggles back to the session attached just before the current one (a two-way ping-pong).
       Server tracks the previous `session_id` per connection (recorded on every genuine attach and on

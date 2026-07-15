@@ -138,15 +138,11 @@ func (c *conn) doSpawnAt(path string, target session.Target, create bool, host, 
 		c.fail("bad_path", "not a directory")
 		return nil
 	}
-	// Don't pile up a duplicate session for a directory that already runs in the same
-	// place — open the existing session instead of minting a "-2". Match on directory
-	// AND host: a folder may legitimately have one session per host, so a remote spawn
-	// must not reuse the localhost session at the same path. Delete or rename the
-	// existing one for a fresh id.
-	if existing := c.srv.store.GetByDirHost(dir, wantHost); existing != nil {
-		c.doAttach(existing.Name, false)
-		return existing
-	}
+	// A directory is just the session's initial working dir, not its identity — so a
+	// spawn always mints a NEW session even when the folder already hosts one. The
+	// name collides on the folder basename and dedups to "<dir>-2", "-3", … (via
+	// newSession's uniqueName). Re-attaching to an existing session is the session
+	// list's job (the attach message), not re-picking its directory.
 	base := name
 	if base == "" {
 		base = filepath.Base(dir)

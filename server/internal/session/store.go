@@ -51,12 +51,13 @@ func OpenStore(path string) (*Store, error) {
 			s.byID[rec.SessionID] = rec
 		}
 	}
-	// Self-heal phantom duplicates: a folder may hold at most one local
-	// (non-sandbox) session, but older binaries (and unguarded adopt paths) could
-	// register a second record for a dir that already had one — e.g. adopting a
-	// stale on-disk session_id. Collapse any such duplicates on load, keeping the
-	// primary and dropping the rest, so the list self-cleans on the next restart.
-	if n := s.dedupeLocal(); n > 0 {
+	// Self-heal phantom duplicates: a folder may hold any number of distinct
+	// sessions (each its own session_id), but two records that share the SAME
+	// session_id are the same underlying conversation split in two — e.g. a rename
+	// or adopt that wrote a second row. Collapse those on load, keeping the primary
+	// and dropping the rest, so the list self-cleans on the next restart. Records
+	// with different session_ids in one dir are legitimate and left alone.
+	if n := s.dedupeBySessionID(); n > 0 {
 		if err := s.flush(); err != nil {
 			return nil, err
 		}
@@ -64,23 +65,27 @@ func OpenStore(path string) (*Store, error) {
 	return s, nil
 }
 
-// dedupeLocal collapses duplicate local (non-sandbox) records that share a
-// directory down to a single primary, dropping the others from both indices.
-// Returns how many records it removed. The primary is the most "real" record for
-// the folder: a Started session beats a not-started one, an explicit host-target
-// beats an empty target (registerDiscovered leaves Target empty; a spawned/typed
-// session sets it), and ties break on the lexicographically-first name (the base
-// "<dir>", not the deduped "<dir>-2"). Caller holds no lock (invoked from
-// OpenStore before the store is shared) and is responsible for flushing.
-func (s *Store) dedupeLocal() (removed int) {
-	byDir := map[string][]*Session{}
+// dedupeBySessionID collapses records that share the same non-empty session_id
+// down to a single primary, dropping the others from both indices. Returns how
+// many records it removed. Two rows with one session_id are the same underlying
+// --resume conversation recorded twice (a stale adopt/rename); distinct
+// session_ids — even in the same directory — are separate sessions and are kept.
+// The primary is the most "real" record: a Started session beats a not-started
+// one, an explicit host-target beats an empty target (registerDiscovered leaves
+// Target empty; a spawned/typed session sets it), and ties break on the
+// lexicographically-first name (the base "<dir>", not the deduped "<dir>-2").
+// Records with no session_id can't be resume-duplicates and are left alone.
+// Caller holds no lock (invoked from OpenStore before the store is shared) and is
+// responsible for flushing.
+func (s *Store) dedupeBySessionID() (removed int) {
+	byID := map[string][]*Session{}
 	for _, rec := range s.byName {
-		if rec.Target == TargetSandbox {
-			continue // sandbox sessions are keyed separately; not a dir duplicate
+		if rec.SessionID == "" {
+			continue // no durable id — can't be a resume-duplicate
 		}
-		byDir[rec.Dir] = append(byDir[rec.Dir], rec)
+		byID[rec.SessionID] = append(byID[rec.SessionID], rec)
 	}
-	for _, recs := range byDir {
+	for id, recs := range byID {
 		if len(recs) < 2 {
 			continue
 		}
@@ -95,11 +100,9 @@ func (s *Store) dedupeLocal() (removed int) {
 				continue
 			}
 			delete(s.byName, rec.Name)
-			if rec.SessionID != "" && s.byID[rec.SessionID] == rec {
-				delete(s.byID, rec.SessionID)
-			}
 			removed++
 		}
+		s.byID[id] = primary // the index may have pointed at a dropped record
 	}
 	return removed
 }

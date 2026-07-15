@@ -1020,15 +1020,14 @@ func TestDiscoverShowsEverySessionInADir(t *testing.T) {
 	}
 }
 
-// TestAdoptStaleIDReusesLiveSession verifies that adopting a discovered session
-// whose session_id is stale (the folder already has a live local session under a
-// different id) attaches to the live session instead of registering a phantom
-// "-2" duplicate. This reproduces the fresh-open-while-offline bug: the app shows
-// a cached discovered row for a since-superseded session and the user taps it.
-func TestAdoptStaleIDReusesLiveSession(t *testing.T) {
+// TestAdoptDistinctIDMakesNewSession verifies that adopting a session_id not yet
+// registered always brings in that distinct session, even when the folder already
+// hosts another one under a different id — a session_id is the sole identity, and
+// a shared directory no longer forces a reuse.
+func TestAdoptDistinctIDMakesNewSession(t *testing.T) {
 	ts, _, gw := newTestServerGW(t, nil)
 	dir := t.TempDir()
-	// The live session that currently owns the folder.
+	// A session that already lives in the folder under a different id.
 	if err := gw.store.Put(&session.Session{Name: "proj", Dir: dir, SessionID: "id-live", Host: session.LocalHost}); err != nil {
 		t.Fatal(err)
 	}
@@ -1036,23 +1035,26 @@ func TestAdoptStaleIDReusesLiveSession(t *testing.T) {
 	send(t, ws, map[string]any{"type": "hello", "token": "secret"})
 	readUntil(t, ws, "hello_ok")
 
-	// Adopt a DIFFERENT (stale) id for the same dir — the cached discovered entry.
-	send(t, ws, map[string]any{"type": "adopt", "session_id": "id-stale", "path": dir})
+	// Adopt a DIFFERENT id for the same dir → a new distinct session, not a reuse.
+	send(t, ws, map[string]any{"type": "adopt", "session_id": "id-other", "path": dir})
 	a := readUntil(t, ws, "attached")
-	if name, _ := a["name"].(string); name != "proj" {
-		t.Fatalf("adopt should attach to the live session, got %q", name)
+	if name, _ := a["name"].(string); name == "proj" {
+		t.Fatalf("adopt reused the dir's existing session; want a distinct new one")
 	}
-	if gw.store.Get("proj-2") != nil {
-		t.Fatal("adopt minted a phantom proj-2 duplicate for the stale id")
+	adopted := gw.store.GetBySessionID("id-other")
+	if adopted == nil {
+		t.Fatal("adopted session_id was not registered")
 	}
-	if gw.store.GetBySessionID("id-stale") != nil {
-		t.Fatal("stale id was registered instead of reusing the live session")
+	if gw.store.Get("proj") == nil {
+		t.Fatal("the pre-existing dir-mate session was lost")
 	}
 }
 
-// TestSpawnAtReusesExistingSession verifies opening a folder that already has a
-// session attaches to it instead of minting a same-folder "-2" duplicate.
-func TestSpawnAtReusesExistingSession(t *testing.T) {
+// TestSpawnAtMakesNewSession verifies a directory is just the initial working
+// dir, not the session's identity: spawning into a folder that already has a
+// session mints a NEW distinct session ("proj-2") rather than re-attaching to the
+// old one.
+func TestSpawnAtMakesNewSession(t *testing.T) {
 	ts, root := newTestServer(t, nil)
 	dir := filepath.Join(root, "proj")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -1062,22 +1064,30 @@ func TestSpawnAtReusesExistingSession(t *testing.T) {
 	send(t, ws, map[string]any{"type": "hello", "token": "secret"})
 	readUntil(t, ws, "hello_ok")
 
-	// Open the folder twice; the second open must reuse the same session (same
-	// name), not mint a "proj-2" duplicate.
+	// Spawn into the folder twice; the second spawn must be a fresh session with a
+	// deduped name, and both must remain registered.
 	send(t, ws, map[string]any{"type": "spawn_at", "path": dir})
 	first := readUntil(t, ws, "attached")["name"].(string)
 	send(t, ws, map[string]any{"type": "spawn_at", "path": dir})
 	second := readUntil(t, ws, "attached")["name"].(string)
 
-	if second != first {
-		t.Fatalf("second open made a new session %q (want reuse of %q)", second, first)
+	if second == first {
+		t.Fatalf("second spawn reused session %q (want a new one)", first)
+	}
+	// Both survive in the session list (spawn_at emits it) — neither was collapsed.
+	names := map[string]bool{}
+	for _, s := range readUntil(t, ws, "session_list")["sessions"].([]any) {
+		names[s.(map[string]any)["name"].(string)] = true
+	}
+	if !names[first] || !names[second] {
+		t.Fatalf("both sessions should remain, got %v", names)
 	}
 }
 
-// TestSpawnAtDifferentHostMakesNewSession: the same folder on a different host is
-// a distinct session — the dedup matches directory AND host, so picking a remote
-// host must not reuse the localhost session sitting at the same path.
-func TestSpawnAtDifferentHostMakesNewSession(t *testing.T) {
+// TestSpawnAtAlwaysMakesNewSession: every spawn is a fresh session regardless of
+// directory or host — a folder is only the initial working dir, never an identity
+// the spawn re-attaches to.
+func TestSpawnAtAlwaysMakesNewSession(t *testing.T) {
 	ts, root := newTestServer(t, nil)
 	dir := filepath.Join(root, "proj")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -1091,17 +1101,18 @@ func TestSpawnAtDifferentHostMakesNewSession(t *testing.T) {
 	send(t, ws, map[string]any{"type": "spawn_at", "path": dir})
 	local := readUntil(t, ws, "attached")["name"].(string)
 
-	// Same folder, explicit remote host → a brand-new session, not a reuse.
+	// Same folder, explicit remote host → a brand-new session.
 	send(t, ws, map[string]any{"type": "spawn_at", "path": dir, "host_name": "remote"})
 	remote := readUntil(t, ws, "attached")["name"].(string)
 	if remote == local {
-		t.Fatalf("remote-host spawn reused the localhost session %q (host pick dropped)", local)
+		t.Fatalf("remote-host spawn reused the localhost session %q", local)
 	}
 
-	// Re-picking the same host reuses that session rather than minting a third.
+	// Re-picking the same host still mints a distinct third session.
 	send(t, ws, map[string]any{"type": "spawn_at", "path": dir, "host_name": "remote"})
-	if again := readUntil(t, ws, "attached")["name"].(string); again != remote {
-		t.Fatalf("second remote spawn made a new session %q (want reuse of %q)", again, remote)
+	third := readUntil(t, ws, "attached")["name"].(string)
+	if third == remote || third == local {
+		t.Fatalf("re-spawn reused an existing session %q (want a new one)", third)
 	}
 }
 

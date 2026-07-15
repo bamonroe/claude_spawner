@@ -216,13 +216,16 @@ func TestTranscriptCacheInvalidatesOnChange(t *testing.T) {
 	}
 }
 
-func TestDedupeLocalOnLoad(t *testing.T) {
+func TestDedupeBySessionIDOnLoad(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.json")
-	// Two records for the same dir+host (the phantom-duplicate bug): the real
-	// host-target session and a registerDiscovered-style empty-target dup.
+	// Two records that share ONE session_id are the phantom-duplicate bug (the same
+	// --resume conversation recorded twice) and must collapse. A second, distinct
+	// session in the SAME directory (its own session_id) is legitimate now and must
+	// survive — folders are no longer session identities.
 	list := []*Session{
 		{Name: "claude_spawner", Dir: "/data/claude_spawner", SessionID: "real", Host: LocalHost, Target: TargetHost, Started: true},
-		{Name: "claude_spawner-2", Dir: "/data/claude_spawner", SessionID: "dup", Host: LocalHost, Started: true},
+		{Name: "claude_spawner-2", Dir: "/data/claude_spawner", SessionID: "real", Host: LocalHost, Started: true}, // same id → dup
+		{Name: "claude_spawner-3", Dir: "/data/claude_spawner", SessionID: "other", Host: LocalHost, Target: TargetHost, Started: true}, // distinct → kept
 		{Name: "email", Dir: "/home/bam/email", SessionID: "sb", Target: TargetSandbox}, // untouched
 	}
 	data, _ := json.Marshal(list)
@@ -233,21 +236,26 @@ func TestDedupeLocalOnLoad(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The dup is gone; the host-target primary and the sandbox session remain.
-	if got := s.List(); len(got) != 2 {
-		t.Fatalf("want 2 after dedupe, got %d: %+v", len(got), got)
+	// The same-id dup is gone; the primary, the distinct dir-mate, and the sandbox
+	// session all remain.
+	if got := s.List(); len(got) != 3 {
+		t.Fatalf("want 3 after dedupe, got %d: %+v", len(got), got)
 	}
 	if s.Get("claude_spawner-2") != nil {
-		t.Error("phantom duplicate claude_spawner-2 should have been dropped")
+		t.Error("phantom duplicate claude_spawner-2 (shared session_id) should have been dropped")
 	}
 	if got := s.Get("claude_spawner"); got == nil || got.SessionID != "real" {
 		t.Errorf("host-target primary should survive with its session_id, got %+v", got)
 	}
-	if s.GetBySessionID("dup") != nil {
-		t.Error("dropped duplicate should not remain in byID")
+	if got := s.Get("claude_spawner-3"); got == nil || got.SessionID != "other" {
+		t.Error("a distinct session sharing the dir should be kept")
+	}
+	// byID for the collapsed id points at the surviving primary, not a dropped record.
+	if got := s.GetBySessionID("real"); got == nil || got.Name != "claude_spawner" {
+		t.Errorf("byID[real] should point at the surviving primary, got %+v", got)
 	}
 	// The heal is persisted, so a second open sees the same clean state.
-	if s2, _ := OpenStore(path); len(s2.List()) != 2 {
+	if s2, _ := OpenStore(path); len(s2.List()) != 3 {
 		t.Error("dedupe should persist across reopen")
 	}
 }
