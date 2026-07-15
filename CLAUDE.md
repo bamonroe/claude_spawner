@@ -171,6 +171,13 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
   mount at `/models`; when set, its model names are sent to clients as a settings picker —
   empty = free-text entry only),
   `SPAWNER_WHISPER_FAST_MAX_SEC` (`2.5`; clips shorter than this use the fast server).
+- Dedicated wake-word / end-token detector (the LiveKit epic, see `TODO.md`): `SPAWNER_WAKEWORD_URL`
+  (base URL of the resident `spawner-wakeword` sidecar, e.g. `http://localhost:9060` — the Rust
+  service wrapping LiveKit's runtime; it slides a 2s window over each clip and returns peak per-model
+  scores, `POST /detect`). When set, live hands-free wake ("bump bump") / end ("beep beep") detection
+  scores the dedicated model instead of fast-transcribing the clip and string-matching; empty
+  disables it and detection falls back to the Whisper string-match. Accurate commit transcription is
+  unaffected either way.
 - Server-side TTS (the Kokoro epic, see `TODO.md`): `SPAWNER_TTS_URL` (base URL of the resident
   Kokoro-FastAPI server, e.g. `http://localhost:8880` — the `kokoro` compose service; empty
   disables server TTS and clients use on-device speech), `SPAWNER_TTS_VOICE` (`af_heart`; default
