@@ -264,7 +264,8 @@ fun MainScreen(
     // in a swipe-in modal drawer. Same composables, different container. 840.dp is the
     // Material "expanded" width breakpoint.
     BoxWithConstraints(Modifier.fillMaxSize()) {
-      if (maxWidth >= 840.dp) {
+      val containerWidth = maxWidth
+      if (containerWidth >= 840.dp) {
         PermanentNavigationDrawer(
             drawerContent = {
                 PermanentDrawerSheet(Modifier.width(320.dp)) { sidebar {} }
@@ -291,6 +292,8 @@ fun MainScreen(
             // taps from real controls before those controls ever see the pointer.
             val edgeGestureTopInset = 88.dp
             val edgeGestureBottomInset = 144.dp
+            val swapStripWidth = if (containerWidth >= 600.dp) 72.dp else 28.dp
+            val swapDragThreshold = if (containerWidth >= 600.dp) 48.dp else 64.dp
             // Left-edge swipe to open the drawer: a narrow strip pinned to the far left
             // edge that opens the drawer on a rightward drag. Kept thin (and on the left,
             // away from the mic button on the right) so it doesn't steal normal touches.
@@ -317,9 +320,9 @@ fun MainScreen(
                 Modifier.align(Alignment.CenterEnd)
                     .fillMaxHeight()
                     .padding(top = edgeGestureTopInset, bottom = edgeGestureBottomInset)
-                    .width(28.dp)
+                    .width(swapStripWidth)
                     .pointerInput(Unit) {
-                        val threshold = 64.dp.toPx()
+                        val threshold = swapDragThreshold.toPx()
                         var dx = 0f
                         detectHorizontalDragGestures(
                             onDragStart = { dx = 0f },
