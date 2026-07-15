@@ -23,6 +23,15 @@ through. It carries `restart: unless-stopped`, so once created it survives reboo
 draft model on `:8572` (`whisper-fast`) can offload the live hands-free draft — start it and set
 `SPAWNER_WHISPER_FAST_URL` to enable it. See [`../whisper/README.md`](../whisper/README.md).
 
+## The wakeword detector service (optional)
+
+The `wakeword` service is the resident `spawner-wakeword` detector (on `:9060`, **CPU-only** — no
+GPU). When `SPAWNER_WAKEWORD_URL` points at it, the gateway scores each hands-free clip for the
+`bump_bump`/`beep_beep` tokens instead of string-matching Whisper (fewer missed commits); unset it and
+detection falls back to the string-match. It needs the trained `.onnx` models mounted (the compose
+service mounts `/data/storage/livekit-wakeword/output` at `/models`). The restart button only recreates
+`spawner-server`, so bring the detector up separately once: `docker compose up -d --build wakeword`.
+
 ## Prerequisites
 
 The host (the machine the stack runs on) needs, before the first `up`:

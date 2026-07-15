@@ -3,7 +3,7 @@
 #
 #   docker compose up -d --build
 #
-# Three services:
+# Four services:
 #   spawner-server — the Go gateway. This container builds the binary from ./server
 #                    and drives the HOST over SSH (unconditionally): `claude` for host
 #                    turns and rootless Podman for sandbox turns both run on the host.
@@ -12,6 +12,10 @@
 #   kokoro         — the resident Kokoro TTS server on :8880 (CUDA, shares the GPU
 #                    with whisper). spawner-server points at it via SPAWNER_TTS_URL;
 #                    optional — without it clients fall back to on-device speech.
+#   wakeword       — the resident spawner-wakeword detector on :9060 (CPU-only). scores
+#                    each hands-free clip for the bump_bump/beep_beep tokens; spawner-server
+#                    points at it via SPAWNER_WAKEWORD_URL. Optional — without it detection
+#                    falls back to the Whisper string-match.
 #
 # Prereqs FIRST (see deploy/README.md for the full first-run guide): copy
 # deploy/spawner-container.env.example to deploy/spawner-container.env and fill it in
@@ -77,6 +81,27 @@ services:
     command: ["-m", "/models/ggml-medium.en.bin"]
     ports:
       - "8571:8571"
+    restart: unless-stopped
+
+  # Resident wake-word / end-token detector (spawner-wakeword — the Rust sidecar wrapping
+  # LiveKit's runtime). CPU-only (pure-Rust ort-tract), no GPU. The gateway points at
+  # http://localhost:9060 via SPAWNER_WAKEWORD_URL and scores each hands-free clip for the
+  # bump_bump (wake) / beep_beep (end) tokens instead of string-matching Whisper. NOT started
+  # by the restart button (which only recreates spawner-server) — bring it up separately with
+  # `docker compose up -d --build wakeword`.
+  wakeword:
+    build:
+      context: ./wakeword/service
+    image: spawner-wakeword:latest
+    container_name: spawner-wakeword
+    volumes:
+      # The trained classifier .onnx files (livekit-wakeword trainer output), read-only at
+      # /models. WAKEWORD_MODELS names the two we run and where they sit under the mount.
+      - "/data/storage/livekit-wakeword/output:/models:ro"
+    environment:
+      WAKEWORD_MODELS: "bump_bump=/models/bump_bump/bump_bump.onnx,beep_beep=/models/beep_beep/beep_beep.onnx"
+    ports:
+      - "9060:9060"
     restart: unless-stopped
 
   # Resident Kokoro TTS server (Kokoro-FastAPI, OpenAI-compatible /v1/audio/speech),
