@@ -12,6 +12,15 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-15 — **App-declared dictation target.** `wake` and `utterance` now carry the app's
+      currently focused `session_id`; the server validates it and makes the connection follow that
+      session before routing dictation or command text, falling back to the old per-WebSocket
+      attached-session state for older clients. Hands-free buffers remember the target for the whole
+      pending message and clear stale draft audio if the app switches sessions before commit. Android
+      and web clients both send the attached session id. Server `go test ./...` and
+      Android `compileDebugKotlinAndroid` / Wasm `compileKotlinWasmJs` green; clean APK installed
+      on the Pixel 8a.
+
 - [x] 2026-07-15 — **Fix: push-to-talk hold still cut off near right/bottom edges.** Increased the
       Android system-gesture exclusion around the live mic button from 96→160dp on the right and
       180→240dp on the bottom, intentionally pushing into Android's per-edge cap so small thumb

@@ -602,29 +602,31 @@ type conn struct {
 	prevSessionID string           // session_id of the session attached just before this one — the "swap" target (survives renames)
 	dlg           *dialog          // non-nil while a dialog is in progress
 
-	collecting bool   // between `wake` and `audio_end`
-	audio      []byte // accumulated audio for the current utterance
-	audioCodec string // "ogg_opus" (compressed) or "pcm16" (raw)
-	gated      bool   // current utterance is hands-free (VAD-gated → accumulate)
-	calibrate  bool   // current utterance is an end-token calibration sample
-	training   bool   // current utterance is a labeled training-data sample (save, don't dispatch)
-	trainModel string // on a training clip: which token model ("bump_bump" | "beep_beep")
-	trainCat   string // on a training clip: bucket ("positive" | "negative" | "background")
-	trainLabel string // on a training clip: the exact phrase read aloud
+	collecting     bool   // between `wake` and `audio_end`
+	audio          []byte // accumulated audio for the current utterance
+	audioCodec     string // "ogg_opus" (compressed) or "pcm16" (raw)
+	audioSessionID string // app-declared target session for the current audio clip
+	gated          bool   // current utterance is hands-free (VAD-gated → accumulate)
+	calibrate      bool   // current utterance is an end-token calibration sample
+	training       bool   // current utterance is a labeled training-data sample (save, don't dispatch)
+	trainModel     string // on a training clip: which token model ("bump_bump" | "beep_beep")
+	trainCat       string // on a training clip: bucket ("positive" | "negative" | "background")
+	trainLabel     string // on a training clip: the exact phrase read aloud
 
-	buffer        []string               // hands-free rough draft (per-chunk fast transcripts, for detection)
-	audioPCM      []byte                 // hands-free raw PCM of all chunks, re-transcribed as one on commit
-	brief         bool                   // append a "reply briefly for TTS" hint to dictation
-	interactive   bool                   // let Claude ask clarifying questions mid-task
-	endToken      string                 // spoken word that commits the buffer (default "beep")
-	wakePhrase    [][]string             // client's custom wake token(s) (nil = built-in "hey buddy" only)
-	speakPhrase   [][]string             // dictation-gate speak token(s) (nil = none); with dictationGate, only speech after it is dictated
-	dictationGate bool                   // discard un-bracketed speech instead of dictating it (needs speakPhrase set)
-	sttMode       string                 // "dynamic" | "fixed" whisper model selection
-	sttModel      string                 // fixed-mode model: "tiny" | "base" | "small"
-	aliases       map[string]string      // mis-transcription -> canonical command word
-	stt           transcribe.Transcriber // per-conn override (app-set whisper URL); nil = server default
-	scratch       bool                   // scratch mode: while detached, echo each transcription back aloud (STT test)
+	buffer          []string               // hands-free rough draft (per-chunk fast transcripts, for detection)
+	audioPCM        []byte                 // hands-free raw PCM of all chunks, re-transcribed as one on commit
+	bufferSessionID string                 // app-declared target session for the hands-free buffer
+	brief           bool                   // append a "reply briefly for TTS" hint to dictation
+	interactive     bool                   // let Claude ask clarifying questions mid-task
+	endToken        string                 // spoken word that commits the buffer (default "beep")
+	wakePhrase      [][]string             // client's custom wake token(s) (nil = built-in "hey buddy" only)
+	speakPhrase     [][]string             // dictation-gate speak token(s) (nil = none); with dictationGate, only speech after it is dictated
+	dictationGate   bool                   // discard un-bracketed speech instead of dictating it (needs speakPhrase set)
+	sttMode         string                 // "dynamic" | "fixed" whisper model selection
+	sttModel        string                 // fixed-mode model: "tiny" | "base" | "small"
+	aliases         map[string]string      // mis-transcription -> canonical command word
+	stt             transcribe.Transcriber // per-conn override (app-set whisper URL); nil = server default
+	scratch         bool                   // scratch mode: while detached, echo each transcription back aloud (STT test)
 
 	speakCh     chan speakReq      // queued `speak` requests, drained in order by speakWorker; nil = server TTS disabled
 	speakMu     sync.Mutex         // guards speakCancel (read loop vs speak worker)
@@ -821,8 +823,8 @@ func (c *conn) keepAlive(stop <-chan struct{}) {
 // a frame ever reaches dispatch.
 var wireHandlers = map[string]func(c *conn, in inbound){
 	"ping":              func(c *conn, in inbound) { c.send(msgPong()) },
-	"utterance":         func(c *conn, in inbound) { c.gated = false; c.handleUtterance(in.Text) }, // typed/explicit text is never background-gated
-	"reply":             func(c *conn, in inbound) { c.gated = false; c.handleUtterance(in.Text) },
+	"utterance":         func(c *conn, in inbound) { c.gated = false; c.handleUtterance(in.Text, in.SessionID) }, // typed/explicit text is never background-gated
+	"reply":             func(c *conn, in inbound) { c.gated = false; c.handleUtterance(in.Text, in.SessionID) },
 	"attach":            func(c *conn, in inbound) { c.doAttachBy(in.SessionID, in.Name, in.Silent) },
 	"detach":            func(c *conn, in inbound) { c.doDetach() },
 	"swap":              func(c *conn, in inbound) { c.doSwap() },
@@ -850,7 +852,7 @@ var wireHandlers = map[string]func(c *conn, in inbound){
 	"speak":         func(c *conn, in inbound) { c.handleSpeak(in.ID, in.Text, in.Voice, in.Format) },
 	"speak_stop":    func(c *conn, in inbound) { c.handleSpeakStop() },
 	"tts_voices":    func(c *conn, in inbound) { c.handleTTSVoices() },
-	"wake":          func(c *conn, in inbound) { c.startAudio(in.Codec, in.HandsFree, in.Calibrate) },
+	"wake":          func(c *conn, in inbound) { c.startAudio(in.Codec, in.HandsFree, in.Calibrate, in.SessionID) },
 	"train_clip":    func(c *conn, in inbound) { c.startTrainClip(in.Codec, in.Model, in.Category, in.Label) },
 	"commit":        func(c *conn, in inbound) { c.commitMessage() }, // silence-timeout commit of the hands-free buffer
 	"discard_draft": func(c *conn, in inbound) { c.clearBuffer() },   // drop the uncommitted hands-free draft
@@ -940,8 +942,10 @@ func (c *conn) gateDictation(text string) string {
 }
 
 // handleUtterance routes a transcribed utterance to the active dialog, to a
-// control command, or to dictation, depending on connection state.
-func (c *conn) handleUtterance(text string) {
+// control command, or to dictation. sessionID is the app-declared target for this
+// utterance; when present it reconciles the server's connection attachment before
+// command/dictation routing.
+func (c *conn) handleUtterance(text, sessionID string) {
 	// "stop" (barge-in) is intercepted everywhere: it stops speech without
 	// disturbing dialog state and is never dictated to Claude.
 	rest, _ := c.stripWake(text)
@@ -951,6 +955,9 @@ func (c *conn) handleUtterance(text string) {
 	}
 	if c.dlg != nil {
 		c.handleDialog(text)
+		return
+	}
+	if !c.selectClientSession(sessionID) {
 		return
 	}
 	c.dispatch(text)

@@ -493,7 +493,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
         if (t.isEmpty()) return
         addChat(Role.USER, t)
         scrollToBottom() // typed message → jump to the latest
-        client?.send(Outbound.utterance(t))
+        client?.send(Outbound.utterance(t, sessionId = _attachedId.value))
     }
 
     /** Nudge the chat view to scroll to the newest message. */
@@ -1008,12 +1008,18 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
         _training.value = TrainingState(active = true, prompts = prompts, index = 0, phase = TrainPhase.PROMPT)
     }
 
-    /** Begin recording the current prompt: one VAD-gated clip, held for review. */
+    /**
+     * Begin recording the current prompt, held for review. Speech prompts use a
+     * VAD-gated clip; the "stay silent" (background) prompt has no speech to
+     * end-point on, so it captures a fixed 2 s clip instead — otherwise the VAD
+     * would wait for an onset that never comes and the take would hang.
+     */
     fun trainRecord() {
         val st = _training.value
         if (!st.active || st.phase != TrainPhase.PROMPT) return
         trainRecorder?.stop()
-        val rec = HandsFreeRecorder(app, vadConfig(), onSpeechStart = {}, onUtterance = { clip ->
+        val silent = st.current?.category == "background"
+        val rec = HandsFreeRecorder(app, vadConfig(), onSpeechStart = {}, fixedMs = if (silent) 2000 else 0, onUtterance = { clip ->
             // First clip ends the take: hold it for review, stop listening.
             trainRecorder?.stop(); trainRecorder = null
             val cur = _training.value
@@ -1122,7 +1128,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     // Called on the capture thread with a finished Opus clip; send it like PTT.
     private fun onHandsFreeUtterance(clip: ByteArray) {
         val c = client ?: return
-        c.send(Outbound.wake(HandsFreeRecorder.CODEC, handsFree = true))
+        c.send(Outbound.wake(HandsFreeRecorder.CODEC, handsFree = true, sessionId = _attachedId.value))
         c.sendAudio(clip)
         c.send(Outbound.audioEnd())
         scheduleSilenceCommit() // start the quiet-timeout after this utterance
@@ -1147,7 +1153,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
             return
         }
         recording = true
-        c.send(Outbound.wake(OpusRecorder.CODEC))
+        c.send(Outbound.wake(OpusRecorder.CODEC, sessionId = _attachedId.value))
         _mic.value = "🎙️ recording…"
     }
 

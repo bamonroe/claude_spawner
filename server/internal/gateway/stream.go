@@ -14,6 +14,14 @@ import (
 // until the end token — then the WHOLE buffered audio is re-transcribed at once
 // (with the user's chosen model) so whisper sees full context, not fragments.
 func (c *conn) gatedChunk(pcm []byte) {
+	target := strings.TrimSpace(c.audioSessionID)
+	if target != c.bufferSessionID && (len(c.audioPCM) > 0 || len(c.buffer) > 0) {
+		c.buffer = nil
+		c.audioPCM = nil
+		c.send(msgPending(""))
+	}
+	c.bufferSessionID = target
+
 	if len(c.audioPCM)+len(pcm) <= maxHandsFreePCM {
 		c.audioPCM = append(c.audioPCM, pcm...)
 	} // else: end token never fired — stop growing; commit still uses what we have
@@ -88,8 +96,10 @@ func (c *conn) endTokenFired(pcm []byte) (fired, ok bool) {
 // else dictation.
 func (c *conn) commitMessage() {
 	audio := c.audioPCM
+	sessionID := c.bufferSessionID
 	c.buffer = nil
 	c.audioPCM = nil
+	c.bufferSessionID = ""
 	c.send(msgPending(""))
 	if len(audio) == 0 {
 		return
@@ -117,6 +127,9 @@ func (c *conn) commitMessage() {
 
 	if c.dlg != nil { // a spawn dialog is in progress — the message is its answer
 		c.handleDialog(msg)
+		return
+	}
+	if !c.selectClientSession(sessionID) {
 		return
 	}
 	before, cmds := c.splitWakeAll(msg)

@@ -440,7 +440,10 @@ object Outbound {
         put("type", "auto_compress"); put("warm_compress", warm); put("auto_compress", auto)
         put("auto_compress_threshold", thresholdK)
     }.toString()
-    fun utterance(text: String) = buildJsonObject { put("type", "utterance"); put("text", text) }.toString()
+    fun utterance(text: String, sessionId: String = "") = buildJsonObject {
+        put("type", "utterance"); put("text", text)
+        if (sessionId.isNotEmpty()) put("session_id", sessionId)
+    }.toString()
     fun usage() = buildJsonObject { put("type", "usage") }.toString() // fetch the plan's /usage report
     fun usageSet() = buildJsonObject { put("type", "usage_set") }.toString() // arm the two-point rate benchmark
     fun usageCalc() = buildJsonObject { put("type", "usage_calc") }.toString() // derive the rate from the benchmark
@@ -469,10 +472,11 @@ object Outbound {
     fun speakStop() = buildJsonObject { put("type", "speak_stop") }.toString()
     // Ask for Kokoro's voice catalogue (the audio-settings voice picker).
     fun ttsVoices() = buildJsonObject { put("type", "tts_voices") }.toString()
-    fun wake(codec: String, handsFree: Boolean = false, calibrate: Boolean = false) =
+    fun wake(codec: String, handsFree: Boolean = false, calibrate: Boolean = false, sessionId: String = "") =
         buildJsonObject {
             put("type", "wake"); put("codec", codec)
             put("hands_free", handsFree); put("calibrate", calibrate)
+            if (sessionId.isNotEmpty()) put("session_id", sessionId)
         }.toString()
     // Open a labeled wake/end-token training recording (the "add live training data" flow).
     // Binary frames + audioEnd() follow, exactly as for wake(). The server saves the clip.

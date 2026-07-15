@@ -53,7 +53,7 @@ type inbound struct {
 	Limit                 int                  `json:"limit"`                   // on `history`: page size (default 30)
 	HaveHash              string               `json:"have_hash"`               // on `history`: digest of the top page the app already cached; server replies `unchanged` if it still matches
 	Silent                bool                 `json:"silent"`                  // on `attach`: suppress the spoken "attached…" confirmation (reconnect auto-attach)
-	SessionID             string               `json:"session_id"`              // on `adopt`: the discovered Claude session_id to register
+	SessionID             string               `json:"session_id"`              // session target for attach/adopt/wake/utterance/reply and related session ops
 	Brief                 bool                 `json:"brief"`                   // on `hello`: append a "reply briefly for TTS" hint to dictation
 	Interactive           bool                 `json:"interactive"`             // on `hello`: let Claude ask clarifying questions mid-task
 	WarmCompress          bool                 `json:"warm_compress"`           // on `hello`/`auto_compress`: compress a session in the last seconds of its warm-cache window

@@ -35,12 +35,12 @@ Every JSON message has a `type`. Optional `id` correlates request/response. `ts`
 | type            | payload                                  | meaning                                       |
 |-----------------|------------------------------------------|-----------------------------------------------|
 | `hello`         | `token`, `client_id`                     | auth handshake (plus the optional flags listed below the table) |
-| `wake`          | `{}`                                      | wake word fired; audio frames will follow     |
+| `wake`          | `{ "codec": "ogg_opus", "hands_free?": false, "calibrate?": false, "session_id?": "<uuid>" }` | audio capture starts; binary audio frames will follow. `session_id` is the app's currently focused session and, when present, is the dictation target for this clip / hands-free buffer (validated by the server; omitted = legacy per-connection attached session). |
 | *(binary)*      | raw PCM/Opus frames                       | audio chunk (between `wake` and `audio_end`)  |
 | `audio_end`     | `{}`                                      | end of utterance; server finalizes transcript |
 | `train_clip`    | `{ "codec": "ogg_opus", "model": "beep_beep", "category": "positive", "label": "beep beep" }` | opens a labeled wake/end-token training recording (the in-app "add live training data" flow); binary frames + `audio_end` follow as with `wake`. The server saves the clip under `SPAWNER_WAKEWORD_TRAIN_DIR` instead of transcribing it. `model` is the token model, `category` the bucket (`positive`/`negative`/`background`), `label` the phrase read. -> `train_saved` |
-| `utterance`     | `{ "text": "<what the user said>" }`      | **the text seam** — a complete utterance as text (post-STT or typed). Implemented today; the audio path above produces one of these server-side once Whisper lands. |
-| `reply`         | `{ "text": "<user reply>" }`              | alias of `utterance` for dialog replies       |
+| `utterance`     | `{ "text": "<what the user said>", "session_id?": "<uuid>" }` | **the text seam** — a complete utterance as text (post-STT or typed). `session_id`, when present, is the app's focused session and is validated/used as the dictation target before falling back to legacy per-connection attachment. |
+| `reply`         | `{ "text": "<user reply>", "session_id?": "<uuid>" }` | alias of `utterance` for dialog replies       |
 | `attach`        | `{ "session_id"?: "<uuid>", "name"?: "<session>", "silent": false }`| request attach. Prefer `session_id` (the stable handle — survives renames and is the same session across servers); the server resolves it to the current name, falling back to `name` if the id is unknown or absent. `silent: true` suppresses the spoken "attached… go ahead, bud." confirmation (used for the app's auto re-attach on reconnect); a finished turn's buffered result is still delivered. |
 | `detach`        | `{}`                                      | leave passthrough                             |
 | `swap`          | `{}`                                      | toggle back to the previously attached session — a two-way jump between the two most-recent sessions for this connection. The server tracks the previous `session_id` per connection (set on each genuine attach, and on detach); `swap` attaches to it and records the outgoing session as the new previous, so repeated swaps ping-pong. Speaks "no previous session…" when there's nothing to swap to. Same handler as the voice **swap** command; the app also fires it from a right-to-left swipe on the chat. -> `attached` |
@@ -87,7 +87,8 @@ Every JSON message has a `type`. Optional `id` correlates request/response. `ts`
 | `provider_put`  | `{ "agent": "<id>", "default_model?": "<alias>", "voice_models?": ["<alias>", …] }` | set an AI backend's app-managed overrides (Settings → Providers): `default_model` is the model alias a fresh spawn stamps (`""` = the backend's compiled default); `voice_models` is the exact set of models the voice `list models`/`use model N` commands enumerate (omit to leave it at "all"). The backends themselves are compile-time; only these overrides are stored (survives restarts, shared across clients). Every alias must name a real model of that backend. Errors `bad_provider` on an unknown backend or model. -> `agents` broadcast to every client |
 | `ping`          | `{}`                                      | keepalive                                     |
 
-Audio framing: client sends `wake` (with a `codec`, and optional `hands_free` and `calibrate`),
+Audio framing: client sends `wake` (with a `codec`, optional `hands_free` / `calibrate`, and optional
+`session_id`),
 then binary audio, then `audio_end`. `calibrate: true` is a one-shot end-token calibration probe:
 the clip is transcribed with the fast/tiny model and returned as a `calibration` message (so the
 user can hear how their chosen end token is being heard) instead of being dictated. The server assembles the bytes, decodes to WAV, transcribes (whisper.cpp), then:
@@ -97,6 +98,8 @@ codec = "ogg_opus"   (what the Android app sends; Ogg/Opus, ~24 kbps mono 16 kHz
 codec = "pcm16"      (raw PCM16LE / 16 kHz / mono — server wraps in a WAV header;
                       what the web client sends, and what an omitted codec means)
 any other codec      → rejected with a `bad_message` error; no capture starts
+session_id set       → server validates that session and makes this connection follow it before
+                       routing dictation/commands; empty preserves the older attached-connection target
 hands_free = false   → immediate: emit `transcript`, dispatch as a typed `utterance`
 hands_free = true    → streaming: APPEND the transcript to the per-connection message buffer
                        (shown live as a `pending` draft); nothing is sent to Claude until the

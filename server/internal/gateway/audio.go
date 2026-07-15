@@ -40,7 +40,7 @@ const (
 // compressed default) or "pcm16" (raw); empty means pcm16. handsFree marks a
 // VAD-gated clip so the server can drop background speech (no wake word, outside
 // the follow-up window) instead of acting on it.
-func (c *conn) startAudio(codec string, handsFree, calibrate bool) {
+func (c *conn) startAudio(codec string, handsFree, calibrate bool, sessionID string) {
 	switch codec {
 	case "":
 		codec = codecPCM16
@@ -59,6 +59,7 @@ func (c *conn) startAudio(codec string, handsFree, calibrate bool) {
 	c.training = false
 	c.audio = c.audio[:0]
 	c.audioCodec = codec
+	c.audioSessionID = strings.TrimSpace(sessionID)
 }
 
 // startTrainClip begins recording a labeled wake/end-token training sample (the
@@ -91,6 +92,7 @@ func (c *conn) startTrainClip(codec, model, category, label string) {
 	c.trainLabel = label
 	c.audio = c.audio[:0]
 	c.audioCodec = codec
+	c.audioSessionID = ""
 }
 
 func validTrainModel(m string) bool {
@@ -186,7 +188,7 @@ func (c *conn) endAudio() {
 		return
 	}
 	c.send(msgTranscript(text, true))
-	c.handleUtterance(text)
+	c.handleUtterance(text, c.audioSessionID)
 }
 
 // saveTrainClip writes the recorded PCM as a labeled 16 kHz mono WAV under

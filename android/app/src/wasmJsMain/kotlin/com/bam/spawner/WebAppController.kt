@@ -389,7 +389,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
         val t = text.trim()
         if (t.isEmpty()) return
         addChat(Role.USER, t)
-        client?.send(Outbound.utterance(t))
+        client?.send(Outbound.utterance(t, sessionId = _attachedId.value))
     }
     override fun attachTo(name: String) { client?.send(Outbound.attach(name)) }
     override fun detach() { client?.send(Outbound.detach()) }
@@ -484,7 +484,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
         val b64 = stopMic().toString()
         if (b64.isEmpty()) return
         val pcm = Base64.decode(b64)
-        client?.send(Outbound.wake(Codecs.PCM16))
+        client?.send(Outbound.wake(Codecs.PCM16, sessionId = _attachedId.value))
         client?.sendAudio(pcm)
         client?.send(Outbound.audioEnd())
     }
@@ -531,7 +531,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
                             val clip = pollHandsFreeClip().toString()
                             if (clip.isNotEmpty()) {
                                 val pcm = Base64.decode(clip)
-                                client?.send(Outbound.wake(Codecs.PCM16, handsFree = true))
+                                client?.send(Outbound.wake(Codecs.PCM16, handsFree = true, sessionId = _attachedId.value))
                                 client?.sendAudio(pcm)
                                 client?.send(Outbound.audioEnd())
                             }

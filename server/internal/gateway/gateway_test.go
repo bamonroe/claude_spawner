@@ -81,9 +81,9 @@ func newTestServerGW(t *testing.T, stt transcribe.Transcriber) (*httptest.Server
 	}
 	t.Cleanup(func() { os.RemoveAll(root) })
 	cfg := &config.Config{
-		AuthToken:  "secret",
-		StatePath:  filepath.Join(t.TempDir(), "sessions.json"),
-		ClaudeBin:  "claude",
+		AuthToken: "secret",
+		StatePath: filepath.Join(t.TempDir(), "sessions.json"),
+		ClaudeBin: "claude",
 	}
 	store, err := session.OpenStore(cfg.StatePath)
 	if err != nil {
@@ -445,6 +445,50 @@ func TestMultiDeviceLiveFanout(t *testing.T) {
 	}
 	if out := readUntil(t, b, "output"); out["text"] != "pong" {
 		t.Fatalf("device B (fan-out): expected 'pong', got %v", out["text"])
+	}
+}
+
+func TestUtteranceSessionIDSelectsDictationTarget(t *testing.T) {
+	ts, root, gw := newTestServerGW(t, nil)
+	for _, name := range []string{"one", "two"} {
+		if err := os.MkdirAll(filepath.Join(root, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	firstRec := &session.Session{Name: "one", Dir: filepath.Join(root, "one"), SessionID: "sid-one", Target: session.TargetHost, Host: session.LocalHost}
+	secondRec := &session.Session{Name: "two", Dir: filepath.Join(root, "two"), SessionID: "sid-two", Target: session.TargetHost, Host: session.LocalHost}
+	if err := gw.store.Put(firstRec); err != nil {
+		t.Fatal(err)
+	}
+	if err := gw.store.Put(secondRec); err != nil {
+		t.Fatal(err)
+	}
+	capPath := filepath.Join(t.TempDir(), "prompts.txt")
+	gw.driver.HostBin(fakeClaudeCapture(t, "ok", capPath))
+
+	ws := dial(t, ts)
+	send(t, ws, map[string]any{"type": "hello", "token": "secret"})
+	readUntil(t, ws, "hello_ok")
+
+	send(t, ws, map[string]any{"type": "attach", "name": firstRec.Name})
+	if attached := readUntil(t, ws, "attached"); attached["session_id"] != firstRec.SessionID {
+		t.Fatalf("setup attach session_id = %#v, want %q", attached["session_id"], firstRec.SessionID)
+	}
+	send(t, ws, map[string]any{"type": "utterance", "text": "targeted turn", "session_id": secondRec.SessionID})
+	readUntil(t, ws, "output")
+
+	if got := gw.store.Get(firstRec.Name).Started; got {
+		t.Fatalf("first session Started = true; targeted utterance should not run there")
+	}
+	if got := gw.store.Get(secondRec.Name).Started; !got {
+		t.Fatalf("second session Started = false; targeted utterance should run there")
+	}
+	data, err := os.ReadFile(capPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "targeted turn") {
+		t.Fatalf("fake claude did not receive targeted prompt; capture:\n%s", data)
 	}
 }
 

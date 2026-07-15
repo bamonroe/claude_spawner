@@ -617,6 +617,34 @@ func (c *conn) doAttachBy(sessionID, name string, silent bool) {
 	c.doAttach(name, silent)
 }
 
+// selectClientSession makes the connection follow the app's declared active
+// session for one utterance. Old clients omit sessionID and keep the historical
+// server-side attachment behavior. New clients send the session_id they are
+// visibly focused on, so dictation follows the user's app view even if this
+// connection's attachment state is stale.
+func (c *conn) selectClientSession(sessionID string) bool {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return true
+	}
+	if c.attached != nil && c.attached.SessionID == sessionID {
+		return true
+	}
+	s := c.srv.store.GetBySessionID(sessionID)
+	if s == nil {
+		c.send(msgSay("that session is gone."))
+		return false
+	}
+	if c.attached != nil {
+		c.prevSessionID = c.attached.SessionID
+		c.srv.unbindJob(c, c.attached.SessionID)
+	}
+	c.setAttached(s)
+	c.send(msgAttached(s, c.srv.driver.LastContextUsage(s.Agent, s.Host, s.TranscriptIDs())))
+	c.srv.bindJob(c, s, true)
+	return true
+}
+
 func (c *conn) doAttach(name string, silent bool) {
 	if name == "" {
 		c.send(msgSay("which session?"))
