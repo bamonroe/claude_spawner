@@ -34,6 +34,25 @@ docker run --rm --gpus all \
 Output model: `output/<model_name>/<model_name>.onnx` (+ `.pt`, metrics, DET curve). `eval` reports
 false-positives-per-hour, the metric that validates the doubled-monosyllable choice.
 
+`configs/bump_cal.yaml` is a **calibration** config — the real `bump_bump` architecture and full
+data pipeline but only 4000 training steps — for benchmarking generation/augmentation time and the
+per-step training rate on `conv_attention/medium` before committing to a full 50000-step run.
+
+## `patches/` — parallel augmentation
+
+Augmentation (RIR convolution + noise mixing per clip) is the pipeline's slow, CPU-bound stage, and
+it scales linearly with `n_samples` × augmentation `rounds` (not with training steps or model size),
+so it's a fixed tax **per wake word** — the cost that matters when training many tokens. Upstream
+runs it single-threaded. `patches/0001-parallel-augmentation.patch` fans the per-clip loop across a
+process pool (each clip is independent) and adds an `augmentation.workers` config knob (`0` = all
+cores, `1` = inline). Each worker reseeds its RNG so forked processes don't replay identical
+augmentations. Speedup is ~linear in cores (this host has 4).
+
+The patch is applied two ways:
+- **Baked (prod):** `Dockerfile.trainer` applies it over the pip-installed package at build.
+- **Dev (no rebuild):** mount the clone and prepend `PYTHONPATH=/work/src` so Python imports the
+  patched source over the installed package — `git apply` the patch in the clone first.
+
 ## `service/` — the runtime sidecar (the consumer)
 
 `service/` is a small Rust HTTP service wrapping the [`livekit-wakeword`](https://crates.io/crates/livekit-wakeword)
