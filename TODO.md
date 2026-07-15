@@ -12,6 +12,11 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-15 — **Fix: top-bar provider/model badge no longer crowds the title.** Long backend
+      and model names in `TopBar` now render inside a fixed-width clipped marquee lane instead of
+      expanding the row, wrapping, or squeezing the session title/context/audio/settings controls.
+      `compileDebugKotlinAndroid` green.
+
 - [x] 2026-07-15 — **Fix: settings gear tap intercepted by edge-swipe overlay.** The right-edge
       swap strip added in `MainScreen` was a transparent full-height pointer target layered over the
       chat, so it also covered the top app bar and stole taps from the Settings button before the
