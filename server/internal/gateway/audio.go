@@ -1,8 +1,14 @@
 package gateway
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
+	"time"
 
+	"github.com/bam/claude_spawner/server/internal/detect"
 	"github.com/bam/claude_spawner/server/internal/transcribe"
 )
 
@@ -50,8 +56,53 @@ func (c *conn) startAudio(codec string, handsFree, calibrate bool) {
 	c.collecting = true
 	c.gated = handsFree
 	c.calibrate = calibrate
+	c.training = false
 	c.audio = c.audio[:0]
 	c.audioCodec = codec
+}
+
+// startTrainClip begins recording a labeled wake/end-token training sample (the
+// in-app "add live training data" flow). The clip is saved to disk, not
+// transcribed or dispatched. model is the token model ("bump_bump"|"beep_beep"),
+// category the bucket ("positive"|"negative"|"background"), label the phrase read.
+func (c *conn) startTrainClip(codec, model, category, label string) {
+	switch codec {
+	case "":
+		codec = codecPCM16
+	case codecPCM16, codecOggOpus:
+	default:
+		c.fail("bad_message", "unsupported audio codec "+strconv.Quote(codec))
+		return
+	}
+	if c.srv.cfg.WakewordTrainDir == "" {
+		c.fail("not_implemented", "training-data capture is disabled (set SPAWNER_WAKEWORD_TRAIN_DIR)")
+		return
+	}
+	if !validTrainModel(model) || !validTrainCategory(category) || strings.TrimSpace(label) == "" {
+		c.fail("bad_message", "train_clip needs a valid model, category, and label")
+		return
+	}
+	c.collecting = true
+	c.gated = false
+	c.calibrate = false
+	c.training = true
+	c.trainModel = model
+	c.trainCat = category
+	c.trainLabel = label
+	c.audio = c.audio[:0]
+	c.audioCodec = codec
+}
+
+func validTrainModel(m string) bool {
+	return m == detect.WakeModel || m == detect.EndModel
+}
+
+func validTrainCategory(cat string) bool {
+	switch cat {
+	case "positive", "negative", "background":
+		return true
+	}
+	return false
 }
 
 // handleAudioFrame appends a binary PCM frame to the current utterance.
@@ -95,6 +146,18 @@ func (c *conn) endAudio() {
 		pcm = append([]byte(nil), c.audio...) // already PCM16LE 16 kHz mono
 	}
 
+	// Training capture: persist the labeled clip as a 16 kHz mono WAV (the
+	// trainer's native rate) and ack — no transcription, no dispatch.
+	if c.training {
+		path, err := c.saveTrainClip(pcm)
+		if err != nil {
+			c.fail("bad_path", err.Error())
+			return
+		}
+		c.send(msgTrainSaved(path, c.trainLabel))
+		return
+	}
+
 	// Calibration: transcribe with the fast (detection) model and just report
 	// what it heard — this measures exactly what end-token detection sees.
 	if c.calibrate {
@@ -124,4 +187,45 @@ func (c *conn) endAudio() {
 	}
 	c.send(msgTranscript(text, true))
 	c.handleUtterance(text)
+}
+
+// saveTrainClip writes the recorded PCM as a labeled 16 kHz mono WAV under
+// <WakewordTrainDir>/<model>/<category>/clip_<unixmillis>_<label-slug>.wav and
+// returns the path. Model/category are validated in startTrainClip, so they're
+// safe path segments; the label is slugged to stay filesystem-safe.
+func (c *conn) saveTrainClip(pcm []byte) (string, error) {
+	if len(pcm) == 0 {
+		return "", fmt.Errorf("no audio recorded")
+	}
+	dir := filepath.Join(c.srv.cfg.WakewordTrainDir, c.trainModel, c.trainCat)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	name := fmt.Sprintf("clip_%d_%s.wav", time.Now().UnixMilli(), slugify(c.trainLabel))
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, transcribe.PCM16WAV(pcm, audioSampleRate, audioChannels), 0o644); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+// slugify reduces a spoken label ("beep beep") to a filesystem-safe token
+// ("beep-beep"): lowercase, non-alphanumerics collapsed to single dashes.
+func slugify(s string) string {
+	var b strings.Builder
+	dash := false
+	for _, r := range strings.ToLower(s) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			dash = false
+		} else if !dash && b.Len() > 0 {
+			b.WriteByte('-')
+			dash = true
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	if out == "" {
+		return "clip"
+	}
+	return out
 }

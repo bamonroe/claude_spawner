@@ -44,6 +44,32 @@ data class CalibrationState(
     val hits: Int = 0,
 )
 
+/** One scripted line in the training-data grid: which token model it feeds, its
+ *  bucket, the phrase to read, and a short hint for the reader. */
+data class TrainPrompt(
+    val model: String,      // "bump_bump" | "beep_beep"
+    val category: String,   // "positive" | "negative" | "background"
+    val label: String,      // exact phrase to read (server tags the clip with it)
+    val hint: String = "",  // UI guidance ("say it clearly", "stay silent", …)
+)
+
+/** The guided training-capture flow's state. phase drives the per-prompt UI:
+ *  PROMPT (ready to record) → RECORDING → REVIEW (a clip is held, awaiting
+ *  cancel/send). clip holds the recorded OGG bytes until the user accepts. */
+data class TrainingState(
+    val active: Boolean = false,
+    val done: Boolean = false,
+    val prompts: List<TrainPrompt> = emptyList(),
+    val index: Int = 0,
+    val phase: TrainPhase = TrainPhase.PROMPT,
+    val clip: ByteArray? = null,
+    val saved: Int = 0,
+) {
+    val current: TrainPrompt? get() = prompts.getOrNull(index)
+}
+
+enum class TrainPhase { PROMPT, RECORDING, REVIEW }
+
 /** The most recent completed turn's token usage, stamped with when it finished
  *  (SystemClock.elapsedRealtime ms) so the UI can count down the ~5-min warm
  *  prompt-cache window from that moment. */
@@ -968,6 +994,123 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     private fun words(s: String): List<String> =
         s.lowercase().replace(Regex("[,.!?;:\"]"), " ").split(Regex("\\s+")).filter { it.isNotBlank() }
 
+    // --- Live training-data capture: read a scripted grid of phrases, review each
+    // clip, and send accepted ones to the server's labeled training folder. ---
+    private var trainRecorder: HandsFreeRecorder? = null
+    private var trainPlayer: android.media.MediaPlayer? = null
+    private val _training = MutableStateFlow(TrainingState())
+    val training: StateFlow<TrainingState> = _training.asStateFlow()
+
+    fun startTraining(prompts: List<TrainPrompt> = defaultTrainPrompts()) {
+        stopTraining()
+        if (hfOn) stopHandsFree() // free the mic
+        if (prompts.isEmpty()) return
+        _training.value = TrainingState(active = true, prompts = prompts, index = 0, phase = TrainPhase.PROMPT)
+    }
+
+    /** Begin recording the current prompt: one VAD-gated clip, held for review. */
+    fun trainRecord() {
+        val st = _training.value
+        if (!st.active || st.phase != TrainPhase.PROMPT) return
+        trainRecorder?.stop()
+        val rec = HandsFreeRecorder(app, vadConfig(), onSpeechStart = {}, onUtterance = { clip ->
+            // First clip ends the take: hold it for review, stop listening.
+            trainRecorder?.stop(); trainRecorder = null
+            val cur = _training.value
+            if (cur.active && cur.phase == TrainPhase.RECORDING) {
+                _training.value = cur.copy(phase = TrainPhase.REVIEW, clip = clip)
+            }
+        })
+        if (rec.start()) {
+            trainRecorder = rec
+            _training.value = st.copy(phase = TrainPhase.RECORDING)
+        } else {
+            _mic.value = "⚠️ mic unavailable"
+        }
+    }
+
+    /** Play the held clip back so the user can check it before sending. */
+    fun trainPlay() {
+        val clip = _training.value.clip ?: return
+        stopTrainPlayback()
+        try {
+            val f = java.io.File.createTempFile("trainclip", ".ogg", app.cacheDir)
+            f.writeBytes(clip)
+            trainPlayer = android.media.MediaPlayer().apply {
+                setDataSource(f.absolutePath)
+                setOnCompletionListener { f.delete() }
+                prepare(); start()
+            }
+        } catch (_: Exception) {
+            _mic.value = "⚠️ playback failed"
+        }
+    }
+
+    private fun stopTrainPlayback() {
+        trainPlayer?.let { runCatching { it.stop() }; it.release() }
+        trainPlayer = null
+    }
+
+    /** Discard the held clip and re-arm the same prompt. */
+    fun trainCancel() {
+        val st = _training.value
+        if (!st.active) return
+        stopTrainPlayback()
+        trainRecorder?.stop(); trainRecorder = null
+        _training.value = st.copy(phase = TrainPhase.PROMPT, clip = null)
+    }
+
+    /** Accept the held clip: upload it labeled; advance on the server's ack. */
+    fun trainSend() {
+        val st = _training.value
+        val clip = st.clip ?: return
+        val p = st.current ?: return
+        stopTrainPlayback()
+        client?.let { c ->
+            c.send(Outbound.trainClip(HandsFreeRecorder.CODEC, p.model, p.category, p.label))
+            c.sendAudio(clip)
+            c.send(Outbound.audioEnd())
+        }
+    }
+
+    fun stopTraining() {
+        trainRecorder?.stop(); trainRecorder = null
+        stopTrainPlayback()
+        val st = _training.value
+        if (st.active) _training.value = st.copy(active = false)
+    }
+
+    private fun onTrainSaved() {
+        val st = _training.value
+        if (!st.active) return
+        val next = st.index + 1
+        _training.value = if (next >= st.prompts.size) {
+            st.copy(active = false, done = true, phase = TrainPhase.PROMPT, clip = null, saved = st.saved + 1)
+        } else {
+            st.copy(index = next, phase = TrainPhase.PROMPT, clip = null, saved = st.saved + 1)
+        }
+    }
+
+    /** The Phase-1 hardcoded grid, mirroring wakeword/configs/{beep,bump}.yaml:
+     *  clear positives, soft-variant positives, confusable hard negatives (incl.
+     *  the other token), plus ambient speech and silence negatives. */
+    private fun defaultTrainPrompts(): List<TrainPrompt> {
+        val out = ArrayList<TrainPrompt>()
+        data class Tok(val model: String, val positives: List<String>, val soft: List<String>, val hard: List<String>)
+        val toks = listOf(
+            Tok("beep_beep", listOf("beep beep"), listOf("bee bee", "eep eep"), listOf("keep keep", "peep peep", "deep deep", "bump bump")),
+            Tok("bump_bump", listOf("bump bump"), listOf("bum bum", "ump ump"), listOf("jump jump", "thump thump", "lump lump", "beep beep")),
+        )
+        for (t in toks) {
+            for (p in t.positives) { repeat(4) { out += TrainPrompt(t.model, "positive", p, "say it clearly, as you would to end a turn") } }
+            for (p in t.soft) { repeat(2) { out += TrainPrompt(t.model, "positive", p, "soft/relaxed pronunciation") } }
+            for (p in t.hard) { out += TrainPrompt(t.model, "negative", p, "a near-miss that must NOT fire") }
+            out += TrainPrompt(t.model, "background", "this is just an ordinary sentence with no token in it", "normal speech, no token")
+            out += TrainPrompt(t.model, "background", "(stay silent)", "say nothing — record a moment of quiet")
+        }
+        return out
+    }
+
     // Called on the capture thread when the user starts speaking.
     private fun onHandsFreeSpeechStart() {
         cancelSilenceCommit() // still talking — don't silence-commit
@@ -1222,6 +1365,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                 if (hfOn) _voiceState.value = if (msg.text.isEmpty()) VoiceState.LISTENING else VoiceState.CAPTURING
             }
             is ServerMsg.Calibration -> onCalibrationSample(msg.text)
+            is ServerMsg.TrainSaved -> onTrainSaved()
             is ServerMsg.StopSpeaking -> {
                 cancelServerSpeech()
                 speaker.stop()

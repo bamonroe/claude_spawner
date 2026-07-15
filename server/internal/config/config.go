@@ -77,6 +77,11 @@ type Config struct {
 	// detected (default 0.5; the trained models' optimal point is ~0.04–0.07, so
 	// lower it to trade a few false positives for near-zero misses).
 	WakewordThreshold float64
+	// WakewordTrainDir is the base directory the server writes user-recorded
+	// wake/end-token training clips into (the in-app "add live training data"
+	// flow), laid out as <dir>/<model>/<category>/clip_*.wav. Empty disables the
+	// capture feature server-side (a train_clip is rejected).
+	WakewordTrainDir string
 	// TTSURL points at a resident Kokoro TTS server (Kokoro-FastAPI's base URL,
 	// e.g. http://localhost:8880). When set, the server offers speech synthesis
 	// to clients; empty disables it (clients fall back to on-device TTS).
@@ -184,6 +189,7 @@ func Load() (*Config, error) {
 		WhisperFastModelName: env("SPAWNER_WHISPER_FAST_MODEL_NAME", "base.en"),
 		WhisperModelsDir:     os.Getenv("SPAWNER_WHISPER_MODELS_DIR"),
 		WakewordURL:          os.Getenv("SPAWNER_WAKEWORD_URL"),
+		WakewordTrainDir:     os.Getenv("SPAWNER_WAKEWORD_TRAIN_DIR"),
 		TTSURL:               os.Getenv("SPAWNER_TTS_URL"),
 		TTSVoice:             env("SPAWNER_TTS_VOICE", "af_heart"),
 		TTSFormat:            env("SPAWNER_TTS_FORMAT", "opus"),

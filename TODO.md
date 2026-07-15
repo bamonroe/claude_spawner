@@ -698,6 +698,28 @@ Accurate full transcription on commit stays on Whisper, untouched.
       *misses* the wake word on today (drive down false negatives — the actual current pain), and
       normal dictation as real-world negatives (hold false positives down). Keep the synthetic base
       set in the mix so it still generalizes. Retrain (~5.5h) → live A/B vs the synthetic-only model.
+- [ ] **Guided live training-data capture (active/hand-labeled counterpart — 2026-07-15).** Live A/B
+      this session proved the detector localizes real "beep beep" in time (clear per-window peak) but
+      scores it only ~0.01–0.07 vs ~0.9 on the synthetic training clips — a train/serve voice mismatch,
+      NOT a wiring bug (confirmed app-independently with phone-recorder m4a files). Fix: retrain on the
+      user's real voice. This is the **guided, hand-labeled** complement to the passive weak-label item
+      above: an "Add live training data" button on the Commands settings page opens a scripted grid
+      (clear positives, soft variants, confusable hard negatives incl. the other token, ambient + silence
+      negatives) and captures **one labeled clip per prompt** with per-prompt playback + cancel/send.
+      - [x] **Phase 1 (built 2026-07-15, pending live verify):** wire path + server persistence + app UI.
+            New `train_clip` (inbound: `codec`/`model`/`category`/`label`) opens a labeled recording;
+            server saves a 16 kHz mono WAV under `SPAWNER_WAKEWORD_TRAIN_DIR/<model>/<category>/clip_*.wav`
+            (not transcribed/dispatched) and acks `train_saved`. Android: `TrainingState`/`TrainPhase`
+            flow in `VoiceController` (record→review→cancel/send, `MediaPlayer` playback) + `TrainingDialog`
+            off the Commands page, Phase-1 grid hardcoded from the `{beep,bump}.yaml` phrase lists. Go
+            build + full `go test` (incl. docsync/clientsync/fieldsync) green; app clean-builds.
+      - [ ] **Phase 2:** serve the prompt grid from the trainer config (`target_phrases`/
+            `custom_negative_phrases`) so it can't drift — `train_prompts`→`train_script` messages, app
+            falls back to the hardcoded grid on older servers.
+      - [ ] **Phase 3:** trainer ingestion — new `real_samples_dir` config, and a patch that copies the
+            collected clips into the split dirs **after `generate`, before `augment`**, numbered past the
+            synthetic count (the `^clip_\d{6}\.wav$` regex + generate→inject→augment ordering are the
+            load-bearing constraints). Then retrain → live A/B.
 - [x] 2026-07-15 — **Gateway swap (Go): end-token detector wired.** New `internal/detect` package
       (`Detector` interface + `RemoteWakeword` HTTP client POSTing raw PCM16LE 16k to `/detect`,
       unit-tested). `gatedChunk` now gates the end-token commit on the detector when

@@ -38,6 +38,7 @@ Every JSON message has a `type`. Optional `id` correlates request/response. `ts`
 | `wake`          | `{}`                                      | wake word fired; audio frames will follow     |
 | *(binary)*      | raw PCM/Opus frames                       | audio chunk (between `wake` and `audio_end`)  |
 | `audio_end`     | `{}`                                      | end of utterance; server finalizes transcript |
+| `train_clip`    | `{ "codec": "ogg_opus", "model": "beep_beep", "category": "positive", "label": "beep beep" }` | opens a labeled wake/end-token training recording (the in-app "add live training data" flow); binary frames + `audio_end` follow as with `wake`. The server saves the clip under `SPAWNER_WAKEWORD_TRAIN_DIR` instead of transcribing it. `model` is the token model, `category` the bucket (`positive`/`negative`/`background`), `label` the phrase read. -> `train_saved` |
 | `utterance`     | `{ "text": "<what the user said>" }`      | **the text seam** — a complete utterance as text (post-STT or typed). Implemented today; the audio path above produces one of these server-side once Whisper lands. |
 | `reply`         | `{ "text": "<user reply>" }`              | alias of `utterance` for dialog replies       |
 | `attach`        | `{ "session_id"?: "<uuid>", "name"?: "<session>", "silent": false }`| request attach. Prefer `session_id` (the stable handle — survives renames and is the same session across servers); the server resolves it to the current name, falling back to `name` if the id is unknown or absent. `silent: true` suppresses the spoken "attached… go ahead, bud." confirmation (used for the app's auto re-attach on reconnect); a finished turn's buffered result is still delivered. |
@@ -140,6 +141,7 @@ capped at ~120 s.
 | `transcript`    | `{ "text": "...", "final": true }`                   | STT result (may stream partials)         |
 | `pending`       | `{ "text": "..." }`                                  | hands-free live draft as the message buffer grows; empty `text` clears the draft |
 | `calibration`   | `{ "text": "..." }`                                  | end-token calibration probe result (response to a `wake` with `calibrate: true`); shown, not dictated |
+| `train_saved`   | `{ "path": "...", "label": "beep beep" }`            | ack that a `train_clip` was persisted (path on the server, echoed label); the app advances to the next prompt |
 | `activity`      | `{ "text": "🤔 thinking…" }`                         | what Claude is doing right now during a turn (thinking / running a tool / editing a file); transient status line, not spoken |
 | `transcribing`  | `{}`                                                 | a committed hands-free clip is being re-transcribed accurately (between the draft clearing and the `transcript`); the app shows "transcribing…" instead of snapping back to "listening". Superseded by the `transcript` that follows (or a `pending` clear if nothing was recognized) |
 | `files`         | `{ "files": ["a.go", "b.md"] }`                      | basenames of files changed so far this turn; a persistent "edited: …" chip |

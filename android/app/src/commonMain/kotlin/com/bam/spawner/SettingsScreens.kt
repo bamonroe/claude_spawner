@@ -762,6 +762,7 @@ fun CommandsSettings(
     onSttChanged: () -> Unit,
     onBack: () -> Unit,
     endTokenTest: @Composable (String) -> Unit = {},
+    trainData: @Composable () -> Unit = {},
 ) {
     var aliasMap by remember { mutableStateOf(settings.aliasMap()) }
     var trayNames by remember { mutableStateOf(settings.trayCommandNames().toSet()) }
@@ -796,6 +797,12 @@ fun CommandsSettings(
         }
         OutlinedButton(onClick = { settings.endToken = endTok; onSttChanged() }) { Text("Apply end token") }
         Text("Say this to commit a hands-free message.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+        trainData()
+        Text(
+            "Add live training data records your voice reading a short scripted grid — the token, "
+                + "soft variants, confusable near-misses, and silence — to retrain the detector on how you actually sound.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
+        )
 
         HorizontalDivider()
         Text("Dictation gate", style = MaterialTheme.typography.titleMedium)
