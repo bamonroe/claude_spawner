@@ -2,8 +2,10 @@
 # Pure-Rust ONNX (ort-tract) means no native ONNX Runtime lib in the final image.
 FROM rust:1-bookworm AS build
 WORKDIR /src
-# Cache deps: copy manifest, fetch, then the real sources.
+# Cache deps: copy manifest + the vendored path dependency (needed to resolve the graph), fetch,
+# then the real sources.
 COPY Cargo.toml ./
+COPY vendor ./vendor
 RUN mkdir src && echo 'fn main() {}' > src/main.rs && cargo fetch
 COPY src ./src
 RUN cargo build --release && cp target/release/spawner-wakeword /spawner-wakeword
