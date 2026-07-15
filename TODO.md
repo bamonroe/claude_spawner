@@ -727,41 +727,18 @@ Accurate full transcription on commit stays on Whisper, untouched.
       (that fabricated ~0.57 on background) — it waits out the first full window, then scores real
       audio only. `axum` gains the `ws` feature. Fires the instant "bump bump" completes, before the
       command is even spoken — the latency win Whisper-on-closed-clips can't match.
-- [ ] **Collect the user's own voice for retraining (personalization — proposed 2026-07-15).** The
-      app already streams the user's live audio to the server, so capture it (explicitly opt-in, with
-      a clear on/off) as real-distribution training data: our voice, the Pixel 8a mic, our actual
-      rooms/car — closing the sim-to-real gap the synthetic Piper/TTS positives leave open. Store
-      clips under **`/data/storage/whisper/bam_audio`**. Weak-label for free from the accurate Whisper
-      transcript (token present → candidate positive, else negative); the user hand-validates the rare
-      positives + any near-misses, skims negatives. The real prize is **hard cases**: clips Whisper
-      *misses* the wake word on today (drive down false negatives — the actual current pain), and
-      normal dictation as real-world negatives (hold false positives down). Keep the synthetic base
-      set in the mix so it still generalizes. Retrain (~5.5h) → live A/B vs the synthetic-only model.
-- [ ] **Guided live training-data capture (active/hand-labeled counterpart — 2026-07-15).** Live A/B
-      this session proved the detector localizes real "beep beep" in time (clear per-window peak) but
-      scores it only ~0.01–0.07 vs ~0.9 on the synthetic training clips — a train/serve voice mismatch,
-      NOT a wiring bug (confirmed app-independently with phone-recorder m4a files). Fix: retrain on the
-      user's real voice. This is the **guided, hand-labeled** complement to the passive weak-label item
-      above: an "Add live training data" button on the Commands settings page opens a scripted grid
-      (clear positives, soft variants, confusable hard negatives incl. the other token, ambient + silence
-      negatives) and captures **one labeled clip per prompt** with per-prompt playback + cancel/send.
-      - [x] **Phase 1 (built + deployed 2026-07-15, pending first live capture):** wire path + server persistence + app UI.
-            New `train_clip` (inbound: `codec`/`model`/`category`/`label`) opens a labeled recording;
-            server saves a 16 kHz mono WAV under `SPAWNER_WAKEWORD_TRAIN_DIR/<model>/<category>/clip_*.wav`
-            (not transcribed/dispatched) and acks `train_saved`. Android: `TrainingState`/`TrainPhase`
-            flow in `VoiceController` (record→review→cancel/send, `MediaPlayer` playback) + `TrainingDialog`
-            off the Commands page, Phase-1 grid hardcoded from the `{beep,bump}.yaml` phrase lists. Go
-            build + full `go test` (incl. docsync/clientsync/fieldsync) green; app clean-builds.
-            Server rebuilt with `SPAWNER_WAKEWORD_TRAIN_DIR=/data/storage/livekit-wakeword/real`
-            active; fresh debug APK installed on the Pixel 8a (launches clean). Remaining: user
-            records a first real dataset via the button, then verify clips land under the train dir.
-      - [ ] **Phase 2:** serve the prompt grid from the trainer config (`target_phrases`/
-            `custom_negative_phrases`) so it can't drift — `train_prompts`→`train_script` messages, app
-            falls back to the hardcoded grid on older servers.
-      - [ ] **Phase 3:** trainer ingestion — new `real_samples_dir` config, and a patch that copies the
-            collected clips into the split dirs **after `generate`, before `augment`**, numbered past the
-            synthetic count (the `^clip_\d{6}\.wav$` regex + generate→inject→augment ordering are the
-            load-bearing constraints). Then retrain → live A/B.
+- [x] 2026-07-15 — **Detector-model TRAINING removed from this repo (delegated out-of-tree).**
+      Model training is orthogonal to the app: claude_spawner only needs a working wake/end-token
+      model and the runtime that *consumes* it. So the in-app training-data capture was ripped out —
+      the `train_clip`/`train_saved` wire messages, the server save path (`startTrainClip`/
+      `saveTrainClip`/`slugify`, `SPAWNER_WAKEWORD_TRAIN_DIR`, the docker-compose real-dir mount), and
+      the Android capture UI (`TrainingState`/`TrainPhase`/`TrainPrompt`, `TrainingDialog`, the
+      "Add live training data" button, the `fixedMs` fixed-length recorder branch). Building /
+      augmenting / retraining the models — including real-voice collection to close the
+      synthetic-to-real gap — now lives in a **separate training project at `/data/livekit_training`**
+      (the `run_copy_real` real-clip ingestion built earlier lives with the trainer, not here). The
+      **runtime consumer stays**: the `spawner-wakeword` sidecar, `SPAWNER_WAKEWORD_URL`/`_THRESHOLD`,
+      `internal/detect`, and the `gatedChunk`/`endTokenFired` detection path (next item).
 - [x] 2026-07-15 — **Gateway swap (Go): end-token detector wired.** New `internal/detect` package
       (`Detector` interface + `RemoteWakeword` HTTP client POSTing raw PCM16LE 16k to `/detect`,
       unit-tested). `gatedChunk` now gates the end-token commit on the detector when

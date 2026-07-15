@@ -117,15 +117,11 @@ models' optimal ~`0.04`–`0.07` to trade a few false triggers for near-zero mis
 and detection falls back to the Whisper string-match; if the sidecar is unreachable mid-turn, the
 server degrades to that fallback automatically rather than dropping the command.
 
-**Teaching the detector your voice (add live training data).** The detector's models are trained on
-synthetic text-to-speech, so they can under-fire on a real human voice through a phone mic — your
-"beep beep" scores far lower than the samples they learned from. To close that gap, **Settings →
-Commands → Add live training data** walks you through a short scripted grid — the token said clearly,
-softer variants, confusable near-misses that must *not* fire (and the other token), plus ordinary
-speech and a moment of silence. For each prompt you record one clip, play it back, and either redo it
-or send it; nothing is kept until you tap **Send**, so a fumbled line never pollutes the set. Accepted
-clips land on the server under `SPAWNER_WAKEWORD_TRAIN_DIR` (empty disables the feature), sorted by
-token and category, ready to fold into a retrain of the model on how you actually sound.
+**Training the detector's models is out of scope for this project.** claude_spawner only *consumes* a
+finished wake/end-token model (via the `spawner-wakeword` sidecar and `SPAWNER_WAKEWORD_URL`). Building,
+augmenting, and retraining those models — including collecting real-voice samples to close the
+synthetic-to-real gap — lives in a separate training project at `/data/livekit_training`. Point this
+server at whatever model that project ships.
 
 **The mic button (hold to talk).** With the box empty, **press and hold** the mic to record; release
 to send. The hold is *sticky* — it keeps recording even if your finger drifts off the small button —

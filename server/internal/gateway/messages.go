@@ -42,8 +42,6 @@ type inbound struct {
 	SttMode               string               `json:"stt_mode"`                // on `hello`: "dynamic" | "fixed"
 	SttModel              string               `json:"stt_model"`               // on `hello`: fixed model "tiny" | "base" | "small"
 	Calibrate             bool                 `json:"calibrate"`               // on `wake`: transcribe (fast model) and return, don't dispatch
-	Category              string               `json:"category"`                // on `train_clip`: "positive" | "negative" | "background" — which training bucket
-	Label                 string               `json:"label"`                   // on `train_clip`: the exact phrase read aloud (e.g. "beep beep"), tags the saved clip
 	Aliases               map[string]string    `json:"aliases"`                 // on `hello`: mis-transcription -> canonical command word
 	WhisperURL            string               `json:"whisper_url"`             // on `hello`: resident whisper server URL (overrides the default)
 	WhisperModel          string               `json:"whisper_model"`           // on `hello`: ggml model to hot-load on the resident server (e.g. "medium.en")
@@ -199,13 +197,6 @@ func msgPending(text string) map[string]any {
 // sample, so the app can measure end-token recognition reliability.
 func msgCalibration(text string) map[string]any {
 	return map[string]any{"type": "calibration", "text": text}
-}
-
-// msgTrainSaved acks a persisted training clip from the "add live training data"
-// flow: path is where the server wrote the labeled WAV, label echoes the phrase.
-// The app advances to the next prompt on receipt.
-func msgTrainSaved(path, label string) map[string]any {
-	return map[string]any{"type": "train_saved", "path": path, "label": label}
 }
 
 // msgActivity is a live "what Claude is doing now" indicator (thinking / running
