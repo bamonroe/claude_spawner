@@ -672,9 +672,25 @@ Accurate full transcription on commit stays on Whisper, untouched.
   scores ~0.003 (misses); the same word at the *tail* of a 2s window scores ~0.98. So the gateway
   **cannot** hand the sidecar one big "wake word + command" clip. It must score a **sliding 2s
   window** over incoming audio and fire the instant a window ending at "now" crosses threshold —
-  which naturally happens right when "bump bump" completes, before the command is spoken. Options:
-  (a) gateway buffers a rolling 2s of PCM and re-scores on each new chunk; (b) sidecar goes stateful
-  streaming (hold one model, feed frames, emit peak) — richer but bigger. Start with (a).
+  which naturally happens right when "bump bump" completes, before the command is spoken.
+- **Sidecar-side sliding + cost model — benchmarked 2026-07-15 (numbers under 4-core contention from
+  the beep training; idle will be lower).** The crate's `predict` is **stateless**: it recomputes the
+  mel + **every** 76-frame/stride-8 embedding over the whole chunk each call, then keeps only the last
+  16. The embedding-net forward pass is the cost — **~13–20 ms per embedding**; model construction is
+  only ~50 ms (measured via a sub-window clip that early-returns). Per-call latency is **linear in
+  clip length**: 2s≈383ms, 4s≈700ms, 10s≈1650ms (contended). Implications for "fires every utterance":
+  1. **Do the sliding in the sidecar, not the gateway** — the gateway just POSTs the clip and gets a
+     peak score (already implemented as a first cut: slide a 2s window in HOP_SEC steps, max score).
+  2. **BUT the naive version I shipped re-runs `predict` per window → recomputes overlapping
+     embeddings → N× blowup.** The fix: a single `predict` over the whole clip *already* computes all
+     embeddings and discards all but the last 16. `MelspectrogramModel` + `EmbeddingModel` are public,
+     so compute embeddings **once** over the clip, then slide only the tiny classifier over each
+     consecutive 16-embedding window (own `ort` Session per classifier). Net: the full window sweep
+     costs ≈ **one** detection, not N. This is the real implementation of the sidecar.
+  3. **Hold the model resident** (construct once at startup, share behind a mutex / small pool) to
+     drop the ~50 ms per-call construction and avoid re-reading the ONNX every request.
+  A short isolated "bump bump" VAD clip (~0.7s, padded to 2s) is then one embedding pass ≈ ~150 ms
+  idle — fine for wake latency; a long "bump bump <command>" clip sweeps for ~one embedding pass too.
 - **Custom end token.** A trained model only knows its trained phrase. To keep the end token
   user-configurable, either train a small set of preset tokens or keep the Whisper string-match as the
   fallback for arbitrary tokens.
