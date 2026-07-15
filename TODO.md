@@ -706,13 +706,16 @@ Accurate full transcription on commit stays on Whisper, untouched.
       above: an "Add live training data" button on the Commands settings page opens a scripted grid
       (clear positives, soft variants, confusable hard negatives incl. the other token, ambient + silence
       negatives) and captures **one labeled clip per prompt** with per-prompt playback + cancel/send.
-      - [x] **Phase 1 (built 2026-07-15, pending live verify):** wire path + server persistence + app UI.
+      - [x] **Phase 1 (built + deployed 2026-07-15, pending first live capture):** wire path + server persistence + app UI.
             New `train_clip` (inbound: `codec`/`model`/`category`/`label`) opens a labeled recording;
             server saves a 16 kHz mono WAV under `SPAWNER_WAKEWORD_TRAIN_DIR/<model>/<category>/clip_*.wav`
             (not transcribed/dispatched) and acks `train_saved`. Android: `TrainingState`/`TrainPhase`
             flow in `VoiceController` (record→review→cancel/send, `MediaPlayer` playback) + `TrainingDialog`
             off the Commands page, Phase-1 grid hardcoded from the `{beep,bump}.yaml` phrase lists. Go
             build + full `go test` (incl. docsync/clientsync/fieldsync) green; app clean-builds.
+            Server rebuilt with `SPAWNER_WAKEWORD_TRAIN_DIR=/data/storage/livekit-wakeword/real`
+            active; fresh debug APK installed on the Pixel 8a (launches clean). Remaining: user
+            records a first real dataset via the button, then verify clips land under the train dir.
       - [ ] **Phase 2:** serve the prompt grid from the trainer config (`target_phrases`/
             `custom_negative_phrases`) so it can't drift — `train_prompts`→`train_script` messages, app
             falls back to the hardcoded grid on older servers.
