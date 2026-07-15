@@ -111,11 +111,11 @@ fun InputBar(
     // nav-bar zone, left along the cancel track, and right across the row inset to the
     // screen edge) from the platform's edge gestures, so a hold that drifts toward the
     // right/bottom screen edges isn't hijacked by the system back/home gesture and cut
-    // short as a "lost-pointer" (Android only; no-op on web). Sized close to Android's
-    // 200dp-per-edge cap so even a wandering thumb stays inside the reserved zone.
+    // short as a "lost-pointer" (Android only; no-op on web). Deliberately pushes into
+    // Android's per-edge cap because thumb drift into the nav/back zones is common.
     val exclLeftPx = with(LocalDensity.current) { 72.dp.roundToPx() }
-    val exclRightPx = with(LocalDensity.current) { 96.dp.roundToPx() }
-    val exclBottomPx = with(LocalDensity.current) { 180.dp.roundToPx() }
+    val exclRightPx = with(LocalDensity.current) { 160.dp.roundToPx() }
+    val exclBottomPx = with(LocalDensity.current) { 240.dp.roundToPx() }
     Column(Modifier.fillMaxWidth()) {
       // Only argument-free commands can be a one-tap button, so intersect the
       // user's tray selection with those. Kept in COMMANDS order for a stable layout.

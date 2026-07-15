@@ -12,6 +12,12 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-15 — **Fix: push-to-talk hold still cut off near right/bottom edges.** Increased the
+      Android system-gesture exclusion around the live mic button from 96→160dp on the right and
+      180→240dp on the bottom, intentionally pushing into Android's per-edge cap so small thumb
+      drift toward the back/home gesture zones does not produce `lost-pointer` early stops.
+      `compileDebugKotlinAndroid` green.
+
 - [x] 2026-07-15 — **Fix: top-bar attached status no longer repeats the session name.** When a
       session is attached, the title already shows its name, so `TopBar` now compacts
       `attached: <name>` to a one-line `attached` subtitle. This keeps the left side from wrapping
