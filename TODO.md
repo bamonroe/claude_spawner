@@ -698,10 +698,25 @@ Accurate full transcription on commit stays on Whisper, untouched.
       *misses* the wake word on today (drive down false negatives — the actual current pain), and
       normal dictation as real-world negatives (hold false positives down). Keep the synthetic base
       set in the mix so it still generalizes. Retrain (~5.5h) → live A/B vs the synthetic-only model.
-- [ ] **Gateway swap (Go).** Introduce a `Detector` interface (in → clip/frames, out → wake + end-token
-      scores) and replace the fast-transcribe-and-string-match in `gatedChunk` with a call to it,
-      thresholding the score instead of matching text. Keep it behind a feature flag so we can A/B
-      against today's Whisper behavior; the accurate commit transcription (`commitMessage`) is unchanged.
+- [ ] **Gateway swap (Go) — DESIGN REFINED 2026-07-15.** The detector is a **per-clip gate**, not a
+      transcription replacement. Both audio paths (push-to-talk *and* hands-free VAD) hand the server a
+      **bounded clip** — there is **no always-on mic and no continuous stream** (so `/stream` and option
+      (b) are NOT needed here; `/stream` stays for a possible future mid-word latency play only). The
+      wake word is never spoken alone — it's always wake+command, ~almost always > 2s, and the rare
+      short clip is padded — so `POST /detect` (padded, slides) is the right endpoint. The detector
+      answers two yes/no questions on the clip: (1) is a command starting (`bump_bump`), and — the
+      high-value one — (2) **was the end token spoken (`beep_beep`)**. The end token is exactly where
+      Whisper string-match gives the **false negatives** today. When the detector fires the end token,
+      **hand the whole accumulated utterance to accurate Whisper** (`commitMessage`, unchanged) to
+      parse the command and everything before it. So the detector does NOT produce command text — it
+      only decides *when to call Whisper* — which also dissolves the earlier "barge-in needs the word
+      after the wake" wrinkle (Whisper still does all real transcription). Plan: new `internal/detect`
+      package (`Detector` interface + `RemoteWakeword` HTTP client POSTing raw PCM16LE 16k to
+      `/detect`), `SPAWNER_WAKEWORD_THRESHOLD` (default 0.5; optimal ~0.04–0.07), thresholding in Go,
+      wired into `gatedChunk` behind `SPAWNER_WAKEWORD_URL` with **graceful fallback to today's
+      Whisper string-match** on nil/error (the A/B safety net). Keep the fast transcript for the live
+      draft. Riskiest bits: threshold calibration (10× gap default vs optimal — extend the `calibrate`
+      path to report detector scores) and per-clip vs accumulated end-token semantics.
 - [ ] **Docs:** `README.md` (setup: training a model + running the detector service), `docs/architecture.md`
       (the detector seam + data flow), `CLAUDE.md` config section (`SPAWNER_WAKEWORD_URL`), and note the
       retirement path for `command.wakePhrases` once the detector is trusted.
