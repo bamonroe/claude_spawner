@@ -1338,7 +1338,8 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
             is ServerMsg.SpeechMode -> settings.summaryOnlySpeech = msg.summaryOnly // "summary only" / "speak everything" voice toggle
             is ServerMsg.Dialog -> _status.value = "dialog: ${msg.state}"
             is ServerMsg.Attached -> {
-                if (_attachedId.value.isNotEmpty() && _attachedId.value != msg.sessionId) {
+                val sameLogicalSession = _attachedName.value == msg.name
+                if (_attachedId.value.isNotEmpty() && _attachedId.value != msg.sessionId && !sameLogicalSession) {
                     currentFocusedSession()?.let { previousFocusedSession = it }
                 }
                 // Fresh view of this session: drop any stale turn spinner/watchdog.

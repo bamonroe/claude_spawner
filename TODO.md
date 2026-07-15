@@ -12,6 +12,12 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-15 — **Fix: clear/compress publish the rotated session id.** Clear and compress
+      rotate the server-side `session_id`, but app-declared dictation targeting meant the phone
+      kept sending the retired id and the next command could get "that session is gone." The
+      rotation paths now emit a refreshed `attached` message before `context_reset`, and Android/web
+      treat a same-name id change as a rotation rather than a previous-session switch.
+
 - [x] 2026-07-15 — **App-declared dictation target.** `wake` and `utterance` now carry the app's
       currently focused `session_id`; the server validates it and makes the connection follow that
       session before routing dictation or command text, falling back to the old per-WebSocket

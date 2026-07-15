@@ -348,7 +348,8 @@ class WebAppController(private val prefs: Prefs) : AppController {
             }
             is ServerMsg.Transcript -> { _ask.value = null; turnStreamed = false; addChat(Role.USER, msg.text) }
             is ServerMsg.Attached -> {
-                if (_attachedId.value.isNotEmpty() && _attachedId.value != msg.sessionId) {
+                val sameLogicalSession = _attachedName.value == msg.name
+                if (_attachedId.value.isNotEmpty() && _attachedId.value != msg.sessionId && !sameLogicalSession) {
                     currentFocusedSession()?.let { previousFocusedSession = it }
                 }
                 turnStreamed = false; _activity.value = ""

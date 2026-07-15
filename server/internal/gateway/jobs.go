@@ -409,6 +409,7 @@ func (s *Server) startCompress(sess *session.Session) bool {
 			log.Printf("forget rotated id %s: %v", oldID, ferr)
 		}
 		log.Printf("compress[%s] rotated to %s (seed %d bytes)", sess.Name, newID, len(sess.PendingSeed))
+		j.emit(msgAttached(sess, nil))     // publish the fresh session_id before the next targeted turn
 		j.emit(msgContextReset(sess.Name)) // reset the app's context-size readout; the seeded turn sets the new size
 		j.finish(msgSay("compressed. carried a summary forward — your history is still here."))
 	}()

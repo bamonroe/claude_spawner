@@ -864,6 +864,7 @@ func (c *conn) doClear() {
 		log.Printf("forget rotated id %s: %v", oldID, ferr)
 	}
 	c.clearBuffer()
+	c.send(msgAttached(s, nil))     // publish the fresh session_id before the client sends another targeted turn
 	c.send(msgContextReset(s.Name)) // reset the app's context-size readout to zero
 	c.send(msgSay("cleared. starting fresh — your history is still here."))
 }
