@@ -12,6 +12,23 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-15 — **Fix: top-bar attached status no longer repeats the session name.** When a
+      session is attached, the title already shows its name, so `TopBar` now compacts
+      `attached: <name>` to a one-line `attached` subtitle. This keeps the left side from wrapping
+      into a third line beside the provider/model marquee. `compileDebugKotlinAndroid` green.
+
+- [x] 2026-07-15 — **Fix: top-bar provider/model badge no longer crowds the title.** Long backend
+      and model names in `TopBar` now render inside a fixed-width clipped marquee lane instead of
+      expanding the row, wrapping, or squeezing the session title/context/audio/settings controls.
+      `compileDebugKotlinAndroid` green.
+
+- [x] 2026-07-15 — **Fix: settings gear tap intercepted by edge-swipe overlay.** The right-edge
+      swap strip added in `MainScreen` was a transparent full-height pointer target layered over the
+      chat, so it also covered the top app bar and stole taps from the Settings button before the
+      `IconButton` could see them. Kept the drawer/swap edge gestures, but confines both strips to
+      the chat area, below the top bar and above the message bar / mic button, so real controls stay
+      directly tappable. `compileDebugKotlinAndroid` green.
+
 - [x] 2026-07-15 — **Dropped the SPAWNER_ROOT spawn jail; voice spawn takes a full fuzzy-resolved
       path.** Removed `SPAWNER_ROOT`/`SpawnRoots`/`ParseRoots`/`ValidateSpawnDir`/`under` and the
       now-vestigial `projects.Index` wiring. The voice spawn dialog no longer anchors on roots: it

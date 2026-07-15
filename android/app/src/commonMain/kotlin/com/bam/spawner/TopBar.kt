@@ -1,5 +1,6 @@
 package com.bam.spawner
 
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -31,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
@@ -57,6 +59,11 @@ fun TopBar(
     onOutputMenuOpened: () -> Unit,
 ) {
     Surface(tonalElevation = 2.dp) {
+        val compactSubtitle = when {
+            subtitle == "attached: $title" -> "attached"
+            subtitle.startsWith("attached: ") -> "attached"
+            else -> subtitle
+        }
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -66,18 +73,31 @@ fun TopBar(
             if (onMenu != null) IconButton(onClick = onMenu) { Icon(Icons.Filled.Menu, contentDescription = "Menu") }
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("· $subtitle", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                Text(
+                    "· $compactSubtitle",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
             // Attached session's backend/model badge, so the current AI + model is
-            // always visible (blank when detached or on a pre-agent server).
-            if (modelBadge.isNotEmpty()) Text(
-                modelBadge,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.secondary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(horizontal = 6.dp),
-            )
+            // visible without letting long provider/model names widen the top bar.
+            if (modelBadge.isNotEmpty()) Box(
+                Modifier
+                    .width(126.dp)
+                    .padding(horizontal = 6.dp)
+                    .clipToBounds(),
+            ) {
+                Text(
+                    modelBadge,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.secondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Clip,
+                    modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE),
+                )
+            }
             // Current context size — the last turn's context tokens (input + cache).
             if (contextTokens != null && contextTokens > 0) Row(
                 verticalAlignment = Alignment.CenterVertically,
