@@ -116,6 +116,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     private val digestHeld = mutableMapOf<String, Pair<Int, String>>()
     private val serverDigest = mutableMapOf<String, Pair<Int, String>>()
     private val loadedFromCache = mutableSetOf<String>()
+    private var previousFocusedSession: DiscoveredInfo? = null
 
     // migrateSessionKey re-keys every session-name-keyed piece of client state from
     // old to new when a session is renamed, so nothing orphans under the stale name
@@ -163,6 +164,56 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
             count = d?.first ?: 0,
             hash = d?.second ?: "",
         ))
+    }
+
+    private fun currentFocusedSession(): DiscoveredInfo? {
+        val id = _attachedId.value
+        val name = _attachedName.value ?: return null
+        if (id.isBlank()) return null
+        return _discovered.value.find { it.sessionId == id } ?: DiscoveredInfo(
+            name = name,
+            dir = "",
+            sessionId = id,
+            lastActive = 0,
+            active = false,
+            registered = true,
+            agent = _attachedAgent.value,
+            model = _attachedModel.value,
+        )
+    }
+
+    private fun requestFreshHistory(name: String) {
+        val held = digestHeld[name]
+        val server = serverDigest[name]
+        val haveContent = logs[name]?.any { it.index >= 0 } == true
+        if (held != null && held == server && haveContent) return
+        client?.send(Outbound.history(name, null, haveHash = held?.second ?: ""))
+    }
+
+    private fun focusKnownSession(session: DiscoveredInfo, syncServer: Boolean) {
+        if (session.sessionId.isBlank()) {
+            client?.send(Outbound.attach(session.name, silent = syncServer))
+            return
+        }
+        val current = currentFocusedSession()
+        if (current?.sessionId != session.sessionId) {
+            current?.let { previousFocusedSession = it }
+        }
+        clearTurnInFlight()
+        turnStreamed = false
+        _activity.value = ""
+        _pending.value = ""
+        _lastTurnUsage.value = null
+        _attachedId.value = session.sessionId
+        _attachedName.value = session.name
+        _attachedAgent.value = session.agent
+        _attachedModel.value = session.model
+        settings.lastSession = session.name
+        settings.lastSessionId = session.sessionId
+        _status.value = "attached: ${session.name}"
+        showLog(session.name)
+        requestFreshHistory(session.name)
+        if (syncServer) client?.send(Outbound.attach(session.name, sessionId = session.sessionId, silent = true))
     }
 
     private val _chat = MutableStateFlow<List<ChatMessage>>(emptyList())
@@ -561,7 +612,13 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     override fun setAgent(sessionId: String, dir: String, agent: String, model: String) =
         client?.send(Outbound.setAgent(sessionId, dir, agent, model)).let {}
 
+    override fun focusSession(session: DiscoveredInfo) = focusKnownSession(session, syncServer = true)
+
     override fun attachTo(name: String) {
+        _discovered.value.firstOrNull { it.registered && it.name == name }?.let {
+            focusKnownSession(it, syncServer = true)
+            return
+        }
         showLog(name) // switch to that session's log immediately (cached if we have it)
         client?.send(Outbound.attach(name))
     }
@@ -580,8 +637,38 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
         client?.send(Outbound.history(name, before))
     }
 
-    override fun detach() = client?.send(Outbound.detach()).let {}
-    override fun swap() = client?.send(Outbound.swap()).let {}
+    override fun detach() {
+        currentFocusedSession()?.let { previousFocusedSession = it }
+        clearTurnInFlight()
+        turnStreamed = false
+        _activity.value = ""
+        _pending.value = ""
+        _lastTurnUsage.value = null
+        _attachedId.value = ""
+        _attachedName.value = null
+        _attachedAgent.value = ""
+        _attachedModel.value = ""
+        settings.lastSession = ""
+        settings.lastSessionId = ""
+        _status.value = "connected"
+        showLog("")
+        client?.send(Outbound.detach())
+    }
+
+    override fun swap() {
+        val target = previousFocusedSession
+        if (target == null || target.sessionId.isBlank()) {
+            client?.send(Outbound.swap())
+            return
+        }
+        val refreshed = _discovered.value.firstOrNull { it.sessionId == target.sessionId }
+        if (refreshed == null && _discovered.value.isNotEmpty()) {
+            previousFocusedSession = null
+            _status.value = "previous session is gone"
+            return
+        }
+        focusKnownSession(refreshed ?: target, syncServer = true)
+    }
 
     /** Abort the running turn on the attached session (kills the claude child). */
     override fun abortTurn() = client?.send(Outbound.abort()).let {}
@@ -1385,6 +1472,9 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
             is ServerMsg.SpeechMode -> settings.summaryOnlySpeech = msg.summaryOnly // "summary only" / "speak everything" voice toggle
             is ServerMsg.Dialog -> _status.value = "dialog: ${msg.state}"
             is ServerMsg.Attached -> {
+                if (_attachedId.value.isNotEmpty() && _attachedId.value != msg.sessionId) {
+                    currentFocusedSession()?.let { previousFocusedSession = it }
+                }
                 // Fresh view of this session: drop any stale turn spinner/watchdog.
                 // If a turn is genuinely still running, the server's bindJob sends a
                 // "still working" breadcrumb right after this (which re-arms it); if
@@ -1418,16 +1508,10 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                 // transcript is unchanged, so skip the fetch entirely. Otherwise ask for
                 // the recent page, passing the hash we hold so the server can still answer
                 // `unchanged` (no bodies) if nothing moved. onHistory dedupes against live.
-                val held = digestHeld[msg.name]
-                val server = serverDigest[msg.name]
-                val haveContent = logs[msg.name]?.any { it.index >= 0 } == true
-                if (held != null && held == server && haveContent) {
-                    // cache provably current — no fetch needed
-                } else {
-                    client?.send(Outbound.history(msg.name, null, haveHash = held?.second ?: ""))
-                }
+                requestFreshHistory(msg.name)
             }
             is ServerMsg.Detached -> {
+                currentFocusedSession()?.let { previousFocusedSession = it }
                 turnStreamed = false
                 _attachedId.value = ""
                 _attachedName.value = null

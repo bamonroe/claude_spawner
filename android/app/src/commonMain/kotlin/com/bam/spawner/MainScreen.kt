@@ -149,7 +149,8 @@ fun MainScreen(
         if (d.sessionId != attachedId && mark != null && d.lastActive > mark) id else null
     }.toSet()
     val openSession = { d: DiscoveredInfo ->
-        controller.adopt(d.sessionId, d.dir); scope.launch { drawerState.close() }; Unit
+        if (d.registered) controller.focusSession(d) else controller.adopt(d.sessionId, d.dir)
+        scope.launch { drawerState.close() }; Unit
     }
     val voiceState by controller.voiceState.collectAsState()
     val ask by controller.ask.collectAsState()

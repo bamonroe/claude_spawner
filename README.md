@@ -150,6 +150,8 @@ ones you reach for, or empty it entirely. (Commands that take a spoken argument 
 the left edge (just inside the edge — the very edge is Android's back gesture). The session list
 **auto-refreshes each time the drawer opens**, and you can **pull down on the list** (or tap
 **Refresh**) to re-scan at any time. See [`docs/commands.md`](docs/commands.md).
+Swiping right-to-left on the chat jumps back to the previous focused session immediately; the app
+then silently syncs that focus to the server so the next dictation and other clients agree.
 
 Each session is shown as a **card** with its name, AI backend/model, and a **sandbox** badge when
 it runs in a container. The list is **colour-coded and sorted by attention**: the session you're

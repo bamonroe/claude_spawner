@@ -70,7 +70,14 @@ Dates are `YYYY-MM-DD`.
       case, registry entry, vocab) and a new `swap` WebSocket message fired by a **right-to-left
       swipe** on the chat (right-edge strip in `MainScreen`, clear of the mic button). `Outbound.swap`
       + `AppController.swap` in both controllers. Docs: commands.md, protocol.md, commands.json
-      regenerated. Server tests green. **APK install pending.**
+      regenerated. Server tests green. APK installed on the Pixel 8a during the follow-up gesture
+      hardening pass.
+
+- [x] 2026-07-15 — **Local session focus intents.** The app now treats registered session opens,
+      detach, and the right-to-left swap gesture as local-first focus changes: it updates the visible
+      attached session immediately, uses that session id for subsequent dictation, and silently syncs
+      the new focus to the server with `attach`/`detach`. The server `swap` message remains as the
+      voice-command and legacy fallback when the app has no local previous-focus target.
 
 - [x] 2026-07-14 — **Settings reorg: session-behavior toggles moved to the Server page.** The
       **Brief replies** and **Ask before guessing** switches were on the Audio page but change how

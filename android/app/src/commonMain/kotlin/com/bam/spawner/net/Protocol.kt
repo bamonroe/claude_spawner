@@ -494,8 +494,8 @@ object Outbound {
         put("silent", silent)
     }.toString()
     fun detach() = buildJsonObject { put("type", "detach") }.toString()
-    // Toggle back to the previously attached session (server tracks the previous
-    // per connection). Bound to the chat's right-to-left swipe and the voice "swap".
+    // Server-side fallback for the voice "swap" command, and for clients that do
+    // not have a local previous-focus target.
     fun swap() = buildJsonObject { put("type", "swap") }.toString()
     fun history(name: String, before: Int?, limit: Int = 30, haveHash: String = "") = buildJsonObject {
         put("type", "history"); put("name", name); put("limit", limit)

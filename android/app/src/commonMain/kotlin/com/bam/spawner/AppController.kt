@@ -105,9 +105,11 @@ interface AppController : HostsIdentitiesController, ProfilesController, Provide
 
     // --- Turn I/O ------------------------------------------------------------
     fun sendText(text: String)
+    /** Make a known registered session the app's focused dictation target immediately. */
+    fun focusSession(session: DiscoveredInfo)
     fun attachTo(name: String)
     fun detach()
-    /** Toggle back to the previously attached session (server-tracked). */
+    /** Toggle back to the app's previously focused session; falls back to server swap if unknown. */
     fun swap()
     fun abortTurn()
     fun loadOlder()

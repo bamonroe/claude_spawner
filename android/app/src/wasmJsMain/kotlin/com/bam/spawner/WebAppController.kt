@@ -61,6 +61,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
     private var currentKey = ""
     private var loadingOlder = false
     private var turnStreamed = false
+    private var previousFocusedSession: DiscoveredInfo? = null
 
     private val _chat = MutableStateFlow<List<ChatMessage>>(emptyList())
     override val chat: StateFlow<List<ChatMessage>> = _chat.asStateFlow()
@@ -214,6 +215,49 @@ class WebAppController(private val prefs: Prefs) : AppController {
         _hasMoreHistory.value = hasMore[currentKey] ?: false
     }
 
+    private fun currentFocusedSession(): DiscoveredInfo? {
+        val id = _attachedId.value
+        val name = _attachedName.value ?: return null
+        if (id.isBlank()) return null
+        return _discovered.value.find { it.sessionId == id } ?: DiscoveredInfo(
+            name = name,
+            dir = "",
+            sessionId = id,
+            lastActive = 0,
+            active = false,
+            registered = true,
+            agent = _attachedAgent.value,
+            model = _attachedModel.value,
+        )
+    }
+
+    private fun focusKnownSession(session: DiscoveredInfo, syncServer: Boolean) {
+        if (session.sessionId.isBlank()) {
+            client?.send(Outbound.attach(session.name, silent = syncServer))
+            return
+        }
+        val current = currentFocusedSession()
+        if (current?.sessionId != session.sessionId) {
+            current?.let { previousFocusedSession = it }
+        }
+        turnStreamed = false
+        _activity.value = ""
+        _pending.value = ""
+        _lastTurnUsage.value = null
+        _attachedId.value = session.sessionId
+        _attachedName.value = session.name
+        _attachedAgent.value = session.agent
+        _attachedModel.value = session.model
+        prefs.lastSession = session.name
+        prefs.lastSessionId = session.sessionId
+        _status.value = "attached: ${session.name}"
+        currentKey = session.name
+        publish()
+        _scrollTick.value = _scrollTick.value + 1
+        client?.send(Outbound.history(session.name, null))
+        if (syncServer) client?.send(Outbound.attach(session.name, sessionId = session.sessionId, silent = true))
+    }
+
     private fun addChat(role: Role, text: String, usage: com.bam.spawner.net.TokenUsage? = null) {
         val now = nowEpochSeconds()
         logs[currentKey] = ((logs[currentKey] ?: emptyList()) +
@@ -304,6 +348,9 @@ class WebAppController(private val prefs: Prefs) : AppController {
             }
             is ServerMsg.Transcript -> { _ask.value = null; turnStreamed = false; addChat(Role.USER, msg.text) }
             is ServerMsg.Attached -> {
+                if (_attachedId.value.isNotEmpty() && _attachedId.value != msg.sessionId) {
+                    currentFocusedSession()?.let { previousFocusedSession = it }
+                }
                 turnStreamed = false; _activity.value = ""
                 _attachedId.value = msg.sessionId
                 _attachedName.value = msg.name
@@ -323,6 +370,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
                 client?.send(Outbound.history(msg.name, null))
             }
             is ServerMsg.Detached -> {
+                currentFocusedSession()?.let { previousFocusedSession = it }
                 turnStreamed = false; _attachedId.value = ""; _attachedName.value = null
                 _attachedAgent.value = ""; _attachedModel.value = ""
                 prefs.lastSession = ""; prefs.lastSessionId = ""
@@ -391,9 +439,45 @@ class WebAppController(private val prefs: Prefs) : AppController {
         addChat(Role.USER, t)
         client?.send(Outbound.utterance(t, sessionId = _attachedId.value))
     }
-    override fun attachTo(name: String) { client?.send(Outbound.attach(name)) }
-    override fun detach() { client?.send(Outbound.detach()) }
-    override fun swap() { client?.send(Outbound.swap()) }
+    override fun focusSession(session: DiscoveredInfo) = focusKnownSession(session, syncServer = true)
+    override fun attachTo(name: String) {
+        _discovered.value.firstOrNull { it.registered && it.name == name }?.let {
+            focusKnownSession(it, syncServer = true)
+            return
+        }
+        client?.send(Outbound.attach(name))
+    }
+    override fun detach() {
+        currentFocusedSession()?.let { previousFocusedSession = it }
+        turnStreamed = false
+        _activity.value = ""
+        _pending.value = ""
+        _lastTurnUsage.value = null
+        _attachedId.value = ""
+        _attachedName.value = null
+        _attachedAgent.value = ""
+        _attachedModel.value = ""
+        prefs.lastSession = ""
+        prefs.lastSessionId = ""
+        _status.value = "connected"
+        currentKey = ""
+        publish()
+        client?.send(Outbound.detach())
+    }
+    override fun swap() {
+        val target = previousFocusedSession
+        if (target == null || target.sessionId.isBlank()) {
+            client?.send(Outbound.swap())
+            return
+        }
+        val refreshed = _discovered.value.firstOrNull { it.sessionId == target.sessionId }
+        if (refreshed == null && _discovered.value.isNotEmpty()) {
+            previousFocusedSession = null
+            _status.value = "previous session is gone"
+            return
+        }
+        focusKnownSession(refreshed ?: target, syncServer = true)
+    }
     override fun abortTurn() { client?.send(Outbound.abort()) }
     override fun loadOlder() {
         val before = oldest[currentKey] ?: return
