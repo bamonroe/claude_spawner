@@ -726,6 +726,25 @@ Accurate full transcription on commit stays on Whisper, untouched.
       Whisper string-match** on nil/error (the A/B safety net). Keep the fast transcript for the live
       draft. Riskiest bits: threshold calibration (10× gap default vs optimal — extend the `calibrate`
       path to report detector scores) and per-clip vs accumulated end-token semantics.
+- [ ] **Positional detection → correct Whisper with the detector (proposed 2026-07-15).** The
+      detector knows a token was said far more reliably than Whisper; use *where* it fired to stop
+      Whisper's mishearings from corrupting the parse. Enabling change: the sidecar returns the token's
+      **time offset** (the peak window's position — `predict_peak` already computes the argmax window,
+      just surface it) alongside the score, on both `/detect` and `/stream`. Then in `commitMessage`:
+      instead of string-searching the accurate transcript for the end token (which fails when Whisper
+      mishears "beep beep"), **trim the audio at the detected offset before the accurate pass** so
+      Whisper only ever transcribes the real command and can't mis-splice the token. Generalizes:
+      request word-level timestamps from Whisper, align them against the detector's high-confidence
+      token positions, and where they disagree **trust the detector** (force the token in/out at that
+      spot) — also covers mid-utterance wake tokens once the sidecar can report *all* above-threshold
+      window positions, not just the peak. Do this AFTER the base end-token gate is proven live (below),
+      so we're not stacking on an unverified layer.
+- [ ] **Go-live plumbing + live A/B (the actual next functional step).** Run `spawner-wakeword` as a
+      **resident service** (compose service with both `bump_bump` + `beep_beep` models mounted), set
+      `SPAWNER_WAKEWORD_URL` (+ optional `SPAWNER_WAKEWORD_THRESHOLD`) in the deploy env, restart the
+      server, and compare hands-free end-token catch rate against today's Whisper string-match on real
+      phone audio. The restart kills the in-flight turn, so do it on a scratch port or when ready to
+      drop the session. This is the gate for both trusting the detector and the positional work above.
 - [ ] **Docs:** `README.md` (setup: training a model + running the detector service), `docs/architecture.md`
       (the detector seam + data flow), `CLAUDE.md` config section (`SPAWNER_WAKEWORD_URL`), and note the
       retirement path for `command.wakePhrases` once the detector is trusted.
