@@ -12,6 +12,12 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-15 — **Fix: gesture swap no longer misroutes late output.** The clients were
+      appending live `output` frames to the currently visible chat key instead of the `name` carried
+      by the server message, and a right-edge swap changes that key before every late frame has
+      drained. Android/web now route named output and terminal notices to the named session, and
+      streamed-reply de-dupe state is keyed per session instead of one global boolean.
+
 - [x] 2026-07-15 — **Fix: clear/compress publish the rotated session id.** Clear and compress
       rotate the server-side `session_id`, but app-declared dictation targeting meant the phone
       kept sending the retired id and the next command could get "that session is gone." The

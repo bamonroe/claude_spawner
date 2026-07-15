@@ -60,7 +60,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
     private val hasMore = mutableMapOf<String, Boolean>()
     private var currentKey = ""
     private var loadingOlder = false
-    private var turnStreamed = false
+    private val streamedSessions = mutableSetOf<String>()
     private var previousFocusedSession: DiscoveredInfo? = null
 
     private val _chat = MutableStateFlow<List<ChatMessage>>(emptyList())
@@ -240,7 +240,6 @@ class WebAppController(private val prefs: Prefs) : AppController {
         if (current?.sessionId != session.sessionId) {
             current?.let { previousFocusedSession = it }
         }
-        turnStreamed = false
         _activity.value = ""
         _pending.value = ""
         _lastTurnUsage.value = null
@@ -258,12 +257,14 @@ class WebAppController(private val prefs: Prefs) : AppController {
         if (syncServer) client?.send(Outbound.attach(session.name, sessionId = session.sessionId, silent = true))
     }
 
-    private fun addChat(role: Role, text: String, usage: com.bam.spawner.net.TokenUsage? = null) {
+    private fun addChat(role: Role, text: String, usage: com.bam.spawner.net.TokenUsage? = null, key: String = currentKey) {
         val now = nowEpochSeconds()
-        logs[currentKey] = ((logs[currentKey] ?: emptyList()) +
+        logs[key] = ((logs[key] ?: emptyList()) +
             ChatMessage(role, text, usage = usage, ts = now)).takeLast(2000)
-        if (currentKey.isNotEmpty() || role == Role.SYSTEM) publish()
-        _scrollTick.value = _scrollTick.value + 1
+        if (key == currentKey) {
+            publish()
+            _scrollTick.value = _scrollTick.value + 1
+        }
     }
 
     private fun roleOf(role: String) = if (role == "user") Role.USER else Role.CLAUDE
@@ -303,15 +304,19 @@ class WebAppController(private val prefs: Prefs) : AppController {
                 // Summary-only: beep through intermediate steps, speak only the final result.
                 val summaryOnly = prefs.summaryOnlySpeech
                 if (msg.chunk) {
-                    turnStreamed = true; addChat(Role.CLAUDE, msg.text)
-                    if (summaryOnly) webBeep() else speak(msg.text)
-                } else {
-                    if (!turnStreamed) { addChat(Role.CLAUDE, msg.text, msg.usage); speak(msg.text) }
-                    else {
-                        if (msg.usage != null) attachUsageToLastClaude(msg.usage)
-                        if (summaryOnly) speak(msg.text) // chunks only beeped — speak the final now
+                    streamedSessions.add(msg.name); addChat(Role.CLAUDE, msg.text, key = msg.name)
+                    if (msg.name == currentKey) {
+                        if (summaryOnly) webBeep() else speak(msg.text)
                     }
-                    turnStreamed = false
+                } else {
+                    if (!streamedSessions.remove(msg.name)) {
+                        addChat(Role.CLAUDE, msg.text, msg.usage, key = msg.name)
+                        if (msg.name == currentKey) speak(msg.text)
+                    }
+                    else {
+                        if (msg.usage != null) attachUsageToLastClaude(msg.name, msg.usage)
+                        if (summaryOnly && msg.name == currentKey) speak(msg.text) // chunks only beeped — speak the final now
+                    }
                     // Anchor the cache-warm countdown to the turn's real completion
                     // time (usage_at), not to when a buffered reply reached us.
                     msg.usage?.let { u ->
@@ -343,16 +348,20 @@ class WebAppController(private val prefs: Prefs) : AppController {
             is ServerMsg.Usage -> { _usageLoading.value = false; _usageReport.value = msg.report }
             is ServerMsg.UsageEstimate -> _usageEstimate.value = msg.est
             is ServerMsg.Ask -> {
-                _activity.value = ""; turnStreamed = false; _ask.value = msg.questions
-                addChat(Role.SYSTEM, "❓ " + msg.questions.joinToString("  ") { it.q })
+                _activity.value = ""; streamedSessions.remove(msg.name); _ask.value = msg.questions
+                addChat(Role.SYSTEM, "❓ " + msg.questions.joinToString("  ") { it.q }, key = msg.name)
             }
-            is ServerMsg.Transcript -> { _ask.value = null; turnStreamed = false; addChat(Role.USER, msg.text) }
+            is ServerMsg.Transcript -> {
+                _ask.value = null
+                (_attachedName.value ?: currentKey).takeIf { it.isNotEmpty() }?.let { streamedSessions.remove(it) }
+                addChat(Role.USER, msg.text)
+            }
             is ServerMsg.Attached -> {
                 val sameLogicalSession = _attachedName.value == msg.name
                 if (_attachedId.value.isNotEmpty() && _attachedId.value != msg.sessionId && !sameLogicalSession) {
                     currentFocusedSession()?.let { previousFocusedSession = it }
                 }
-                turnStreamed = false; _activity.value = ""
+                _activity.value = ""
                 _attachedId.value = msg.sessionId
                 _attachedName.value = msg.name
                 _attachedAgent.value = msg.agent; _attachedModel.value = msg.model
@@ -372,7 +381,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
             }
             is ServerMsg.Detached -> {
                 currentFocusedSession()?.let { previousFocusedSession = it }
-                turnStreamed = false; _attachedId.value = ""; _attachedName.value = null
+                _attachedId.value = ""; _attachedName.value = null
                 _attachedAgent.value = ""; _attachedModel.value = ""
                 prefs.lastSession = ""; prefs.lastSessionId = ""
                 _status.value = "connected"; currentKey = ""; publish()
@@ -402,18 +411,24 @@ class WebAppController(private val prefs: Prefs) : AppController {
                     _discoverError.value = msg.message
                 } else addChat(Role.SYSTEM, "⚠️ ${msg.code}: ${msg.message}")
             }
-            is ServerMsg.TurnInterrupted -> { _activity.value = ""; turnStreamed = false; addChat(Role.SYSTEM, "⚠️ turn interrupted (${msg.reason}) — say it again.") }
-            is ServerMsg.TurnStopped -> { _activity.value = ""; turnStreamed = false; addChat(Role.SYSTEM, "⏹ stopped that turn.") }
+            is ServerMsg.TurnInterrupted -> {
+                _activity.value = ""; streamedSessions.remove(msg.name)
+                addChat(Role.SYSTEM, "⚠️ turn interrupted (${msg.reason}) — say it again.", key = msg.name)
+            }
+            is ServerMsg.TurnStopped -> {
+                _activity.value = ""; streamedSessions.remove(msg.name)
+                addChat(Role.SYSTEM, "⏹ stopped that turn.", key = msg.name)
+            }
             else -> {} // Pending / Calibration / ReadLast / Dialog / Unknown
         }
     }
 
-    private fun attachUsageToLastClaude(usage: com.bam.spawner.net.TokenUsage) {
-        val log = logs[currentKey] ?: return
+    private fun attachUsageToLastClaude(key: String, usage: com.bam.spawner.net.TokenUsage) {
+        val log = logs[key] ?: return
         val idx = log.indexOfLast { it.role == Role.CLAUDE }
         if (idx < 0) return
-        logs[currentKey] = log.toMutableList().also { it[idx] = it[idx].copy(usage = usage) }
-        publish()
+        logs[key] = log.toMutableList().also { it[idx] = it[idx].copy(usage = usage) }
+        if (key == currentKey) publish()
     }
 
     private fun onHistory(msg: ServerMsg.History) {
@@ -450,7 +465,6 @@ class WebAppController(private val prefs: Prefs) : AppController {
     }
     override fun detach() {
         currentFocusedSession()?.let { previousFocusedSession = it }
-        turnStreamed = false
         _activity.value = ""
         _pending.value = ""
         _lastTurnUsage.value = null
