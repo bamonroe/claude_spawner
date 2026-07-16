@@ -109,8 +109,14 @@ Dates are `YYYY-MM-DD`.
                 identities, profiles, providers) with one `apply(msg)` inbound + all outbound mutators.
                 `VoiceController`/`WebAppController` lost their four StateFlow holders, four inbound
                 branches, and 13 mutator bodies — now thin delegations. Both targets compile.
-          - [ ] **Slice 2** — bring the web client to parity on the branches it silently no-ops
-                (`digests`, `session_list`, calibration, read-last).
+          - [x] **Slice 2 (web parity) — done, branch `app` `f620173`.** Web `onMessage` was one
+                collapsed `else -> {}` swallowing six variants; now exhaustive over all 41 `ServerMsg`
+                (compile-time guard like Android). Implemented `digests` cache-validation on web (sends
+                `digest` on `HelloOk`, stores per-session `(count,hash)`, `requestFreshHistory()` skips
+                refetch when held==server, handles `unchanged` — fixed a latent bug where an empty
+                `unchanged` page wiped the log), `read_last`, and `pending` (real web VAD). Documented
+                intentional no-ops for `calibration`/`dialog` (Android-hardware / already-via-`say`).
+                Note: `session_list` from the old map doesn't exist in the protocol — nothing to do.
           - [ ] **Slice 3** — hoist the session/chat reconcile branches (`context_reset`, `attached`,
                 `history`, `renamed`, `discovered`, `digests`) into the shared reconciler; finish
                 `dedupeCachedLog`→`index`.
