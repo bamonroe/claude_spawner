@@ -418,6 +418,67 @@ func TestClearThenDictateWithStaleID(t *testing.T) {
 	}
 }
 
+// TestSwapAfterPrevSessionCleared reproduces the "the previous session is gone"
+// swipe bug: connection C1 leaves session A (recording A's id as its swap target),
+// then a second connection clears A — rotating A's session_id and retiring the old
+// one. C1's prevSessionID now holds a retired id, so a plain byID lookup misses the
+// very-much-alive session. A swap (right-to-left swipe) must resolve A by its prior
+// id and land on it, instead of failing with "the previous session is gone."
+func TestSwapAfterPrevSessionCleared(t *testing.T) {
+	ts, root := newTestServer(t, nil)
+	for _, d := range []string{"projA", "projB"} {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	c1 := dial(t, ts)
+	send(t, c1, map[string]any{"type": "hello", "token": "secret"})
+	readUntil(t, c1, "hello_ok")
+
+	// C1 spawns A and runs a turn (so a later clear is allowed), then spawns B.
+	send(t, c1, map[string]any{"type": "utterance", "text": "hey buddy spawn a new session"})
+	readUntil(t, c1, "dialog")
+	send(t, c1, map[string]any{"type": "utterance", "text": filepath.Join(root, "projA")})
+	readUntil(t, c1, "dialog")
+	send(t, c1, map[string]any{"type": "utterance", "text": "yes"})
+	attachedA := readUntil(t, c1, "attached")
+	nameA, _ := attachedA["name"].(string)
+	idA, _ := attachedA["session_id"].(string)
+	send(t, c1, map[string]any{"type": "utterance", "text": "say pong"})
+	if out := readUntil(t, c1, "output"); out["text"] != "pong" {
+		t.Fatalf("expected pong, got %v", out["text"])
+	}
+	send(t, c1, map[string]any{"type": "utterance", "text": "hey buddy spawn a new session"})
+	readUntil(t, c1, "dialog")
+	send(t, c1, map[string]any{"type": "utterance", "text": filepath.Join(root, "projB")})
+	readUntil(t, c1, "dialog")
+	send(t, c1, map[string]any{"type": "utterance", "text": "yes"})
+	idB, _ := readUntil(t, c1, "attached")["session_id"].(string)
+
+	// Bounce A -> B via session_id-routed selects so the swap target lands on A:
+	// selecting a session records the one we were on as the previous.
+	send(t, c1, map[string]any{"type": "utterance", "text": "hey buddy status", "session_id": idA})
+	readUntil(t, c1, "attached")
+	send(t, c1, map[string]any{"type": "utterance", "text": "hey buddy status", "session_id": idB})
+	readUntil(t, c1, "attached") // now attached B, prevSessionID = A's id
+
+	// A second connection clears A (routed by its session_id), rotating A's id and
+	// retiring the id C1 still holds as its swap target.
+	c2 := dial(t, ts)
+	send(t, c2, map[string]any{"type": "hello", "token": "secret"})
+	readUntil(t, c2, "hello_ok")
+	send(t, c2, map[string]any{"type": "utterance", "text": "hey buddy clear context", "session_id": idA})
+	readUntil(t, c2, "context_reset")
+
+	// C1 swipes back to A. C1's prevSessionID is now A's retired id; before the fix
+	// this reported "the previous session is gone." Now it must attach A.
+	send(t, c1, map[string]any{"type": "utterance", "text": "hey buddy swap"})
+	if a := readUntil(t, c1, "attached"); a["name"] != nameA {
+		t.Fatalf("swap should land back on %q after prev was cleared, got %v", nameA, a["name"])
+	}
+}
+
 // TestSpawnFuzzyPathAutoCorrects: a spoken path whose last segment only
 // fuzzy-matches an existing folder ("mail" -> "mail_play") auto-corrects with no
 // confirmation step and resolves straight to the attach question.

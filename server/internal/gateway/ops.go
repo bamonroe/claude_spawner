@@ -822,7 +822,11 @@ func (c *conn) doSwap() {
 		c.send(msgSay("no previous session to swap to."))
 		return
 	}
-	prev := c.srv.store.GetBySessionID(c.prevSessionID)
+	// GetByAnyID, not GetBySessionID: if the previous session was cleared or
+	// compressed since we left it, prevSessionID is now one of its PriorIDs (the
+	// live id rotated), so a plain byID lookup would miss a session that's still
+	// very much alive and wrongly report "the previous session is gone."
+	prev := c.srv.store.GetByAnyID(c.prevSessionID)
 	if prev == nil { // the previous session was killed since we left it
 		c.prevSessionID = ""
 		c.send(msgSay("the previous session is gone."))
