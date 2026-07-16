@@ -12,6 +12,11 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-16 — **New-session picker uses dropdowns for expanding option sets.** The sidebar
+  `BrowseScreen` now renders host/profile and provider/model choices as compact dropdown controls
+  instead of chip clouds, so growing host, profile, backend, and model catalogues do not crowd the
+  filesystem tree.
+
 - [x] 2026-07-16 — **Server URL scheme by port + trust a private CA.** The Server-URL field now
   picks the scheme from whether a port is given: a bare host → `wss://…/ws` (443, through the TLS
   reverse proxy), an explicit `host:port` → plain `ws://…/ws` (straight to the gateway). New

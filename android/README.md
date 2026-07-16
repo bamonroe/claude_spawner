@@ -18,7 +18,8 @@ it reads the server's `say`/`output` replies aloud (TTS).
   mic is live); **tap it once to turn hands-free back off**. No separate top-bar switch.
 - **Type an utterance** to drive the whole spawn/attach/dictate flow without a mic.
 - **Chat UI**: per-session logs + server-served history, drawer session list (with ⚙️ busy flags),
-  visual directory browser for new sessions, rename/delete.
+  visual directory browser for new sessions with compact host/profile/provider/model dropdowns,
+  rename/delete.
 - **TTS**: replies read aloud (markdown stripped first), with an **audio-output picker**
   (earpiece/speaker/Bluetooth) and a **brief-reply** toggle; "hey bud stop" barge-in.
 - **Turn controls**: abort a running turn (⏹), post-turn diff summary, and a notification when a
