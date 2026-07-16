@@ -260,8 +260,13 @@ func msgDetached() map[string]any {
 // drops its last-turn token accounting so the status-bar context-size readout
 // returns to zero; no dictation has run against the new context yet, so there is
 // nothing to show until the next turn lands (which reports the true new size).
-func msgContextReset(name string) map[string]any {
-	return map[string]any{"type": "context_reset", "name": name}
+//
+// The rotation also mints a fresh `session_id` (the old one is retired onto the
+// session's PriorIDs), so the message carries that new id. The app uses it as the
+// trigger to reset the session's locally-cached message rows and re-request fresh
+// history — the pre-rotation rows are stale — rather than inferring the change.
+func msgContextReset(name, sessionID string) map[string]any {
+	return map[string]any{"type": "context_reset", "name": name, "session_id": sessionID}
 }
 
 // msgRenamed tells the app that the currently-attached session was renamed

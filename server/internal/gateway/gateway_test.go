@@ -376,10 +376,11 @@ func TestSpawnDialogAndDictation(t *testing.T) {
 }
 
 // TestClearThenDictateWithStaleID reproduces the "that session is gone" bug: a
-// `clear` rotates the attached session's session_id and retires the old one, but the
-// app keeps routing utterances by the pre-rotation id (a context_reset carries no new
-// id). selectClientSession must recognize that retired id as the session it's already
-// attached to and stay on it, instead of failing with "that session is gone."
+// `clear` rotates the attached session's session_id and retires the old one, but an
+// old app may keep routing utterances by the pre-rotation id even though the
+// context_reset carries the new one. selectClientSession must recognize that retired
+// id as the session it's already attached to and stay on it, instead of failing with
+// "that session is gone."
 func TestClearThenDictateWithStaleID(t *testing.T) {
 	ts, root := newTestServer(t, nil)
 	if err := os.MkdirAll(filepath.Join(root, "proj"), 0o755); err != nil {
@@ -406,9 +407,13 @@ func TestClearThenDictateWithStaleID(t *testing.T) {
 		t.Fatalf("expected pong, got %v", out["text"])
 	}
 
-	// Clear rotates the session_id and retires oldID; the app is not told the new id.
+	// Clear rotates the session_id and retires oldID; the context_reset carries the
+	// fresh id so the app can reset+refresh that session's cached rows.
 	send(t, ws, map[string]any{"type": "utterance", "text": "hey buddy clear context", "session_id": oldID})
-	readUntil(t, ws, "context_reset")
+	reset := readUntil(t, ws, "context_reset")
+	if newID, _ := reset["session_id"].(string); newID == "" || newID == oldID {
+		t.Fatalf("context_reset should carry the rotated session_id (got %q, old %q)", reset["session_id"], oldID)
+	}
 
 	// The app dictates again, still keyed to the retired oldID. Before the fix this
 	// tripped "that session is gone." (no output); now it must reach the session.
