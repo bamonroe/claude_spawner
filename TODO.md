@@ -55,12 +55,12 @@ Dates are `YYYY-MM-DD`.
       will additionally carry the **new (rotated) `session_id`** so the app can re-key/refresh the
       session cleanly rather than inferring it. Treat that field as the trigger to reset+refresh.
 
-  - **Server-side work** (worktree `/data/claude_spawner`, branch `master` — Go; **in progress**):
-    make every mutation report enough for the app to reconcile without guessing. Concretely: have
-    `context_reset` (`messages.go:263`, sent by `doClear` `ops.go:884` and the compress job
-    `jobs.go:412`) carry the rotated `session_id`; audit the other mutations (`attached`,
-    `renamed`, `session_list`, `detached`) for the same completeness; update `docs/protocol.md`
-    and the `docsync`/`clientsync` fields in the same change.
+  - **Server-side work** (worktree `/data/claude_spawner`, branch `master` — Go):
+    - [x] 2026-07-16 — `context_reset` now carries the rotated `session_id` (`messages.go`, sent by
+          `doClear` and the compress job); documented in `docs/protocol.md`, asserted in the clear
+          test. This is the shared protocol field the app half depends on — **landed and merge-ready**.
+    - [ ] Audit the other mutation messages (`attached`, `renamed`, `session_list`, `detached`) for
+          the same completeness so the app never has to infer a state change.
 
 - [x] 2026-07-15 — **Antigravity (`agy`) backend.** Added Google's Gemini-powered `agy` CLI as the
       fourth AI backend (`server/internal/agent/antigravity.go`), registered in `agent.Default()`.
