@@ -395,6 +395,12 @@ Dates are `YYYY-MM-DD`.
   - [x] 2026-07-12 — **Whisper models → `/data/storage/whisper`**, mounted directly (rw into the
         gateway for on-demand downloads, ro into the whisper service at `/models`) instead of via the
         broad `${HOME}` mount. Severs whisper from `${HOME}`.
+  - [x] 2026-07-16 — **Three restart modes** (replacing the old rebuild-on/off checkbox). The
+        `restart` message now carries a `mode` string — `build` (rebuild the image only, leaving the
+        running container in place so the live session isn't bounced; new image staged for later),
+        `bounce` (recreate from the existing image, no rebuild), `rebuild` (both; the default and the
+        voice command). `rebuild-container.sh` gained a build-only path; app settings shows three
+        buttons. `%REBUILD%` token now takes `build`/`bounce`/`rebuild`.
   - [x] 2026-07-12 — **Restart via the in-process Go SSH pool** instead of shelling to `openssh`.
         The gateway runs `SPAWNER_RESTART_CMD` (now the bare `setsid …` host command, no ssh wrapper)
         on the host over its own connection pool; drops the `/etc/passwd:ro` mount and `openssh-client`
