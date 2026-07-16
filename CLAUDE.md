@@ -64,6 +64,16 @@ server restart safe. Before starting a server rebuild/recreate, explicitly tell 
 interrupt the app connection and wait for them to confirm a safe moment. If you need a rebuild later,
 leave the commit pushed and say it is pending instead of starting it silently.
 
+**But building the image only (the `build` mode) IS background-safe — you may do it unprompted.**
+The distinction is recreate vs. build: only *recreating* the container (`bounce`/`rebuild`) drops
+the live WebSocket. A plain image **build** (`deploy/rebuild-container.sh build`, or the app's
+build-only restart mode) recompiles a new image and leaves the running container untouched, so it
+never interrupts the in-flight turn. So after you push server changes, you may kick off an
+image build in the background on your own — then all the user has to do is tap the fast **restart
+container** (`bounce`) button to pick it up, instead of waiting on the slow rebuild-and-recreate.
+Prefer this: land the server commits, background-build the image, and tell the user a bounce is all
+that's pending.
+
 ## The "hey buddy" command grammar
 
 Every control command is prefixed with the wake word **"hey buddy"**. Anything spoken while
