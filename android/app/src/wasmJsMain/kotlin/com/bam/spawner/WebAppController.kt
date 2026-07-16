@@ -11,6 +11,7 @@ import com.bam.spawner.net.Outbound
 import com.bam.spawner.net.ProfileInfo
 import com.bam.spawner.net.RateLimitInfo
 import com.bam.spawner.net.ServerMsg
+import com.bam.spawner.net.SessionSync
 import com.bam.spawner.net.SpawnerClient
 import com.bam.spawner.net.UsageEstimateInfo
 import com.bam.spawner.net.UsageReport
@@ -61,7 +62,22 @@ class WebAppController(private val prefs: Prefs) : AppController {
     private var currentKey = ""
     private var loadingOlder = false
     private val streamedSessions = mutableSetOf<String>()
-    private var previousFocusedSession: DiscoveredInfo? = null
+
+    // Session focus, per-session digest freshness (the phone's cache-validation fast-path,
+    // minus the on-disk cache — the browser holds transcripts in memory only), and the one
+    // true index-aware chat de-dup are reconciled through one shared commonMain point
+    // (sibling to CatalogueSync) so this controller and the Android controller can't drift.
+    // It owns the digest caches and the previous-session bookkeeping; this controller keeps
+    // the in-memory log storage, StateFlow wiring, and index-sorted history merge (below).
+    private val session = SessionSync(object : SessionSync.Host {
+        override fun send(frame: String) { client?.send(frame) }
+        override fun discovered() = _discovered.value
+        override fun attachedId() = _attachedId.value
+        override fun attachedName() = _attachedName.value
+        override fun attachedAgent() = _attachedAgent.value
+        override fun attachedModel() = _attachedModel.value
+        override fun heldContent(name: String) = logs[name]?.any { it.index >= 0 } == true
+    })
 
     private val _chat = MutableStateFlow<List<ChatMessage>>(emptyList())
     override val chat: StateFlow<List<ChatMessage>> = _chat.asStateFlow()
@@ -169,10 +185,13 @@ class WebAppController(private val prefs: Prefs) : AppController {
     private val _ask = MutableStateFlow<List<AskQuestion>?>(null)
     override val ask: StateFlow<List<AskQuestion>?> = _ask.asStateFlow()
 
-    private val _agents = MutableStateFlow<List<AgentInfo>>(emptyList())
-    override val agents: StateFlow<List<AgentInfo>> = _agents.asStateFlow()
-    private val _profiles = MutableStateFlow<List<ProfileInfo>>(emptyList())
-    override val profiles: StateFlow<List<ProfileInfo>> = _profiles.asStateFlow()
+    // The four app-managed catalogues (hosts, identities, profiles, providers) are
+    // reconciled through one shared commonMain point so this controller and the Android
+    // controller can't drift; it owns the StateFlows the UI reads and the outbound
+    // mutators. The server persists each and re-broadcasts its list message.
+    private val catalogues = com.bam.spawner.net.CatalogueSync { client?.send(it) }
+    override val agents: StateFlow<List<AgentInfo>> = catalogues.agents
+    override val profiles: StateFlow<List<ProfileInfo>> = catalogues.profiles
 
     private val _listing = MutableStateFlow<ServerMsg.Listing?>(null)
     override val listing: StateFlow<ServerMsg.Listing?> = _listing.asStateFlow()
@@ -181,10 +200,8 @@ class WebAppController(private val prefs: Prefs) : AppController {
     private val _fileData = MutableSharedFlow<ServerMsg.FileData>(extraBufferCapacity = 4)
     override val fileData: SharedFlow<ServerMsg.FileData> = _fileData.asSharedFlow()
 
-    private val _hosts = MutableStateFlow<List<Host>>(emptyList())
-    override val hosts: StateFlow<List<Host>> = _hosts.asStateFlow()
-    private val _identities = MutableStateFlow<List<Identity>>(emptyList())
-    override val identities: StateFlow<List<Identity>> = _identities.asStateFlow()
+    override val hosts: StateFlow<List<Host>> = catalogues.hosts
+    override val identities: StateFlow<List<Identity>> = catalogues.identities
 
     /** (Re)connect to [url] with [token], sending the hello handshake built from prefs. */
     fun connect(url: String, token: String) {
@@ -216,46 +233,27 @@ class WebAppController(private val prefs: Prefs) : AppController {
         _hasMoreHistory.value = hasMore[currentKey] ?: false
     }
 
-    private fun currentFocusedSession(): DiscoveredInfo? {
-        val id = _attachedId.value
-        val name = _attachedName.value ?: return null
-        if (id.isBlank()) return null
-        return _discovered.value.find { it.sessionId == id } ?: DiscoveredInfo(
-            name = name,
-            dir = "",
-            sessionId = id,
-            lastActive = 0,
-            active = false,
-            registered = true,
-            agent = _attachedAgent.value,
-            model = _attachedModel.value,
-        )
-    }
-
-    private fun focusKnownSession(session: DiscoveredInfo, syncServer: Boolean) {
-        if (session.sessionId.isBlank()) {
-            client?.send(Outbound.attach(session.name, silent = syncServer))
+    private fun focusKnownSession(target: DiscoveredInfo, syncServer: Boolean) {
+        if (target.sessionId.isBlank()) {
+            client?.send(Outbound.attach(target.name, silent = syncServer))
             return
         }
-        val current = currentFocusedSession()
-        if (current?.sessionId != session.sessionId) {
-            current?.let { previousFocusedSession = it }
-        }
+        session.rememberPreviousIfSwitching(target.sessionId)
         _activity.value = ""
         _pending.value = ""
         _lastTurnUsage.value = null
-        _attachedId.value = session.sessionId
-        _attachedName.value = session.name
-        _attachedAgent.value = session.agent
-        _attachedModel.value = session.model
-        prefs.lastSession = session.name
-        prefs.lastSessionId = session.sessionId
-        _status.value = "attached: ${session.name}"
-        currentKey = session.name
+        _attachedId.value = target.sessionId
+        _attachedName.value = target.name
+        _attachedAgent.value = target.agent
+        _attachedModel.value = target.model
+        prefs.lastSession = target.name
+        prefs.lastSessionId = target.sessionId
+        _status.value = "attached: ${target.name}"
+        currentKey = target.name
         publish()
         _scrollTick.value = _scrollTick.value + 1
-        client?.send(Outbound.history(session.name, null))
-        if (syncServer) client?.send(Outbound.attach(session.name, sessionId = session.sessionId, silent = true))
+        session.requestFreshHistory(target.name)
+        if (syncServer) client?.send(Outbound.attach(target.name, sessionId = target.sessionId, silent = true))
     }
 
     private fun addChat(role: Role, text: String, usage: com.bam.spawner.net.TokenUsage? = null, key: String = currentKey) {
@@ -283,6 +281,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
                 _serverTtsAvailable.value = msg.tts
                 if (msg.tts) client?.send(Outbound.ttsVoices()) // fetch the voice-picker catalogue
                 discover()
+                client?.send(Outbound.digest()) // validate the in-memory transcript cache (bodies-free)
                 if (prefs.lastSession.isNotBlank()) {
                     client?.send(Outbound.attach(prefs.lastSession, prefs.lastSessionId, silent = true))
                 }
@@ -349,6 +348,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
                     logs.remove(msg.name)
                     hasMore.remove(msg.name)
                     oldest.remove(msg.name)
+                    session.drop(msg.name) // rotated id's transcript wiped/summarized: forget the stale digests
                     if (msg.name == currentKey) publish()
                     client?.send(Outbound.history(msg.name, null))
                 }
@@ -376,10 +376,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
                 addChat(Role.USER, msg.text)
             }
             is ServerMsg.Attached -> {
-                val sameLogicalSession = _attachedName.value == msg.name
-                if (_attachedId.value.isNotEmpty() && _attachedId.value != msg.sessionId && !sameLogicalSession) {
-                    currentFocusedSession()?.let { previousFocusedSession = it }
-                }
+                session.rememberPreviousOnAttach(msg.name, msg.sessionId)
                 _activity.value = ""
                 _attachedId.value = msg.sessionId
                 _attachedName.value = msg.name
@@ -396,10 +393,10 @@ class WebAppController(private val prefs: Prefs) : AppController {
                 currentKey = msg.name
                 publish()
                 loadingOlder = false
-                client?.send(Outbound.history(msg.name, null))
+                session.requestFreshHistory(msg.name)
             }
             is ServerMsg.Detached -> {
-                currentFocusedSession()?.let { previousFocusedSession = it }
+                session.rememberPrevious()
                 _attachedId.value = ""; _attachedName.value = null
                 _attachedAgent.value = ""; _attachedModel.value = ""
                 prefs.lastSession = ""; prefs.lastSessionId = ""
@@ -419,10 +416,16 @@ class WebAppController(private val prefs: Prefs) : AppController {
             is ServerMsg.Listing -> _listing.value = msg
             is ServerMsg.FileSaved -> _fileSaved.tryEmit(msg.path)
             is ServerMsg.FileData -> _fileData.tryEmit(msg)
-            is ServerMsg.HostList -> _hosts.value = msg.hosts
-            is ServerMsg.IdentityList -> _identities.value = msg.identities
-            is ServerMsg.Agents -> _agents.value = msg.agents
-            is ServerMsg.Profiles -> _profiles.value = msg.profiles
+            is ServerMsg.HostList, is ServerMsg.IdentityList,
+            is ServerMsg.Agents, is ServerMsg.Profiles -> catalogues.apply(msg)
+            is ServerMsg.Digests -> {
+                // Latest server truth per session (bodies-free), from the connect-time
+                // sweep. Stored so a (re)attach to a session whose hash still equals what
+                // our in-memory log holds skips the fetch (see requestFreshHistory).
+                session.noteServerTruth(msg.items)
+            }
+            is ServerMsg.ReadLast -> onReadLast(msg.count)
+            is ServerMsg.Pending -> _pending.value = msg.text // live hands-free draft (the web has VAD hands-free too)
             is ServerMsg.Err -> {
                 _activity.value = ""
                 if (_usageLoading.value) _usageLoading.value = false
@@ -438,8 +441,21 @@ class WebAppController(private val prefs: Prefs) : AppController {
                 _activity.value = ""; streamedSessions.remove(msg.name)
                 addChat(Role.SYSTEM, "⏹ stopped that turn.", key = msg.name)
             }
-            else -> {} // Pending / Calibration / ReadLast / Dialog / Unknown
+            // Phone-only voice surfaces with no web analogue — explicit, documented
+            // no-ops so the omission is intentional, not an accidental gap:
+            is ServerMsg.Calibration -> {} // detection-model mic calibration; the web has no calibration UI
+            is ServerMsg.Dialog -> {} // server-side voice-dialog state machine (spawn "where?" etc.); its spoken prompts already reach the web via `say`
+            is ServerMsg.Unknown -> {} // unrecognized wire type: ignore rather than crash
         }
+    }
+
+    // onReadLast re-reads (TTS) the last `count` Claude replies in the current view —
+    // the `read last` voice command; the web speaks them the same way the phone does.
+    private fun onReadLast(count: Int) {
+        val claude = _chat.value.filter { it.role == Role.CLAUDE }.takeLast(count.coerceAtLeast(1))
+        if (claude.isEmpty()) speak("nothing to read yet")
+        else speak(claude.joinToString(". … ") { it.text })
+        _scrollTick.value = _scrollTick.value + 1
     }
 
     private fun attachUsageToLastClaude(key: String, usage: com.bam.spawner.net.TokenUsage) {
@@ -451,12 +467,20 @@ class WebAppController(private val prefs: Prefs) : AppController {
     }
 
     private fun onHistory(msg: ServerMsg.History) {
+        // `unchanged` answers a top-page freshness check whose have_hash still matched:
+        // our in-memory transcript is current, so keep it untouched and just refresh the
+        // stored digest so future freshness checks stand.
+        if (msg.unchanged) {
+            if (msg.hash.isNotEmpty()) session.recordSynced(msg.name, msg.count, msg.hash)
+            loadingOlder = false
+            return
+        }
         val hist = msg.messages.map { ChatMessage(roleOf(it.role), it.text, it.index, usage = it.usage, ts = it.ts) }
         val existing = logs[msg.name] ?: emptyList()
         logs[msg.name] = if (loadingOlder) {
-            // Prepend older page, keeping the live tail.
-            (hist + existing.filter { it.index < 0 || it.index > (hist.lastOrNull()?.index ?: -1) })
-                .distinctBy { if (it.index >= 0) "i${it.index}" else "l${it.text.hashCode()}" }
+            // Prepend older page, keeping the live tail; the shared index-aware de-dup
+            // collapses any live chunk already landed as an indexed history row.
+            session.dedupe(hist + existing.filter { it.index < 0 || it.index > (hist.lastOrNull()?.index ?: -1) })
                 .sortedBy { if (it.index >= 0) it.index else Int.MAX_VALUE }
         } else {
             hist
@@ -464,6 +488,9 @@ class WebAppController(private val prefs: Prefs) : AppController {
         loadingOlder = false
         oldest[msg.name] = hist.firstOrNull()?.index ?: (oldest[msg.name] ?: 0)
         hasMore[msg.name] = msg.more
+        // Record the chain digest this page belongs to so a later reattach can
+        // short-circuit the fetch when the server hash still matches what we hold.
+        if (msg.hash.isNotEmpty()) session.recordSynced(msg.name, msg.count, msg.hash)
         if (msg.name == currentKey) { publish(); _scrollTick.value = _scrollTick.value + 1 }
     }
 
@@ -483,7 +510,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
         client?.send(Outbound.attach(name))
     }
     override fun detach() {
-        currentFocusedSession()?.let { previousFocusedSession = it }
+        session.rememberPrevious()
         _activity.value = ""
         _pending.value = ""
         _lastTurnUsage.value = null
@@ -499,18 +526,11 @@ class WebAppController(private val prefs: Prefs) : AppController {
         client?.send(Outbound.detach())
     }
     override fun swap() {
-        val target = previousFocusedSession
-        if (target == null || target.sessionId.isBlank()) {
-            client?.send(Outbound.swap())
-            return
+        when (val t = session.swapTarget()) {
+            is SessionSync.SwapTarget.Server -> client?.send(Outbound.swap())
+            is SessionSync.SwapTarget.Gone -> _status.value = "previous session is gone"
+            is SessionSync.SwapTarget.Focus -> focusKnownSession(t.session, syncServer = true)
         }
-        val refreshed = _discovered.value.firstOrNull { it.sessionId == target.sessionId }
-        if (refreshed == null && _discovered.value.isNotEmpty()) {
-            previousFocusedSession = null
-            _status.value = "previous session is gone"
-            return
-        }
-        focusKnownSession(refreshed ?: target, syncServer = true)
     }
     override fun abortTurn() { client?.send(Outbound.abort()) }
     override fun loadOlder() {
@@ -544,24 +564,24 @@ class WebAppController(private val prefs: Prefs) : AppController {
     override fun attachedDirHost(): Pair<String, String>? =
         _discovered.value.firstOrNull { it.sessionId == _attachedId.value }?.let { it.dir to it.host }
 
-    override fun requestHosts() { client?.send(Outbound.hostsList()) }
-    override fun putHost(host: Host) { client?.send(Outbound.hostPut(host)) }
-    override fun deleteHost(name: String) { client?.send(Outbound.hostDelete(name)) }
-    override fun requestIdentities() { client?.send(Outbound.identitiesList()) }
-    override fun createIdentity(name: String, user: String, password: String, genKey: Boolean) {
-        client?.send(Outbound.identityCreate(name, user, password, genKey))
-    }
-    override fun importIdentity(name: String, user: String, password: String, keyPath: String) {
-        client?.send(Outbound.identityImport(name, user, password, keyPath))
-    }
-    override fun updateIdentity(name: String, user: String, setPassword: Boolean, password: String) {
-        client?.send(Outbound.identityUpdate(name, user, setPassword, password))
-    }
-    override fun deleteIdentity(name: String) { client?.send(Outbound.identityDelete(name)) }
-    override fun putProfile(p: ProfileInfo) { client?.send(Outbound.profilePut(p)) }
-    override fun deleteProfile(name: String) { client?.send(Outbound.profileDelete(name)) }
-    override fun setDefaultProfile(name: String) { client?.send(Outbound.profileSetDefault(name)) }
-    override fun putProvider(agent: String, defaultModel: String, voiceModels: List<String>) { client?.send(Outbound.providerPut(agent, defaultModel, voiceModels)) }
+    // The four app-managed catalogues' mutators delegate to the shared reconciler
+    // (see CatalogueSync); the server broadcasts the refreshed list after each change.
+    override fun requestHosts() = catalogues.requestHosts()
+    override fun putHost(host: Host) = catalogues.putHost(host)
+    override fun deleteHost(name: String) = catalogues.deleteHost(name)
+    override fun requestIdentities() = catalogues.requestIdentities()
+    override fun createIdentity(name: String, user: String, password: String, genKey: Boolean) =
+        catalogues.createIdentity(name, user, password, genKey)
+    override fun importIdentity(name: String, user: String, password: String, keyPath: String) =
+        catalogues.importIdentity(name, user, password, keyPath)
+    override fun updateIdentity(name: String, user: String, setPassword: Boolean, password: String) =
+        catalogues.updateIdentity(name, user, setPassword, password)
+    override fun deleteIdentity(name: String) = catalogues.deleteIdentity(name)
+    override fun putProfile(p: ProfileInfo) = catalogues.putProfile(p)
+    override fun deleteProfile(name: String) = catalogues.deleteProfile(name)
+    override fun setDefaultProfile(name: String) = catalogues.setDefaultProfile(name)
+    override fun putProvider(agent: String, defaultModel: String, voiceModels: List<String>) =
+        catalogues.putProvider(agent, defaultModel, voiceModels)
 
     override fun requestUsage() { _usageLoading.value = true; _usageReport.value = null; client?.send(Outbound.usage()) }
     override fun setUsageBenchmark() { client?.send(Outbound.usageSet()) }
