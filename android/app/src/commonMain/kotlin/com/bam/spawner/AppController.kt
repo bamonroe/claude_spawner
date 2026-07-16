@@ -143,8 +143,12 @@ interface AppController : HostsIdentitiesController, ProfilesController, Provide
     // Speak a short sample in [voice] through the server (the voice picker's
     // preview; no-op when server TTS is off or unavailable).
     fun previewTtsVoice(voice: String)
-    /** Push the context-compression preference (warm + auto) to the server (live, no reconnect). */
+    /** Push the context-compression preference (warm + auto) to the server. A synced setting:
+     *  each scalar is a keyed record routed through the shared catalogue (last-writer-wins). */
     fun setAutoCompress(warm: Boolean, auto: Boolean, thresholdK: Int)
+    /** Set summary-only speech (speak only a turn's final result; beep intermediate steps).
+     *  A synced setting — mirrored locally and routed through the shared settings catalogue. */
+    fun setSummaryOnly(on: Boolean)
     /**
      * Rebuild and/or restart the server. mode is one of:
      *  - "build"   rebuild the image only, leaving the running container in place (no bounce)

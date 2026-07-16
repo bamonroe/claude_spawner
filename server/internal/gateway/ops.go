@@ -117,13 +117,17 @@ func (c *conn) doScratch(arg string) {
 	}
 }
 
-// doSummaryOnly toggles summary-only speech. The state itself lives on the
-// client (a persisted audio setting mirrored by the audio-settings switch), so
-// the server holds none — it just relays the on/off as a speech_mode message
-// and speaks a confirmation. Arg "off" turns it off; anything else turns it on.
+// doSummaryOnly toggles summary-only speech (the voice "summary only" / "speak
+// everything" commands). It relays the on/off as a speech_mode message to this
+// client AND persists it through the shared-settings catalogue (a synced record),
+// broadcasting the updated settings so every client's audio behavior stays in sync.
+// Arg "off" turns it off; anything else turns it on.
 func (c *conn) doSummaryOnly(arg string) {
 	on := arg != "off"
 	c.send(msgSpeechMode(on))
+	if c.srv.persistSetting("summary_only", strconv.FormatBool(on), nowMillis()) {
+		c.srv.broadcastSettings()
+	}
 	if on {
 		c.send(msgSay("summary only — I'll beep through the steps and speak just the final result. say 'speak everything' to hear it all."))
 	} else {
@@ -744,16 +748,16 @@ func (c *conn) doSetWhisperModel(name string, fast bool) {
 			return
 		}
 		model, fastModel := c.srv.currentWhisperModels()
-		// Persist the choice so a restart/rebuild keeps it instead of reverting to
-		// the env default. A write failure is non-fatal — the live model is set.
-		persist := c.srv.settings.SetWhisperModel(model)
+		// Persist the choice through the shared-settings catalogue so a restart/rebuild
+		// keeps it and other clients sync to it. The whisper model is one of the synced
+		// records; the load is server-authoritative, so stamp it with the server clock.
+		key, val := "whisper_model", model
 		if fast {
-			persist = c.srv.settings.SetWhisperFastModel(fastModel)
+			key, val = "whisper_fast_model", fastModel
 		}
-		if persist != nil {
-			log.Printf("settings: persist whisper model: %v", persist)
-		}
+		c.srv.persistSetting(key, val, nowMillis())
 		c.srv.broadcastWhisperModel()
+		c.srv.broadcastSettings()
 	}()
 }
 

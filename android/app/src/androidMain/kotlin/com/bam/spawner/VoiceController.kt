@@ -952,13 +952,34 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
         speaker.streamStop()
     }
 
-    /** Change the resident whisper model (server-global; the server broadcasts the
-     *  new value back to every client). */
+    /** Change the resident whisper model. set_whisper_model triggers the actual
+     *  resident-server load/download; the server then persists the result into the synced
+     *  settings catalogue and broadcasts `settings`, so the choice syncs across clients. */
     override fun setWhisperModel(model: String, fast: Boolean) = client?.send(Outbound.setWhisperModel(model, fast)).let {}
 
-    /** Push the auto-compress preference to the server (server-global; live). */
-    override fun setAutoCompress(warm: Boolean, auto: Boolean, thresholdK: Int) =
-        client?.send(Outbound.autoCompress(warm, auto, thresholdK)).let {}
+    /** Auto-compress is a synced setting now — each scalar is its own keyed record routed
+     *  through the shared catalogue mutator (last-writer-wins), not a device-local write. */
+    override fun setAutoCompress(warm: Boolean, auto: Boolean, thresholdK: Int) {
+        catalogues.putSetting("warm_compress", warm.toString())
+        catalogues.putSetting("auto_compress", auto.toString())
+        catalogues.putSetting("auto_compress_threshold", thresholdK.toString())
+    }
+
+    /** Summary-only is a synced setting; mirror it locally and route it through the catalogue. */
+    override fun setSummaryOnly(on: Boolean) {
+        settings.summaryOnlySpeech = on
+        catalogues.putSetting("summary_only", on.toString())
+    }
+
+    /** Fold the inbound shared-settings catalogue into device-local Prefs the settings UI
+     *  seeds from, so a change synced from another client/server is reflected here. Whisper
+     *  models drive their own StateFlows via the `whisper_model` broadcast. */
+    private fun mirrorSettingsToPrefs() {
+        catalogues.settingValue("warm_compress")?.let { settings.warmCompress = it == "true" }
+        catalogues.settingValue("auto_compress")?.let { settings.autoCompress = it == "true" }
+        catalogues.settingValue("auto_compress_threshold")?.let { settings.autoCompressThreshold = it.toIntOrNull() ?: settings.autoCompressThreshold }
+        catalogues.settingValue("summary_only")?.let { settings.summaryOnlySpeech = it == "true" }
+    }
 
     /** Ask the server to restart. It exits so its supervisor relaunches it on
      *  current code; the app auto-reconnects once it's listening again. */
@@ -1434,6 +1455,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
             }
             is ServerMsg.HostList, is ServerMsg.IdentityList,
             is ServerMsg.Agents, is ServerMsg.Profiles -> catalogues.apply(msg)
+            is ServerMsg.Settings -> { catalogues.apply(msg); mirrorSettingsToPrefs() }
             is ServerMsg.Err -> {
                 // Version skew: an older server that predates the transcript-cache feature
                 // rejects our connect-time `digest` probe with bad_message. That's harmless

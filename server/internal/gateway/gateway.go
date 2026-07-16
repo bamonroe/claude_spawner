@@ -77,7 +77,7 @@ type Server struct {
 	downloadMu  sync.Mutex      // guards downloading
 	downloading map[string]bool // ggml model names being fetched now, so two clients don't double-download
 
-	settings *session.SettingsStore // persisted server-global prefs (survives restart)
+	settings *session.SettingKV // keyed shared-settings catalogue (whisper models, auto-compress, summary-only), synced + persisted
 
 	rateLimitMu sync.Mutex        // guards the last-seen subscription rate-limit state
 	rateLimit   session.RateLimit // account-global; cached from turns, pushed to apps on connect
@@ -347,24 +347,24 @@ func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, ids
 	if cfg.StatePath != "" {
 		inflightPath = filepath.Join(filepath.Dir(cfg.StatePath), "inflight.json")
 		usagePath = filepath.Join(filepath.Dir(cfg.StatePath), "usage_estimate.json")
-		settingsPath = filepath.Join(filepath.Dir(cfg.StatePath), "settings.json")
+		settingsPath = filepath.Join(filepath.Dir(cfg.StatePath), "settings_kv.json")
 	}
 	inflight, interrupted := newInflightTracker(inflightPath)
-	settings, err := session.OpenSettings(settingsPath)
+	settings, err := session.OpenSettingKV(settingsPath)
 	if err != nil {
 		log.Printf("settings: load failed (%v); using env defaults, changes won't persist", err)
-		settings, _ = session.OpenSettings("") // in-memory fallback
+		settings, _ = session.OpenSettingKV("") // in-memory fallback
 	}
 	// The persisted whisper model, when a user has picked one, wins over the env
 	// default so a restart doesn't silently revert their choice.
 	bootModel := cfg.WhisperModelName
-	if m := settings.WhisperModel(); m != "" && validModelName(m) {
+	if m := settings.Value("whisper_model"); m != "" && validModelName(m) {
 		bootModel = m
 	}
 	bootFast := ""
 	if cfg.WhisperFastURL != "" {
 		bootFast = cfg.WhisperFastModelName
-		if m := settings.WhisperFastModel(); m != "" && validModelName(m) {
+		if m := settings.Value("whisper_fast_model"); m != "" && validModelName(m) {
 			bootFast = m
 		}
 	}
@@ -423,6 +423,10 @@ func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, ids
 			}
 		}()
 	}
+	// Seed the live auto-compress preference from the persisted settings catalogue,
+	// so a restart keeps whatever the user last synced (the app no longer clobbers it
+	// on hello — it reconciles via the settings digest / LWW instead).
+	s.applyAutoCompressFromStore()
 	// Server-owned watcher that fires auto-compress near the warm-cache edge.
 	go s.autoCompressLoop()
 	return s
@@ -719,7 +723,9 @@ func (c *conn) authenticate() bool {
 	c.clientID = in.ClientID
 	c.brief = in.Brief
 	c.interactive = in.Interactive
-	c.srv.setAutoCompress(in.WarmCompress, in.AutoCompress, in.AutoCompressThreshold)
+	// Auto-compress is no longer clobbered from hello — it's a synced setting now,
+	// reconciled below via the settings digest / last-writer-wins, so a fresh client
+	// doesn't stomp a preference another client set. See the settings catalogue block.
 	c.endToken = strings.TrimSpace(in.EndToken)
 	if c.endToken == "" {
 		c.endToken = "beep"
@@ -774,6 +780,13 @@ func (c *conn) authenticate() bool {
 	}
 	if in.IdentitiesDigest != identitiesDigest(c.srv.ids.List()) {
 		c.send(msgIdentityList(c.srv.ids.List()))
+	}
+	// The fifth catalogue: genuinely-shared server-global scalars (whisper models,
+	// auto-compress, summary-only). Same skip-if-equal fast path — re-send only when
+	// the app's digest differs; LWW on the records reconciles direction on the ones
+	// we do send.
+	if in.SettingsDigest != settingsDigest(c.srv.settings) {
+		c.send(msgSettings(c.srv.settings.List()))
 	}
 	// Push the last-known plan session-limit so the app can show it immediately,
 	// rather than staying blank until the first turn of this connection.
@@ -903,6 +916,7 @@ var wireHandlers = map[string]func(c *conn, in inbound){
 	"profile_delete":      func(c *conn, in inbound) { c.doProfileDelete(in.Name, in.UpdatedAt) },
 	"profile_set_default": func(c *conn, in inbound) { c.doProfileSetDefault(in.Name) },
 	"provider_put":        func(c *conn, in inbound) { c.doProviderPut(in.Agent, in.DefaultModel, in.VoiceModels, in.UpdatedAt) },
+	"setting_put":         func(c *conn, in inbound) { c.doSettingPut(in.Key, in.Value, in.UpdatedAt) },
 }
 
 // loop reads and dispatches messages until the socket closes. Text frames are

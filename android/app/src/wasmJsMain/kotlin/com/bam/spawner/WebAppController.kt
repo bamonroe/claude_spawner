@@ -419,6 +419,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
             is ServerMsg.FileData -> _fileData.tryEmit(msg)
             is ServerMsg.HostList, is ServerMsg.IdentityList,
             is ServerMsg.Agents, is ServerMsg.Profiles -> catalogues.apply(msg)
+            is ServerMsg.Settings -> { catalogues.apply(msg); mirrorSettingsToPrefs() }
             is ServerMsg.Digests -> {
                 // Latest server truth per session (bodies-free), from the connect-time
                 // sweep. Stored so a (re)attach to a session whose hash still equals what
@@ -589,9 +590,33 @@ class WebAppController(private val prefs: Prefs) : AppController {
     override fun calcUsageMax() { client?.send(Outbound.usageCalc()) }
     override fun dismissUsage() { _usageLoading.value = false; _usageReport.value = null }
 
+    // Whisper model keeps its dedicated message: set_whisper_model is what triggers the
+    // resident-server load/download. The server then persists the result into the synced
+    // settings catalogue and broadcasts `settings`, so the choice still syncs across clients.
     override fun setWhisperModel(model: String, fast: Boolean) { client?.send(Outbound.setWhisperModel(model, fast)) }
-    override fun setAutoCompress(warm: Boolean, auto: Boolean, thresholdK: Int) { client?.send(Outbound.autoCompress(warm, auto, thresholdK)) }
+    // Auto-compress + summary-only are synced settings: each scalar is its own keyed record,
+    // routed through the shared catalogue mutator (last-writer-wins), not a device-local write.
+    override fun setAutoCompress(warm: Boolean, auto: Boolean, thresholdK: Int) {
+        catalogues.putSetting("warm_compress", warm.toString())
+        catalogues.putSetting("auto_compress", auto.toString())
+        catalogues.putSetting("auto_compress_threshold", thresholdK.toString())
+    }
+    override fun setSummaryOnly(on: Boolean) {
+        prefs.summaryOnlySpeech = on
+        catalogues.putSetting("summary_only", on.toString())
+    }
     override fun restartServer(mode: String) { client?.send(Outbound.restart(mode)) }
+
+    // mirrorSettingsToPrefs folds the inbound shared-settings catalogue into the
+    // device-local Prefs the settings UI seeds from, so a change synced from another
+    // client (or the server) is reflected here. Whisper models drive their own StateFlows
+    // via the `whisper_model` broadcast; here we mirror only the config scalars.
+    private fun mirrorSettingsToPrefs() {
+        catalogues.settingValue("warm_compress")?.let { prefs.warmCompress = it == "true" }
+        catalogues.settingValue("auto_compress")?.let { prefs.autoCompress = it == "true" }
+        catalogues.settingValue("auto_compress_threshold")?.let { prefs.autoCompressThreshold = it.toIntOrNull() ?: prefs.autoCompressThreshold }
+        catalogues.settingValue("summary_only")?.let { prefs.summaryOnlySpeech = it == "true" }
+    }
 
     // --- Push-to-talk mic capture (concrete, off the interface like Android) -------
     // Mirrors the phone: grab the mic on press, send the whole clip on release as

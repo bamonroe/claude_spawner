@@ -132,3 +132,17 @@ func providersDigest(reg *agent.Registry, settings *agent.SettingsStore) string 
 	}
 	return foldDigest(recs)
 }
+
+// settingsDigest folds the fifth catalogue — the keyed shared-settings store — with
+// the same FNV-1a-64 canonical scheme as the others: each record's (key, value,
+// updated_at). Must be byte-identical to the Kotlin CatalogueDigest.settings fold.
+func settingsDigest(store *session.SettingKV) string {
+	list := store.List()
+	recs := make([]string, 0, len(list))
+	for _, r := range list {
+		recs = append(recs, strings.Join([]string{
+			r.Key, r.Value, strconv.FormatInt(r.UpdatedAt, 10),
+		}, digestFieldSep))
+	}
+	return foldDigest(recs)
+}

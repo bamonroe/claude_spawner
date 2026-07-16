@@ -84,6 +84,7 @@ Every JSON message has a `type`. Optional `id` correlates request/response. `ts`
 | `profile_delete` | `{ "name": "<name>", "updated_at?": 0 }` | remove an execution profile by name. `updated_at` (unix ms) records a **tombstone** so a stale client can't resurrect it; a delete older than the stored profile is rejected. -> `profiles` broadcast to every client |
 | `profile_set_default` | `{ "name": "<name>" }`              | mark the named profile as the default (clearing the marker on all others). Errors `bad_profile` if the name is unknown. -> `profiles` broadcast to every client |
 | `provider_put`  | `{ "agent": "<id>", "default_model?": "<alias>", "voice_models?": ["<alias>", …], "updated_at?": 0 }` | set an AI backend's app-managed overrides (Settings → Providers): `default_model` is the model alias a fresh spawn stamps (`""` = the backend's compiled default); `voice_models` is the exact set of models the voice `list models`/`use model N` commands enumerate (omit to leave it at "all"). The backends themselves are compile-time; only these overrides are stored (survives restarts, shared across clients). `updated_at` (unix ms) drives last-writer-wins; an older put is rejected (re-synced). There is no provider delete, so no tombstone. Every alias must name a real model of that backend. Errors `bad_provider` on an unknown backend or model. -> `agents` broadcast to every client |
+| `setting_put`   | `{ "key": "<key>", "value": "<string>", "updated_at?": 0 }` | set one genuinely-shared server-global scalar in the **settings** catalogue (the fifth app-managed catalogue). `key` is one of `whisper_model`, `whisper_fast_model`, `warm_compress`, `auto_compress`, `auto_compress_threshold`, `summary_only`; `value` is **always a string** (booleans as `"true"`/`"false"`, ints as decimal), typed only at the consuming/UI edge. `updated_at` (unix ms) drives per-key last-writer-wins; an older put is rejected (the client is re-synced). Auto-compress keys reconfigure the server-owned compress monitor live; the whisper models have their own load path (`set_whisper_model`). Errors `bad_setting` on an unknown key. -> `settings` broadcast to every client |
 | `ping`          | `{}`                                      | keepalive                                     |
 
 Audio framing: client sends `wake` (with a `codec`, optional `hands_free` / `calibrate`, and optional
@@ -126,13 +127,17 @@ ask clarifying questions mid-task, delivered as `ask`), and `warm_compress`/`aut
 its semantics; the app also pushes changes live with that message). `hello` also carries four **per-catalogue
 digests** — `hosts_digest`, `identities_digest`, `profiles_digest`, `providers_digest` — the
 app's stable, order-independent checksum of each app-managed catalogue it currently holds (a fold
-over every record's key + `updated_at` + payload, so a timestamp-only edit still changes it). This
+over every record's key + `updated_at` + payload, so a timestamp-only edit still changes it). A
+fifth digest, `settings_digest`, covers the **settings** catalogue (the shared server-global scalars
+set via `setting_put`) the same way. The `warm_compress`/`auto_compress`/`auto_compress_threshold`
+fields above are legacy: auto-compress is now a synced setting, so the server ignores those hello
+fields for reconciliation and instead uses `settings_digest` + last-writer-wins. This
 is the **skip-if-equal fast path**: on connect the server compares each against its own freshly
 computed digest and **re-sends only the catalogues that differ** (the matching ones cost nothing),
 then the `updated_at` last-writer-wins merge resolves direction on the ones it does send. It's the
 same freshness trick the chat transcript uses (`digest`/`history unchanged`), generalized to the
 catalogues. Empty/absent digests (an older client) mismatch every catalogue, so the server falls
-back to broadcasting all four — fully backward compatible. Tombstones aren't folded in: a delete
+back to broadcasting all of them — fully backward compatible. Tombstones aren't folded in: a delete
 the app hasn't applied shows up as a record it still holds, so the digests already differ and the
 removal rides the normal broadcast. Interactive mode appends its instruction to
 only the **first** turn of a context — Claude retains it via `--resume`, so re-sending it every turn
@@ -167,6 +172,7 @@ capped at ~120 s.
 | `speak_end`     | `{ "id": "<client id>", "error": "" }`               | closes a speak stream. `error` empty = success; non-empty (synthesis failed, tts disabled, empty text, bad format, queue full — possibly with no `speak_audio` ever sent) means the client should fall back to on-device TTS for that utterance |
 | `tts_voices`    | `{ "voices": [], "default": "af_heart", "error": "" }` | reply to `tts_voices`: the selectable Kokoro voice ids and the server-default voice (`SPAWNER_TTS_VOICE`), which the picker shows as "server default". A chosen voice is client-local — it rides each `speak` request's `voice` field, nothing is stored server-side. `error` non-empty (tts disabled, voices unavailable) = no catalogue |
 | `speech_mode`   | `{ "summary_only": true }`                           | set the client's speech verbosity (from the "summary only" / "speak everything" voice commands; the app's audio settings has the same switch). When `summary_only` is true the client speaks only a turn's final result and plays a soft beep in place of reading each intermediate streamed step aloud; false speaks everything |
+| `settings`      | `{ "settings": [{ "key": "summary_only", "value": "true", "updated_at": 0 }] }` | the **settings** catalogue (the fifth app-managed catalogue): genuinely-shared server-global scalars — the whisper models, auto-compress config, and summary-only mode — each a keyed `{ key, value, updated_at }` record with per-key last-writer-wins. `value` is **always a string** (bool as `"true"`/`"false"`, int as decimal), typed at the consuming/UI edge. Broadcast to every client on any change (a `setting_put`, a `set_whisper_model` load completing, or the summary-only voice command), and pushed on connect when the app's `settings_digest` differs. The app folds it into its settings StateFlows. Per-device preferences (wake sensitivity, on-device vs server TTS, color scheme) are **not** in this catalogue — they stay local to each client |
 | `say`           | `{ "text": "ok bud, where do you want it?" }`        | app should speak this (TTS) + display    |
 | `dialog`        | `{ "state": "await_dir", "prompt": "..." }`          | current dialog state (drives the UI)     |
 | `session_list`  | `{ "sessions": [{ "name", "dir", "target?", "agent?", "model?", "profile?" }] }`    | response to `list`. `target` present only for non-host sessions (`"sandbox"`), so the app can badge them. `agent` is the AI backend id (`"codex"`; omitted for the default Claude / pre-registry records), `model` the session's current model alias, and `profile` the non-default execution profile name — so the app can badge which AI, model, and environment a session runs |
@@ -244,7 +250,7 @@ Every failure sends an `error` message (machine-readable, always displayed). For
 **voice** user can actually trigger, the server *also* sends a friendly spoken `say` alongside it
 (e.g. `bad_path` → "that path won't work, bud…"), so a spoken command never fails silently. The
 wire-level / programmer-facing codes that only come from the app — `bad_message`, `bad_adopt`,
-`bad_delete`, `bad_rename`, `bad_host`, `bad_identity`, `bad_profile`, `bad_provider`, `unauthorized`, `internal` — stay screen-only (no spoken line).
+`bad_delete`, `bad_rename`, `bad_host`, `bad_identity`, `bad_profile`, `bad_provider`, `bad_setting`, `unauthorized`, `internal` — stay screen-only (no spoken line).
 
 | code               | meaning                                                  |
 |--------------------|----------------------------------------------------------|
@@ -258,6 +264,7 @@ wire-level / programmer-facing codes that only come from the app — `bad_messag
 | `bad_identity`     | invalid `identity_create`/`identity_delete` (missing/duplicate name) |
 | `bad_profile`      | invalid `profile_put`/`profile_delete`/`profile_set_default` (missing name, bad env key, or unknown profile) |
 | `bad_provider`     | invalid `provider_put` (missing/unknown backend, or a default/voice alias that isn't a model of that backend) |
+| `bad_setting`      | invalid `setting_put` (unknown setting key)              |
 | `bad_agent`        | invalid `set_agent` request (needs `session_id` or `path`) |
 | `spawn_failed`     | session directory creation / claude failed to start      |
 | `no_session`       | action referenced an unknown session                     |

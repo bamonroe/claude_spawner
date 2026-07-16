@@ -59,11 +59,15 @@ class CatalogueSync(private val send: (String) -> Unit) {
     private val identityCat = Catalogue<Identity>(key = Identity::name, updatedAt = Identity::updatedAt)
     private val profileCat = Catalogue<ProfileInfo>(key = ProfileInfo::name, updatedAt = ProfileInfo::updatedAt)
     private val agentCat = Catalogue<AgentInfo>(key = AgentInfo::id, updatedAt = AgentInfo::updatedAt)
+    private val settingCat = Catalogue<SettingRecord>(key = SettingRecord::key, updatedAt = SettingRecord::updatedAt)
 
     val hosts: StateFlow<List<Host>> = hostCat.items
     val identities: StateFlow<List<Identity>> = identityCat.items
     val profiles: StateFlow<List<ProfileInfo>> = profileCat.items
     val agents: StateFlow<List<AgentInfo>> = agentCat.items
+    /** The shared server-global settings catalogue, as keyed records. Controllers
+     *  read typed values off this (see [settingValue]) and mirror them into the UI. */
+    val settings: StateFlow<List<SettingRecord>> = settingCat.items
 
     /**
      * The four catalogues' per-record digests for the `hello` handshake: the server
@@ -78,7 +82,12 @@ class CatalogueSync(private val send: (String) -> Unit) {
         identities = CatalogueDigest.identities(identityCat.items.value),
         profiles = CatalogueDigest.profiles(profileCat.items.value),
         providers = CatalogueDigest.providers(agentCat.items.value),
+        settings = CatalogueDigest.settings(settingCat.items.value),
     )
+
+    /** The current string value of a shared setting, or null when the server hasn't
+     *  advertised it yet — the caller types it and falls back to its own default. */
+    fun settingValue(key: String): String? = settingCat.items.value.firstOrNull { it.key == key }?.value
 
     /**
      * Reconcile an inbound server message if it is one of the four catalogue lists.
@@ -90,6 +99,7 @@ class CatalogueSync(private val send: (String) -> Unit) {
         is ServerMsg.IdentityList -> { identityCat.apply(msg.identities); true }
         is ServerMsg.Profiles -> { profileCat.apply(msg.profiles); true }
         is ServerMsg.Agents -> { agentCat.apply(msg.agents); true }
+        is ServerMsg.Settings -> { settingCat.apply(msg.settings); true }
         else -> false
     }
 
@@ -118,4 +128,9 @@ class CatalogueSync(private val send: (String) -> Unit) {
     // --- Providers / AI-backend overlays (Settings → Providers) --------------
     fun putProvider(agent: String, defaultModel: String, voiceModels: List<String>) =
         send(Outbound.providerPut(agent, defaultModel, voiceModels, nowEpochMs()))
+
+    // --- Shared settings (whisper models, auto-compress, summary-only) --------
+    // Each scalar is its own keyed record so per-key last-writer-wins arbitrates
+    // independent toggles. Value is always a string (bool/int stringified by the caller).
+    fun putSetting(key: String, value: String) = send(Outbound.settingPut(key, value, nowEpochMs()))
 }

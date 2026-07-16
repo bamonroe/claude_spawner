@@ -41,6 +41,63 @@ func TestCatalogueDigestFold(t *testing.T) {
 	}
 }
 
+// TestSettingsDigestFold covers the fifth catalogue's digest: empty folds to
+// all-zero, order doesn't matter, and any add / value edit / timestamp edit flips
+// it — plus a KNOWN HEX pinned byte-for-byte against the Kotlin
+// CatalogueDigest.settings fold (see CatalogueDigestTest.kt), which guarantees the
+// two languages compute the identical value for the skip-if-equal fast path.
+func TestSettingsDigestFold(t *testing.T) {
+	empty := settingsDigest(mustSettings(t))
+	if empty != "0000000000000000" {
+		t.Fatalf("empty settings digest = %q, want all-zero", empty)
+	}
+
+	// Known-hex fixture, mirrored exactly in the Kotlin test.
+	pinned := mustSettings(t,
+		session.SettingRecord{Key: "summary_only", Value: "true", UpdatedAt: 100},
+		session.SettingRecord{Key: "auto_compress", Value: "false", UpdatedAt: 200},
+	)
+	const wantHex = "d7a850f0b07c87bd"
+	if d := settingsDigest(pinned); d != wantHex {
+		t.Fatalf("settings digest = %q, want pinned %q (Kotlin parity)", d, wantHex)
+	}
+	// Order-independence: inserting the same records in the other order matches.
+	rev := mustSettings(t,
+		session.SettingRecord{Key: "auto_compress", Value: "false", UpdatedAt: 200},
+		session.SettingRecord{Key: "summary_only", Value: "true", UpdatedAt: 100},
+	)
+	if d := settingsDigest(rev); d != wantHex {
+		t.Fatalf("settings digest is order-dependent: %q vs pinned %q", d, wantHex)
+	}
+
+	base := settingsDigest(pinned)
+	for name, recs := range map[string][]session.SettingRecord{
+		"add":            {{Key: "summary_only", Value: "true", UpdatedAt: 100}, {Key: "auto_compress", Value: "false", UpdatedAt: 200}, {Key: "warm_compress", Value: "true", UpdatedAt: 1}},
+		"value edit":     {{Key: "summary_only", Value: "false", UpdatedAt: 100}, {Key: "auto_compress", Value: "false", UpdatedAt: 200}},
+		"timestamp only": {{Key: "summary_only", Value: "true", UpdatedAt: 101}, {Key: "auto_compress", Value: "false", UpdatedAt: 200}},
+	} {
+		if d := settingsDigest(mustSettings(t, recs...)); d == base {
+			t.Errorf("%s did not flip the settings digest (still %q)", name, d)
+		}
+	}
+}
+
+// mustSettings builds an in-memory SettingKV seeded with the given records.
+func mustSettings(t *testing.T, recs ...session.SettingRecord) *session.SettingKV {
+	t.Helper()
+	s, err := session.OpenSettingKV("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range recs {
+		r := recs[i]
+		if err := s.Put(&r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return s
+}
+
 // stallModelRefresh disables the throttled background model re-discovery for this
 // server so it can't asynchronously re-broadcast `agents` during a test's connect
 // window (which would race the connect-time suppression assertions).

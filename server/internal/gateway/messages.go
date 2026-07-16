@@ -73,6 +73,9 @@ type inbound struct {
 	IdentitiesDigest      string               `json:"identities_digest"`       // on `hello`: the app's digest of its cached identities (same fast path)
 	ProfilesDigest        string               `json:"profiles_digest"`         // on `hello`: the app's digest of its cached profiles (same fast path)
 	ProvidersDigest       string               `json:"providers_digest"`        // on `hello`: the app's digest of its cached provider/agent catalogue (same fast path)
+	SettingsDigest        string               `json:"settings_digest"`         // on `hello`: the app's digest of its cached shared-settings catalogue (same fast path)
+	Key                   string               `json:"key"`                     // on `setting_put`: the shared-setting key (whisper_model, warm_compress, auto_compress, auto_compress_threshold, summary_only, …)
+	Value                 string               `json:"value"`                   // on `setting_put`: the setting's value, always a string (bool as "true"/"false", int as decimal)
 }
 
 // msgAgents advertises the AI backend registry to the app so the visual
@@ -443,6 +446,22 @@ func msgTTSVoices(voices []string, def, errStr string) map[string]any {
 // voice commands; the app's audio settings has the same switch.
 func msgSpeechMode(summaryOnly bool) map[string]any {
 	return map[string]any{"type": "speech_mode", "summary_only": summaryOnly}
+}
+
+// msgSettings carries the shared-settings catalogue — the fifth app-managed
+// catalogue: genuinely-shared server-global scalars (whisper models, auto-compress
+// config, summary-only speech), each a keyed {key, value, updated_at} record with
+// per-key last-writer-wins. Broadcast to every client on any change, and pushed on
+// connect when the app's settings_digest differs (the skip-if-equal fast path).
+// Value is always a string; the app types it at the consuming/UI edge.
+func msgSettings(records []*session.SettingRecord) map[string]any {
+	out := make([]map[string]any, 0, len(records))
+	for _, r := range records {
+		out = append(out, map[string]any{
+			"key": r.Key, "value": r.Value, "updated_at": r.UpdatedAt,
+		})
+	}
+	return map[string]any{"type": "settings", "settings": out}
 }
 
 // msgHistory returns a page of a session's past conversation (older-to-newer),

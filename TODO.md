@@ -169,9 +169,22 @@ Dates are `YYYY-MM-DD`.
           - [ ] **Note:** `fieldsync`/`docsync` guards docs↔Go only; it does NOT yet catch a missing
                 *Kotlin* field (that's Phase 4) — Phase 2a's both-sides parity was verified by build,
                 not by the drift test.
-    - [ ] **Phase 3 — route per-client settings through the same layer** (whisper model, wake_service,
-          auto_compress, speech_mode) so a setting changed on one client propagates to others with the
-          same LWW rule, instead of fire-and-forget-at-connect / server-global-mutable-by-anyone.
+    - [x] **Phase 3 — route genuinely-shared server-global settings through the sync layer — done,
+          master (uncommitted at hand-off) 2026-07-16.** Added a fifth catalogue, **settings**: keyed
+          `{key, value, updated_at}` records (value always a string, typed at the edges) with per-key
+          LWW + tombstones (`session.SettingKV`, persisted to `settings_kv.json`) and an order-independent
+          FNV-1a-64 digest byte-identical to Kotlin (`settingsDigest` ↔ `CatalogueDigest.settings`, pinned
+          by a known-hex cross test). Six keys routed: `whisper_model`, `whisper_fast_model`,
+          `warm_compress`, `auto_compress`, `auto_compress_threshold`, `summary_only` — so the whisper
+          model (was server-global-mutable), auto-compress (was in-memory-only, clobbered on every hello),
+          and summary-only (was stateless) now persist and propagate to every client with the same LWW
+          rule. New wire messages `setting_put` (in) / `settings` (out) + `settings_digest` in `hello`;
+          `hello` no longer clobbers `acCfg`. App: `Catalogue<SettingRecord>` in `CatalogueSync`, the
+          picker/switches call the synced mutator and inbound `settings` mirrors back. Per-device prefs
+          (wake sensitivity, on-device-vs-server TTS, color scheme) stay LOCAL — out of scope. Whisper
+          keeps its dedicated `set_whisper_model` load message (which triggers the resident-server
+          load/download); the server persists the result into the catalogue on success. `docs/protocol.md`
+          updated; `go test ./... -count=1` + wasm/APK builds green. Still needs commit + master→app merge.
     - [ ] **Phase 4 — extend a drift test to assert every registered syncable resource carries a
           version token**, so a new synced resource can't be added without a conflict rule (closes the
           semantic gap the current drift tests can't see).

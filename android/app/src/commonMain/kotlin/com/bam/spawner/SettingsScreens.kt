@@ -1218,7 +1218,7 @@ fun AudioSettings(
                 Text("Only speak a turn's final result; intermediate steps play a soft beep instead. Say \"hey buddy, summary only\" / \"speak everything\" to toggle by voice.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
             }
-            Switch(checked = summaryOnly, onCheckedChange = { summaryOnly = it; settings.summaryOnlySpeech = it })
+            Switch(checked = summaryOnly, onCheckedChange = { summaryOnly = it; controller.setSummaryOnly(it) })
         }
         var serverTts by remember { mutableStateOf(settings.serverTts) }
         val ttsAvailable by controller.serverTtsAvailable.collectAsState()

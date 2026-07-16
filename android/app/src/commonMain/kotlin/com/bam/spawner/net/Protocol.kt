@@ -85,6 +85,7 @@ sealed interface ServerMsg {
     data class Profiles(val profiles: List<ProfileInfo>, val default: String) : ServerMsg // execution profiles (for the new-session picker)
     data class HostList(val hosts: List<Host>) : ServerMsg // app-managed SSH host registry
     data class IdentityList(val identities: List<Identity>) : ServerMsg // app-managed SSH identities
+    data class Settings(val settings: List<SettingRecord>) : ServerMsg // shared server-global scalars (whisper models, auto-compress, summary-only)
     data class Digests(val items: List<SessionDigest>) : ServerMsg // per-session transcript digests for offline-cache validation
     data class Unknown(val type: String) : ServerMsg
 
@@ -148,6 +149,7 @@ sealed interface ServerMsg {
                 "profiles" -> Profiles(readProfiles(o.arr("profiles")), o.str("default"))
                 "host_list" -> HostList(readHosts(o.arr("hosts")))
                 "identity_list" -> IdentityList(readIdentities(o.arr("identities")))
+                "settings" -> Settings(readSettings(o.arr("settings")))
                 "digests" -> Digests(readDigests(o.arr("items")))
                 else -> Unknown(o.str("type"))
             }
@@ -244,6 +246,13 @@ sealed interface ServerMsg {
             if (arr == null) return emptyList()
             return arr.map { it.jsonObject }.map { i ->
                 Identity(i.str("name"), i.str("user"), i.str("public_key"), i.bool("has_password"), i.long("updated_at"))
+            }
+        }
+
+        private fun readSettings(arr: JsonArray?): List<SettingRecord> {
+            if (arr == null) return emptyList()
+            return arr.map { it.jsonObject }.map { s ->
+                SettingRecord(s.str("key"), s.str("value"), s.long("updated_at"))
             }
         }
     }
@@ -403,6 +412,22 @@ data class Identity(
     val updatedAt: Long = 0,
 )
 
+/**
+ * One record of the shared **settings** catalogue (the fifth app-managed catalogue):
+ * a genuinely-shared server-global scalar keyed by [key]. [value] is ALWAYS a string
+ * on the wire (booleans as "true"/"false", ints as decimal); it is typed only at the
+ * consuming/UI edge. [updatedAt] (unix ms) drives per-key last-writer-wins. Keys:
+ * whisper_model, whisper_fast_model, warm_compress, auto_compress,
+ * auto_compress_threshold, summary_only. Per-device preferences (wake sensitivity,
+ * on-device vs server TTS, color scheme) are deliberately NOT here — they stay local.
+ */
+data class SettingRecord(
+    val key: String,
+    val value: String,
+    // Client-stamped last-edit time (unix ms); drives last-writer-wins (see CatalogueSync).
+    val updatedAt: Long = 0,
+)
+
 /** One clarification Claude asked (interactive mode). Empty options = free-text. */
 data class AskQuestion(val q: String, val options: List<String>)
 
@@ -455,6 +480,7 @@ object Outbound {
         put("auto_compress_threshold", cfg.autoCompressThreshold)
         put("hosts_digest", digests.hosts); put("identities_digest", digests.identities)
         put("profiles_digest", digests.profiles); put("providers_digest", digests.providers)
+        put("settings_digest", digests.settings)
     }.toString()
     // Live-update the server-global context-compression preference without reconnecting.
     fun autoCompress(warm: Boolean, auto: Boolean, thresholdK: Int) = buildJsonObject {
@@ -620,5 +646,12 @@ object Outbound {
         put("type", "provider_put"); put("agent", agent); put("default_model", defaultModel)
         putJsonArray("voice_models") { voiceModels.forEach { add(it) } }
         put("updated_at", updatedAt)
+    }.toString()
+
+    // Shared settings catalogue (the fifth app-managed catalogue). One keyed scalar
+    // per put; value is always a string. The server persists it (per-key last-writer-
+    // wins) and re-broadcasts the `settings` list after every change.
+    fun settingPut(key: String, value: String, updatedAt: Long) = buildJsonObject {
+        put("type", "setting_put"); put("key", key); put("value", value); put("updated_at", updatedAt)
     }.toString()
 }

@@ -70,6 +70,12 @@ object CatalogueDigest {
             list(it.models), list(it.voiceModels), it.updatedAt.toString(),
         ).joinToString(FS)
     })
+
+    // The fifth catalogue: keyed shared-settings records, folded (key, value,
+    // updated_at) with the same scheme — byte-identical to Go's settingsDigest.
+    fun settings(ss: List<SettingRecord>): String = fold(ss.map {
+        listOf(it.key, it.value, it.updatedAt.toString()).joinToString(FS)
+    })
 }
 
 /** The four catalogue digests the app presents in the `hello` handshake so the
@@ -80,4 +86,5 @@ data class CatalogueDigests(
     val identities: String = "",
     val profiles: String = "",
     val providers: String = "",
+    val settings: String = "",
 )
