@@ -134,6 +134,10 @@ Dates are `YYYY-MM-DD`.
       `verifyHeadsetMic` path already does) before trusting the selection — and surface a transient
       state if it never engages. Needs real in-car BT testing to validate; deferred from the
       2026-07-14 hands-free mic fixes. See `VoiceController.setAudioOutput` / `AudioRouter.setOutput`.
+      Code-side fix landed 2026-07-16: route picks now retry for ~6 s and commit prefs/UI only after
+      `AudioRouter.outputActive` confirms the route; failed picks restore the previous route and show
+      a transient "audio route unavailable" status. Clean `:app:assembleDebug` green and installed on
+      the Pixel 8a. Still open for real in-car Bluetooth validation.
 
 - [x] 2026-07-14 — **Fix: hands-free Bluetooth mic needed toggling to engage.** The SCO-failure
       latch only cleared when the input *value* changed, so re-tapping "Headset" was a no-op (had to

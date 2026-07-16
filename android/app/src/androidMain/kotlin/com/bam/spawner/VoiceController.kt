@@ -20,6 +20,7 @@ import com.bam.spawner.net.SpawnerClient
 import com.bam.spawner.tts.Markdown
 import com.bam.spawner.tts.Speaker
 import java.io.File
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -399,6 +400,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     val audioOutputs: StateFlow<List<AudioOutput>> = _audioOutputs.asStateFlow()
     private val _audioOutput = MutableStateFlow(AudioOutput.EARPIECE)
     val audioOutput: StateFlow<AudioOutput> = _audioOutput.asStateFlow()
+    private val audioOutputRequest = AtomicInteger(0)
     // Capture (mic) source, picked independently of the output: `audioInputs` is
     // what's currently selectable (headset mic only when a Bluetooth headset is
     // paired); `audioInput` is the active one.
@@ -466,6 +468,21 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
         if (out == AudioOutput.MUTE) { cancelServerSpeech(); speaker.setMuted(true); true }
         else { speaker.setMuted(false); audioRouter.setOutput(out) }
 
+    private suspend fun applyAudioOutputVerified(out: AudioOutput): Boolean {
+        if (out == AudioOutput.MUTE) return applyAudioOutput(out)
+        repeat(3) {
+            if (applyAudioOutput(out)) {
+                repeat(8) {
+                    delay(250)
+                    if (audioRouter.outputActive(out)) return true
+                }
+            } else {
+                delay(250)
+            }
+        }
+        return false
+    }
+
     /** Re-scan available outputs (call when opening the picker to catch a
      *  just-connected/removed Bluetooth headset). */
     fun refreshAudioOutputs() {
@@ -498,14 +515,24 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
 
     /** Route the spoken audio to [out] (or mute) and remember the choice. */
     fun setAudioOutput(out: AudioOutput) {
-        if (applyAudioOutput(out)) {
+        val request = audioOutputRequest.incrementAndGet()
+        scope.launch {
+            if (!applyAudioOutputVerified(out)) {
+                if (request == audioOutputRequest.get()) {
+                    applyAudioOutput(_audioOutput.value)
+                    _audioOutputs.value = audioRouter.available()
+                    _mic.value = "⚠️ audio route unavailable"
+                }
+                return@launch
+            }
+            if (request != audioOutputRequest.get()) return@launch
             _audioOutput.value = out
             settings.audioOutput = out.name.lowercase()
             // Capture is route-dependent (comm-audio vs media, headset vs built-in mic),
             // so re-resolve the mic profile against the new output while listening.
             if (hfOn) restartHandsFree()
+            _audioOutputs.value = audioRouter.available()
         }
-        _audioOutputs.value = audioRouter.available()
     }
 
     fun connect(url: String, token: String) {

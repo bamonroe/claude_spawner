@@ -55,6 +55,14 @@ class AudioRouter(context: Context) {
         return if (am?.isSpeakerphoneOn == true) AudioOutput.SPEAKER else AudioOutput.EARPIECE
     }
 
+    /** Best-effort post-route verification. For headset-media output we deliberately
+     *  release the communication device; headphones being present is the route signal. */
+    fun outputActive(out: AudioOutput): Boolean = when (out) {
+        AudioOutput.MUTE -> true
+        AudioOutput.HEADSET -> headphonesConnected()
+        else -> current() == out
+    }
+
     /** Route the communication stream to [out]. Returns true if it took effect.
      *  MUTE is not a device — the caller suppresses TTS instead of routing here. */
     fun setOutput(out: AudioOutput): Boolean {
