@@ -114,7 +114,12 @@ alongside the built-in "hey buddy"; empty = built-in only), `speak_token` + `dic
 only dictated to Claude when it follows the speak token — a comma-separated start marker — up to the
 end token; un-bracketed speech is discarded, so ambient chatter/radio never reaches the session.
 Commands ("hey buddy …") are never gated. Empty `speak_token`, or `dictation_gate` false, disables
-the gate), `stt_mode`/`stt_model`/`whisper_url`/`whisper_model` (transcription), `aliases` (misheard→command
+the gate), `stt_mode`/`stt_model`/`whisper_url`/`whisper_model` (transcription), `wake_service` (which
+backend scores the live wake/end tokens: `whisper` — the default — string-matches the fast transcript,
+which is always available; `detector` opts this client into the purpose-trained `SPAWNER_WAKEWORD_URL`
+sidecar. The detector is opt-in per client, so a server with the sidecar configured never routes a
+default/older client through it; when `detector` is chosen but no sidecar is configured or it errors,
+detection falls back to the Whisper string-match), `aliases` (misheard→command
 fixups), `brief` (append a "reply briefly for TTS" hint to dictation), `interactive` (let Claude
 ask clarifying questions mid-task, delivered as `ask`), and `warm_compress`/`auto_compress`/`auto_compress_threshold`
 (the initial value of the server-global context-compression preference — see the `auto_compress` message for

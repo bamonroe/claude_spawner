@@ -77,7 +77,12 @@ func (c *conn) gatedChunk(pcm []byte) {
 // gracefully (the A/B safety net). Detection is the ONLY job here; the accurate
 // transcription still happens in commitMessage.
 func (c *conn) endTokenFired(pcm []byte) (fired, ok bool) {
-	if c.srv.detector == nil {
+	// The trained sidecar is opt-in per client: only score it when this connection
+	// asked for the "detector" service. The default (and every other value, incl.
+	// empty from an older client) stays on the always-present Whisper string-match —
+	// so a server that has SPAWNER_WAKEWORD_URL set doesn't silently route everyone
+	// through a detector whose model may not yet be trustworthy.
+	if c.wakeService != "detector" || c.srv.detector == nil {
 		return false, false
 	}
 	scores, err := c.srv.detector.Detect(c.ctx, pcm)

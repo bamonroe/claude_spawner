@@ -790,6 +790,15 @@ Accurate full transcription on commit stays on Whisper, untouched.
       spot) — also covers mid-utterance wake tokens once the sidecar can report *all* above-threshold
       window positions, not just the peak. Do this AFTER the base end-token gate is proven live (below),
       so we're not stacking on an unverified layer.
+- [x] 2026-07-15 — **Per-client wake/end-token backend toggle (default Whisper).** The detector is
+      no longer forced on every client when `SPAWNER_WAKEWORD_URL` is set. A new `hello` field
+      `wake_service` (`whisper` default | `detector`) is stored per-`conn` (`c.wakeService`); the
+      detector is only scored in `endTokenFired` when the client opted into `detector`, otherwise (and
+      for older/empty clients) the always-present Whisper string-match runs — with the same graceful
+      fallback if `detector` is chosen but no sidecar is configured or it errors. Since we don't yet
+      trust the trained LiveKit model live, Whisper stays the default so hands-free is guaranteed to
+      work. Server + protocol.md + `TestEndTokenFired` cases done here; the app Settings toggle
+      (Prefs + SettingsScreens + VoiceController hello) is the app-worktree half.
 - [ ] **Go-live plumbing + live A/B (the actual next functional step).** Run `spawner-wakeword` as a
       **resident service** (compose service with both `bump_bump` + `beep_beep` models mounted), set
       `SPAWNER_WAKEWORD_URL` (+ optional `SPAWNER_WAKEWORD_THRESHOLD`) in the deploy env, restart the

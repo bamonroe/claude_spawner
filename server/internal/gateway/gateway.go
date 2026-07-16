@@ -620,6 +620,7 @@ type conn struct {
 	dictationGate   bool                   // discard un-bracketed speech instead of dictating it (needs speakPhrase set)
 	sttMode         string                 // "dynamic" | "fixed" whisper model selection
 	sttModel        string                 // fixed-mode model: "tiny" | "base" | "small"
+	wakeService     string                 // live wake/end-token backend: "whisper" (default string-match) | "detector" (the SPAWNER_WAKEWORD_URL sidecar)
 	aliases         map[string]string      // mis-transcription -> canonical command word
 	stt             transcribe.Transcriber // per-conn override (app-set whisper URL); nil = server default
 	scratch         bool                   // scratch mode: while detached, echo each transcription back aloud (STT test)
@@ -728,6 +729,11 @@ func (c *conn) authenticate() bool {
 	c.dictationGate = in.DictationGate
 	c.sttMode = in.SttMode
 	c.sttModel = in.SttModel
+	// Live wake/end-token backend. Default to the always-present Whisper string-match
+	// so a fresh/older client never lands on the trained sidecar implicitly — the
+	// detector is opt-in per client (the app's toggle), even when SPAWNER_WAKEWORD_URL
+	// is configured server-wide. Anything other than "detector" means Whisper.
+	c.wakeService = strings.TrimSpace(in.WakeService)
 	c.aliases = in.Aliases
 	if u := strings.TrimSpace(in.WhisperURL); u != "" {
 		c.stt = &transcribe.RemoteWhisper{URL: u} // app-chosen resident whisper server

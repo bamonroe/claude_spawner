@@ -22,26 +22,30 @@ func (s stubDetector) Detect(context.Context, []byte) (detect.Scores, error) {
 func TestEndTokenFired(t *testing.T) {
 	cases := []struct {
 		name      string
+		service   string // per-client wake backend; "detector" opts into the sidecar
 		detector  detect.Detector
 		threshold float64
 		wantFired bool
 		wantOK    bool
 	}{
 		// No detector → ok=false so the caller falls back to the whisper string-match.
-		{"nil-detector", nil, 0.5, false, false},
+		{"nil-detector", "detector", nil, 0.5, false, false},
 		// End score above threshold → fired.
-		{"above", stubDetector{scores: detect.Scores{detect.EndModel: 0.91, detect.WakeModel: 0.02}}, 0.5, true, true},
+		{"above", "detector", stubDetector{scores: detect.Scores{detect.EndModel: 0.91, detect.WakeModel: 0.02}}, 0.5, true, true},
 		// End score below threshold → not fired, but still ok (detector spoke).
-		{"below", stubDetector{scores: detect.Scores{detect.EndModel: 0.10}}, 0.5, false, true},
+		{"below", "detector", stubDetector{scores: detect.Scores{detect.EndModel: 0.10}}, 0.5, false, true},
 		// Exactly at threshold counts as fired (>=).
-		{"at-threshold", stubDetector{scores: detect.Scores{detect.EndModel: 0.5}}, 0.5, true, true},
+		{"at-threshold", "detector", stubDetector{scores: detect.Scores{detect.EndModel: 0.5}}, 0.5, true, true},
 		// Low threshold (the tuned operating point) catches a marginal token.
-		{"low-threshold", stubDetector{scores: detect.Scores{detect.EndModel: 0.06}}, 0.04, true, true},
+		{"low-threshold", "detector", stubDetector{scores: detect.Scores{detect.EndModel: 0.06}}, 0.04, true, true},
 		// Detector error → ok=false, graceful fallback to whisper.
-		{"error", stubDetector{err: errors.New("sidecar down")}, 0.5, false, false},
+		{"error", "detector", stubDetector{err: errors.New("sidecar down")}, 0.5, false, false},
+		// Default whisper client: never score the sidecar even when one is configured.
+		{"whisper-default", "", stubDetector{scores: detect.Scores{detect.EndModel: 0.99}}, 0.5, false, false},
+		{"whisper-explicit", "whisper", stubDetector{scores: detect.Scores{detect.EndModel: 0.99}}, 0.5, false, false},
 	}
 	for _, c := range cases {
-		cn := &conn{ctx: context.Background(), srv: &Server{detector: c.detector, wakeThreshold: c.threshold}}
+		cn := &conn{ctx: context.Background(), wakeService: c.service, srv: &Server{detector: c.detector, wakeThreshold: c.threshold}}
 		fired, ok := cn.endTokenFired([]byte{0, 0})
 		if fired != c.wantFired || ok != c.wantOK {
 			t.Errorf("%s: endTokenFired = (%v,%v), want (%v,%v)", c.name, fired, ok, c.wantFired, c.wantOK)

@@ -41,6 +41,7 @@ type inbound struct {
 	DictationGate         bool                 `json:"dictation_gate"`          // on `hello`: when true (and a speak token is set), un-bracketed speech is discarded instead of dictated — ambient-chatter immunity
 	SttMode               string               `json:"stt_mode"`                // on `hello`: "dynamic" | "fixed"
 	SttModel              string               `json:"stt_model"`               // on `hello`: fixed model "tiny" | "base" | "small"
+	WakeService           string               `json:"wake_service"`            // on `hello`: which backend scores the live wake/end tokens — "whisper" (default; string-match the fast transcript) | "detector" (the trained SPAWNER_WAKEWORD_URL sidecar)
 	Calibrate             bool                 `json:"calibrate"`               // on `wake`: transcribe (fast model) and return, don't dispatch
 	Aliases               map[string]string    `json:"aliases"`                 // on `hello`: mis-transcription -> canonical command word
 	WhisperURL            string               `json:"whisper_url"`             // on `hello`: resident whisper server URL (overrides the default)
