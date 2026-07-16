@@ -49,10 +49,18 @@ Dates are `YYYY-MM-DD`.
     send a single `context_reset` carrying the rotated `session_id` (no `attached` re-emit);
     `docs/protocol.md` documents `-> context_reset + say`; clear/compress tests assert the
     `context_reset` carries a fresh id distinct from the retired one. `go test ./...` green.
-    - [ ] **Refinement (optional):** finish hoisting the reconcile logic into one shared
-          `commonMain` function so `VoiceController`/`WebAppController` can't drift, and move the
-          remaining text-based `dedupeCachedLog` fully onto server `index` identity. Verify
-          end-to-end on the phone that the sporadic duplicate rows are actually gone.
+    - [x] 2026-07-16 — **Refinement (Phase 1 sync, slice 3):** the session/chat reconcile
+          decisions are hoisted into one shared `commonMain` `SessionSync` (sibling to
+          `CatalogueSync`) so `VoiceController`/`WebAppController` can't drift — which session is
+          focused, previous-session/swap bookkeeping, per-session digest freshness
+          (`requestFreshHistory`/`recordSynced`/`noteServerTruth`), and the de-dup. The former
+          text-based `dedupeCachedLog`/web `distinctBy` is replaced by the one `SessionSync.dedupe`
+          keyed on server `index` (text fallback only for still-live rows). Platform side effects
+          (StateFlow/settings wiring, Android's on-disk cache + timestamp merge + gap-fill, the
+          web's in-memory index-sorted merge) stay behind the `SessionSync.Host` seam. No wire
+          change; `:app:compileKotlinWasmJs` + `:app:clean :app:assembleDebug` both green.
+      - [ ] Still to do: verify end-to-end on the phone that the sporadic duplicate rows are
+            actually gone (needs a real device run; not verifiable from the build).
     - [ ] **Audit** the other mutation messages (`renamed`, `session_list`, `detached`) for the same
           completeness so the app never has to infer a state change.
 
