@@ -11,6 +11,7 @@ import com.bam.spawner.net.Outbound
 import com.bam.spawner.net.ProfileInfo
 import com.bam.spawner.net.RateLimitInfo
 import com.bam.spawner.net.ServerMsg
+import com.bam.spawner.net.SessionSync
 import com.bam.spawner.net.SpawnerClient
 import com.bam.spawner.net.UsageEstimateInfo
 import com.bam.spawner.net.UsageReport
@@ -61,16 +62,22 @@ class WebAppController(private val prefs: Prefs) : AppController {
     private var currentKey = ""
     private var loadingOlder = false
     private val streamedSessions = mutableSetOf<String>()
-    private var previousFocusedSession: DiscoveredInfo? = null
 
-    // Transcript freshness, the phone's cache-validation fast-path (minus the on-disk
-    // cache — the browser holds transcripts in memory only). `serverDigest` is the latest
-    // per-session (count, hash) the server reported (connect-time `digest` sweep + every
-    // `history` reply); `digestHeld` is the digest our in-memory log corresponds to. When
-    // the two match and we still hold content, a (re)attach skips the history fetch — the
-    // win is not refetching an unchanged session while switching between sessions live.
-    private val serverDigest = mutableMapOf<String, Pair<Int, String>>()
-    private val digestHeld = mutableMapOf<String, Pair<Int, String>>()
+    // Session focus, per-session digest freshness (the phone's cache-validation fast-path,
+    // minus the on-disk cache — the browser holds transcripts in memory only), and the one
+    // true index-aware chat de-dup are reconciled through one shared commonMain point
+    // (sibling to CatalogueSync) so this controller and the Android controller can't drift.
+    // It owns the digest caches and the previous-session bookkeeping; this controller keeps
+    // the in-memory log storage, StateFlow wiring, and index-sorted history merge (below).
+    private val session = SessionSync(object : SessionSync.Host {
+        override fun send(frame: String) { client?.send(frame) }
+        override fun discovered() = _discovered.value
+        override fun attachedId() = _attachedId.value
+        override fun attachedName() = _attachedName.value
+        override fun attachedAgent() = _attachedAgent.value
+        override fun attachedModel() = _attachedModel.value
+        override fun heldContent(name: String) = logs[name]?.any { it.index >= 0 } == true
+    })
 
     private val _chat = MutableStateFlow<List<ChatMessage>>(emptyList())
     override val chat: StateFlow<List<ChatMessage>> = _chat.asStateFlow()
@@ -226,59 +233,27 @@ class WebAppController(private val prefs: Prefs) : AppController {
         _hasMoreHistory.value = hasMore[currentKey] ?: false
     }
 
-    private fun currentFocusedSession(): DiscoveredInfo? {
-        val id = _attachedId.value
-        val name = _attachedName.value ?: return null
-        if (id.isBlank()) return null
-        return _discovered.value.find { it.sessionId == id } ?: DiscoveredInfo(
-            name = name,
-            dir = "",
-            sessionId = id,
-            lastActive = 0,
-            active = false,
-            registered = true,
-            agent = _attachedAgent.value,
-            model = _attachedModel.value,
-        )
-    }
-
-    // requestFreshHistory refetches the recent page on (re)attach so a session that
-    // produced output while we viewed another isn't left stale — but saves the round
-    // trip when the connect-time digest sweep says this session's server hash still
-    // equals what our in-memory log holds (and we actually hold content). Otherwise it
-    // asks for the page, passing the held hash so the server can still answer `unchanged`.
-    private fun requestFreshHistory(name: String) {
-        val held = digestHeld[name]
-        val server = serverDigest[name]
-        val haveContent = logs[name]?.any { it.index >= 0 } == true
-        if (held != null && held == server && haveContent) return
-        client?.send(Outbound.history(name, null, haveHash = held?.second ?: ""))
-    }
-
-    private fun focusKnownSession(session: DiscoveredInfo, syncServer: Boolean) {
-        if (session.sessionId.isBlank()) {
-            client?.send(Outbound.attach(session.name, silent = syncServer))
+    private fun focusKnownSession(target: DiscoveredInfo, syncServer: Boolean) {
+        if (target.sessionId.isBlank()) {
+            client?.send(Outbound.attach(target.name, silent = syncServer))
             return
         }
-        val current = currentFocusedSession()
-        if (current?.sessionId != session.sessionId) {
-            current?.let { previousFocusedSession = it }
-        }
+        session.rememberPreviousIfSwitching(target.sessionId)
         _activity.value = ""
         _pending.value = ""
         _lastTurnUsage.value = null
-        _attachedId.value = session.sessionId
-        _attachedName.value = session.name
-        _attachedAgent.value = session.agent
-        _attachedModel.value = session.model
-        prefs.lastSession = session.name
-        prefs.lastSessionId = session.sessionId
-        _status.value = "attached: ${session.name}"
-        currentKey = session.name
+        _attachedId.value = target.sessionId
+        _attachedName.value = target.name
+        _attachedAgent.value = target.agent
+        _attachedModel.value = target.model
+        prefs.lastSession = target.name
+        prefs.lastSessionId = target.sessionId
+        _status.value = "attached: ${target.name}"
+        currentKey = target.name
         publish()
         _scrollTick.value = _scrollTick.value + 1
-        requestFreshHistory(session.name)
-        if (syncServer) client?.send(Outbound.attach(session.name, sessionId = session.sessionId, silent = true))
+        session.requestFreshHistory(target.name)
+        if (syncServer) client?.send(Outbound.attach(target.name, sessionId = target.sessionId, silent = true))
     }
 
     private fun addChat(role: Role, text: String, usage: com.bam.spawner.net.TokenUsage? = null, key: String = currentKey) {
@@ -373,8 +348,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
                     logs.remove(msg.name)
                     hasMore.remove(msg.name)
                     oldest.remove(msg.name)
-                    digestHeld.remove(msg.name) // the rotated id's transcript is wiped/summarized:
-                    serverDigest.remove(msg.name) // forget the stale digest and refetch in full
+                    session.drop(msg.name) // rotated id's transcript wiped/summarized: forget the stale digests
                     if (msg.name == currentKey) publish()
                     client?.send(Outbound.history(msg.name, null))
                 }
@@ -402,10 +376,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
                 addChat(Role.USER, msg.text)
             }
             is ServerMsg.Attached -> {
-                val sameLogicalSession = _attachedName.value == msg.name
-                if (_attachedId.value.isNotEmpty() && _attachedId.value != msg.sessionId && !sameLogicalSession) {
-                    currentFocusedSession()?.let { previousFocusedSession = it }
-                }
+                session.rememberPreviousOnAttach(msg.name, msg.sessionId)
                 _activity.value = ""
                 _attachedId.value = msg.sessionId
                 _attachedName.value = msg.name
@@ -422,10 +393,10 @@ class WebAppController(private val prefs: Prefs) : AppController {
                 currentKey = msg.name
                 publish()
                 loadingOlder = false
-                requestFreshHistory(msg.name)
+                session.requestFreshHistory(msg.name)
             }
             is ServerMsg.Detached -> {
-                currentFocusedSession()?.let { previousFocusedSession = it }
+                session.rememberPrevious()
                 _attachedId.value = ""; _attachedName.value = null
                 _attachedAgent.value = ""; _attachedModel.value = ""
                 prefs.lastSession = ""; prefs.lastSessionId = ""
@@ -451,7 +422,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
                 // Latest server truth per session (bodies-free), from the connect-time
                 // sweep. Stored so a (re)attach to a session whose hash still equals what
                 // our in-memory log holds skips the fetch (see requestFreshHistory).
-                for (d in msg.items) serverDigest[d.name] = d.count to d.hash
+                session.noteServerTruth(msg.items)
             }
             is ServerMsg.ReadLast -> onReadLast(msg.count)
             is ServerMsg.Pending -> _pending.value = msg.text // live hands-free draft (the web has VAD hands-free too)
@@ -500,19 +471,16 @@ class WebAppController(private val prefs: Prefs) : AppController {
         // our in-memory transcript is current, so keep it untouched and just refresh the
         // stored digest so future freshness checks stand.
         if (msg.unchanged) {
-            if (msg.hash.isNotEmpty()) {
-                digestHeld[msg.name] = msg.count to msg.hash
-                serverDigest[msg.name] = msg.count to msg.hash
-            }
+            if (msg.hash.isNotEmpty()) session.recordSynced(msg.name, msg.count, msg.hash)
             loadingOlder = false
             return
         }
         val hist = msg.messages.map { ChatMessage(roleOf(it.role), it.text, it.index, usage = it.usage, ts = it.ts) }
         val existing = logs[msg.name] ?: emptyList()
         logs[msg.name] = if (loadingOlder) {
-            // Prepend older page, keeping the live tail.
-            (hist + existing.filter { it.index < 0 || it.index > (hist.lastOrNull()?.index ?: -1) })
-                .distinctBy { if (it.index >= 0) "i${it.index}" else "l${it.text.hashCode()}" }
+            // Prepend older page, keeping the live tail; the shared index-aware de-dup
+            // collapses any live chunk already landed as an indexed history row.
+            session.dedupe(hist + existing.filter { it.index < 0 || it.index > (hist.lastOrNull()?.index ?: -1) })
                 .sortedBy { if (it.index >= 0) it.index else Int.MAX_VALUE }
         } else {
             hist
@@ -522,10 +490,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
         hasMore[msg.name] = msg.more
         // Record the chain digest this page belongs to so a later reattach can
         // short-circuit the fetch when the server hash still matches what we hold.
-        if (msg.hash.isNotEmpty()) {
-            digestHeld[msg.name] = msg.count to msg.hash
-            serverDigest[msg.name] = msg.count to msg.hash
-        }
+        if (msg.hash.isNotEmpty()) session.recordSynced(msg.name, msg.count, msg.hash)
         if (msg.name == currentKey) { publish(); _scrollTick.value = _scrollTick.value + 1 }
     }
 
@@ -545,7 +510,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
         client?.send(Outbound.attach(name))
     }
     override fun detach() {
-        currentFocusedSession()?.let { previousFocusedSession = it }
+        session.rememberPrevious()
         _activity.value = ""
         _pending.value = ""
         _lastTurnUsage.value = null
@@ -561,18 +526,11 @@ class WebAppController(private val prefs: Prefs) : AppController {
         client?.send(Outbound.detach())
     }
     override fun swap() {
-        val target = previousFocusedSession
-        if (target == null || target.sessionId.isBlank()) {
-            client?.send(Outbound.swap())
-            return
+        when (val t = session.swapTarget()) {
+            is SessionSync.SwapTarget.Server -> client?.send(Outbound.swap())
+            is SessionSync.SwapTarget.Gone -> _status.value = "previous session is gone"
+            is SessionSync.SwapTarget.Focus -> focusKnownSession(t.session, syncServer = true)
         }
-        val refreshed = _discovered.value.firstOrNull { it.sessionId == target.sessionId }
-        if (refreshed == null && _discovered.value.isNotEmpty()) {
-            previousFocusedSession = null
-            _status.value = "previous session is gone"
-            return
-        }
-        focusKnownSession(refreshed ?: target, syncServer = true)
     }
     override fun abortTurn() { client?.send(Outbound.abort()) }
     override fun loadOlder() {

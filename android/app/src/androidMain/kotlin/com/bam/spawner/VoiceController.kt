@@ -81,17 +81,27 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     private val bridgeTo = mutableMapOf<String, Int>()      // reconnect gap-fill: page older until this index is reached
     private var currentKey = ""
 
-    // Offline transcript cache. `digestHeld` is the server digest (count, hash) the
-    // on-disk cache corresponds to; `serverDigest` is the latest truth the server
-    // reported (connect-time `digests` sweep + every `history` reply). When the two
-    // match and we hold content, an (re)attach skips the history fetch entirely.
-    // `loadedFromCache` tracks which sessions we've pulled from disk into memory.
+    // Offline transcript cache. `loadedFromCache` tracks which sessions we've pulled from
+    // disk into memory. The digest caches (which the on-disk cache is validated against)
+    // and the previous-session bookkeeping live in the shared reconciler below.
     private val cache = TranscriptCache(File(app.filesDir, "transcripts"))
     private val discoveredCache = DiscoveredCache(File(app.filesDir, "discovered.json"))
-    private val digestHeld = mutableMapOf<String, Pair<Int, String>>()
-    private val serverDigest = mutableMapOf<String, Pair<Int, String>>()
     private val loadedFromCache = mutableSetOf<String>()
-    private var previousFocusedSession: DiscoveredInfo? = null
+
+    // Session focus, per-session digest freshness, and the one true index-aware chat de-dup
+    // are reconciled through one shared commonMain point (sibling to CatalogueSync) so this
+    // controller and the web controller can't drift. It owns the digest caches and the
+    // previous-session bookkeeping; this controller keeps the on-disk transcript cache, the
+    // StateFlow/settings wiring, and the timestamp-ordered history merge (all below).
+    private val session = com.bam.spawner.net.SessionSync(object : com.bam.spawner.net.SessionSync.Host {
+        override fun send(frame: String) { client?.send(frame) }
+        override fun discovered() = _discovered.value
+        override fun attachedId() = _attachedId.value
+        override fun attachedName() = _attachedName.value
+        override fun attachedAgent() = _attachedAgent.value
+        override fun attachedModel() = _attachedModel.value
+        override fun heldContent(name: String) = logs[name]?.any { it.index >= 0 } == true
+    })
 
     // migrateSessionKey re-keys every session-name-keyed piece of client state from
     // old to new when a session is renamed, so nothing orphans under the stale name
@@ -104,8 +114,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
         hasMore.remove(old)?.let { hasMore[new] = it }
         if (loadingOlder.remove(old)) loadingOlder.add(new)
         bridgeTo.remove(old)?.let { bridgeTo[new] = it }
-        digestHeld.remove(old)?.let { digestHeld[new] = it }
-        serverDigest.remove(old)?.let { serverDigest[new] = it }
+        session.migrate(old, new) // held + server digests
         if (loadedFromCache.remove(old)) loadedFromCache.add(new)
         cache.remove(old) // drop the stale file; the new key is repersisted on the next persist()
     }
@@ -123,8 +132,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
         hasMore.remove(name)
         loadingOlder.remove(name)
         bridgeTo.remove(name)
-        digestHeld.remove(name)
-        serverDigest.remove(name)
+        session.drop(name) // held + server digests
         loadedFromCache.remove(name)
         cache.remove(name)
         if (name == currentKey) _chat.value = emptyList()
@@ -138,25 +146,10 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
         loadedFromCache.add(name)
         if (name in logs) return
         val c = cache.load(name) ?: return
-        logs[name] = dedupeCachedLog(c.messages.map { it.toChat() })
+        logs[name] = session.dedupe(c.messages.map { it.toChat() })
         oldestIndex[name] = c.oldestIndex
         hasMore[name] = c.hasMore
-        digestHeld[name] = c.count to c.hash
-    }
-
-    private fun dedupeCachedLog(messages: List<ChatMessage>): List<ChatMessage> {
-        val indexedText = messages
-            .filter { it.index >= 0 }
-            .map { it.role to it.text.trim() }
-            .toSet()
-        val seenIndexes = mutableSetOf<Int>()
-        return messages.filter { m ->
-            when {
-                m.index >= 0 -> seenIndexes.add(m.index)
-                indexedText.isNotEmpty() && (m.role to m.text.trim()) in indexedText -> false
-                else -> true
-            }
-        }
+        session.recordHeld(name, c.count, c.hash)
     }
 
     // persist writes a session's current log (minus live-only SYSTEM notes, which
@@ -164,10 +157,10 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     // to disk, so it survives an app restart and can be shown offline.
     private fun persist(name: String) {
         if (name.isEmpty()) return
-        val msgs = dedupeCachedLog(logs[name] ?: return)
+        val msgs = session.dedupe(logs[name] ?: return)
         logs[name] = msgs
         val keep = msgs.filter { it.role != Role.SYSTEM }
-        val d = digestHeld[name]
+        val d = session.heldDigest(name)
         cache.save(name, CachedSession(
             messages = keep.map { it.toCached() },
             oldestIndex = oldestIndex[name] ?: (keep.firstOrNull { it.index >= 0 }?.index ?: 0),
@@ -177,53 +170,26 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
         ))
     }
 
-    private fun currentFocusedSession(): DiscoveredInfo? {
-        val id = _attachedId.value
-        val name = _attachedName.value ?: return null
-        if (id.isBlank()) return null
-        return _discovered.value.find { it.sessionId == id } ?: DiscoveredInfo(
-            name = name,
-            dir = "",
-            sessionId = id,
-            lastActive = 0,
-            active = false,
-            registered = true,
-            agent = _attachedAgent.value,
-            model = _attachedModel.value,
-        )
-    }
-
-    private fun requestFreshHistory(name: String) {
-        val held = digestHeld[name]
-        val server = serverDigest[name]
-        val haveContent = logs[name]?.any { it.index >= 0 } == true
-        if (held != null && held == server && haveContent) return
-        client?.send(Outbound.history(name, null, haveHash = held?.second ?: ""))
-    }
-
-    private fun focusKnownSession(session: DiscoveredInfo, syncServer: Boolean) {
-        if (session.sessionId.isBlank()) {
-            client?.send(Outbound.attach(session.name, silent = syncServer))
+    private fun focusKnownSession(target: DiscoveredInfo, syncServer: Boolean) {
+        if (target.sessionId.isBlank()) {
+            client?.send(Outbound.attach(target.name, silent = syncServer))
             return
         }
-        val current = currentFocusedSession()
-        if (current?.sessionId != session.sessionId) {
-            current?.let { previousFocusedSession = it }
-        }
+        session.rememberPreviousIfSwitching(target.sessionId)
         clearTurnInFlight()
         _activity.value = ""
         _pending.value = ""
         _lastTurnUsage.value = null
-        _attachedId.value = session.sessionId
-        _attachedName.value = session.name
-        _attachedAgent.value = session.agent
-        _attachedModel.value = session.model
-        settings.lastSession = session.name
-        settings.lastSessionId = session.sessionId
-        _status.value = "attached: ${session.name}"
-        showLog(session.name)
-        requestFreshHistory(session.name)
-        if (syncServer) client?.send(Outbound.attach(session.name, sessionId = session.sessionId, silent = true))
+        _attachedId.value = target.sessionId
+        _attachedName.value = target.name
+        _attachedAgent.value = target.agent
+        _attachedModel.value = target.model
+        settings.lastSession = target.name
+        settings.lastSessionId = target.sessionId
+        _status.value = "attached: ${target.name}"
+        showLog(target.name)
+        session.requestFreshHistory(target.name)
+        if (syncServer) client?.send(Outbound.attach(target.name, sessionId = target.sessionId, silent = true))
     }
 
     private val _chat = MutableStateFlow<List<ChatMessage>>(emptyList())
@@ -649,7 +615,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     }
 
     override fun detach() {
-        currentFocusedSession()?.let { previousFocusedSession = it }
+        session.rememberPrevious()
         clearTurnInFlight()
         _activity.value = ""
         _pending.value = ""
@@ -666,18 +632,11 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     }
 
     override fun swap() {
-        val target = previousFocusedSession
-        if (target == null || target.sessionId.isBlank()) {
-            client?.send(Outbound.swap())
-            return
+        when (val t = session.swapTarget()) {
+            is com.bam.spawner.net.SessionSync.SwapTarget.Server -> client?.send(Outbound.swap()).let {}
+            is com.bam.spawner.net.SessionSync.SwapTarget.Gone -> _status.value = "previous session is gone"
+            is com.bam.spawner.net.SessionSync.SwapTarget.Focus -> focusKnownSession(t.session, syncServer = true)
         }
-        val refreshed = _discovered.value.firstOrNull { it.sessionId == target.sessionId }
-        if (refreshed == null && _discovered.value.isNotEmpty()) {
-            previousFocusedSession = null
-            _status.value = "previous session is gone"
-            return
-        }
-        focusKnownSession(refreshed ?: target, syncServer = true)
     }
 
     /** Abort the running turn on the attached session (kills the claude child). */
@@ -1309,7 +1268,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                         settings.lastSessionId = msg.sessionId
                     }
                     dropSessionCache(msg.name)
-                    requestFreshHistory(msg.name)
+                    session.requestFreshHistory(msg.name)
                 }
             }
             is ServerMsg.Activity -> {
@@ -1376,10 +1335,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
             is ServerMsg.SpeechMode -> settings.summaryOnlySpeech = msg.summaryOnly // "summary only" / "speak everything" voice toggle
             is ServerMsg.Dialog -> _status.value = "dialog: ${msg.state}"
             is ServerMsg.Attached -> {
-                val sameLogicalSession = _attachedName.value == msg.name
-                if (_attachedId.value.isNotEmpty() && _attachedId.value != msg.sessionId && !sameLogicalSession) {
-                    currentFocusedSession()?.let { previousFocusedSession = it }
-                }
+                session.rememberPreviousOnAttach(msg.name, msg.sessionId)
                 // Fresh view of this session: drop any stale turn spinner/watchdog.
                 // If a turn is genuinely still running, the server's bindJob sends a
                 // "still working" breadcrumb right after this (which re-arms it); if
@@ -1412,10 +1368,10 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                 // transcript is unchanged, so skip the fetch entirely. Otherwise ask for
                 // the recent page, passing the hash we hold so the server can still answer
                 // `unchanged` (no bodies) if nothing moved. onHistory dedupes against live.
-                requestFreshHistory(msg.name)
+                session.requestFreshHistory(msg.name)
             }
             is ServerMsg.Detached -> {
-                currentFocusedSession()?.let { previousFocusedSession = it }
+                session.rememberPrevious()
                 _attachedId.value = ""
                 _attachedName.value = null
                 _attachedAgent.value = ""
@@ -1473,7 +1429,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
             is ServerMsg.Digests -> {
                 // Latest server truth per session (bodies-free). Stored so an (re)attach
                 // to a session whose hash still equals our cached digest skips the fetch.
-                for (d in msg.items) serverDigest[d.name] = d.count to d.hash
+                session.noteServerTruth(msg.items)
             }
             is ServerMsg.HostList, is ServerMsg.IdentityList,
             is ServerMsg.Agents, is ServerMsg.Profiles -> catalogues.apply(msg)
@@ -1528,7 +1484,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
         // digest no longer matches — forget the server digest so the next reattach
         // refetches instead of wrongly deciding the cache is current. (SYSTEM notes
         // are live-only and never persisted server-side, so they don't invalidate.)
-        if (role == Role.USER || role == Role.CLAUDE) serverDigest.remove(key)
+        if (role == Role.USER || role == Role.CLAUDE) session.forgetServerTruth(key)
     }
 
     // attachUsageToLastClaude badges the most recent Claude bubble in the named
@@ -1577,13 +1533,10 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
         // cached transcript is current, so keep it untouched and just refresh the
         // stored digest (both held and server) so future freshness checks stand.
         if (msg.unchanged) {
-            if (msg.hash.isNotEmpty()) {
-                digestHeld[msg.name] = msg.count to msg.hash
-                serverDigest[msg.name] = msg.count to msg.hash
-            }
+            if (msg.hash.isNotEmpty()) session.recordSynced(msg.name, msg.count, msg.hash)
             loadingOlder.remove(msg.name)
             logs[msg.name]?.let { cleaned ->
-                val deduped = dedupeCachedLog(cleaned)
+                val deduped = session.dedupe(cleaned)
                 logs[msg.name] = deduped
                 if (msg.name == currentKey) _chat.value = deduped
             }
@@ -1609,16 +1562,13 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
         // mid-turn breadcrumb not present in the fetched page) may be OLDER than the
         // history block, so `hist + existing` would strand it at the bottom, out of
         // order. Ordering by ts drops it back into its true chronological slot.
-        logs[msg.name] = dedupeCachedLog(ordered(hist + existing))
+        logs[msg.name] = session.dedupe(ordered(hist + existing))
         if (msg.messages.isNotEmpty()) oldestIndex[msg.name] = msg.messages.first().index
         hasMore[msg.name] = msg.more
         loadingOlder.remove(msg.name)
         // Record the chain digest this page belongs to and persist the merged log, so
         // the cache is current on disk and a later reattach can short-circuit the fetch.
-        if (msg.hash.isNotEmpty()) {
-            digestHeld[msg.name] = msg.count to msg.hash
-            serverDigest[msg.name] = msg.count to msg.hash
-        }
+        if (msg.hash.isNotEmpty()) session.recordSynced(msg.name, msg.count, msg.hash)
         persist(msg.name)
         // Reconnect gap-fill: the reattach top page is only the newest slice, so if the
         // session advanced by more than a page while we were away, a hole is left between
