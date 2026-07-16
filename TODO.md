@@ -12,6 +12,56 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [ ] 2026-07-16 — **Local↔server chat-cache reconciliation (the "duplicate rows" epic).** The
+      app keeps a local-centric message/session cache, but reconciliation between local state and
+      what the server reports is scattered across several code paths with no single coherent apply
+      point. Symptom: sporadic **duplicated message rows** displayed even though the transcript holds
+      the message once; and mutating commands (`clear`/`compress`) do the work server-side but don't
+      tell the app to update its local rows. This is a two-worktree effort — split below. The two
+      halves share a small protocol change, so **coordinate and land the server field before the app
+      builds on it** (the `docsync` drift test enforces both sides + `docs/protocol.md`).
+
+  - **Root cause (from the code map):** duplicates come from reconciling by *exact trimmed text*
+    instead of a *stable server identity*. Streamed replies append one live CLAUDE row **per
+    `output` chunk** (`VoiceController.kt:1250` via `addChat` at `:1488`, live rows carry
+    `index = -1`), while server `history` stores the whole turn as **one** indexed row
+    (`onHistory` at `:1541`). The N partial live rows never text-match the 1 full history row, so
+    the text dedup (`dedupeCachedLog` at `:126`, `onHistory` histTexts filter at `:1570-1573`)
+    can't collapse them → leftover duplicate bubbles. Any whitespace/markdown difference between
+    streamed text and the persisted transcript breaks the same equality. Separately, `clear`/
+    `compress` rotate the session_id server-side and send only `context_reset`, which the app
+    treats as a context-meter reset only (`:1278`) — the rotated session's now-stale rows are never
+    dropped or refreshed.
+
+  - **App-side work** (worktree `/data/claude_spawner_app`, branch `app` — Kotlin; do the same
+    change in **both** `VoiceController.kt` (Android, authoritative) and `WebAppController.kt`
+    (web), and hoist the shared logic into `commonMain` so it exists once):
+    - [ ] **Collapse streamed chunks into one live row.** Accumulate `output chunk=true` text into
+          a **single** in-progress CLAUDE row per turn (append to that row's text) instead of a new
+          `addChat` row per chunk (`VoiceController.kt:1250`). On turn close (`chunk=false`) finalize
+          that one row. This makes the live turn line up 1:1 with the single server-history row.
+    - [ ] **Reconcile by server identity, not text.** Replace the exact-text dedup (`:126`,
+          `:1570-1573`) with identity-based reconciliation keyed on the server transcript `index`
+          (a live `index=-1` row is *promoted/replaced* by the matching indexed history row by turn
+          position, not by string equality). Keep exactly one row per logical message.
+    - [ ] **Make `context_reset` reset the local log.** In the `ContextReset` handler (`:1278`),
+          drop the local rows for that session (`logs[name]`) and re-request fresh history, in
+          addition to nulling the usage meter — the session_id rotated, so the old rows are stale.
+    - [ ] **Centralize + de-duplicate the logic.** Extract one `applyServerState`/reconcile
+          function (the single mutation boundary for `logs[key]`) into `commonMain`, replacing the
+          scattered `addChat`/`onHistory`/`dedupeCachedLog` paths, and have both controllers call it
+          so Android and web can't drift.
+    - **Server contract the app can rely on** (delivered by the server half below): `context_reset`
+      will additionally carry the **new (rotated) `session_id`** so the app can re-key/refresh the
+      session cleanly rather than inferring it. Treat that field as the trigger to reset+refresh.
+
+  - **Server-side work** (worktree `/data/claude_spawner`, branch `master` — Go; **in progress**):
+    make every mutation report enough for the app to reconcile without guessing. Concretely: have
+    `context_reset` (`messages.go:263`, sent by `doClear` `ops.go:884` and the compress job
+    `jobs.go:412`) carry the rotated `session_id`; audit the other mutations (`attached`,
+    `renamed`, `session_list`, `detached`) for the same completeness; update `docs/protocol.md`
+    and the `docsync`/`clientsync` fields in the same change.
+
 - [x] 2026-07-15 — **Antigravity (`agy`) backend.** Added Google's Gemini-powered `agy` CLI as the
       fourth AI backend (`server/internal/agent/antigravity.go`), registered in `agent.Default()`.
       Driven non-interactively via `agy --prompt` (its only headless mode — verified live: no
