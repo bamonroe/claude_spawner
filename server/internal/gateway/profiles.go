@@ -1,6 +1,10 @@
 package gateway
 
-import "github.com/bam/claude_spawner/server/internal/session"
+import (
+	"errors"
+
+	"github.com/bam/claude_spawner/server/internal/session"
+)
 
 // The execution-profile catalogue (Settings → Profiles) is app-managed: the app is
 // the source of truth, the server persists it (session.ProfileRegistry) so it
@@ -21,19 +25,30 @@ func (c *conn) doProfilePut(p *session.ExecProfile) {
 		return
 	}
 	if err := c.srv.driver.ProfileRegistry().Put(*p); err != nil {
+		if errors.Is(err, session.ErrStale) {
+			// A newer edit already won: re-send our catalogue so the stale client adopts it.
+			c.send(msgProfiles(c.srv.driver.ProfileRegistry()))
+			return
+		}
 		c.fail("bad_profile", err.Error())
 		return
 	}
 	c.broadcastProfiles()
 }
 
-// doProfileDelete removes a profile by name and broadcasts.
-func (c *conn) doProfileDelete(name string) {
+// doProfileDelete removes a profile by name (tombstoning it at updatedAt) and
+// broadcasts. A delete older than the stored profile re-syncs the stale client.
+func (c *conn) doProfileDelete(name string, updatedAt int64) {
 	if name == "" {
 		c.fail("bad_profile", "need a profile name to delete")
 		return
 	}
-	if err := c.srv.driver.ProfileRegistry().Delete(name); err != nil {
+	if err := c.srv.driver.ProfileRegistry().Delete(name, updatedAt); err != nil {
+		if errors.Is(err, session.ErrStale) {
+			// A newer edit already won: re-send our catalogue so the stale client adopts it.
+			c.send(msgProfiles(c.srv.driver.ProfileRegistry()))
+			return
+		}
 		c.fail("internal", err.Error())
 		return
 	}

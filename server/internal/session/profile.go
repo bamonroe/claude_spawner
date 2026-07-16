@@ -34,6 +34,9 @@ type ExecProfile struct {
 	// server's global vars (profile wins on a name clash). Referenced in the other
 	// string fields as {{.Vars.Name}}. Not itself templated.
 	Vars map[string]string `json:"vars,omitempty"`
+	// UpdatedAt is the client-stamped last-edit time in unix MILLISECONDS, driving
+	// last-writer-wins arbitration (see Host.UpdatedAt). 0 = a pre-timestamp record.
+	UpdatedAt int64 `json:"updated_at,omitempty"`
 }
 
 // RenderContext is the substitution context for profile templating: three
@@ -137,6 +140,7 @@ type ProfileRegistry struct {
 	mu    sync.RWMutex
 	order []*ExecProfile
 	byID  map[string]*ExecProfile
+	tombs tombstones
 }
 
 // NewProfileRegistry builds an in-memory registry (no persistence) from the given
@@ -158,6 +162,11 @@ func NewProfileRegistry(profiles ...ExecProfile) (*ProfileRegistry, error) {
 // read as either a JSON array or a {"profiles":[...]} wrapper.
 func OpenProfileStore(path string, seed []ExecProfile) (*ProfileRegistry, error) {
 	r := &ProfileRegistry{path: path, byID: map[string]*ExecProfile{}}
+	tombs, terr := loadTombstones(path)
+	if terr != nil {
+		return nil, terr
+	}
+	r.tombs = tombs
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if !os.IsNotExist(err) {
@@ -253,24 +262,44 @@ func (r *ProfileRegistry) normalizeDefault() {
 	}
 }
 
-// Put upserts a profile and persists the catalogue.
+// Put upserts a profile and persists the catalogue, arbitrating by last-writer-wins
+// on p.UpdatedAt: an older stamp than the stored profile — or not newer than a
+// tombstone — is rejected with ErrStale. A strictly-newer add clears the tombstone.
 func (r *ProfileRegistry) Put(p ExecProfile) error {
+	if p.Name == "" {
+		return fmt.Errorf("execution profile has empty name")
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.tombs == nil {
+		r.tombs = tombstones{}
+	}
+	if cur := r.byID[p.Name]; cur != nil {
+		if p.UpdatedAt < cur.UpdatedAt {
+			return ErrStale
+		}
+	} else if r.tombs.blocksAdd(p.Name, p.UpdatedAt) {
+		return ErrStale
+	}
 	if err := r.put(p); err != nil {
 		return err
 	}
+	r.tombs.clearIfOlder(p.Name, p.UpdatedAt)
 	r.normalizeDefault()
 	return r.flush()
 }
 
-// Delete removes a profile by name and persists. Removing an absent name is a
-// no-op (idempotent, like HostStore.Delete).
-func (r *ProfileRegistry) Delete(name string) error {
+// Delete removes a profile by name, records a tombstone at updatedAt, and persists.
+// A delete older than the stored profile is rejected with ErrStale; deleting an
+// absent name still refreshes the tombstone (idempotent, like HostStore.Delete).
+func (r *ProfileRegistry) Delete(name string, updatedAt int64) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if _, ok := r.byID[name]; !ok {
-		return nil
+	if r.tombs == nil {
+		r.tombs = tombstones{}
+	}
+	if cur := r.byID[name]; cur != nil && updatedAt < cur.UpdatedAt {
+		return ErrStale
 	}
 	delete(r.byID, name)
 	out := r.order[:0]
@@ -280,6 +309,7 @@ func (r *ProfileRegistry) Delete(name string) error {
 		}
 	}
 	r.order = out
+	r.tombs.tombstone(name, updatedAt)
 	r.normalizeDefault()
 	return r.flush()
 }
@@ -375,7 +405,10 @@ func (r *ProfileRegistry) flush() error {
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return err
 	}
-	return os.Rename(tmp, r.path)
+	if err := os.Rename(tmp, r.path); err != nil {
+		return err
+	}
+	return flushTombstones(r.path, r.tombs)
 }
 
 func (p *ExecProfile) envList() []string {

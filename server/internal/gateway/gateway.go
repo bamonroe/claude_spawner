@@ -867,18 +867,18 @@ var wireHandlers = map[string]func(c *conn, in inbound){
 	"audio_end":     func(c *conn, in inbound) { c.endAudio() },
 	"hosts":         func(c *conn, in inbound) { c.sendHostList() },
 	"host_put":      func(c *conn, in inbound) { c.doHostPut(in.Host) },
-	"host_delete":   func(c *conn, in inbound) { c.doHostDelete(in.Name) },
+	"host_delete":   func(c *conn, in inbound) { c.doHostDelete(in.Name, in.UpdatedAt) },
 	"identities":    func(c *conn, in inbound) { c.sendIdentityList() },
 	"identity_create": func(c *conn, in inbound) {
-		c.doIdentityCreate(in.Name, in.User, in.Password, in.GenKey == nil || *in.GenKey)
+		c.doIdentityCreate(in.Name, in.User, in.Password, in.GenKey == nil || *in.GenKey, in.UpdatedAt)
 	},
-	"identity_import":     func(c *conn, in inbound) { c.doIdentityImport(in.Name, in.User, in.Password, in.KeyPath) },
-	"identity_update":     func(c *conn, in inbound) { c.doIdentityUpdate(in.Name, in.User, in.SetPassword, in.Password) },
-	"identity_delete":     func(c *conn, in inbound) { c.doIdentityDelete(in.Name) },
+	"identity_import":     func(c *conn, in inbound) { c.doIdentityImport(in.Name, in.User, in.Password, in.KeyPath, in.UpdatedAt) },
+	"identity_update":     func(c *conn, in inbound) { c.doIdentityUpdate(in.Name, in.User, in.SetPassword, in.Password, in.UpdatedAt) },
+	"identity_delete":     func(c *conn, in inbound) { c.doIdentityDelete(in.Name, in.UpdatedAt) },
 	"profile_put":         func(c *conn, in inbound) { c.doProfilePut(in.ProfileDef) },
-	"profile_delete":      func(c *conn, in inbound) { c.doProfileDelete(in.Name) },
+	"profile_delete":      func(c *conn, in inbound) { c.doProfileDelete(in.Name, in.UpdatedAt) },
 	"profile_set_default": func(c *conn, in inbound) { c.doProfileSetDefault(in.Name) },
-	"provider_put":        func(c *conn, in inbound) { c.doProviderPut(in.Agent, in.DefaultModel, in.VoiceModels) },
+	"provider_put":        func(c *conn, in inbound) { c.doProviderPut(in.Agent, in.DefaultModel, in.VoiceModels, in.UpdatedAt) },
 }
 
 // loop reads and dispatches messages until the socket closes. Text frames are

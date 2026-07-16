@@ -211,6 +211,7 @@ sealed interface ServerMsg {
                     a.str("id"), a.str("name"), a.str("default_model"),
                     models.map { it.str("alias") },
                     models.filter { it.bool("voice") }.map { it.str("alias") },
+                    a.long("updated_at"),
                 )
             }
         }
@@ -223,6 +224,7 @@ sealed interface ServerMsg {
                     p.str("image"), p.str("home_mount"),
                     p.strList("mounts"), p.strList("creds"),
                     p.strMap("env"), p.strList("run_args"), p.strMap("vars"),
+                    p.long("updated_at"),
                 )
             }
         }
@@ -233,7 +235,7 @@ sealed interface ServerMsg {
                 Host(
                     h.str("name"), h.str("address"), h.str("user"),
                     h.int("port"), h.str("key_file"), h.str("identity"),
-                    h.str("claude_bin"),
+                    h.str("claude_bin"), h.long("updated_at"),
                 )
             }
         }
@@ -241,7 +243,7 @@ sealed interface ServerMsg {
         private fun readIdentities(arr: JsonArray?): List<Identity> {
             if (arr == null) return emptyList()
             return arr.map { it.jsonObject }.map { i ->
-                Identity(i.str("name"), i.str("user"), i.str("public_key"), i.bool("has_password"))
+                Identity(i.str("name"), i.str("user"), i.str("public_key"), i.bool("has_password"), i.long("updated_at"))
             }
         }
     }
@@ -284,6 +286,9 @@ data class AgentInfo(
     val defaultModel: String,
     val models: List<String>,
     val voiceModels: List<String> = emptyList(),
+    // Client-stamped last-edit time (unix ms) of this backend's provider override,
+    // 0 when none. Drives the last-writer-wins merge (see CatalogueSync).
+    val updatedAt: Long = 0,
 )
 
 /** One execution environment profile advertised by the server. */
@@ -301,6 +306,8 @@ data class ProfileInfo(
     val env: Map<String, String> = emptyMap(),
     val runArgs: List<String> = emptyList(),
     val vars: Map<String, String> = emptyMap(),
+    // Client-stamped last-edit time (unix ms); drives last-writer-wins (see CatalogueSync).
+    val updatedAt: Long = 0,
 )
 
 /**
@@ -380,6 +387,8 @@ data class Host(
     val keyFile: String = "",
     val identity: String = "", // name of a managed Identity; supersedes keyFile when set
     val claudeBin: String = "",
+    // Client-stamped last-edit time (unix ms); drives last-writer-wins (see CatalogueSync).
+    val updatedAt: Long = 0,
 )
 
 /** A managed SSH identity: a login credential the server holds. Carries a required
@@ -390,6 +399,8 @@ data class Identity(
     val user: String = "",
     val publicKey: String = "",
     val hasPassword: Boolean = false,
+    // Client-stamped last-edit time (unix ms); drives last-writer-wins (see CatalogueSync).
+    val updatedAt: Long = 0,
 )
 
 /** One clarification Claude asked (interactive mode). Empty options = free-text. */
@@ -551,26 +562,29 @@ object Outbound {
             put("name", h.name); put("address", h.address)
             put("user", h.user); put("port", h.port)
             put("key_file", h.keyFile); put("identity", h.identity); put("claude_bin", h.claudeBin)
+            put("updated_at", h.updatedAt)
         }
     }.toString()
-    fun hostDelete(name: String) = buildJsonObject { put("type", "host_delete"); put("name", name) }.toString()
+    fun hostDelete(name: String, updatedAt: Long) =
+        buildJsonObject { put("type", "host_delete"); put("name", name); put("updated_at", updatedAt) }.toString()
 
     // SSH identities (Settings → Identities). The server holds the private keys and
     // broadcasts an updated identity_list after every create/delete.
     fun identitiesList() = buildJsonObject { put("type", "identities") }.toString()
-    fun identityCreate(name: String, user: String, password: String, genKey: Boolean) = buildJsonObject {
+    fun identityCreate(name: String, user: String, password: String, genKey: Boolean, updatedAt: Long) = buildJsonObject {
         put("type", "identity_create"); put("name", name); put("user", user)
-        put("password", password); put("gen_key", genKey)
+        put("password", password); put("gen_key", genKey); put("updated_at", updatedAt)
     }.toString()
-    fun identityImport(name: String, user: String, password: String, keyPath: String) = buildJsonObject {
+    fun identityImport(name: String, user: String, password: String, keyPath: String, updatedAt: Long) = buildJsonObject {
         put("type", "identity_import"); put("name", name); put("user", user)
-        put("password", password); put("key_path", keyPath)
+        put("password", password); put("key_path", keyPath); put("updated_at", updatedAt)
     }.toString()
-    fun identityUpdate(name: String, user: String, setPassword: Boolean, password: String) = buildJsonObject {
+    fun identityUpdate(name: String, user: String, setPassword: Boolean, password: String, updatedAt: Long) = buildJsonObject {
         put("type", "identity_update"); put("name", name); put("user", user)
-        put("set_password", setPassword); put("password", password)
+        put("set_password", setPassword); put("password", password); put("updated_at", updatedAt)
     }.toString()
-    fun identityDelete(name: String) = buildJsonObject { put("type", "identity_delete"); put("name", name) }.toString()
+    fun identityDelete(name: String, updatedAt: Long) =
+        buildJsonObject { put("type", "identity_delete"); put("name", name); put("updated_at", updatedAt) }.toString()
 
     // Execution profiles (Settings → Profiles). The app owns the catalogue; the
     // server persists it and broadcasts an updated `profiles` after every change.
@@ -584,17 +598,20 @@ object Outbound {
             putJsonObject("env") { p.env.forEach { (k, v) -> put(k, v) } }
             putJsonArray("run_args") { p.runArgs.forEach { add(it) } }
             putJsonObject("vars") { p.vars.forEach { (k, v) -> put(k, v) } }
+            put("updated_at", p.updatedAt)
         }
     }.toString()
-    fun profileDelete(name: String) = buildJsonObject { put("type", "profile_delete"); put("name", name) }.toString()
+    fun profileDelete(name: String, updatedAt: Long) =
+        buildJsonObject { put("type", "profile_delete"); put("name", name); put("updated_at", updatedAt) }.toString()
     fun profileSetDefault(name: String) = buildJsonObject { put("type", "profile_set_default"); put("name", name) }.toString()
 
     // Provider (AI-backend) settings overlay (Settings → Providers). The backends
     // are compile-time; the app sets per-backend overrides — the model a spawn
     // defaults to and which models the voice commands enumerate. The server persists
     // them and re-broadcasts an updated `agents` after every change.
-    fun providerPut(agent: String, defaultModel: String, voiceModels: List<String>) = buildJsonObject {
+    fun providerPut(agent: String, defaultModel: String, voiceModels: List<String>, updatedAt: Long) = buildJsonObject {
         put("type", "provider_put"); put("agent", agent); put("default_model", defaultModel)
         putJsonArray("voice_models") { voiceModels.forEach { add(it) } }
+        put("updated_at", updatedAt)
     }.toString()
 }

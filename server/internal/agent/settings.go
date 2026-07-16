@@ -2,10 +2,17 @@ package agent
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
 )
+
+// ErrStale is returned by SettingsStore.Put when the incoming provider override
+// carries an `updated_at` older than the stored one — last-writer-wins rejects it
+// and the gateway re-broadcasts the newer record. Mirrors session.ErrStale (the
+// agent package can't import session, so it defines its own sentinel).
+var ErrStale = errors.New("stale write rejected (older updated_at)")
 
 // Settings is the app-managed overlay on an [Agent] (an AI backend). The backends
 // are fixed in code and their model catalogue is either compiled in or discovered
@@ -23,6 +30,10 @@ type Settings struct {
 	Agent        string   `json:"agent"`                   // agent id these settings apply to
 	DefaultModel string   `json:"default_model,omitempty"` // model alias a fresh spawn stamps; "" = the agent's compiled DefaultModel
 	VoiceModels  []string `json:"voice_models"`            // model aliases the voice commands enumerate, in agent order; nil = all
+	// UpdatedAt is the client-stamped last-edit time in unix MILLISECONDS, driving
+	// last-writer-wins arbitration. There is no provider delete, so no tombstone is
+	// needed — only an older upsert is rejected. 0 = a pre-timestamp record.
+	UpdatedAt int64 `json:"updated_at,omitempty"`
 }
 
 // SettingsStore is a concurrency-safe, file-backed catalogue of per-backend
@@ -58,7 +69,7 @@ func OpenSettingsStore(path string, reg *Registry) (*SettingsStore, error) {
 	}
 	for _, st := range list {
 		if ag, ok := reg.Get(st.Agent); ok {
-			s.byID[st.Agent] = sanitize(ag, st.DefaultModel, st.VoiceModels)
+			s.byID[st.Agent] = sanitize(ag, st.DefaultModel, st.VoiceModels, st.UpdatedAt)
 		}
 	}
 	return s, nil
@@ -82,8 +93,8 @@ func parseSettings(data []byte, path string) ([]Settings, error) {
 // real model; voice is filtered to real aliases in the agent's own model order,
 // deduped. A nil voice slice stays nil (meaning "all"); a non-nil one is honored
 // as an exact subset (possibly empty = none).
-func sanitize(ag *Agent, defaultModel string, voice []string) *Settings {
-	st := &Settings{Agent: ag.ID}
+func sanitize(ag *Agent, defaultModel string, voice []string, updatedAt int64) *Settings {
+	st := &Settings{Agent: ag.ID, UpdatedAt: updatedAt}
 	if defaultModel != "" {
 		if _, ok := hasModel(ag, defaultModel); ok {
 			st.DefaultModel = defaultModel
@@ -181,7 +192,7 @@ func (s *SettingsStore) VoiceEnabled(ag *Agent, alias string) bool {
 // defaultModel (when non-empty) and every voice alias must name a real model of
 // that agent, or it is an error. A nil voiceModels means "leave voice at all";
 // pass a non-nil (possibly empty) slice to set an exact enumerated subset.
-func (s *SettingsStore) Put(agentID, defaultModel string, voiceModels []string) error {
+func (s *SettingsStore) Put(agentID, defaultModel string, voiceModels []string, updatedAt int64) error {
 	ag, ok := s.reg.Get(agentID)
 	if !ok {
 		return fmt.Errorf("unknown backend %q", agentID)
@@ -197,10 +208,29 @@ func (s *SettingsStore) Put(agentID, defaultModel string, voiceModels []string) 
 		}
 	}
 	s.mu.Lock()
-	s.byID[agentID] = sanitize(ag, defaultModel, voiceModels)
+	if cur := s.byID[agentID]; cur != nil && updatedAt < cur.UpdatedAt {
+		s.mu.Unlock()
+		return ErrStale
+	}
+	s.byID[agentID] = sanitize(ag, defaultModel, voiceModels, updatedAt)
 	err := s.flush()
 	s.mu.Unlock()
 	return err
+}
+
+// UpdatedAt is the client-stamped last-edit time (unix ms) of ag's stored override,
+// or 0 when there is none — included per-backend in the outbound `agents` message so
+// the app can arbitrate last-writer-wins. Nil-safe.
+func (s *SettingsStore) UpdatedAt(ag *Agent) int64 {
+	if s == nil {
+		return 0
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if st := s.byID[ag.ID]; st != nil {
+		return st.UpdatedAt
+	}
+	return 0
 }
 
 // flush writes the overlay atomically. Caller holds s.mu.

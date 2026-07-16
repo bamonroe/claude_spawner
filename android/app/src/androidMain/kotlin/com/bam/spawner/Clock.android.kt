@@ -9,5 +9,7 @@ actual fun nowMonotonicMs(): Long = SystemClock.elapsedRealtime()
 
 actual fun nowEpochSeconds(): Long = System.currentTimeMillis() / 1000
 
+actual fun nowEpochMs(): Long = System.currentTimeMillis()
+
 actual fun fmtClock(unixSeconds: Long): String =
     SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(unixSeconds * 1000))

@@ -42,7 +42,7 @@ func TestSettingsPutOverridesDefaultAndVoice(t *testing.T) {
 	claude, _ := reg.Get("claude")
 	// Default model → sonnet; voice enumerates only opus + fable (out of order in
 	// the request, but stored/returned in the agent's catalogue order).
-	if err := s.Put("claude", "sonnet", []string{"fable", "opus"}); err != nil {
+	if err := s.Put("claude", "sonnet", []string{"fable", "opus"}, 0); err != nil {
 		t.Fatal(err)
 	}
 	if got := s.DefaultModel(claude); got != "sonnet" {
@@ -57,7 +57,7 @@ func TestSettingsPutOverridesDefaultAndVoice(t *testing.T) {
 	}
 
 	// An empty (non-nil) voice set means none enumerated.
-	if err := s.Put("claude", "", []string{}); err != nil {
+	if err := s.Put("claude", "", []string{}, 0); err != nil {
 		t.Fatal(err)
 	}
 	if got := s.DefaultModel(claude); got != "opus" {
@@ -80,13 +80,13 @@ func TestSettingsPutOverridesDefaultAndVoice(t *testing.T) {
 func TestSettingsPutValidates(t *testing.T) {
 	reg := testReg()
 	s, _ := OpenSettingsStore("", reg)
-	if err := s.Put("nope", "", nil); err == nil {
+	if err := s.Put("nope", "", nil, 0); err == nil {
 		t.Error("expected error for unknown backend")
 	}
-	if err := s.Put("claude", "gpt-5.5", nil); err == nil {
+	if err := s.Put("claude", "gpt-5.5", nil, 0); err == nil {
 		t.Error("expected error for a model of another backend")
 	}
-	if err := s.Put("claude", "", []string{"opus", "bogus"}); err == nil {
+	if err := s.Put("claude", "", []string{"opus", "bogus"}, 0); err == nil {
 		t.Error("expected error for a bogus voice alias")
 	}
 }

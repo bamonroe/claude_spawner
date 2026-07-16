@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"errors"
 	"log"
 
 	"github.com/bam/claude_spawner/server/internal/session"
@@ -23,6 +24,11 @@ func (c *conn) doHostPut(h *session.Host) {
 		return
 	}
 	if err := c.srv.hosts.Put(h); err != nil {
+		if errors.Is(err, session.ErrStale) {
+			// A newer edit already won: re-send our record so the stale client adopts it.
+			c.send(msgHostList(c.srv.hosts.List()))
+			return
+		}
 		c.fail("internal", err.Error())
 		return
 	}
@@ -43,8 +49,9 @@ func (c *conn) doHostPut(h *session.Host) {
 	}
 }
 
-// doHostDelete removes a host by name and broadcasts the new list.
-func (c *conn) doHostDelete(name string) {
+// doHostDelete removes a host by name (tombstoning it at updatedAt) and broadcasts
+// the new list. A delete older than the stored record re-syncs the stale client.
+func (c *conn) doHostDelete(name string, updatedAt int64) {
 	if name == "" {
 		c.fail("bad_host", "need a host name to delete")
 		return
@@ -59,7 +66,11 @@ func (c *conn) doHostDelete(name string) {
 		}
 		port = h.Port
 	}
-	if err := c.srv.hosts.Delete(name); err != nil {
+	if err := c.srv.hosts.Delete(name, updatedAt); err != nil {
+		if errors.Is(err, session.ErrStale) {
+			c.send(msgHostList(c.srv.hosts.List()))
+			return
+		}
 		c.fail("internal", err.Error())
 		return
 	}

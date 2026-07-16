@@ -12,5 +12,12 @@ expect fun nowMonotonicMs(): Long
 /** Current wall-clock time in unix seconds — for "2h ago" / "resets in …" relative labels. */
 expect fun nowEpochSeconds(): Long
 
+/**
+ * Current wall-clock time in unix MILLISECONDS — used to stamp `updated_at` on a
+ * locally-edited catalogue record (host/identity/profile/provider) at the moment it
+ * is pushed to the server, so the versioned last-writer-wins sync can arbitrate.
+ */
+expect fun nowEpochMs(): Long
+
 /** A unix-seconds instant as a local time-of-day, e.g. "3:45 PM". */
 expect fun fmtClock(unixSeconds: Long): String

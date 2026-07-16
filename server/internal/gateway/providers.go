@@ -2,7 +2,10 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"time"
+
+	"github.com/bam/claude_spawner/server/internal/agent"
 )
 
 // The provider (AI-backend) settings overlay (Settings → Providers) is
@@ -50,12 +53,17 @@ func (s *Server) refreshModelsOnConnect() {
 // model subset) and broadcasts. voiceModels is the exact enabled set the app
 // sends; a nil slice (field absent) leaves the voice subset untouched at "all".
 // The store validates every alias against the backend's real model catalogue.
-func (c *conn) doProviderPut(agentID, defaultModel string, voiceModels []string) {
+func (c *conn) doProviderPut(agentID, defaultModel string, voiceModels []string, updatedAt int64) {
 	if agentID == "" {
 		c.fail("bad_provider", "need a backend id")
 		return
 	}
-	if err := c.srv.driver.ProviderSettings().Put(agentID, defaultModel, voiceModels); err != nil {
+	if err := c.srv.driver.ProviderSettings().Put(agentID, defaultModel, voiceModels, updatedAt); err != nil {
+		if errors.Is(err, agent.ErrStale) {
+			// A newer edit already won: re-send the enriched catalogue so the client adopts it.
+			c.send(msgAgents(c.srv.driver.Registry(), c.srv.driver.ProviderSettings()))
+			return
+		}
 		c.fail("bad_provider", err.Error())
 		return
 	}

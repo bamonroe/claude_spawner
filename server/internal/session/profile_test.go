@@ -78,7 +78,7 @@ func TestProfileStorePutDeleteSetDefault(t *testing.T) {
 	if reg.DefaultName() != "b" || reg.Resolve("a").Default {
 		t.Errorf("SetDefault did not move the marker exclusively to b")
 	}
-	if err := reg.Delete("a"); err != nil {
+	if err := reg.Delete("a", 1); err != nil {
 		t.Fatal(err)
 	}
 	if reg.Get("a") != nil || len(reg.List()) != 1 {

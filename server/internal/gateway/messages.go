@@ -68,6 +68,7 @@ type inbound struct {
 	ID                    string               `json:"id"`                      // on `speak`: client-chosen correlation id, echoed on speak_audio/speak_end
 	Voice                 string               `json:"voice"`                   // on `speak`: Kokoro voice override ("" = the server default, SPAWNER_TTS_VOICE)
 	Format                string               `json:"format"`                  // on `speak`: response-format override ("" = the server default, SPAWNER_TTS_FORMAT)
+	UpdatedAt             int64                `json:"updated_at"`              // on the catalogue mutators (host_delete, identity_*, profile_delete, provider_put): the client-stamped last-edit time in unix MILLISECONDS for last-writer-wins arbitration (host_put/profile_put carry it inside the host/profile_def object instead)
 }
 
 // msgAgents advertises the AI backend registry to the app so the visual
@@ -89,6 +90,7 @@ func msgAgents(reg *agent.Registry, settings *agent.SettingsStore) map[string]an
 		}
 		agents = append(agents, map[string]any{
 			"id": a.ID, "name": a.Name, "default_model": settings.DefaultModel(a), "models": models,
+			"updated_at": settings.UpdatedAt(a),
 		})
 	}
 	def := ""
@@ -183,6 +185,7 @@ func msgIdentityList(ids []*session.Identity) map[string]any {
 			"user":         id.User,
 			"public_key":   id.PublicKey,
 			"has_password": id.Password != "",
+			"updated_at":   id.UpdatedAt,
 		})
 	}
 	return map[string]any{"type": "identity_list", "identities": out}

@@ -21,7 +21,7 @@ func TestIdentityStoreCreateListDelete(t *testing.T) {
 		t.Fatal("fresh store should be empty")
 	}
 
-	id, err := s.Create("work", "bam", "", true)
+	id, err := s.Create("work", "bam", "", true, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,20 +50,20 @@ func TestIdentityStoreCreateListDelete(t *testing.T) {
 	}
 
 	// A duplicate name is rejected (regenerating would invalidate the trusted key).
-	if _, derr := s.Create("work", "bam", "", true); derr == nil {
+	if _, derr := s.Create("work", "bam", "", true, 0); derr == nil {
 		t.Fatal("duplicate identity should error")
 	}
-	if _, derr := s.Create("", "bam", "", true); derr == nil {
+	if _, derr := s.Create("", "bam", "", true, 0); derr == nil {
 		t.Fatal("empty name should error")
 	}
-	if _, derr := s.Create("nouser", "", "", true); derr == nil {
+	if _, derr := s.Create("nouser", "", "", true, 0); derr == nil {
 		t.Fatal("empty username should error")
 	}
 	// A keyless identity must carry a password; with a password it's allowed.
-	if _, derr := s.Create("empty", "bam", "", false); derr == nil {
+	if _, derr := s.Create("empty", "bam", "", false, 0); derr == nil {
 		t.Fatal("keyless + passwordless identity should error")
 	}
-	pw, perr := s.Create("pw", "bam", "secret", false)
+	pw, perr := s.Create("pw", "bam", "secret", false, 0)
 	if perr != nil {
 		t.Fatal(perr)
 	}
@@ -88,7 +88,7 @@ func TestIdentityStoreCreateListDelete(t *testing.T) {
 	}
 
 	// Delete removes the entry and the private key file (leaving the password-only one).
-	if derr := s2.Delete("work"); derr != nil {
+	if derr := s2.Delete("work", 1); derr != nil {
 		t.Fatal(derr)
 	}
 	if _, serr := os.Stat(keyPath); !os.IsNotExist(serr) {
@@ -100,32 +100,32 @@ func TestIdentityStoreCreateListDelete(t *testing.T) {
 	}
 
 	// Update: change the user (keeping the key), and set/clear the password.
-	if _, uerr := s3.Update("pw", "root", false, ""); uerr != nil {
+	if _, uerr := s3.Update("pw", "root", false, "", 0); uerr != nil {
 		t.Fatal(uerr)
 	}
 	if got := s3.Get("pw"); got.User != "root" || got.Password != "secret" {
 		t.Fatalf("update should change user, keep password: %+v", got)
 	}
-	if _, uerr := s3.Update("pw", "root", true, "newpw"); uerr != nil {
+	if _, uerr := s3.Update("pw", "root", true, "newpw", 0); uerr != nil {
 		t.Fatal(uerr)
 	}
 	if s3.Get("pw").Password != "newpw" {
 		t.Fatal("update should set the new password")
 	}
 	// Clearing a key-less identity's password is rejected (it'd have no auth left).
-	if _, uerr := s3.Update("pw", "root", true, ""); uerr == nil {
+	if _, uerr := s3.Update("pw", "root", true, "", 0); uerr == nil {
 		t.Fatal("clearing a key-less identity's password should error")
 	}
-	if _, uerr := s3.Update("pw", "", false, ""); uerr == nil {
+	if _, uerr := s3.Update("pw", "", false, "", 0); uerr == nil {
 		t.Fatal("empty user on update should error")
 	}
 
 	// Import: register an existing on-disk private key as a managed identity.
-	src, err := s3.Create("src", "bam", "", true) // reuse Create to mint a real key file on disk
+	src, err := s3.Create("src", "bam", "", true, 0) // reuse Create to mint a real key file on disk
 	if err != nil {
 		t.Fatal(err)
 	}
-	imported, err := s3.Import("copied", "bam", "", s3.KeyPath("src"))
+	imported, err := s3.Import("copied", "bam", "", s3.KeyPath("src"), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,10 +139,10 @@ func TestIdentityStoreCreateListDelete(t *testing.T) {
 		t.Fatalf("imported private key not written: %v", serr)
 	}
 	// Importing onto a taken name, or from a bad path, errors.
-	if _, ierr := s3.Import("copied", "bam", "", s3.KeyPath("src")); ierr == nil {
+	if _, ierr := s3.Import("copied", "bam", "", s3.KeyPath("src"), 0); ierr == nil {
 		t.Fatal("duplicate import should error")
 	}
-	if _, ierr := s3.Import("nope", "bam", "", filepath.Join(dir, "does-not-exist")); ierr == nil {
+	if _, ierr := s3.Import("nope", "bam", "", filepath.Join(dir, "does-not-exist"), 0); ierr == nil {
 		t.Fatal("import from missing path should error")
 	}
 }

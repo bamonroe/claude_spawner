@@ -54,7 +54,7 @@ func TestHostStoreRoundTrip(t *testing.T) {
 	}
 
 	// Delete persists too.
-	if err := hs2.Delete("work"); err != nil {
+	if err := hs2.Delete("work", 1); err != nil {
 		t.Fatal(err)
 	}
 	hs3, _ := OpenHostStore(path)
@@ -67,7 +67,7 @@ func TestHostStoreRoundTrip(t *testing.T) {
 
 	// Deleting the seeded localhost sticks — the store isn't re-seeded on reopen
 	// because the file now exists.
-	if err := hs3.Delete(LocalHost); err != nil {
+	if err := hs3.Delete(LocalHost, 1); err != nil {
 		t.Fatal(err)
 	}
 	hs4, _ := OpenHostStore(path)

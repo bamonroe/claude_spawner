@@ -1,29 +1,40 @@
 package com.bam.spawner.net
 
+import com.bam.spawner.nowEpochMs
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * One app-managed catalogue's reconciliation, declared once. Holds the `StateFlow`
- * the UI reads and knows how to fold an inbound server list into it. [key] identifies
- * a record (its stable name/id) and [merge] is the *merge rule* — the seam the unified
- * sync layer grows into: today it is a whole-list replace (blind last-write-wins, which
- * is exactly what both controllers did inline), but Phase 2 will swap in a per-record
- * `updated_at` last-writer-wins merge (keyed by [key]) without touching any call site.
+ * the UI reads and folds an inbound server list into it by **last-writer-wins on
+ * [updatedAt]** (Phase 2a): the server's broadcast is authoritative for membership
+ * (a key it omits was deleted/tombstoned, so it drops from the local list), but a
+ * local record whose [updatedAt] is *strictly newer* than the incoming one for the
+ * same [key] is preserved — guarding a just-made local edit from being clobbered by
+ * a broadcast triggered by a different client's change that raced ahead of ours. On
+ * an equal stamp the incoming record wins (so e.g. a `set_default` marker flip, which
+ * doesn't bump `updated_at`, still applies). The server holds the max and rejects
+ * stale writes, so in the steady state incoming already carries the newest value.
  */
 class Catalogue<T>(
     private val key: (T) -> String,
-    private val merge: (current: List<T>, incoming: List<T>) -> List<T> = { _, incoming -> incoming },
+    private val updatedAt: (T) -> Long,
 ) {
     private val _items = MutableStateFlow<List<T>>(emptyList())
     val items: StateFlow<List<T>> = _items.asStateFlow()
 
-    /** The record identity function — the merge seam's key (unused until Phase 2's LWW merge). */
+    /** The record identity function (stable name/id). */
     fun keyOf(record: T): String = key(record)
 
-    /** Fold an inbound server list into the current state via the [merge] rule. */
-    fun apply(incoming: List<T>) { _items.value = merge(_items.value, incoming) }
+    /** Fold an inbound server list into the current state, last-writer-wins per key. */
+    fun apply(incoming: List<T>) {
+        val localByKey = _items.value.associateBy(key)
+        _items.value = incoming.map { inc ->
+            val loc = localByKey[key(inc)]
+            if (loc != null && updatedAt(loc) > updatedAt(inc)) loc else inc
+        }
+    }
 }
 
 /**
@@ -44,10 +55,10 @@ class Catalogue<T>(
  * simply drops the frame, matching the prior `client?.send(...)` behavior.
  */
 class CatalogueSync(private val send: (String) -> Unit) {
-    private val hostCat = Catalogue<Host>(key = Host::name)
-    private val identityCat = Catalogue<Identity>(key = Identity::name)
-    private val profileCat = Catalogue<ProfileInfo>(key = ProfileInfo::name)
-    private val agentCat = Catalogue<AgentInfo>(key = AgentInfo::id)
+    private val hostCat = Catalogue<Host>(key = Host::name, updatedAt = Host::updatedAt)
+    private val identityCat = Catalogue<Identity>(key = Identity::name, updatedAt = Identity::updatedAt)
+    private val profileCat = Catalogue<ProfileInfo>(key = ProfileInfo::name, updatedAt = ProfileInfo::updatedAt)
+    private val agentCat = Catalogue<AgentInfo>(key = AgentInfo::id, updatedAt = AgentInfo::updatedAt)
 
     val hosts: StateFlow<List<Host>> = hostCat.items
     val identities: StateFlow<List<Identity>> = identityCat.items
@@ -67,27 +78,29 @@ class CatalogueSync(private val send: (String) -> Unit) {
         else -> false
     }
 
+    // Every local edit is stamped with the wall-clock ms at push time; the server's
+    // last-writer-wins arbitration keeps the newest and rejects/echoes older writes.
     // --- Hosts (Settings → Hosts) --------------------------------------------
     fun requestHosts() = send(Outbound.hostsList())
-    fun putHost(host: Host) = send(Outbound.hostPut(host))
-    fun deleteHost(name: String) = send(Outbound.hostDelete(name))
+    fun putHost(host: Host) = send(Outbound.hostPut(host.copy(updatedAt = nowEpochMs())))
+    fun deleteHost(name: String) = send(Outbound.hostDelete(name, nowEpochMs()))
 
     // --- Identities (Settings → Identities) ----------------------------------
     fun requestIdentities() = send(Outbound.identitiesList())
     fun createIdentity(name: String, user: String, password: String, genKey: Boolean) =
-        send(Outbound.identityCreate(name, user, password, genKey))
+        send(Outbound.identityCreate(name, user, password, genKey, nowEpochMs()))
     fun importIdentity(name: String, user: String, password: String, keyPath: String) =
-        send(Outbound.identityImport(name, user, password, keyPath))
+        send(Outbound.identityImport(name, user, password, keyPath, nowEpochMs()))
     fun updateIdentity(name: String, user: String, setPassword: Boolean, password: String) =
-        send(Outbound.identityUpdate(name, user, setPassword, password))
-    fun deleteIdentity(name: String) = send(Outbound.identityDelete(name))
+        send(Outbound.identityUpdate(name, user, setPassword, password, nowEpochMs()))
+    fun deleteIdentity(name: String) = send(Outbound.identityDelete(name, nowEpochMs()))
 
     // --- Execution profiles (Settings → Profiles) ----------------------------
-    fun putProfile(p: ProfileInfo) = send(Outbound.profilePut(p))
-    fun deleteProfile(name: String) = send(Outbound.profileDelete(name))
+    fun putProfile(p: ProfileInfo) = send(Outbound.profilePut(p.copy(updatedAt = nowEpochMs())))
+    fun deleteProfile(name: String) = send(Outbound.profileDelete(name, nowEpochMs()))
     fun setDefaultProfile(name: String) = send(Outbound.profileSetDefault(name))
 
     // --- Providers / AI-backend overlays (Settings → Providers) --------------
     fun putProvider(agent: String, defaultModel: String, voiceModels: List<String>) =
-        send(Outbound.providerPut(agent, defaultModel, voiceModels))
+        send(Outbound.providerPut(agent, defaultModel, voiceModels, nowEpochMs()))
 }

@@ -36,6 +36,11 @@ type Host struct {
 	Identity string `json:"identity,omitempty"`
 	// ClaudeBin is the claude binary on this host; empty means "claude".
 	ClaudeBin string `json:"claude_bin,omitempty"`
+	// UpdatedAt is the client-stamped last-edit time in unix MILLISECONDS. It drives
+	// last-writer-wins arbitration: the store keeps the record with the newest stamp
+	// and rejects an older incoming upsert. 0 = a pre-timestamp record loaded from an
+	// old file, so any explicit client edit (a real ms timestamp) wins over it.
+	UpdatedAt int64 `json:"updated_at,omitempty"`
 }
 
 // HostStore is a concurrency-safe, file-backed registry of configured Hosts,
@@ -45,11 +50,17 @@ type HostStore struct {
 	path   string
 	mu     sync.RWMutex
 	byName map[string]*Host
+	tombs  tombstones
 }
 
 // OpenHostStore loads (or initializes) the host registry at path.
 func OpenHostStore(path string) (*HostStore, error) {
 	h := &HostStore{path: path, byName: map[string]*Host{}}
+	tombs, err := loadTombstones(path)
+	if err != nil {
+		return nil, err
+	}
+	h.tombs = tombs
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -94,21 +105,49 @@ func (h *HostStore) Get(name string) *Host {
 	return h.byName[name]
 }
 
-// Put upserts a host by name and persists the registry.
+// Put upserts a host by name and persists the registry, arbitrating by
+// last-writer-wins: an incoming host whose UpdatedAt is older than the stored
+// record's — or not newer than a tombstone from a more-recent delete — is rejected
+// with ErrStale (the gateway then re-broadcasts the newer record). A strictly-newer
+// add clears any tombstone, resurrecting the key.
 func (h *HostStore) Put(host *Host) error {
 	if host == nil || host.Name == "" {
 		return fmt.Errorf("host needs a name")
 	}
 	h.mu.Lock()
+	if h.tombs == nil {
+		h.tombs = tombstones{}
+	}
+	if cur := h.byName[host.Name]; cur != nil {
+		if host.UpdatedAt < cur.UpdatedAt {
+			h.mu.Unlock()
+			return ErrStale
+		}
+	} else if h.tombs.blocksAdd(host.Name, host.UpdatedAt) {
+		h.mu.Unlock()
+		return ErrStale
+	}
+	h.tombs.clearIfOlder(host.Name, host.UpdatedAt)
 	h.byName[host.Name] = host
 	h.mu.Unlock()
 	return h.flush()
 }
 
-// Delete removes a host by name (no error if absent) and persists.
-func (h *HostStore) Delete(name string) error {
+// Delete removes a host by name and records a tombstone at updatedAt so a stale
+// client cannot resurrect it with an older stamp. A delete older than the stored
+// record (the record was edited more recently) is rejected with ErrStale. Deleting
+// an absent name still refreshes the tombstone (idempotent).
+func (h *HostStore) Delete(name string, updatedAt int64) error {
 	h.mu.Lock()
+	if h.tombs == nil {
+		h.tombs = tombstones{}
+	}
+	if cur := h.byName[name]; cur != nil && updatedAt < cur.UpdatedAt {
+		h.mu.Unlock()
+		return ErrStale
+	}
 	delete(h.byName, name)
+	h.tombs.tombstone(name, updatedAt)
 	h.mu.Unlock()
 	return h.flush()
 }
@@ -119,6 +158,10 @@ func (h *HostStore) flush() error {
 	list := make([]*Host, 0, len(h.byName))
 	for _, host := range h.byName {
 		list = append(list, host)
+	}
+	tombs := make(tombstones, len(h.tombs))
+	for k, v := range h.tombs {
+		tombs[k] = v
 	}
 	h.mu.RUnlock()
 	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
@@ -134,5 +177,8 @@ func (h *HostStore) flush() error {
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return err
 	}
-	return os.Rename(tmp, h.path)
+	if err := os.Rename(tmp, h.path); err != nil {
+		return err
+	}
+	return flushTombstones(h.path, tombs)
 }

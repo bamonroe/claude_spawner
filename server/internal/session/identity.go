@@ -31,6 +31,9 @@ type Identity struct {
 	// Password authenticates via SSH password auth. It is SERVER-ONLY — persisted
 	// here but never sent to the app (the wire form reports only whether one is set).
 	Password string `json:"password,omitempty"`
+	// UpdatedAt is the client-stamped last-edit time in unix MILLISECONDS, driving
+	// last-writer-wins arbitration (see Host.UpdatedAt). 0 = a pre-timestamp record.
+	UpdatedAt int64 `json:"updated_at,omitempty"`
 }
 
 // IdentityStore persists the identity registry (names + public keys) as JSON and
@@ -42,12 +45,18 @@ type IdentityStore struct {
 	keysDir string
 	mu      sync.RWMutex
 	byName  map[string]*Identity
+	tombs   tombstones
 }
 
 // OpenIdentityStore loads (or initializes) the registry at path, with private keys
 // kept under keysDir. A missing registry is a fresh, empty store.
 func OpenIdentityStore(path, keysDir string) (*IdentityStore, error) {
 	s := &IdentityStore{path: path, keysDir: keysDir, byName: map[string]*Identity{}}
+	tombs, terr := loadTombstones(path)
+	if terr != nil {
+		return nil, terr
+	}
+	s.tombs = tombs
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -99,7 +108,7 @@ func (s *IdentityStore) KeyPath(name string) string {
 // carry a password (otherwise it has no way to authenticate). Errors if the name is
 // empty/taken or the user is empty — regenerating a taken name would invalidate any
 // host already trusting the old key.
-func (s *IdentityStore) Create(name, user, password string, genKey bool) (*Identity, error) {
+func (s *IdentityStore) Create(name, user, password string, genKey bool, updatedAt int64) (*Identity, error) {
 	name, user = strings.TrimSpace(name), strings.TrimSpace(user)
 	if name == "" {
 		return nil, fmt.Errorf("identity needs a name")
@@ -112,8 +121,14 @@ func (s *IdentityStore) Create(name, user, password string, genKey bool) (*Ident
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.tombs == nil {
+		s.tombs = tombstones{}
+	}
 	if _, ok := s.byName[name]; ok {
 		return nil, fmt.Errorf("identity %q already exists", name)
+	}
+	if s.tombs.blocksAdd(name, updatedAt) {
+		return nil, ErrStale
 	}
 
 	var priv []byte
@@ -135,14 +150,14 @@ func (s *IdentityStore) Create(name, user, password string, genKey bool) (*Ident
 		authLine = strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshPub))) + " " + name
 		priv = pem.EncodeToMemory(pemBlock)
 	}
-	return s.record(name, user, priv, authLine, password)
+	return s.record(name, user, priv, authLine, password, updatedAt)
 }
 
 // Import registers an existing private key (already on the server, e.g. the config
 // default SSH key) as a managed identity for the required user: it copies the key
 // into keysDir under name and records its public key. The original file is left
 // untouched; encrypted keys are rejected (the server authenticates non-interactively).
-func (s *IdentityStore) Import(name, user, password, srcPath string) (*Identity, error) {
+func (s *IdentityStore) Import(name, user, password, srcPath string, updatedAt int64) (*Identity, error) {
 	name, user = strings.TrimSpace(name), strings.TrimSpace(user)
 	if name == "" {
 		return nil, fmt.Errorf("identity needs a name")
@@ -155,8 +170,14 @@ func (s *IdentityStore) Import(name, user, password, srcPath string) (*Identity,
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.tombs == nil {
+		s.tombs = tombstones{}
+	}
 	if _, ok := s.byName[name]; ok {
 		return nil, fmt.Errorf("identity %q already exists", name)
+	}
+	if s.tombs.blocksAdd(name, updatedAt) {
+		return nil, ErrStale
 	}
 	raw, err := os.ReadFile(srcPath)
 	if err != nil {
@@ -167,12 +188,13 @@ func (s *IdentityStore) Import(name, user, password, srcPath string) (*Identity,
 		return nil, fmt.Errorf("parse key (encrypted keys are not supported): %w", err)
 	}
 	authLine := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(signer.PublicKey()))) + " " + name
-	return s.record(name, user, raw, authLine, password)
+	return s.record(name, user, raw, authLine, password, updatedAt)
 }
 
 // record writes the private key (0600, only when there is one) and registers +
-// persists the identity. The caller holds s.mu.
-func (s *IdentityStore) record(name, user string, priv []byte, authLine, password string) (*Identity, error) {
+// persists the identity, stamping updatedAt and clearing any tombstone (a create/
+// import newer than a prior delete resurrects the name). The caller holds s.mu.
+func (s *IdentityStore) record(name, user string, priv []byte, authLine, password string, updatedAt int64) (*Identity, error) {
 	if priv != nil {
 		if err := os.MkdirAll(s.keysDir, 0o700); err != nil {
 			return nil, fmt.Errorf("keys dir: %w", err)
@@ -181,8 +203,11 @@ func (s *IdentityStore) record(name, user string, priv []byte, authLine, passwor
 			return nil, fmt.Errorf("write private key: %w", err)
 		}
 	}
-	id := &Identity{Name: name, User: user, PublicKey: authLine, Password: password}
+	id := &Identity{Name: name, User: user, PublicKey: authLine, Password: password, UpdatedAt: updatedAt}
 	s.byName[name] = id
+	if s.tombs != nil {
+		s.tombs.clearIfOlder(name, updatedAt)
+	}
 	if err := s.flush(); err != nil {
 		return nil, err
 	}
@@ -194,7 +219,7 @@ func (s *IdentityStore) record(name, user string, priv []byte, authLine, passwor
 // regenerating it would invalidate any host already trusting the public key, so it's
 // never touched here. Errors if the identity is unknown, the user is empty, or the
 // change would leave a key-less identity with no password (hence no way to auth).
-func (s *IdentityStore) Update(name, user string, setPassword bool, password string) (*Identity, error) {
+func (s *IdentityStore) Update(name, user string, setPassword bool, password string, updatedAt int64) (*Identity, error) {
 	user = strings.TrimSpace(user)
 	if user == "" {
 		return nil, fmt.Errorf("identity needs a username")
@@ -205,6 +230,9 @@ func (s *IdentityStore) Update(name, user string, setPassword bool, password str
 	if !ok {
 		return nil, fmt.Errorf("no identity %q", name)
 	}
+	if updatedAt < id.UpdatedAt {
+		return nil, ErrStale
+	}
 	newPassword := id.Password
 	if setPassword {
 		newPassword = password
@@ -214,6 +242,7 @@ func (s *IdentityStore) Update(name, user string, setPassword bool, password str
 	}
 	id.User = user
 	id.Password = newPassword
+	id.UpdatedAt = updatedAt
 	if err := s.flush(); err != nil {
 		return nil, err
 	}
@@ -222,20 +251,29 @@ func (s *IdentityStore) Update(name, user string, setPassword bool, password str
 
 // Delete removes an identity and its private key file. Missing key files are
 // ignored so a partially-created identity can still be cleaned up.
-func (s *IdentityStore) Delete(name string) error {
+func (s *IdentityStore) Delete(name string, updatedAt int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.byName[name]; !ok {
+	if s.tombs == nil {
+		s.tombs = tombstones{}
+	}
+	id, ok := s.byName[name]
+	if !ok {
 		return fmt.Errorf("no identity %q", name)
+	}
+	if updatedAt < id.UpdatedAt {
+		return ErrStale
 	}
 	if err := os.Remove(s.KeyPath(name)); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove private key: %w", err)
 	}
 	delete(s.byName, name)
+	s.tombs.tombstone(name, updatedAt)
 	return s.flush()
 }
 
-// flush atomically writes the registry (temp file + rename). Callers hold s.mu.
+// flush atomically writes the registry (temp file + rename) and its tombstone
+// sidecar. Callers hold s.mu.
 func (s *IdentityStore) flush() error {
 	list := make([]*Identity, 0, len(s.byName))
 	for _, id := range s.byName {
@@ -255,7 +293,10 @@ func (s *IdentityStore) flush() error {
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return err
 	}
-	return os.Rename(tmp, s.path)
+	if err := os.Rename(tmp, s.path); err != nil {
+		return err
+	}
+	return flushTombstones(s.path, s.tombs)
 }
 
 // sanitizeIdentityName keeps an identity name safe to use as a filename.
