@@ -249,6 +249,7 @@ private fun AppRoot(
             onSaveConnect = { url, token -> controller.connect(url, token); screen = "settings" },
             onSttChanged = reconnect,
             onBack = { screen = "settings" },
+            caSection = { ServerCaSection(settings, onChanged = reconnect) },
         )
         "set_hosts" -> HostsSettings(controller, onBack = { screen = "settings" })
         "set_identities" -> IdentitiesSettings(controller, onBack = { screen = "settings" })

@@ -518,7 +518,10 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
             settings.whisperUrl, settings.brief, settings.interactive,
             settings.warmCompress, settings.autoCompress, settings.autoCompressThreshold,
         )
-        client = SpawnerClient(url, token, settings.clientId, hello, ::onMessage, ::onConnected, ::onSpeakFrame)
+        // Pick up a CA pushed over adb (hands-off), then trust it for this wss server.
+        settings.autoImportPushedCa()
+        val caPem = settings.caCertPem.ifBlank { null }
+        client = SpawnerClient(url, token, settings.clientId, hello, ::onMessage, ::onConnected, ::onSpeakFrame, caPem)
             .also { it.connect() }
     }
 

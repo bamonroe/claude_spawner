@@ -1018,6 +1018,9 @@ fun ServerSettings(
     onSaveConnect: (String, String) -> Unit,
     onSttChanged: () -> Unit,
     onBack: () -> Unit,
+    // Platform slot for the "Trust CA" section — Android fills it (import a private
+    // CA so a `tls internal` wss server validates); the browser leaves it empty.
+    caSection: @Composable ColumnScope.() -> Unit = {},
 ) {
     var url by rememberSaveable { mutableStateOf(settings.url) }
     var token by rememberSaveable { mutableStateOf(settings.token) }
@@ -1034,6 +1037,8 @@ fun ServerSettings(
             Text("Save & Connect")
         }
         Text("Client ID: ${settings.clientId}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+
+        caSection()
 
         HorizontalDivider()
         Text("Context compression", style = MaterialTheme.typography.titleMedium)

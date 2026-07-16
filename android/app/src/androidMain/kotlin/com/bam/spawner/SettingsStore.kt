@@ -1,10 +1,14 @@
 package com.bam.spawner
 
 import android.content.Context
+import java.io.File
+import java.security.cert.CertificateFactory
+import java.security.cert.X509Certificate
 
 /** Persists the server URL, auth token, and per-connection voice settings. */
 class SettingsStore(context: Context) : Prefs {
     private val prefs = context.getSharedPreferences("spawner", Context.MODE_PRIVATE)
+    private val appContext = context.applicationContext
 
     override var url: String
         get() = prefs.getString("url", Prefs.DEFAULT_URL) ?: Prefs.DEFAULT_URL
@@ -197,4 +201,60 @@ class SettingsStore(context: Context) : Prefs {
         get() = prefs.getBoolean("headset_ns", Prefs.DEFAULT_HEADSET_NOISE_SUPPRESSION)
         set(v) = prefs.edit().putBoolean("headset_ns", v).apply()
 
+    // --- Trusted CA (Android-only; not in the shared Prefs interface) --------
+    // A PEM CA the app trusts on top of the system store, so it can reach a server
+    // whose `wss://` cert is signed by a private CA (Caddy `tls internal`). Stored
+    // as PEM text; the transport layer parses it (see HttpTransport.android.kt).
+
+    /** The trusted CA in PEM form, or "" when none. */
+    var caCertPem: String
+        get() = prefs.getString("ca_cert_pem", "") ?: ""
+        private set(v) = prefs.edit().putString("ca_cert_pem", v).apply()
+
+    /** Human label for the trusted CA (its certificate subject CN), for the UI. */
+    var caCertName: String
+        get() = prefs.getString("ca_cert_name", "") ?: ""
+        private set(v) = prefs.edit().putString("ca_cert_name", v).apply()
+
+    fun hasCaCert(): Boolean = caCertPem.isNotBlank()
+
+    /** Where `adb push` can drop a CA for hands-off import — the app's external
+     *  files dir is writable over adb on a non-rooted device. Auto-imported on
+     *  connect (see [autoImportPushedCa]). */
+    val pushedCaFile: File
+        get() = File(appContext.getExternalFilesDir(null), "caddy-root.crt")
+
+    /** Parse and store [bytes] as the trusted CA. Returns the cert subject on success,
+     *  or throws if the bytes aren't a valid X.509 certificate. */
+    fun importCaCert(bytes: ByteArray): String {
+        val cf = CertificateFactory.getInstance("X.509")
+        val cert = bytes.inputStream().use { cf.generateCertificate(it) } as X509Certificate
+        val pem = toPem(cert)
+        val name = cert.subjectX500Principal.name
+            .split(",").firstOrNull { it.trim().startsWith("CN=") }
+            ?.trim()?.removePrefix("CN=") ?: cert.subjectX500Principal.name
+        caCertPem = pem
+        caCertName = name
+        return name
+    }
+
+    /** If no CA is stored yet and one has been pushed to [pushedCaFile], import it.
+     *  Lets me place the cert over adb and have the app pick it up with no tapping. */
+    fun autoImportPushedCa() {
+        if (hasCaCert()) return
+        val f = pushedCaFile
+        if (f.exists()) runCatching { importCaCert(f.readBytes()) }
+    }
+
+    fun clearCaCert() {
+        caCertPem = ""
+        caCertName = ""
+    }
+
+    private fun toPem(cert: X509Certificate): String {
+        val b64 = android.util.Base64.encodeToString(cert.encoded, android.util.Base64.NO_WRAP)
+        return "-----BEGIN CERTIFICATE-----\n" +
+            b64.chunked(64).joinToString("\n") +
+            "\n-----END CERTIFICATE-----\n"
+    }
 }

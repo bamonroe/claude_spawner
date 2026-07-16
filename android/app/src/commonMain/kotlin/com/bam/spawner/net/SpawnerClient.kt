@@ -80,8 +80,12 @@ class SpawnerClient(
     // Server→client binary frames are exclusively speak audio (see docs/protocol.md:
     // each stream is bracketed by speak_audio/speak_end on the same ordered socket).
     private val onAudio: (ByteArray) -> Unit = {},
+    // A PEM CA to trust in addition to the system store, for reaching a server whose
+    // `wss://` cert is signed by a private CA (e.g. Caddy's `tls internal`). Android
+    // only; the browser (wasmJs) owns trust itself and ignores this.
+    private val caPem: String? = null,
 ) {
-    private val client: HttpClient = spawnerHttpClient()
+    private val client: HttpClient = spawnerHttpClient(caPem)
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
     // Outgoing frames are funnelled through one channel so sends from any thread
@@ -152,6 +156,8 @@ class SpawnerClient(
 /**
  * Build the platform Ktor client with WebSocket support. Android uses the OkHttp
  * engine (ping interval, no read timeout); the browser uses its native WebSocket.
- * TLS, when present, is terminated at the reverse proxy — neither engine handles it.
+ * [caPem], when non-null, is a PEM CA to trust on top of the system store so a
+ * `wss://` server with a private cert (Caddy `tls internal`) is reachable — Android
+ * honours it; the browser owns trust itself and ignores it.
  */
-expect fun spawnerHttpClient(): HttpClient
+expect fun spawnerHttpClient(caPem: String?): HttpClient
