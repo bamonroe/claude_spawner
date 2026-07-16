@@ -56,6 +56,14 @@ Pixel 8a runs the app attached to the very Claude Code session doing the work, s
 becomes the client you're talking to. Expect to see your own messages appear in the app's chat log,
 and remember that an Android change you push can affect the live client mid-conversation.
 
+**Do not rebuild/recreate the server while the user is talking through the app.** Running
+`deploy/rebuild-container.sh`, using the app restart button, or otherwise recreating
+`spawner-server` drops the live WebSocket and kills any in-flight turn, including the session the
+user may be using to talk to you. A background job only keeps the command alive; it does not make the
+server restart safe. Before starting a server rebuild/recreate, explicitly tell the user it will
+interrupt the app connection and wait for them to confirm a safe moment. If you need a rebuild later,
+leave the commit pushed and say it is pending instead of starting it silently.
+
 ## The "hey buddy" command grammar
 
 Every control command is prefixed with the wake word **"hey buddy"**. Anything spoken while
