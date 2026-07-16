@@ -103,6 +103,17 @@ Dates are `YYYY-MM-DD`.
           apply + outbound send logic into one shared `commonMain` reconciler so the two controllers
           can't drift; bring the web client up to parity (add its missing branches). Finishes the
           `dedupeCachedLog`-onto-`index` cleanup. Drift tests stay green (no new messages).
+          - [x] **Slice 1 (catalogues) — done, branch `app` `acea2f4`.** New
+                `commonMain/net/CatalogueSync.kt`: a `Catalogue<T>` (StateFlow + `key` + `merge` seam
+                for Phase 2's LWW/digest) and a `CatalogueSync` owning all four catalogues (hosts,
+                identities, profiles, providers) with one `apply(msg)` inbound + all outbound mutators.
+                `VoiceController`/`WebAppController` lost their four StateFlow holders, four inbound
+                branches, and 13 mutator bodies — now thin delegations. Both targets compile.
+          - [ ] **Slice 2** — bring the web client to parity on the branches it silently no-ops
+                (`digests`, `session_list`, calibration, read-last).
+          - [ ] **Slice 3** — hoist the session/chat reconcile branches (`context_reset`, `attached`,
+                `history`, `renamed`, `discovered`, `digests`) into the shared reconciler; finish
+                `dedupeCachedLog`→`index`.
     - [ ] **Phase 2 — add `updated_at` to the catalogue records + messages (both worktrees).** Extend
           `Host`/`Identity`/`ProfileInfo`/`AgentInfo` and their Go structs with `updated_at`; server
           persists it and arbitrates LWW; add tombstones for deletes. Extend `fieldsync`/`docsync`
