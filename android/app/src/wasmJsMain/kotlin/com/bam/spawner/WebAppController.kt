@@ -169,10 +169,13 @@ class WebAppController(private val prefs: Prefs) : AppController {
     private val _ask = MutableStateFlow<List<AskQuestion>?>(null)
     override val ask: StateFlow<List<AskQuestion>?> = _ask.asStateFlow()
 
-    private val _agents = MutableStateFlow<List<AgentInfo>>(emptyList())
-    override val agents: StateFlow<List<AgentInfo>> = _agents.asStateFlow()
-    private val _profiles = MutableStateFlow<List<ProfileInfo>>(emptyList())
-    override val profiles: StateFlow<List<ProfileInfo>> = _profiles.asStateFlow()
+    // The four app-managed catalogues (hosts, identities, profiles, providers) are
+    // reconciled through one shared commonMain point so this controller and the Android
+    // controller can't drift; it owns the StateFlows the UI reads and the outbound
+    // mutators. The server persists each and re-broadcasts its list message.
+    private val catalogues = com.bam.spawner.net.CatalogueSync { client?.send(it) }
+    override val agents: StateFlow<List<AgentInfo>> = catalogues.agents
+    override val profiles: StateFlow<List<ProfileInfo>> = catalogues.profiles
 
     private val _listing = MutableStateFlow<ServerMsg.Listing?>(null)
     override val listing: StateFlow<ServerMsg.Listing?> = _listing.asStateFlow()
@@ -181,10 +184,8 @@ class WebAppController(private val prefs: Prefs) : AppController {
     private val _fileData = MutableSharedFlow<ServerMsg.FileData>(extraBufferCapacity = 4)
     override val fileData: SharedFlow<ServerMsg.FileData> = _fileData.asSharedFlow()
 
-    private val _hosts = MutableStateFlow<List<Host>>(emptyList())
-    override val hosts: StateFlow<List<Host>> = _hosts.asStateFlow()
-    private val _identities = MutableStateFlow<List<Identity>>(emptyList())
-    override val identities: StateFlow<List<Identity>> = _identities.asStateFlow()
+    override val hosts: StateFlow<List<Host>> = catalogues.hosts
+    override val identities: StateFlow<List<Identity>> = catalogues.identities
 
     /** (Re)connect to [url] with [token], sending the hello handshake built from prefs. */
     fun connect(url: String, token: String) {
@@ -419,10 +420,8 @@ class WebAppController(private val prefs: Prefs) : AppController {
             is ServerMsg.Listing -> _listing.value = msg
             is ServerMsg.FileSaved -> _fileSaved.tryEmit(msg.path)
             is ServerMsg.FileData -> _fileData.tryEmit(msg)
-            is ServerMsg.HostList -> _hosts.value = msg.hosts
-            is ServerMsg.IdentityList -> _identities.value = msg.identities
-            is ServerMsg.Agents -> _agents.value = msg.agents
-            is ServerMsg.Profiles -> _profiles.value = msg.profiles
+            is ServerMsg.HostList, is ServerMsg.IdentityList,
+            is ServerMsg.Agents, is ServerMsg.Profiles -> catalogues.apply(msg)
             is ServerMsg.Err -> {
                 _activity.value = ""
                 if (_usageLoading.value) _usageLoading.value = false
@@ -544,24 +543,24 @@ class WebAppController(private val prefs: Prefs) : AppController {
     override fun attachedDirHost(): Pair<String, String>? =
         _discovered.value.firstOrNull { it.sessionId == _attachedId.value }?.let { it.dir to it.host }
 
-    override fun requestHosts() { client?.send(Outbound.hostsList()) }
-    override fun putHost(host: Host) { client?.send(Outbound.hostPut(host)) }
-    override fun deleteHost(name: String) { client?.send(Outbound.hostDelete(name)) }
-    override fun requestIdentities() { client?.send(Outbound.identitiesList()) }
-    override fun createIdentity(name: String, user: String, password: String, genKey: Boolean) {
-        client?.send(Outbound.identityCreate(name, user, password, genKey))
-    }
-    override fun importIdentity(name: String, user: String, password: String, keyPath: String) {
-        client?.send(Outbound.identityImport(name, user, password, keyPath))
-    }
-    override fun updateIdentity(name: String, user: String, setPassword: Boolean, password: String) {
-        client?.send(Outbound.identityUpdate(name, user, setPassword, password))
-    }
-    override fun deleteIdentity(name: String) { client?.send(Outbound.identityDelete(name)) }
-    override fun putProfile(p: ProfileInfo) { client?.send(Outbound.profilePut(p)) }
-    override fun deleteProfile(name: String) { client?.send(Outbound.profileDelete(name)) }
-    override fun setDefaultProfile(name: String) { client?.send(Outbound.profileSetDefault(name)) }
-    override fun putProvider(agent: String, defaultModel: String, voiceModels: List<String>) { client?.send(Outbound.providerPut(agent, defaultModel, voiceModels)) }
+    // The four app-managed catalogues' mutators delegate to the shared reconciler
+    // (see CatalogueSync); the server broadcasts the refreshed list after each change.
+    override fun requestHosts() = catalogues.requestHosts()
+    override fun putHost(host: Host) = catalogues.putHost(host)
+    override fun deleteHost(name: String) = catalogues.deleteHost(name)
+    override fun requestIdentities() = catalogues.requestIdentities()
+    override fun createIdentity(name: String, user: String, password: String, genKey: Boolean) =
+        catalogues.createIdentity(name, user, password, genKey)
+    override fun importIdentity(name: String, user: String, password: String, keyPath: String) =
+        catalogues.importIdentity(name, user, password, keyPath)
+    override fun updateIdentity(name: String, user: String, setPassword: Boolean, password: String) =
+        catalogues.updateIdentity(name, user, setPassword, password)
+    override fun deleteIdentity(name: String) = catalogues.deleteIdentity(name)
+    override fun putProfile(p: ProfileInfo) = catalogues.putProfile(p)
+    override fun deleteProfile(name: String) = catalogues.deleteProfile(name)
+    override fun setDefaultProfile(name: String) = catalogues.setDefaultProfile(name)
+    override fun putProvider(agent: String, defaultModel: String, voiceModels: List<String>) =
+        catalogues.putProvider(agent, defaultModel, voiceModels)
 
     override fun requestUsage() { _usageLoading.value = true; _usageReport.value = null; client?.send(Outbound.usage()) }
     override fun setUsageBenchmark() { client?.send(Outbound.usageSet()) }

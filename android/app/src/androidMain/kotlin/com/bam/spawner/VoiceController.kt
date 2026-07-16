@@ -276,15 +276,13 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     private val _fileData = MutableSharedFlow<ServerMsg.FileData>(extraBufferCapacity = 4)
     override val fileData: SharedFlow<ServerMsg.FileData> = _fileData.asSharedFlow()
 
-    // The app-managed SSH host registry (Settings → Hosts). The server is the store
-    // of record on disk, but the app owns the list; refreshed from every host_list.
-    private val _hosts = MutableStateFlow<List<com.bam.spawner.net.Host>>(emptyList())
-    override val hosts: StateFlow<List<com.bam.spawner.net.Host>> = _hosts.asStateFlow()
-
-    // The app-managed SSH identity registry (Settings → Identities); names + public
-    // keys only (the server holds the private keys). Refreshed from every identity_list.
-    private val _identities = MutableStateFlow<List<com.bam.spawner.net.Identity>>(emptyList())
-    override val identities: StateFlow<List<com.bam.spawner.net.Identity>> = _identities.asStateFlow()
+    // The four app-managed catalogues (hosts, identities, profiles, providers) are
+    // reconciled through one shared commonMain point so this controller and the web
+    // controller can't drift; it owns the StateFlows the UI reads and the outbound
+    // mutators. The server persists each and re-broadcasts its list message.
+    private val catalogues = com.bam.spawner.net.CatalogueSync { client?.send(it) }
+    override val hosts: StateFlow<List<com.bam.spawner.net.Host>> = catalogues.hosts
+    override val identities: StateFlow<List<com.bam.spawner.net.Identity>> = catalogues.identities
 
     private val _mic = MutableStateFlow("")
     val mic: StateFlow<String> = _mic.asStateFlow()
@@ -406,11 +404,10 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     private val _ask = MutableStateFlow<List<com.bam.spawner.net.AskQuestion>?>(null)
     override val ask: StateFlow<List<com.bam.spawner.net.AskQuestion>?> = _ask.asStateFlow()
 
-    // AI backend registry from the `agents` message (backends + models for the picker).
-    private val _agents = MutableStateFlow<List<com.bam.spawner.net.AgentInfo>>(emptyList())
-    override val agents: StateFlow<List<com.bam.spawner.net.AgentInfo>> = _agents.asStateFlow()
-    private val _profiles = MutableStateFlow<List<ProfileInfo>>(emptyList())
-    override val profiles: StateFlow<List<ProfileInfo>> = _profiles.asStateFlow()
+    // AI backend registry (`agents`) and execution profiles (`profiles`) — both are
+    // app-managed catalogues, reconciled through the shared `catalogues` above.
+    override val agents: StateFlow<List<com.bam.spawner.net.AgentInfo>> = catalogues.agents
+    override val profiles: StateFlow<List<ProfileInfo>> = catalogues.profiles
 
     // Spoken-audio output routing (earpiece/speaker/bluetooth). `audioOutputs` is
     // what's currently selectable (bluetooth only when a headset is connected);
@@ -593,48 +590,24 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     /** Ask the server for all Claude sessions on disk (spawner-created or not). */
     override fun discover() = client?.send(Outbound.discover()).let {}
 
-    /** Request the SSH host registry (Settings → Hosts). Server replies host_list. */
-    override fun requestHosts() = client?.send(Outbound.hostsList()).let {}
-
-    /** Add or update a host; the server broadcasts the refreshed host_list. */
-    override fun putHost(host: com.bam.spawner.net.Host) = client?.send(Outbound.hostPut(host)).let {}
-
-    /** Delete a host by name; the server broadcasts the refreshed host_list. */
-    override fun deleteHost(name: String) = client?.send(Outbound.hostDelete(name)).let {}
-
-    /** Request the SSH identity registry (Settings → Identities). Replies identity_list. */
-    override fun requestIdentities() = client?.send(Outbound.identitiesList()).let {}
-
-    /** Create a new identity (user required; optional keypair + password); broadcasts identity_list. */
-    override fun createIdentity(name: String, user: String, password: String, genKey: Boolean) {
-        client?.send(Outbound.identityCreate(name, user, password, genKey))
-    }
-
-    /** Import an existing server-side private key as an identity; broadcasts identity_list. */
-    override fun importIdentity(name: String, user: String, password: String, keyPath: String) {
-        client?.send(Outbound.identityImport(name, user, password, keyPath))
-    }
-
-    /** Update an identity's user (and optionally its password), keeping the keypair. */
-    override fun updateIdentity(name: String, user: String, setPassword: Boolean, password: String) {
-        client?.send(Outbound.identityUpdate(name, user, setPassword, password))
-    }
-
-    /** Delete an identity by name; broadcasts identity_list. */
-    override fun deleteIdentity(name: String) = client?.send(Outbound.identityDelete(name)).let {}
-
-    /** Add or update an execution profile; the server broadcasts the refreshed profiles. */
-    override fun putProfile(p: com.bam.spawner.net.ProfileInfo) = client?.send(Outbound.profilePut(p)).let {}
-
-    /** Delete a profile by name; broadcasts profiles. */
-    override fun deleteProfile(name: String) = client?.send(Outbound.profileDelete(name)).let {}
-
-    /** Mark a profile as the default; broadcasts profiles. */
-    override fun setDefaultProfile(name: String) = client?.send(Outbound.profileSetDefault(name)).let {}
-
-    /** Set a backend's default model + voice-enumerable models; broadcasts agents. */
+    // The four app-managed catalogues' mutators all delegate to the shared reconciler
+    // (see CatalogueSync); the server broadcasts the refreshed list after each change.
+    override fun requestHosts() = catalogues.requestHosts()
+    override fun putHost(host: com.bam.spawner.net.Host) = catalogues.putHost(host)
+    override fun deleteHost(name: String) = catalogues.deleteHost(name)
+    override fun requestIdentities() = catalogues.requestIdentities()
+    override fun createIdentity(name: String, user: String, password: String, genKey: Boolean) =
+        catalogues.createIdentity(name, user, password, genKey)
+    override fun importIdentity(name: String, user: String, password: String, keyPath: String) =
+        catalogues.importIdentity(name, user, password, keyPath)
+    override fun updateIdentity(name: String, user: String, setPassword: Boolean, password: String) =
+        catalogues.updateIdentity(name, user, setPassword, password)
+    override fun deleteIdentity(name: String) = catalogues.deleteIdentity(name)
+    override fun putProfile(p: com.bam.spawner.net.ProfileInfo) = catalogues.putProfile(p)
+    override fun deleteProfile(name: String) = catalogues.deleteProfile(name)
+    override fun setDefaultProfile(name: String) = catalogues.setDefaultProfile(name)
     override fun putProvider(agent: String, defaultModel: String, voiceModels: List<String>) =
-        client?.send(Outbound.providerPut(agent, defaultModel, voiceModels)).let {}
+        catalogues.putProvider(agent, defaultModel, voiceModels)
 
     /** Adopt a discovered session into the registry and attach to it. */
     override fun adopt(sessionId: String, dir: String) = client?.send(Outbound.adopt(sessionId, dir)).let {}
@@ -1502,10 +1475,8 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                 // to a session whose hash still equals our cached digest skips the fetch.
                 for (d in msg.items) serverDigest[d.name] = d.count to d.hash
             }
-            is ServerMsg.HostList -> _hosts.value = msg.hosts
-            is ServerMsg.IdentityList -> _identities.value = msg.identities
-            is ServerMsg.Agents -> _agents.value = msg.agents
-            is ServerMsg.Profiles -> _profiles.value = msg.profiles
+            is ServerMsg.HostList, is ServerMsg.IdentityList,
+            is ServerMsg.Agents, is ServerMsg.Profiles -> catalogues.apply(msg)
             is ServerMsg.Err -> {
                 // Version skew: an older server that predates the transcript-cache feature
                 // rejects our connect-time `digest` probe with bad_message. That's harmless
