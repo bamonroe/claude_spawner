@@ -141,10 +141,23 @@ Dates are `YYYY-MM-DD`.
                       not regressed). Revisit if full parity is wanted.
           - [ ] **On-device verification (still open):** run on the phone and confirm the sporadic
                 duplicate rows are actually gone end-to-end (no emulator/APK step done yet).
-    - [ ] **Phase 2 — add `updated_at` to the catalogue records + messages (both worktrees).** Extend
+    - [~] **Phase 2 — add `updated_at` to the catalogue records + messages (both worktrees).** Extend
           `Host`/`Identity`/`ProfileInfo`/`AgentInfo` and their Go structs with `updated_at`; server
-          persists it and arbitrates LWW; add tombstones for deletes. Extend `fieldsync`/`docsync`
-          coverage. This is the one non-parallel step — coordinate, land, merge.
+          persists it and arbitrates LWW; add tombstones for deletes. This is the one non-parallel
+          step — coordinate, land, merge.
+          - [x] **Phase 2a (LWW + tombstones) — done, master.** Landed coordinated on `master`
+                (Go + Kotlin together). Each record carries client-stamped `updated_at` (unix ms);
+                server rejects older upserts + re-broadcasts current; timestamped tombstones block
+                stale re-adds (new `session/tombstone.go`); app stamps edits via a new expect/actual
+                `nowEpochMs` clock and `CatalogueSync` merges LWW by `updatedAt`. `docs/protocol.md`
+                updated; Go arbitration unit tests added; `go test -count=1` + both APK/wasm builds
+                green. Still needs **master→app merge** and on-device check.
+          - [ ] **Phase 2b — per-catalogue digest fast-path** (skip-if-equal): stable order-independent
+                checksum per catalogue exchanged in the handshake; match → do nothing, mismatch → ship
+                the small catalogue and let the LWW merge resolve. Reuses the chat `digests` pattern.
+          - [ ] **Note:** `fieldsync`/`docsync` guards docs↔Go only; it does NOT yet catch a missing
+                *Kotlin* field (that's Phase 4) — Phase 2a's both-sides parity was verified by build,
+                not by the drift test.
     - [ ] **Phase 3 — route per-client settings through the same layer** (whisper model, wake_service,
           auto_compress, speech_mode) so a setting changed on one client propagates to others with the
           same LWW rule, instead of fire-and-forget-at-connect / server-global-mutable-by-anyone.
