@@ -261,12 +261,13 @@ func msgDetached() map[string]any {
 // returns to zero; no dictation has run against the new context yet, so there is
 // nothing to show until the next turn lands (which reports the true new size).
 //
-// The rotation mints a fresh `session_id`, but this message doesn't carry it: the
-// clear/compress paths emit a fresh `attached` alongside this reset, and the app
-// re-keys and refreshes the cleared session's cached rows off that — reusing the
-// attach path rather than duplicating the id here.
-func msgContextReset(name string) map[string]any {
-	return map[string]any{"type": "context_reset", "name": name}
+// The rotation mints a fresh `session_id` (the old one is retired onto the
+// session's PriorIDs), carried here so this reset is a single self-describing
+// event: the app re-keys to the new id and refreshes the cleared session's cached
+// rows off it, without overloading the `attached` (re-attach) message to mean
+// "the context rotated."
+func msgContextReset(name, sessionID string) map[string]any {
+	return map[string]any{"type": "context_reset", "name": name, "session_id": sessionID}
 }
 
 // msgRenamed tells the app that the currently-attached session was renamed
