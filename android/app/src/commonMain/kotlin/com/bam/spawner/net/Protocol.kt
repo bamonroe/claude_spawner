@@ -455,9 +455,11 @@ object Outbound {
             put("type", "set_whisper_model"); put("whisper_model", model)
             if (fast) put("fast", true)
         }.toString()
-    // ask the server to restart; rebuild=true recompiles from source, false is a fast
-    // bounce that recreates from the existing image
-    fun restart(rebuild: Boolean) = buildJsonObject { put("type", "restart"); put("rebuild", rebuild) }.toString()
+    // ask the server to rebuild and/or restart. mode is one of:
+    //   "build"   — rebuild the image only; leave the running container in place (no bounce)
+    //   "bounce"  — recreate the container from the existing image (no rebuild)
+    //   "rebuild" — build then recreate (the default)
+    fun restart(mode: String) = buildJsonObject { put("type", "restart"); put("mode", mode) }.toString()
 
     // Ask the server to synthesize `text` (markdown already stripped) via Kokoro.
     // `id` is echoed on the speak_audio/speak_end response stream; empty voice /

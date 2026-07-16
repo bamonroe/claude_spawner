@@ -552,7 +552,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
 
     override fun setWhisperModel(model: String, fast: Boolean) { client?.send(Outbound.setWhisperModel(model, fast)) }
     override fun setAutoCompress(warm: Boolean, auto: Boolean, thresholdK: Int) { client?.send(Outbound.autoCompress(warm, auto, thresholdK)) }
-    override fun restartServer(rebuild: Boolean) { client?.send(Outbound.restart(rebuild)) }
+    override fun restartServer(mode: String) { client?.send(Outbound.restart(mode)) }
 
     // --- Push-to-talk mic capture (concrete, off the interface like Android) -------
     // Mirrors the phone: grab the mic on press, send the whole clip on release as

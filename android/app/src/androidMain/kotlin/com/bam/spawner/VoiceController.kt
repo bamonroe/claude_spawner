@@ -979,7 +979,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
 
     /** Ask the server to restart. It exits so its supervisor relaunches it on
      *  current code; the app auto-reconnects once it's listening again. */
-    override fun restartServer(rebuild: Boolean) = client?.send(Outbound.restart(rebuild)).let {}
+    override fun restartServer(mode: String) = client?.send(Outbound.restart(mode)).let {}
 
     // --- Live level meter (Audio settings page) ---
     /** Start a standalone meter unless hands-free is already feeding the level. */

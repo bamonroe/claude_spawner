@@ -1022,8 +1022,8 @@ fun ServerSettings(
     var url by rememberSaveable { mutableStateOf(settings.url) }
     var token by rememberSaveable { mutableStateOf(settings.token) }
     val connected by controller.connected.collectAsState()
-    var restartConfirm by remember { mutableStateOf(false) }
-    var rebuildOnRestart by remember { mutableStateOf(true) }
+    // The pending restart mode awaiting confirmation ("build" | "bounce" | "rebuild"), or null.
+    var restartMode by remember { mutableStateOf<String?>(null) }
     SettingsScaffold("Server", onBack) {
         OutlinedTextField(url, { url = it }, label = { Text("Server URL") }, placeholder = { Text("cs.bam") }, supportingText = { Text("Host is enough — ws:// and /ws are added for you") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(token, { token = it }, label = { Text("Token") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -1101,38 +1101,49 @@ fun ServerSettings(
         HorizontalDivider()
         Text("Restart server", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Restarts the server process on your machine. With Rebuild on, it recompiles from "
-                + "current code first, so it picks up server changes (slower); off is a fast bounce "
-                + "that reuses the current build. In-flight turns are interrupted; the app reconnects on its own.",
+            "The server runs in a container. Rebuild compiles current code into a new image "
+                + "without touching the running container, so your session keeps going. Restart "
+                + "container bounces onto the newest image — running turns are interrupted and the "
+                + "app reconnects on its own. Rebuild & restart does both.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
         )
         Button(
-            onClick = { restartConfirm = true },
+            onClick = { restartMode = "build" },
+            enabled = connected,
+        ) { Text("Rebuild Server") }
+        Button(
+            onClick = { restartMode = "bounce" },
             enabled = connected,
             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-        ) { Text("Restart Server") }
+        ) { Text("Restart Container") }
+        Button(
+            onClick = { restartMode = "rebuild" },
+            enabled = connected,
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+        ) { Text("Rebuild & Restart") }
         if (!connected) {
             Text("Connect first.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
         }
     }
-    if (restartConfirm) {
+    restartMode?.let { mode ->
+        val (title, body) = when (mode) {
+            "build" -> "Rebuild the server?" to
+                ("The server rebuilds its image from current code. The running container is left in "
+                    + "place, so your session keeps going and no turn is interrupted. Tap Restart "
+                    + "Container afterward to switch onto the new image.")
+            "bounce" -> "Restart the container?" to
+                ("The server recreates its container from the newest image (no rebuild). Any running "
+                    + "turn is interrupted; the app reconnects automatically.")
+            else -> "Rebuild and restart?" to
+                ("The server rebuilds from current code, then recreates its container. Any running "
+                    + "turn is interrupted; the app reconnects automatically.")
+        }
         AlertDialog(
-            onDismissRequest = { restartConfirm = false },
-            title = { Text("Restart the server?") },
-            text = {
-                Column {
-                    Text(
-                        if (rebuildOnRestart) "The server will recompile from current code, then relaunch. Any running turn is interrupted; the app reconnects automatically."
-                        else "The server will relaunch from the current build (no recompile). Any running turn is interrupted; the app reconnects automatically."
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { rebuildOnRestart = !rebuildOnRestart }) {
-                        Checkbox(checked = rebuildOnRestart, onCheckedChange = { rebuildOnRestart = it })
-                        Text("Rebuild from source")
-                    }
-                }
-            },
-            confirmButton = { TextButton(onClick = { restartConfirm = false; controller.restartServer(rebuildOnRestart) }) { Text("Restart") } },
-            dismissButton = { TextButton(onClick = { restartConfirm = false }) { Text("Cancel") } },
+            onDismissRequest = { restartMode = null },
+            title = { Text(title) },
+            text = { Text(body) },
+            confirmButton = { TextButton(onClick = { controller.restartServer(mode); restartMode = null }) { Text("Confirm") } },
+            dismissButton = { TextButton(onClick = { restartMode = null }) { Text("Cancel") } },
         )
     }
 }
