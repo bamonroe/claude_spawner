@@ -120,6 +120,18 @@ func (s *Session) TranscriptIDs() []string {
 	return ids
 }
 
+// HasPriorID reports whether id is one of the session_ids this session retired via
+// a "clear"/"compress" context rotation (see PriorIDs). It does NOT match the
+// current SessionID — callers check that separately.
+func (s *Session) HasPriorID(id string) bool {
+	for _, prior := range s.PriorIDs {
+		if prior == id {
+			return true
+		}
+	}
+	return false
+}
+
 // Driver runs Claude Code turns. It holds no per-session state.
 type Driver struct {
 	// Execs maps an execution Target to the Executor that launches its turns. Turn

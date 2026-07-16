@@ -375,6 +375,49 @@ func TestSpawnDialogAndDictation(t *testing.T) {
 	}
 }
 
+// TestClearThenDictateWithStaleID reproduces the "that session is gone" bug: a
+// `clear` rotates the attached session's session_id and retires the old one, but the
+// app keeps routing utterances by the pre-rotation id (a context_reset carries no new
+// id). selectClientSession must recognize that retired id as the session it's already
+// attached to and stay on it, instead of failing with "that session is gone."
+func TestClearThenDictateWithStaleID(t *testing.T) {
+	ts, root := newTestServer(t, nil)
+	if err := os.MkdirAll(filepath.Join(root, "proj"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ws := dial(t, ts)
+	send(t, ws, map[string]any{"type": "hello", "token": "secret"})
+	readUntil(t, ws, "hello_ok")
+
+	// Spawn + attach, capturing the session_id the app routes by.
+	send(t, ws, map[string]any{"type": "utterance", "text": "hey buddy spawn a new session"})
+	readUntil(t, ws, "dialog")
+	send(t, ws, map[string]any{"type": "utterance", "text": filepath.Join(root, "proj")})
+	readUntil(t, ws, "dialog")
+	send(t, ws, map[string]any{"type": "utterance", "text": "yes"})
+	oldID, _ := readUntil(t, ws, "attached")["session_id"].(string)
+	if oldID == "" {
+		t.Fatal("expected a session_id on attach")
+	}
+
+	// Run a turn so the session is Started (clear refuses on an unstarted session).
+	send(t, ws, map[string]any{"type": "utterance", "text": "say pong", "session_id": oldID})
+	if out := readUntil(t, ws, "output"); out["text"] != "pong" {
+		t.Fatalf("expected pong, got %v", out["text"])
+	}
+
+	// Clear rotates the session_id and retires oldID; the app is not told the new id.
+	send(t, ws, map[string]any{"type": "utterance", "text": "hey buddy clear context", "session_id": oldID})
+	readUntil(t, ws, "context_reset")
+
+	// The app dictates again, still keyed to the retired oldID. Before the fix this
+	// tripped "that session is gone." (no output); now it must reach the session.
+	send(t, ws, map[string]any{"type": "utterance", "text": "say pong", "session_id": oldID})
+	if out := readUntil(t, ws, "output"); out["text"] != "pong" {
+		t.Fatalf("stale-id dictation after clear should still reach the session, got %v", out["text"])
+	}
+}
+
 // TestSpawnFuzzyPathAutoCorrects: a spoken path whose last segment only
 // fuzzy-matches an existing folder ("mail" -> "mail_play") auto-corrects with no
 // confirmation step and resolves straight to the attach question.

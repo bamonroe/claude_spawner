@@ -630,6 +630,14 @@ func (c *conn) selectClientSession(sessionID string) bool {
 	if c.attached != nil && c.attached.SessionID == sessionID {
 		return true
 	}
+	// A "clear"/"compress" rotates the attached session's id and retires (ForgetID)
+	// the old one, but the app keeps routing by that pre-rotation id until it sees a
+	// fresh `attached` — which a context_reset doesn't send. So a stale id that is a
+	// PriorID of the session we're already on just means "the session I'm attached
+	// to"; stay on it instead of erroring with "that session is gone."
+	if c.attached != nil && c.attached.HasPriorID(sessionID) {
+		return true
+	}
 	s := c.srv.store.GetBySessionID(sessionID)
 	if s == nil {
 		c.send(msgSay("that session is gone."))
