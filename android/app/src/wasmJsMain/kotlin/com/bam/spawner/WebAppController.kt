@@ -63,6 +63,15 @@ class WebAppController(private val prefs: Prefs) : AppController {
     private val streamedSessions = mutableSetOf<String>()
     private var previousFocusedSession: DiscoveredInfo? = null
 
+    // Transcript freshness, the phone's cache-validation fast-path (minus the on-disk
+    // cache — the browser holds transcripts in memory only). `serverDigest` is the latest
+    // per-session (count, hash) the server reported (connect-time `digest` sweep + every
+    // `history` reply); `digestHeld` is the digest our in-memory log corresponds to. When
+    // the two match and we still hold content, a (re)attach skips the history fetch — the
+    // win is not refetching an unchanged session while switching between sessions live.
+    private val serverDigest = mutableMapOf<String, Pair<Int, String>>()
+    private val digestHeld = mutableMapOf<String, Pair<Int, String>>()
+
     private val _chat = MutableStateFlow<List<ChatMessage>>(emptyList())
     override val chat: StateFlow<List<ChatMessage>> = _chat.asStateFlow()
     private val _hasMoreHistory = MutableStateFlow(false)
@@ -233,6 +242,19 @@ class WebAppController(private val prefs: Prefs) : AppController {
         )
     }
 
+    // requestFreshHistory refetches the recent page on (re)attach so a session that
+    // produced output while we viewed another isn't left stale — but saves the round
+    // trip when the connect-time digest sweep says this session's server hash still
+    // equals what our in-memory log holds (and we actually hold content). Otherwise it
+    // asks for the page, passing the held hash so the server can still answer `unchanged`.
+    private fun requestFreshHistory(name: String) {
+        val held = digestHeld[name]
+        val server = serverDigest[name]
+        val haveContent = logs[name]?.any { it.index >= 0 } == true
+        if (held != null && held == server && haveContent) return
+        client?.send(Outbound.history(name, null, haveHash = held?.second ?: ""))
+    }
+
     private fun focusKnownSession(session: DiscoveredInfo, syncServer: Boolean) {
         if (session.sessionId.isBlank()) {
             client?.send(Outbound.attach(session.name, silent = syncServer))
@@ -255,7 +277,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
         currentKey = session.name
         publish()
         _scrollTick.value = _scrollTick.value + 1
-        client?.send(Outbound.history(session.name, null))
+        requestFreshHistory(session.name)
         if (syncServer) client?.send(Outbound.attach(session.name, sessionId = session.sessionId, silent = true))
     }
 
@@ -284,6 +306,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
                 _serverTtsAvailable.value = msg.tts
                 if (msg.tts) client?.send(Outbound.ttsVoices()) // fetch the voice-picker catalogue
                 discover()
+                client?.send(Outbound.digest()) // validate the in-memory transcript cache (bodies-free)
                 if (prefs.lastSession.isNotBlank()) {
                     client?.send(Outbound.attach(prefs.lastSession, prefs.lastSessionId, silent = true))
                 }
@@ -350,6 +373,8 @@ class WebAppController(private val prefs: Prefs) : AppController {
                     logs.remove(msg.name)
                     hasMore.remove(msg.name)
                     oldest.remove(msg.name)
+                    digestHeld.remove(msg.name) // the rotated id's transcript is wiped/summarized:
+                    serverDigest.remove(msg.name) // forget the stale digest and refetch in full
                     if (msg.name == currentKey) publish()
                     client?.send(Outbound.history(msg.name, null))
                 }
@@ -397,7 +422,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
                 currentKey = msg.name
                 publish()
                 loadingOlder = false
-                client?.send(Outbound.history(msg.name, null))
+                requestFreshHistory(msg.name)
             }
             is ServerMsg.Detached -> {
                 currentFocusedSession()?.let { previousFocusedSession = it }
@@ -422,6 +447,14 @@ class WebAppController(private val prefs: Prefs) : AppController {
             is ServerMsg.FileData -> _fileData.tryEmit(msg)
             is ServerMsg.HostList, is ServerMsg.IdentityList,
             is ServerMsg.Agents, is ServerMsg.Profiles -> catalogues.apply(msg)
+            is ServerMsg.Digests -> {
+                // Latest server truth per session (bodies-free), from the connect-time
+                // sweep. Stored so a (re)attach to a session whose hash still equals what
+                // our in-memory log holds skips the fetch (see requestFreshHistory).
+                for (d in msg.items) serverDigest[d.name] = d.count to d.hash
+            }
+            is ServerMsg.ReadLast -> onReadLast(msg.count)
+            is ServerMsg.Pending -> _pending.value = msg.text // live hands-free draft (the web has VAD hands-free too)
             is ServerMsg.Err -> {
                 _activity.value = ""
                 if (_usageLoading.value) _usageLoading.value = false
@@ -437,8 +470,21 @@ class WebAppController(private val prefs: Prefs) : AppController {
                 _activity.value = ""; streamedSessions.remove(msg.name)
                 addChat(Role.SYSTEM, "⏹ stopped that turn.", key = msg.name)
             }
-            else -> {} // Pending / Calibration / ReadLast / Dialog / Unknown
+            // Phone-only voice surfaces with no web analogue — explicit, documented
+            // no-ops so the omission is intentional, not an accidental gap:
+            is ServerMsg.Calibration -> {} // detection-model mic calibration; the web has no calibration UI
+            is ServerMsg.Dialog -> {} // server-side voice-dialog state machine (spawn "where?" etc.); its spoken prompts already reach the web via `say`
+            is ServerMsg.Unknown -> {} // unrecognized wire type: ignore rather than crash
         }
+    }
+
+    // onReadLast re-reads (TTS) the last `count` Claude replies in the current view —
+    // the `read last` voice command; the web speaks them the same way the phone does.
+    private fun onReadLast(count: Int) {
+        val claude = _chat.value.filter { it.role == Role.CLAUDE }.takeLast(count.coerceAtLeast(1))
+        if (claude.isEmpty()) speak("nothing to read yet")
+        else speak(claude.joinToString(". … ") { it.text })
+        _scrollTick.value = _scrollTick.value + 1
     }
 
     private fun attachUsageToLastClaude(key: String, usage: com.bam.spawner.net.TokenUsage) {
@@ -450,6 +496,17 @@ class WebAppController(private val prefs: Prefs) : AppController {
     }
 
     private fun onHistory(msg: ServerMsg.History) {
+        // `unchanged` answers a top-page freshness check whose have_hash still matched:
+        // our in-memory transcript is current, so keep it untouched and just refresh the
+        // stored digest so future freshness checks stand.
+        if (msg.unchanged) {
+            if (msg.hash.isNotEmpty()) {
+                digestHeld[msg.name] = msg.count to msg.hash
+                serverDigest[msg.name] = msg.count to msg.hash
+            }
+            loadingOlder = false
+            return
+        }
         val hist = msg.messages.map { ChatMessage(roleOf(it.role), it.text, it.index, usage = it.usage, ts = it.ts) }
         val existing = logs[msg.name] ?: emptyList()
         logs[msg.name] = if (loadingOlder) {
@@ -463,6 +520,12 @@ class WebAppController(private val prefs: Prefs) : AppController {
         loadingOlder = false
         oldest[msg.name] = hist.firstOrNull()?.index ?: (oldest[msg.name] ?: 0)
         hasMore[msg.name] = msg.more
+        // Record the chain digest this page belongs to so a later reattach can
+        // short-circuit the fetch when the server hash still matches what we hold.
+        if (msg.hash.isNotEmpty()) {
+            digestHeld[msg.name] = msg.count to msg.hash
+            serverDigest[msg.name] = msg.count to msg.hash
+        }
         if (msg.name == currentKey) { publish(); _scrollTick.value = _scrollTick.value + 1 }
     }
 
