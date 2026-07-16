@@ -769,6 +769,7 @@ fun CommandsSettings(
     var endTok by rememberSaveable { mutableStateOf(settings.endToken) }
     var speakTok by rememberSaveable { mutableStateOf(settings.speakToken) }
     var gate by remember { mutableStateOf(settings.dictationGate) }
+    var useDetector by remember { mutableStateOf(settings.wakeService == "detector") }
     var silence by remember { mutableStateOf(if (settings.silenceCommitSeconds <= 0f) "" else settings.silenceCommitSeconds.toString()) }
     SettingsScaffold("Commands", onBack) {
         Text("Say your wake word → a command → your end token.", style = MaterialTheme.typography.bodyMedium)
@@ -796,6 +797,23 @@ fun CommandsSettings(
         }
         OutlinedButton(onClick = { settings.endToken = endTok; onSttChanged() }) { Text("Apply end token") }
         Text("Say this to commit a hands-free message.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+
+        HorizontalDivider()
+        Text("Wake/end-token detection", style = MaterialTheme.typography.titleMedium)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Use dedicated wake-word detector", style = MaterialTheme.typography.bodyLarge)
+                Text("Off (default) scores the live wake/end tokens by string-matching the fast "
+                    + "Whisper transcript — always available. On uses the purpose-trained LiveKit "
+                    + "detector sidecar, which needs the server's wake-word service configured.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            }
+            Switch(checked = useDetector, onCheckedChange = {
+                useDetector = it
+                settings.wakeService = if (it) "detector" else "whisper"
+                onSttChanged()
+            })
+        }
 
         HorizontalDivider()
         Text("Dictation gate", style = MaterialTheme.typography.titleMedium)

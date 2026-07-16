@@ -127,6 +127,11 @@ class SettingsStore(context: Context) : Prefs {
         get() = prefs.getBoolean("dictation_gate", false)
         set(v) = prefs.edit().putBoolean("dictation_gate", v).apply()
 
+    /** Live wake/end-token scoring backend: "whisper" (default) or "detector". */
+    override var wakeService: String
+        get() = prefs.getString("wake_service", Prefs.DEFAULT_WAKE_SERVICE) ?: Prefs.DEFAULT_WAKE_SERVICE
+        set(v) = prefs.edit().putString("wake_service", v).apply()
+
     /** Whisper model selection: "dynamic" (by clip length) or "fixed". */
     override var sttMode: String
         get() = prefs.getString("stt_mode", Prefs.DEFAULT_STT_MODE) ?: Prefs.DEFAULT_STT_MODE

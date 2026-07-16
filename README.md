@@ -87,6 +87,13 @@ bug, beep"); everything else is discarded. Commands still work with no speak tok
 buddy, stop" always interrupts. Leave the switch off (or the speak token blank) to dictate everything
 as before. The speak token is comma-separated too, so you can give it a couple of variants.
 
+**Wake/end-token detection backend (Settings → Commands).** By default the live hands-free wake and
+end tokens are recognized by string-matching the fast Whisper transcript — always available, no extra
+service. Turn on **Use dedicated wake-word detector** to instead score the purpose-trained LiveKit
+detector sidecar (the server's `SPAWNER_WAKEWORD_URL` service — see the wake-word detector notes in
+[`TODO.md`](TODO.md)). Leave it off unless that sidecar is running and you've validated the model;
+the server treats any client that doesn't opt in as Whisper.
+
 **Adapting to background noise (Settings → Audio).** The mic threshold slider sets how loud a frame
 must be to count as speech. With **Adapt to background noise** on (the default), that number isn't a
 fixed gate: the app continuously measures the room's ambient noise floor during silence and lifts the

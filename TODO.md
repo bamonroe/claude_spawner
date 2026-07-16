@@ -779,6 +779,20 @@ Accurate full transcription on commit stays on Whisper, untouched.
       Whisper string-match** on nil/error (the A/B safety net). Keep the fast transcript for the live
       draft. Riskiest bits: threshold calibration (10× gap default vs optimal — extend the `calibrate`
       path to report detector scores) and per-clip vs accumulated end-token semantics.
+- [x] 2026-07-15 — **Per-client wake/end-token backend toggle (default Whisper).** The detector is
+      no longer forced on every client when `SPAWNER_WAKEWORD_URL` is set. A new `hello` field
+      `wake_service` (`whisper` default | `detector`) is stored per-`conn` (`c.wakeService`); the
+      detector is only scored in `endTokenFired` when the client opted into `detector`, otherwise (and
+      for older/empty clients) the always-present Whisper string-match runs — with the same graceful
+      fallback if `detector` is chosen but no sidecar is configured or it errors. Since we don't yet
+      trust the trained LiveKit model live, Whisper stays the default so hands-free is guaranteed to
+      work. Server + protocol.md + `TestEndTokenFired` cases done on the server worktree. **App half
+      done (app worktree):** persisted `Prefs.wakeService` (default `"whisper"`) in `SettingsStore` +
+      `WebPrefs`, a "Wake/end-token detection" switch in the Commands settings screen (off = Whisper
+      default, on = dedicated detector), threaded through `HelloConfig`/`Outbound.hello`
+      (`put("wake_service", …)`) from both the Android `VoiceController` and the web `WebAppController`.
+      Clean-built and installed on the Pixel 8a (launch verified — no stale-dex crash from the grown
+      ctor).
 - [ ] **Positional detection → correct Whisper with the detector (proposed 2026-07-15).** The
       detector knows a token was said far more reliably than Whisper; use *where* it fired to stop
       Whisper's mishearings from corrupting the parse. Enabling change: the sidecar returns the token's

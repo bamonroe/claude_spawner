@@ -398,6 +398,7 @@ data class HelloConfig(
     val wakeToken: String,
     val speakToken: String,
     val dictationGate: Boolean,
+    val wakeService: String,
     val sttMode: String,
     val sttModel: String,
     val aliases: Map<String, String>,
@@ -427,6 +428,7 @@ object Outbound {
         put("type", "hello"); put("token", token); put("client_id", clientId)
         put("end_token", cfg.endToken); put("wake_token", cfg.wakeToken)
         put("speak_token", cfg.speakToken); put("dictation_gate", cfg.dictationGate)
+        put("wake_service", cfg.wakeService)
         put("stt_mode", cfg.sttMode); put("stt_model", cfg.sttModel)
         putJsonObject("aliases") { for ((k, v) in cfg.aliases) put(k, v) }
         put("whisper_url", cfg.whisperUrl); put("brief", cfg.brief); put("interactive", cfg.interactive)

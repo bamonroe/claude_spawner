@@ -78,6 +78,13 @@ interface Prefs {
      *  Off by default; needs a speak token set to take effect. */
     var dictationGate: Boolean
 
+    /** Which backend scores the live hands-free wake/end tokens: "whisper"
+     *  (default — string-match the fast Whisper transcript, always available) or
+     *  "detector" (the purpose-trained LiveKit wake-word sidecar, requires the
+     *  server's SPAWNER_WAKEWORD_URL to be configured). Rides the hello handshake
+     *  as `wake_service`; the server treats anything but "detector" as Whisper. */
+    var wakeService: String
+
     /** Debug: draw translucent overlays over normally-invisible hit zones (e.g. the
      *  push-to-talk cancel / hands-free swipe thresholds) and log gesture end reasons. */
     var debugOverlays: Boolean
@@ -182,6 +189,7 @@ interface Prefs {
         const val DEFAULT_AUDIO_OUTPUT = "earpiece"
         const val DEFAULT_MIC_SOURCE = "phone"
         const val DEFAULT_END_TOKEN = "beep"
+        const val DEFAULT_WAKE_SERVICE = "whisper"
         const val DEFAULT_STT_MODE = "dynamic"
         const val DEFAULT_STT_MODEL = "small"
         const val DEFAULT_WHISPER_MODEL = "medium.en"
