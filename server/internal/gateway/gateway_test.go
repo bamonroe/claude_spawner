@@ -242,9 +242,11 @@ func TestAuthRejectsBadToken(t *testing.T) {
 }
 
 func TestHostCRUD(t *testing.T) {
-	ts, _ := newTestServer(t, nil)
+	ts, _, gw := newTestServerGW(t, nil)
 	ws := dial(t, ts)
-	send(t, ws, map[string]any{"type": "hello", "token": "secret"})
+	// Present the matching hosts digest so the connect-time fast path suppresses the
+	// proactive host_list push — this test drives the explicit request/broadcast path.
+	send(t, ws, map[string]any{"type": "hello", "token": "secret", "hosts_digest": hostsDigest(gw.hosts.List())})
 	readUntil(t, ws, "hello_ok")
 
 	// A fresh registry seeds the loopback host; remove it so the rest of this test
@@ -282,9 +284,11 @@ func TestHostCRUD(t *testing.T) {
 }
 
 func TestIdentityCRUD(t *testing.T) {
-	ts, _ := newTestServer(t, nil)
+	ts, _, gw := newTestServerGW(t, nil)
 	ws := dial(t, ts)
-	send(t, ws, map[string]any{"type": "hello", "token": "secret"})
+	// Present the matching identities digest so the connect-time fast path suppresses
+	// the proactive identity_list push — this test drives the explicit request path.
+	send(t, ws, map[string]any{"type": "hello", "token": "secret", "identities_digest": identitiesDigest(gw.ids.List())})
 	readUntil(t, ws, "hello_ok")
 
 	// Fresh registry is empty.

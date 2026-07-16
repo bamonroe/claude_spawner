@@ -531,7 +531,8 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
         // Pick up a CA pushed over adb (hands-off), then trust it for this wss server.
         settings.autoImportPushedCa()
         val caPem = settings.caCertPem.ifBlank { null }
-        client = SpawnerClient(url, token, settings.clientId, hello, ::onMessage, ::onConnected, ::onSpeakFrame, caPem)
+        client = SpawnerClient(url, token, settings.clientId, hello, ::onMessage, ::onConnected, ::onSpeakFrame, caPem,
+            catalogueDigests = { catalogues.digests() })
             .also { it.connect() }
     }
 

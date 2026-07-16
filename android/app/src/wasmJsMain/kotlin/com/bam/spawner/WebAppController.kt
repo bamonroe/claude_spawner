@@ -225,6 +225,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
                 }
             },
             onAudio = ::onSpeakFrame,
+            catalogueDigests = { catalogues.digests() },
         ).also { it.connect() }
     }
 

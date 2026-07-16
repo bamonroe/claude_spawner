@@ -123,7 +123,18 @@ detection falls back to the Whisper string-match), `aliases` (misheard→command
 fixups), `brief` (append a "reply briefly for TTS" hint to dictation), `interactive` (let Claude
 ask clarifying questions mid-task, delivered as `ask`), and `warm_compress`/`auto_compress`/`auto_compress_threshold`
 (the initial value of the server-global context-compression preference — see the `auto_compress` message for
-its semantics; the app also pushes changes live with that message). Interactive mode appends its instruction to
+its semantics; the app also pushes changes live with that message). `hello` also carries four **per-catalogue
+digests** — `hosts_digest`, `identities_digest`, `profiles_digest`, `providers_digest` — the
+app's stable, order-independent checksum of each app-managed catalogue it currently holds (a fold
+over every record's key + `updated_at` + payload, so a timestamp-only edit still changes it). This
+is the **skip-if-equal fast path**: on connect the server compares each against its own freshly
+computed digest and **re-sends only the catalogues that differ** (the matching ones cost nothing),
+then the `updated_at` last-writer-wins merge resolves direction on the ones it does send. It's the
+same freshness trick the chat transcript uses (`digest`/`history unchanged`), generalized to the
+catalogues. Empty/absent digests (an older client) mismatch every catalogue, so the server falls
+back to broadcasting all four — fully backward compatible. Tombstones aren't folded in: a delete
+the app hasn't applied shows up as a record it still holds, so the digests already differ and the
+removal rides the normal broadcast. Interactive mode appends its instruction to
 only the **first** turn of a context — Claude retains it via `--resume`, so re-sending it every turn
 would just burn tokens; a `clear` (context rotation) re-primes it. The server sends
 `pending {text}` as the buffer grows (empty `text` clears the draft). The app may also send

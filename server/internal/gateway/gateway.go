@@ -742,15 +742,39 @@ func (c *conn) authenticate() bool {
 	// its own (so two clients don't bounce it), and changes it via set_whisper_model.
 	model, fastModel := c.srv.currentWhisperModels()
 	c.send(msgHelloOK("ws", model, fastModel, c.srv.catalogWhisperModels(), c.srv.availableWhisperModels(), c.srv.tts != nil))
+	// Per-catalogue digest fast path (skip-if-equal): the app presents a digest of
+	// each cached catalogue in `hello`; we re-send only the ones whose digest differs
+	// from ours, so an unchanged catalogue costs nothing on connect (Phase 2a LWW
+	// resolves direction on the ones we do send). Mirrors the chat transcript's
+	// count+hash `digests`/`history unchanged` shortcut. An older client sends no
+	// digest → the "" mismatch makes every catalogue ship, so it's fully backward
+	// compatible. See catalogdigest.go.
+	//
 	// Advertise the AI backend registry so the app's new-session picker can offer a
 	// backend + model choice (and badge sessions by backend). Also kick a throttled
 	// live re-discovery in the background: models added to a backend since boot land
 	// in every connected app moments later, no restart needed.
-	c.send(msgAgents(c.srv.driver.Registry(), c.srv.driver.ProviderSettings()))
+	reg := c.srv.driver.Registry()
+	provSettings := c.srv.driver.ProviderSettings()
+	if in.ProvidersDigest != providersDigest(reg, provSettings) {
+		c.send(msgAgents(reg, provSettings))
+	}
 	go c.srv.refreshModelsOnConnect()
 	// Advertise execution profiles separately from hello_ok so older clients can
 	// ignore the message and still use the built-in default profile.
-	c.send(msgProfiles(c.srv.driver.ProfileRegistry()))
+	profReg := c.srv.driver.ProfileRegistry()
+	if in.ProfilesDigest != profilesDigest(profReg.List()) {
+		c.send(msgProfiles(profReg))
+	}
+	// Hosts and identities were previously request-only; presenting a digest lets us
+	// proactively reconcile them on connect too, so a different client's edit reflects
+	// here without opening the settings screen — but only when they actually differ.
+	if in.HostsDigest != hostsDigest(c.srv.hosts.List()) {
+		c.send(msgHostList(c.srv.hosts.List()))
+	}
+	if in.IdentitiesDigest != identitiesDigest(c.srv.ids.List()) {
+		c.send(msgIdentityList(c.srv.ids.List()))
+	}
 	// Push the last-known plan session-limit so the app can show it immediately,
 	// rather than staying blank until the first turn of this connection.
 	if rl := c.srv.lastRateLimit(); rl.Type != "" {

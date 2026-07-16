@@ -84,6 +84,10 @@ class SpawnerClient(
     // `wss://` cert is signed by a private CA (e.g. Caddy's `tls internal`). Android
     // only; the browser (wasmJs) owns trust itself and ignores this.
     private val caPem: String? = null,
+    // The app's four per-catalogue skip-if-equal digests, computed FRESH at each hello
+    // send (including auto-reconnects) so the server can skip re-broadcasting a
+    // catalogue the app already matches. Default = empty digests (server re-sends all).
+    private val catalogueDigests: () -> CatalogueDigests = { CatalogueDigests() },
 ) {
     private val client: HttpClient = spawnerHttpClient(caPem)
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
@@ -107,7 +111,7 @@ class SpawnerClient(
             try {
                 client.webSocket(urlString = normalizeWsUrl(url)) {
                     attempt = 0
-                    send(Frame.Text(Outbound.hello(token, clientId, hello)))
+                    send(Frame.Text(Outbound.hello(token, clientId, hello, catalogueDigests())))
                     val sender = launch { for (frame in outbox) send(frame) }
                     try {
                         for (frame in incoming) {

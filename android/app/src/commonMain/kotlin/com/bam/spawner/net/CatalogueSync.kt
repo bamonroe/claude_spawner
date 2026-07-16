@@ -66,6 +66,21 @@ class CatalogueSync(private val send: (String) -> Unit) {
     val agents: StateFlow<List<AgentInfo>> = agentCat.items
 
     /**
+     * The four catalogues' per-record digests for the `hello` handshake: the server
+     * skips re-sending any catalogue whose digest we already match (see
+     * [CatalogueDigest]). Computed from the currently-held records, so a reconnect
+     * presents whatever the app has cached this session (catalogues aren't persisted
+     * across process restarts, so a fresh start yields empty digests → the server
+     * simply falls back to broadcasting — safe).
+     */
+    fun digests() = CatalogueDigests(
+        hosts = CatalogueDigest.hosts(hostCat.items.value),
+        identities = CatalogueDigest.identities(identityCat.items.value),
+        profiles = CatalogueDigest.profiles(profileCat.items.value),
+        providers = CatalogueDigest.providers(agentCat.items.value),
+    )
+
+    /**
      * Reconcile an inbound server message if it is one of the four catalogue lists.
      * Returns true when [msg] was handled (a catalogue list), false otherwise so the
      * caller's `when` can fall through to the session/chat branches it still owns.

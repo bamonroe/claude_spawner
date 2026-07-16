@@ -152,9 +152,20 @@ Dates are `YYYY-MM-DD`.
                 `nowEpochMs` clock and `CatalogueSync` merges LWW by `updatedAt`. `docs/protocol.md`
                 updated; Go arbitration unit tests added; `go test -count=1` + both APK/wasm builds
                 green. Still needs **master→app merge** and on-device check.
-          - [ ] **Phase 2b — per-catalogue digest fast-path** (skip-if-equal): stable order-independent
-                checksum per catalogue exchanged in the handshake; match → do nothing, mismatch → ship
-                the small catalogue and let the LWW merge resolve. Reuses the chat `digests` pattern.
+          - [x] **Phase 2b — per-catalogue digest fast-path (skip-if-equal) — done, master (uncommitted
+                at hand-off).** Each side folds a catalogue's live records `(key, updated_at, payload)`
+                into one order-independent checksum (64-bit FNV-1a per record, wrapping-summed, hex —
+                portable so Go `gateway/catalogdigest.go` and Kotlin `net/CatalogueDigest.kt` compute
+                byte-identical values, cross-verified). The app presents all four digests in `hello`
+                (fresh each send, via a `SpawnerClient` provider — catalogues aren't persisted, so a
+                cold start yields empty digests → safe full re-broadcast); the server suppresses each
+                catalogue's connect-time send when the digest matches, else broadcasts as before and
+                lets the Phase 2a LWW merge resolve direction. Hosts/identities, previously request-only,
+                now reconcile proactively on connect too (only when they differ). Tombstones aren't
+                folded in (a pending delete shows as an extra record → digests already differ). Go unit
+                tests: fold order-independence + add/change/delete/timestamp flips, connect-suppress vs
+                connect-broadcast. `docs/protocol.md` updated; `go test ./... -count=1` + both APK/wasm
+                builds green. Still needs commit + master→app merge.
           - [ ] **Note:** `fieldsync`/`docsync` guards docs↔Go only; it does NOT yet catch a missing
                 *Kotlin* field (that's Phase 4) — Phase 2a's both-sides parity was verified by build,
                 not by the drift test.

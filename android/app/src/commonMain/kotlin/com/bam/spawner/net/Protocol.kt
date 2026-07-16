@@ -438,7 +438,12 @@ object Codecs {
 
 /** app -> server message builders. */
 object Outbound {
-    fun hello(token: String, clientId: String, cfg: HelloConfig) = buildJsonObject {
+    // `digests` are the app's per-catalogue skip-if-equal checksums (see
+    // net/CatalogueDigest.kt); the server re-sends only the catalogues whose digest
+    // differs, so an unchanged catalogue costs nothing on reconnect. Computed fresh at
+    // each hello send (not baked into HelloConfig) so an in-session reconnect reflects
+    // the catalogues the app currently holds.
+    fun hello(token: String, clientId: String, cfg: HelloConfig, digests: CatalogueDigests = CatalogueDigests()) = buildJsonObject {
         put("type", "hello"); put("token", token); put("client_id", clientId)
         put("end_token", cfg.endToken); put("wake_token", cfg.wakeToken)
         put("speak_token", cfg.speakToken); put("dictation_gate", cfg.dictationGate)
@@ -448,6 +453,8 @@ object Outbound {
         put("whisper_url", cfg.whisperUrl); put("brief", cfg.brief); put("interactive", cfg.interactive)
         put("warm_compress", cfg.warmCompress); put("auto_compress", cfg.autoCompress)
         put("auto_compress_threshold", cfg.autoCompressThreshold)
+        put("hosts_digest", digests.hosts); put("identities_digest", digests.identities)
+        put("profiles_digest", digests.profiles); put("providers_digest", digests.providers)
     }.toString()
     // Live-update the server-global context-compression preference without reconnecting.
     fun autoCompress(warm: Boolean, auto: Boolean, thresholdK: Int) = buildJsonObject {

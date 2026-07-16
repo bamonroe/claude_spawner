@@ -69,6 +69,10 @@ type inbound struct {
 	Voice                 string               `json:"voice"`                   // on `speak`: Kokoro voice override ("" = the server default, SPAWNER_TTS_VOICE)
 	Format                string               `json:"format"`                  // on `speak`: response-format override ("" = the server default, SPAWNER_TTS_FORMAT)
 	UpdatedAt             int64                `json:"updated_at"`              // on the catalogue mutators (host_delete, identity_*, profile_delete, provider_put): the client-stamped last-edit time in unix MILLISECONDS for last-writer-wins arbitration (host_put/profile_put carry it inside the host/profile_def object instead)
+	HostsDigest           string               `json:"hosts_digest"`            // on `hello`: the app's per-catalogue skip-if-equal digest of its cached hosts (order-independent fold over each record's key+updated_at+payload); a match lets the server skip re-sending host_list on connect
+	IdentitiesDigest      string               `json:"identities_digest"`       // on `hello`: the app's digest of its cached identities (same fast path)
+	ProfilesDigest        string               `json:"profiles_digest"`         // on `hello`: the app's digest of its cached profiles (same fast path)
+	ProvidersDigest       string               `json:"providers_digest"`        // on `hello`: the app's digest of its cached provider/agent catalogue (same fast path)
 }
 
 // msgAgents advertises the AI backend registry to the app so the visual
