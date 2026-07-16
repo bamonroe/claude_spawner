@@ -217,13 +217,15 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
   restart. The server runs in a Docker container that builds the Go binary and drives the host over
   SSH (host `claude` turns and the rootless sandbox runtime both execute on the host — no separate
   host broker). The button does a **rebuild+recreate**: it runs `deploy/rebuild-container.sh`
-  detached **on the host**, which must run there because the rebuild replaces the very container the
+  detached **on the host**, which must run there because a recreate replaces the very container the
   server runs in — an in-container command would be killed mid-recreate, so `setsid` decouples it.
   The server runs the command on the host over its own Go-native SSH connection pool (no openssh
-  client — the container needs no `/etc/passwd` entry). The restart
-  message carries a `rebuild` flag (checkbox in the app; default on): the server substitutes the
-  `%REBUILD%` token in the command with `rebuild` or `bounce` and passes it to the script — `rebuild`
-  does a `--no-cache` recompile, `bounce` recreates from the existing image (fast, no code change).
+  client — the container needs no `/etc/passwd` entry). The restart message carries a **`mode`**
+  (three buttons in the app): the server substitutes the `%REBUILD%` token in the command with the
+  mode and passes it to the script — **`build`** rebuilds the image only and leaves the running
+  container in place (the live session isn't bounced; the new image is staged for a later restart),
+  **`bounce`** recreates the container from the existing image (fast, no code change, no rebuild),
+  and **`rebuild`** (the default, and the voice command) does a `--no-cache` recompile then recreate.
   Commands with no `%REBUILD%` token always rebuild. See `deploy/README.md`.
 
 ## Token discipline — keep the context small

@@ -164,11 +164,14 @@ build is deliberately `--no-cache`: `up --build` alone once reused a stale layer
 binary in a fresh container, so the button appeared to do nothing — a full recompile guarantees the
 running server is the current code.
 
-**Rebuild is optional.** The button has a *Rebuild from source* checkbox (default on). The server
-substitutes the `%REBUILD%` token in `SPAWNER_RESTART_CMD` with `rebuild` or `bounce` and passes it
-to the script as its first arg: `rebuild` (default) does the `--no-cache` recompile above; `bounce`
-skips the build and just recreates from the existing image — a fast restart that ships no code
-change. A command without a `%REBUILD%` token always rebuilds (older configs). It **must** run on the host —
+**Three modes.** The app's server-settings screen has three buttons. The server substitutes the
+`%REBUILD%` token in `SPAWNER_RESTART_CMD` with the chosen mode and passes it to the script as its
+first arg: **`rebuild`** (the default, and the voice command) does the `--no-cache` recompile above
+then recreates; **`bounce`** skips the build and just recreates from the existing image — a fast
+restart that ships no code change; **`build`** does the opposite — it rebuilds the image but leaves
+the running container in place, so the new image is staged for a later restart and the caller's live
+session is **not** bounced. A command without a `%REBUILD%` token always rebuilds (older configs).
+It **must** run on the host —
 recreating the container replaces the very container the server lives in, so an in-container command would be
 killed mid-recreate; `setsid` decouples it so it survives. All SSH is Go-native over the connection
 pool, so the image needs no openssh client and the container needs no `/etc/passwd` mount.

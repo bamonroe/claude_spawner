@@ -91,7 +91,7 @@ func (c *conn) runCommand(intent command.Intent) bool {
 	case command.JobStatus:
 		c.doJobStatus()
 	case command.Restart:
-		c.doRestart(nil) // voice "restart" = full rebuild (nil default)
+		c.doRestart("") // voice "restart" = full rebuild (empty = rebuild)
 	default:
 		return false
 	}
@@ -765,21 +765,26 @@ func (c *conn) doSetWhisperModel(name string, fast bool) {
 // trigger this; the trust boundary is the same as spawning arbitrary commands.
 // Reports back if restart isn't configured (SPAWNER_RESTART_CMD unset) instead of
 // pretending it worked.
-// rebuild is nil for older clients / the voice command (treated as a full rebuild);
-// an explicit false requests a fast bounce that recreates from the existing image
-// without recompiling.
-func (c *conn) doRestart(rebuild *bool) {
-	full := rebuild == nil || *rebuild
+// mode selects what the restart command does: "build" rebuilds the image only and
+// leaves the running container in place (no bounce, so the caller's live session keeps
+// going); "bounce" recreates the container from the existing image without recompiling;
+// "rebuild" (the default, and empty from the voice command) builds then recreates.
+func (c *conn) doRestart(mode string) {
 	go func() {
-		if err := c.srv.driver.Restart(context.Background(), full); err != nil {
+		if err := c.srv.driver.Restart(context.Background(), mode); err != nil {
 			c.fail("restart_failed", err.Error())
 			return
 		}
-		if full {
-			c.srv.broadcast(msgSay("rebuilding and restarting the server — back in a moment."))
-		} else {
-			c.srv.broadcast(msgSay("restarting the server — back in a moment."))
+		var text string
+		switch mode {
+		case "build":
+			text = "rebuilding the server image — the running server keeps going; tap restart when it's ready."
+		case "bounce":
+			text = "restarting the server — back in a moment."
+		default:
+			text = "rebuilding and restarting the server — back in a moment."
 		}
+		c.srv.broadcast(msgSay(text))
 	}()
 }
 

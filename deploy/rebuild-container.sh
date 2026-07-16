@@ -30,16 +30,26 @@ cd "$REPO"
 # host user so it can read/write the mounted home, state, and roots.
 export SPAWNER_UID="$(id -u)" SPAWNER_GID="$(id -g)"
 
-# Mode from the restart button: `bounce` recreates from the existing image (fast, ships
-# no code changes); anything else (default, incl. the voice command) does a full
-# --no-cache rebuild. The server substitutes this arg into SPAWNER_RESTART_CMD's
-# %REBUILD% token.
+# Mode from the restart button (substituted into SPAWNER_RESTART_CMD's %REBUILD% token):
+#   build   — rebuild the image only; DON'T recreate the container. The old container
+#             keeps running (the caller's live session isn't bounced); the new image is
+#             staged for the next `bounce`.
+#   bounce  — recreate the container from the existing image (fast, ships no code
+#             changes). No rebuild.
+#   rebuild — build the image then recreate the container (the default, incl. the voice
+#             command). A full --no-cache compile.
 MODE="${1:-rebuild}"
 
-if [ "$MODE" = "bounce" ]; then
+case "$MODE" in
+  build)  DO_BUILD=1; DO_RECREATE=0 ;;
+  bounce) DO_BUILD=0; DO_RECREATE=1 ;;
+  *)      DO_BUILD=1; DO_RECREATE=1 ;;  # rebuild (default)
+esac
+
+if [ "$DO_BUILD" -eq 0 ]; then
   echo "==> bounce: recreate the server container from the existing image (no rebuild)"
 else
-  echo "==> rebuild image + recreate the server container (whisper left as-is)"
+  echo "==> build image (whisper left as-is)"
   # Stage the web bundle into the image build context so it bakes into the image
   # (served at SPAWNER_WEB_DIR=/srv/web) — no host mount. Developers rebuild the bundle
   # out-of-band with `:app:wasmJsBrowserDistribution` when the UI changes and a rebuild
@@ -78,6 +88,15 @@ else
   # nothing. A full no-cache build is slower but guarantees the running server is the
   # current code, which is the whole point of the button.
   docker compose build --no-cache spawner-server
+fi
+
+if [ "$DO_RECREATE" -eq 0 ]; then
+  # build-only mode: the freshly built image is staged, but we deliberately leave the
+  # running container untouched so the caller's live session isn't bounced. A later
+  # `bounce` (or `rebuild`) recreates the container onto this new image.
+  echo "==> build-only: new image staged; running container left in place (no recreate)."
+  echo "==> done."
+  exit 0
 fi
 
 # Force-remove any container already holding the fixed name `spawner-server` before the

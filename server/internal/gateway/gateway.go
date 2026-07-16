@@ -850,7 +850,7 @@ var wireHandlers = map[string]func(c *conn, in inbound){
 	"auto_compress": func(c *conn, in inbound) {
 		c.srv.setAutoCompress(in.WarmCompress, in.AutoCompress, in.AutoCompressThreshold)
 	},
-	"restart":       func(c *conn, in inbound) { c.doRestart(in.Rebuild) },
+	"restart":       func(c *conn, in inbound) { c.doRestart(in.Mode) },
 	"speak":         func(c *conn, in inbound) { c.handleSpeak(in.ID, in.Text, in.Voice, in.Format) },
 	"speak_stop":    func(c *conn, in inbound) { c.handleSpeakStop() },
 	"tts_voices":    func(c *conn, in inbound) { c.handleTTSVoices() },

@@ -350,20 +350,27 @@ func (d *Driver) ReconcileContainers(ctx context.Context, known map[string]bool)
 // returns once the rebuild is LAUNCHED — the process is replaced moments later — or
 // an error if restart isn't configured. Errors from the command are logged, not
 // returned.
-// Restart fires the configured restart command. rebuild picks a full recompile vs a
-// fast bounce: the command may contain the token `%REBUILD%`, which is replaced with
-// `rebuild` or `bounce` and forwarded to deploy/rebuild-container.sh as its first arg
-// (the script skips the image build on `bounce`). Commands without the token run
-// unchanged — an older config always does a full rebuild.
-func (d *Driver) Restart(ctx context.Context, rebuild bool) error {
+// Restart fires the configured restart command. mode picks what happens: "build"
+// rebuilds the image only (the running container is left in place — no bounce),
+// "bounce" recreates the container from the existing image without recompiling, and
+// "rebuild" (the default, empty = rebuild) builds then recreates. The command may
+// contain the token `%REBUILD%`, which is replaced with the mode and forwarded to
+// deploy/rebuild-container.sh as its first arg (the script builds and/or recreates
+// accordingly). Commands without the token run unchanged — an older config always does
+// a full rebuild.
+func (d *Driver) Restart(ctx context.Context, mode string) error {
 	if d.RestartCmd == "" {
 		return fmt.Errorf("server restart is not configured (set SPAWNER_RESTART_CMD)")
 	}
-	arg := "bounce"
-	if rebuild {
-		arg = "rebuild"
+	switch mode {
+	case "", "rebuild":
+		mode = "rebuild"
+	case "build", "bounce":
+		// valid as-is
+	default:
+		return fmt.Errorf("unknown restart mode %q (want build, bounce, or rebuild)", mode)
 	}
-	cmdStr := strings.ReplaceAll(d.RestartCmd, "%REBUILD%", arg)
+	cmdStr := strings.ReplaceAll(d.RestartCmd, "%REBUILD%", mode)
 	// Prefer the in-process SSH pool: the rebuild must run on the HOST (it recreates
 	// this very container), and the pool already reaches the host for turns — so we
 	// run the command there over Go-native SSH rather than shelling to the openssh
