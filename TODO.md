@@ -56,6 +56,53 @@ Dates are `YYYY-MM-DD`.
     - [ ] **Audit** the other mutation messages (`renamed`, `session_list`, `detached`) for the same
           completeness so the app never has to infer a state change.
 
+- [ ] **Unified versioned app↔server sync layer (one entry point, no drift).** Today every piece
+      of shared state is reconciled ad-hoc: the four app-managed catalogues (hosts, identities,
+      profiles, providers) and every per-client setting are **blind last-write-wins by name with no
+      timestamp/version**, and the incoming/outgoing message handling is **written twice** —
+      `VoiceController` (androidMain) and `WebAppController` (wasmJsMain) each hand-implement ~40
+      apply branches + ~40 send sites independently, which has already drifted (web silently no-ops
+      on `digests`, `session_list`, calibration, read-last). The `docsync`/`clientsync` drift tests
+      enforce message-type and field-name parity but are blind to versioning/conflict semantics.
+      Goal: **one authoritative, versioned sync point per side** that every syncable resource flows
+      through, so a change is added in one place and both clients + the server stay consistent, and a
+      newer server value (written by a *different* app client) reflects back to the app instead of
+      being clobbered.
+
+  - **Conflict model (chosen): per-record `updated_at` (client-stamped ms) + last-writer-wins with
+    tombstones.** Every catalogue record and syncable setting carries an `updated_at`. The app is
+    still source of truth on *first* write, but on any exchange the newer `updated_at` wins in either
+    direction: the server keeps the max and rejects a stale upsert (echoing its newer record back so
+    the app adopts it); the app adopts any incoming record newer than its local copy. Deletes become
+    timestamped **tombstones** so a stale client can't resurrect a removed record. (Considered and
+    rejected for now: server-assigned monotonic revision + optimistic-concurrency `base_rev` — more
+    robust against clock skew but heavier; single-user/home-network makes wall-clock LWW enough.
+    Revisit if clock trust becomes a problem.)
+
+  - **Structure: a `commonMain` resource-sync registry.** Each syncable resource declares once —
+    key function, `updated_at` accessor, and merge rule — in shared `commonMain` code. A single
+    inbound `applyServerState(msg)` and outbound `pushLocalChange(resource, record)` dispatch by
+    resource, replacing the duplicated per-controller `when` bodies; `VoiceController`/`WebAppController`
+    keep only the thin platform bits (StateFlow wiring, disk cache). The server gets the symmetric
+    single apply/broadcast entry point with the LWW+tombstone arbitration, replacing the four
+    near-identical `do*Put`/`flush`/`broadcast` paths in `gateway/{hosts,identities,profiles,providers}.go`.
+
+  - **Phasing** (versioning is a wire change → land coordinated across both worktrees, drift test first):
+    - [ ] **Phase 1 — pure refactor, no wire change (app worktree).** Hoist the duplicated inbound
+          apply + outbound send logic into one shared `commonMain` reconciler so the two controllers
+          can't drift; bring the web client up to parity (add its missing branches). Finishes the
+          `dedupeCachedLog`-onto-`index` cleanup. Drift tests stay green (no new messages).
+    - [ ] **Phase 2 — add `updated_at` to the catalogue records + messages (both worktrees).** Extend
+          `Host`/`Identity`/`ProfileInfo`/`AgentInfo` and their Go structs with `updated_at`; server
+          persists it and arbitrates LWW; add tombstones for deletes. Extend `fieldsync`/`docsync`
+          coverage. This is the one non-parallel step — coordinate, land, merge.
+    - [ ] **Phase 3 — route per-client settings through the same layer** (whisper model, wake_service,
+          auto_compress, speech_mode) so a setting changed on one client propagates to others with the
+          same LWW rule, instead of fire-and-forget-at-connect / server-global-mutable-by-anyone.
+    - [ ] **Phase 4 — extend a drift test to assert every registered syncable resource carries a
+          version token**, so a new synced resource can't be added without a conflict rule (closes the
+          semantic gap the current drift tests can't see).
+
 - [x] 2026-07-16 — **New-session picker uses dropdowns for expanding option sets.** The sidebar
   `BrowseScreen` now renders host/profile and provider/model choices as compact dropdown controls
   instead of chip clouds, so growing host, profile, backend, and model catalogues do not crowd the
