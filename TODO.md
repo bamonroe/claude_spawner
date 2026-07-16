@@ -27,25 +27,24 @@ Dates are `YYYY-MM-DD`.
     rotate the session_id server-side but the app treated `context_reset` as a context-meter reset
     only, so the rotated session's now-stale rows were never dropped or refreshed.
 
-  - **Chosen mechanism (reconciled across both worktrees):** the rotated `session_id` rides on a
-    **re-emitted `attached`** the clear/compress paths now send right before `context_reset` — the
-    app already refreshes history off `attached`, so this reuses the attach path instead of
-    threading a new id field through `context_reset`. (An earlier server-only draft that added
-    `session_id` to `context_reset` was dropped in the merge in favour of this, since the shipped
-    client consumes `attached`.)
+  - **Chosen mechanism (robust approach):** the rotated `session_id` rides on the **`context_reset`**
+    itself, which is the single self-describing event for the rotation — the app re-keys to the new
+    id and refreshes the cleared session's rows off it. We deliberately did **not** overload the
+    `attached` (re-attach) message to mean "context rotated": a brief merge that took that route was
+    reverted, because re-emitting `attached` drags the whole attach path along and couples clear/
+    compress to any future change in attach behaviour. One event, one meaning.
 
-  - **App-side** (branch `app`, done): streamed chunks now collapse into one live bubble per turn
+  - **App-side** (branch `app`): streamed chunks now collapse into one live bubble per turn
     (badged on turn close) instead of one row per chunk; live `output` and terminal notices route by
     the message's `name` not the visible key, with streamed-reply de-dupe state keyed per session;
-    cached-log de-dupe is index-aware (`dedupeCachedLog`); session focus is local-first; and a
-    same-name id change from the `attached` re-emit is treated as a rotation (refresh) rather than a
-    previous-session switch. (Commits: local-first focus, dedupe cached rows, publish rotated id,
-    route swapped output.)
+    cached-log de-dupe is index-aware (`dedupeCachedLog`); session focus is local-first. **In
+    progress:** consume the rotated `session_id` from `context_reset` (replacing the earlier
+    same-name-`attached`-rotation path) to re-key and refresh the cleared session's rows.
 
   - **Server-side** (branch `master`, done): `doClear` (`ops.go`) and the compress job (`jobs.go`)
-    emit a refreshed `attached` carrying the rotated `session_id` before `context_reset`;
-    `docs/protocol.md` documents the `-> attached + context_reset + say` sequence; clear test
-    asserts the re-emitted `attached` carries a fresh id. `go test ./...` green.
+    send a single `context_reset` carrying the rotated `session_id` (no `attached` re-emit);
+    `docs/protocol.md` documents `-> context_reset + say`; clear/compress tests assert the
+    `context_reset` carries a fresh id distinct from the retired one. `go test ./...` green.
     - [ ] **Refinement (optional):** finish hoisting the reconcile logic into one shared
           `commonMain` function so `VoiceController`/`WebAppController` can't drift, and move the
           remaining text-based `dedupeCachedLog` fully onto server `index` identity. Verify
