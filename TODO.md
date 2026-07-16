@@ -99,10 +99,10 @@ Dates are `YYYY-MM-DD`.
     near-identical `do*Put`/`flush`/`broadcast` paths in `gateway/{hosts,identities,profiles,providers}.go`.
 
   - **Phasing** (versioning is a wire change → land coordinated across both worktrees, drift test first):
-    - [ ] **Phase 1 — pure refactor, no wire change (app worktree).** Hoist the duplicated inbound
-          apply + outbound send logic into one shared `commonMain` reconciler so the two controllers
-          can't drift; bring the web client up to parity (add its missing branches). Finishes the
-          `dedupeCachedLog`-onto-`index` cleanup. Drift tests stay green (no new messages).
+    - [x] **Phase 1 — pure refactor, no wire change (app worktree). DONE** (branch `app`). The
+          duplicated inbound apply + outbound send logic is now hoisted into shared `commonMain`
+          reconcilers so the two controllers can't drift; web brought to parity; `dedupeCachedLog`
+          moved onto server `index`. Drift tests stay green (no new messages). Slices below.
           - [x] **Slice 1 (catalogues) — done, branch `app` `acea2f4`.** New
                 `commonMain/net/CatalogueSync.kt`: a `Catalogue<T>` (StateFlow + `key` + `merge` seam
                 for Phase 2's LWW/digest) and a `CatalogueSync` owning all four catalogues (hosts,
@@ -117,9 +117,22 @@ Dates are `YYYY-MM-DD`.
                 `unchanged` page wiped the log), `read_last`, and `pending` (real web VAD). Documented
                 intentional no-ops for `calibration`/`dialog` (Android-hardware / already-via-`say`).
                 Note: `session_list` from the old map doesn't exist in the protocol — nothing to do.
-          - [ ] **Slice 3** — hoist the session/chat reconcile branches (`context_reset`, `attached`,
-                `history`, `renamed`, `discovered`, `digests`) into the shared reconciler; finish
-                `dedupeCachedLog`→`index`.
+          - [x] **Slice 3 (session/chat reconcile) — done, branch `app` `0d90713`.** New
+                `commonMain/net/SessionSync.kt` (sibling to `CatalogueSync`) owns the reconcile
+                DECISION logic; a 7-accessor `SessionSync.Host` seam keeps platform side effects local
+                (Android disk `TranscriptCache` + timestamped merge + reconnect gap-fill; web in-memory
+                index-sorted merge). Unified `attached`/`detached`/`context_reset`/`renamed`/
+                `discovered`/`history`/`digests`/`swap`/`focusKnownSession`. Single `SessionSync.dedupe`
+                (index-first, `(role,text)` fallback only to drop a live `index==-1` row once its
+                indexed row lands) replaced both the Android `dedupeCachedLog` and the web inline
+                `distinctBy`. Both targets build; no wire change.
+                - [ ] **Follow-up (deferred, optional):** history-merge algorithm left per-client by
+                      design (Android timestamp+gap-fill vs web index-replace) — only the dedup
+                      primitive is shared; unifying would be a behavior change. Web `renamed`/
+                      `discovered` still don't re-key digest keys / re-derive title (pre-existing gap,
+                      not regressed). Revisit if full parity is wanted.
+          - [ ] **On-device verification (still open):** run on the phone and confirm the sporadic
+                duplicate rows are actually gone end-to-end (no emulator/APK step done yet).
     - [ ] **Phase 2 — add `updated_at` to the catalogue records + messages (both worktrees).** Extend
           `Host`/`Identity`/`ProfileInfo`/`AgentInfo` and their Go structs with `updated_at`; server
           persists it and arbitrates LWW; add tombstones for deletes. Extend `fieldsync`/`docsync`
