@@ -44,7 +44,10 @@ sealed interface ServerMsg {
     // attach (usageAt = that turn's unix seconds, for the cache-warm countdown).
     data class Attached(val name: String, val sessionId: String = "", val usage: TokenUsage? = null, val usageAt: Long = 0, val agent: String = "", val model: String = "", val profile: String = "") : ServerMsg
     data object Detached : ServerMsg
-    data class ContextReset(val name: String) : ServerMsg // Claude context cleared → drop token accounting
+    // Claude context cleared/compressed → drop token accounting. sessionId is the
+    // NEW rotated session_id the clear/compress produced (the transcript was wiped/
+    // summarized under the same name); empty from an old server (meter-reset only).
+    data class ContextReset(val name: String, val sessionId: String = "") : ServerMsg
     data class Renamed(val old: String, val name: String, val sessionId: String = "") : ServerMsg // attached session renamed → update title in place (matched by id)
     // usageAt (final message only) is the turn's completion unix seconds — anchors
     // the cache-warm countdown to the turn's real age even when delivered buffered.
@@ -104,7 +107,7 @@ sealed interface ServerMsg {
                 "dialog" -> Dialog(o.str("state"), o.str("prompt"))
                 "attached" -> Attached(o.str("name"), o.str("session_id"), readUsage(o.obj("usage")), o.long("usage_at"), o.str("agent"), o.str("model"), o.str("profile"))
                 "detached" -> Detached
-                "context_reset" -> ContextReset(o.str("name"))
+                "context_reset" -> ContextReset(o.str("name"), o.str("session_id"))
                 "renamed" -> Renamed(o.str("old"), o.str("name"), o.str("session_id"))
                 "output" -> Output(o.str("name"), o.str("text"), o.bool("chunk", false), readUsage(o.obj("usage")), o.long("usage_at"))
                 "history" -> History(o.str("name"), readHist(o.arr("messages")), o.bool("more"), o.int("count", 0), o.str("hash"), o.bool("unchanged", false))

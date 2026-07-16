@@ -110,6 +110,26 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
         cache.remove(old) // drop the stale file; the new key is repersisted on the next persist()
     }
 
+    // dropSessionCache forgets every cached/paged trace of a session's transcript
+    // (all name-keyed maps + the on-disk file) so the next history fetch rebuilds it
+    // from scratch. Used when a clear/compress rotates the session_id server-side: the
+    // old rows are stale (the conversation was wiped/summarized), and merging a small
+    // fresh page over rows carrying the old indexes would leave duplicates — so we
+    // discard wholesale and refetch instead. (This must know the same name-keyed set
+    // as migrateSessionKey; keep the two in sync when a new keyed map is added.)
+    private fun dropSessionCache(name: String) {
+        logs.remove(name)
+        oldestIndex.remove(name)
+        hasMore.remove(name)
+        loadingOlder.remove(name)
+        bridgeTo.remove(name)
+        digestHeld.remove(name)
+        serverDigest.remove(name)
+        loadedFromCache.remove(name)
+        cache.remove(name)
+        if (name == currentKey) _chat.value = emptyList()
+    }
+
     // ensureLoaded pulls a session's persisted transcript from disk into the
     // in-memory maps the first time it's needed (so the cached chat shows even
     // offline), without clobbering a live in-memory log we already hold.
@@ -1302,7 +1322,23 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                     if (!appForeground) notifier.turnDone(msg.name, msg.text) // surface it from the pocket
                 }
             }
-            is ServerMsg.ContextReset -> _lastTurnUsage.value = null // context cleared → status bar returns to 0
+            is ServerMsg.ContextReset -> {
+                _lastTurnUsage.value = null // context cleared → status bar returns to 0
+                // A clear/compress rotates the session_id server-side and wipes/
+                // summarizes the transcript. The rotated id now rides only on this
+                // message (the server no longer re-emits `attached`), so treat it as a
+                // rotation: re-key the attached id, drop the now-stale cached rows for
+                // this session, and refetch fresh history. An old server omits
+                // session_id — then this is a meter reset only (preserve old behavior).
+                if (msg.sessionId.isNotEmpty()) {
+                    if (_attachedName.value == msg.name) {
+                        _attachedId.value = msg.sessionId
+                        settings.lastSessionId = msg.sessionId
+                    }
+                    dropSessionCache(msg.name)
+                    requestFreshHistory(msg.name)
+                }
+            }
             is ServerMsg.Activity -> {
                 // A live breadcrumb means the turn is running server-side; mark it in
                 // flight and disarm any interruption watchdog (it survived a reconnect).

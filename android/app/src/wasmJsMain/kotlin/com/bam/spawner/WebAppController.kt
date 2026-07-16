@@ -334,7 +334,25 @@ class WebAppController(private val prefs: Prefs) : AppController {
                 _ttsVoiceDefault.value = msg.defaultVoice
             }
             is ServerMsg.SpeechMode -> prefs.summaryOnlySpeech = msg.summaryOnly // voice toggle mirrors the audio-settings switch
-            is ServerMsg.ContextReset -> _lastTurnUsage.value = null
+            is ServerMsg.ContextReset -> {
+                _lastTurnUsage.value = null
+                // A clear/compress rotates the session_id server-side and wipes/
+                // summarizes the transcript. The rotated id now rides only on this
+                // message (the server no longer re-emits `attached`): re-key the
+                // attached id, drop the now-stale cached rows for this session, and
+                // refetch fresh history. An old server omits session_id → meter reset only.
+                if (msg.sessionId.isNotEmpty()) {
+                    if (_attachedName.value == msg.name) {
+                        _attachedId.value = msg.sessionId
+                        prefs.lastSessionId = msg.sessionId
+                    }
+                    logs.remove(msg.name)
+                    hasMore.remove(msg.name)
+                    oldest.remove(msg.name)
+                    if (msg.name == currentKey) publish()
+                    client?.send(Outbound.history(msg.name, null))
+                }
+            }
             is ServerMsg.Activity -> _activity.value = msg.text
             is ServerMsg.Transcribing -> _micText.value = "transcribing…" // committed clip being re-transcribed
             is ServerMsg.Files -> if (msg.files.isNotEmpty()) {

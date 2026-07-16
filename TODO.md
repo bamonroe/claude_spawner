@@ -34,12 +34,16 @@ Dates are `YYYY-MM-DD`.
     reverted, because re-emitting `attached` drags the whole attach path along and couples clear/
     compress to any future change in attach behaviour. One event, one meaning.
 
-  - **App-side** (branch `app`): streamed chunks now collapse into one live bubble per turn
+  - **App-side** (branch `app`, done): streamed chunks now collapse into one live bubble per turn
     (badged on turn close) instead of one row per chunk; live `output` and terminal notices route by
     the message's `name` not the visible key, with streamed-reply de-dupe state keyed per session;
-    cached-log de-dupe is index-aware (`dedupeCachedLog`); session focus is local-first. **In
-    progress:** consume the rotated `session_id` from `context_reset` (replacing the earlier
-    same-name-`attached`-rotation path) to re-key and refresh the cleared session's rows.
+    cached-log de-dupe is index-aware (`dedupeCachedLog`); session focus is local-first. And the
+    rotated `session_id` is now consumed from `context_reset` itself (not the old `attached`
+    re-emit): `ContextReset` carries `session_id`, and both `VoiceController` and `WebAppController`
+    re-key the attached id to it, **drop** the cleared session's now-stale cached rows wholesale
+    (`dropSessionCache` on Android; `logs`/`oldest`/`hasMore` on web — merging a small fresh page over
+    rows carrying the old indexes was the duplicate-row source), and refetch fresh history. An empty
+    `session_id` (old server) preserves the meter-reset-only behaviour.
 
   - **Server-side** (branch `master`, done): `doClear` (`ops.go`) and the compress job (`jobs.go`)
     send a single `context_reset` carrying the rotated `session_id` (no `attached` re-emit);
