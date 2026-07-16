@@ -79,6 +79,17 @@ Dates are `YYYY-MM-DD`.
     robust against clock skew but heavier; single-user/home-network makes wall-clock LWW enough.
     Revisit if clock trust becomes a problem.)
 
+  - **Fast-path: per-catalogue digest (skip-if-equal).** Reconciling every record on every connect
+    is wasteful when nothing changed — the common case after a long absence. Each side computes a
+    **stable, order-independent checksum per catalogue** (e.g. XOR/sum of per-record hashes over
+    `(key, updated_at, payload)`, so a timestamp-only change still flips it) and exchanges just that
+    one small hash in the handshake. **Digests match → do nothing.** Only on mismatch does the side
+    ship its (small) catalogue and let the LWW+timestamp merge resolve direction. This is exactly the
+    `count`+`hash` freshness pattern the chat transcript already uses (`digests`/`history unchanged`),
+    generalized to the catalogues. A flat per-catalogue checksum is enough here (tens of records);
+    a Merkle tree — to binary-search *which* records differ without shipping the whole set — is only
+    worth it if a catalogue ever grows large, so it's explicitly out of scope for now.
+
   - **Structure: a `commonMain` resource-sync registry.** Each syncable resource declares once —
     key function, `updated_at` accessor, and merge rule — in shared `commonMain` code. A single
     inbound `applyServerState(msg)` and outbound `pushLocalChange(resource, record)` dispatch by
