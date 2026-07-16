@@ -398,6 +398,7 @@ data class HelloConfig(
     val wakeToken: String,
     val speakToken: String,
     val dictationGate: Boolean,
+    val wakeService: String,
     val sttMode: String,
     val sttModel: String,
     val aliases: Map<String, String>,
@@ -427,6 +428,7 @@ object Outbound {
         put("type", "hello"); put("token", token); put("client_id", clientId)
         put("end_token", cfg.endToken); put("wake_token", cfg.wakeToken)
         put("speak_token", cfg.speakToken); put("dictation_gate", cfg.dictationGate)
+        put("wake_service", cfg.wakeService)
         put("stt_mode", cfg.sttMode); put("stt_model", cfg.sttModel)
         putJsonObject("aliases") { for ((k, v) in cfg.aliases) put(k, v) }
         put("whisper_url", cfg.whisperUrl); put("brief", cfg.brief); put("interactive", cfg.interactive)
@@ -453,9 +455,11 @@ object Outbound {
             put("type", "set_whisper_model"); put("whisper_model", model)
             if (fast) put("fast", true)
         }.toString()
-    // ask the server to restart; rebuild=true recompiles from source, false is a fast
-    // bounce that recreates from the existing image
-    fun restart(rebuild: Boolean) = buildJsonObject { put("type", "restart"); put("rebuild", rebuild) }.toString()
+    // ask the server to rebuild and/or restart. mode is one of:
+    //   "build"   — rebuild the image only; leave the running container in place (no bounce)
+    //   "bounce"  — recreate the container from the existing image (no rebuild)
+    //   "rebuild" — build then recreate (the default)
+    fun restart(mode: String) = buildJsonObject { put("type", "restart"); put("mode", mode) }.toString()
 
     // Ask the server to synthesize `text` (markdown already stripped) via Kokoro.
     // `id` is echoed on the speak_audio/speak_end response stream; empty voice /
@@ -485,8 +489,8 @@ object Outbound {
         put("silent", silent)
     }.toString()
     fun detach() = buildJsonObject { put("type", "detach") }.toString()
-    // Toggle back to the previously attached session (server tracks the previous
-    // per connection). Bound to the chat's right-to-left swipe and the voice "swap".
+    // Server-side fallback for the voice "swap" command, and for clients that do
+    // not have a local previous-focus target.
     fun swap() = buildJsonObject { put("type", "swap") }.toString()
     fun history(name: String, before: Int?, limit: Int = 30, haveHash: String = "") = buildJsonObject {
         put("type", "history"); put("name", name); put("limit", limit)

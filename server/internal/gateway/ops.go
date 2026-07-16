@@ -881,7 +881,8 @@ func (c *conn) doClear() {
 		log.Printf("forget rotated id %s: %v", oldID, ferr)
 	}
 	c.clearBuffer()
-	c.send(msgContextReset(s.Name, s.SessionID)) // reset the app's context-size readout to zero; carry the rotated id so the app resets its cached rows
+	c.send(msgAttached(s, nil))     // publish the fresh session_id so the app re-keys and refreshes the cleared session's rows
+	c.send(msgContextReset(s.Name)) // reset the app's context-size readout to zero
 	c.send(msgSay("cleared. starting fresh — your history is still here."))
 }
 

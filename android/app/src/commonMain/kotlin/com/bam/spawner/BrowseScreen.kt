@@ -3,9 +3,8 @@ package com.bam.spawner
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,7 +14,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -44,7 +44,6 @@ import androidx.compose.ui.unit.sp
  * [AppController], so the same screen serves both the Android app and the web client.
  */
 @Composable
-@OptIn(ExperimentalLayoutApi::class)
 fun BrowseScreen(controller: AppController, onStarted: () -> Unit, onBack: () -> Unit) {
     val listing by controller.listing.collectAsState()
     val hosts by controller.hosts.collectAsState()
@@ -145,38 +144,59 @@ fun BrowseScreen(controller: AppController, onStarted: () -> Unit, onBack: () ->
             )
             Switch(checked = sandbox, onCheckedChange = { sandbox = it })
         }
-        // Host picker (host target only): one chip per configured host. localhost is an
-        // ordinary, seeded, deletable entry, so it shows up here like any other. Hidden
-        // for sandbox and when the registry is empty.
-        if (!sandbox && hosts.isNotEmpty()) {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 4.dp)) {
-                hosts.forEach { h ->
-                    FilterChip(selected = selectedHost == h.name, onClick = { selectedHost = h.name }, label = { Text(h.name) })
+        // Host/profile and provider/model choices are dropdowns instead of chip
+        // clouds, keeping the filesystem tree as the main use of this screen.
+        val showHostPicker = !sandbox && hosts.isNotEmpty()
+        val showProfilePicker = profiles.size > 1
+        if (showHostPicker || showProfilePicker) {
+            Row(
+                Modifier.fillMaxWidth().padding(top = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (showHostPicker) {
+                    SpawnOptionDropdown(
+                        label = "Host",
+                        selectedLabel = selectedHost,
+                        options = hosts.map { it.name to it.name },
+                        onSelect = { selectedHost = it },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                if (showProfilePicker) {
+                    SpawnOptionDropdown(
+                        label = "Profile",
+                        selectedLabel = selectedProfile,
+                        options = profiles.map { it.name to it.name },
+                        onSelect = { selectProfile(it) },
+                        modifier = Modifier.weight(1f),
+                    )
                 }
             }
         }
-        if (profiles.size > 1) {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 4.dp)) {
-                profiles.forEach { p ->
-                    FilterChip(selected = selectedProfile == p.name, onClick = { selectProfile(p.name) }, label = { Text(p.name) })
+        val showAgentPicker = agents.size > 1
+        val modelInfo = agentInfo?.takeIf { it.models.isNotEmpty() }
+        if (showAgentPicker || modelInfo != null) {
+            Row(
+                Modifier.fillMaxWidth().padding(top = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (showAgentPicker) {
+                    SpawnOptionDropdown(
+                        label = "Provider",
+                        selectedLabel = agentInfo?.name ?: selectedAgent,
+                        options = agents.map { it.id to it.name },
+                        onSelect = { selectedAgent = it },
+                        modifier = Modifier.weight(1f),
+                    )
                 }
-            }
-        }
-        // AI backend picker: one chip per backend, shown only when more than one is
-        // available (a single backend needs no choice). Codex/Claude etc.
-        if (agents.size > 1) {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 4.dp)) {
-                agents.forEach { a ->
-                    FilterChip(selected = selectedAgent == a.id, onClick = { selectedAgent = a.id }, label = { Text(a.name) })
-                }
-            }
-        }
-        // Model picker: the chosen backend's model aliases (opus/sonnet/fable, or
-        // Codex's presets). Hidden when the backend advertises no models.
-        agentInfo?.takeIf { it.models.isNotEmpty() }?.let { a ->
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 4.dp)) {
-                a.models.forEach { m ->
-                    FilterChip(selected = selectedModel == m, onClick = { selectedModel = m }, label = { Text(m) })
+                modelInfo?.let { a ->
+                    SpawnOptionDropdown(
+                        label = "Model",
+                        selectedLabel = selectedModel,
+                        options = a.models.map { it to it },
+                        onSelect = { selectedModel = it },
+                        modifier = Modifier.weight(1f),
+                    )
                 }
             }
         }
@@ -223,5 +243,36 @@ fun BrowseScreen(controller: AppController, onStarted: () -> Unit, onBack: () ->
             enabled = canStart, // create a new folder inside the current directory
             modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
         ) { Text("New project folder here…") }
+    }
+}
+
+@Composable
+private fun SpawnOptionDropdown(
+    label: String,
+    selectedLabel: String,
+    options: List<Pair<String, String>>,
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var open by remember { mutableStateOf(false) }
+    Box(modifier) {
+        OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) {
+            Text(
+                "$label: ${selectedLabel.ifBlank { "default" }} ▾",
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            options.forEach { (value, optionLabel) ->
+                DropdownMenuItem(
+                    text = { Text(optionLabel, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    onClick = {
+                        onSelect(value)
+                        open = false
+                    },
+                )
+            }
+        }
     }
 }

@@ -10,11 +10,13 @@ import kotlin.test.assertEquals
  * URL (any scheme/path the user typed) is left alone.
  */
 class NormalizeWsUrlTest {
-    @Test fun bareHostGetsSchemeAndPath() {
-        assertEquals("ws://cs.bam/ws", normalizeWsUrl("cs.bam"))
+    @Test fun bareHostDefaultsToSecure() {
+        // No port → assume the TLS reverse proxy on 443.
+        assertEquals("wss://cs.bam/ws", normalizeWsUrl("cs.bam"))
     }
 
-    @Test fun bareHostWithPortGetsSchemeAndPath() {
+    @Test fun bareHostWithPortStaysPlain() {
+        // Explicit port → talk straight to it in plaintext.
         assertEquals("ws://cs.bam:8098/ws", normalizeWsUrl("cs.bam:8098"))
     }
 
@@ -39,7 +41,7 @@ class NormalizeWsUrlTest {
     }
 
     @Test fun surroundingWhitespaceIsTrimmed() {
-        assertEquals("ws://cs.bam/ws", normalizeWsUrl("  cs.bam  "))
+        assertEquals("wss://cs.bam/ws", normalizeWsUrl("  cs.bam  "))
     }
 
     @Test fun blankStaysBlank() {

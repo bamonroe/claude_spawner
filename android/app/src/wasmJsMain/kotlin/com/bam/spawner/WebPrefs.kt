@@ -113,6 +113,10 @@ class WebPrefs : Prefs {
         get() = bool("dictation_gate", false)
         set(v) = putBool("dictation_gate", v)
 
+    override var wakeService: String
+        get() = str("wake_service", Prefs.DEFAULT_WAKE_SERVICE)
+        set(v) = putStr("wake_service", v)
+
     override var sttMode: String
         get() = str("stt_mode", Prefs.DEFAULT_STT_MODE)
         set(v) = putStr("stt_mode", v)

@@ -377,10 +377,10 @@ func TestSpawnDialogAndDictation(t *testing.T) {
 
 // TestClearThenDictateWithStaleID reproduces the "that session is gone" bug: a
 // `clear` rotates the attached session's session_id and retires the old one, but an
-// old app may keep routing utterances by the pre-rotation id even though the
-// context_reset carries the new one. selectClientSession must recognize that retired
-// id as the session it's already attached to and stay on it, instead of failing with
-// "that session is gone."
+// old app may keep routing utterances by the pre-rotation id even though clear emits
+// a fresh `attached` carrying the new one. selectClientSession must recognize that
+// retired id as the session it's already attached to and stay on it, instead of
+// failing with "that session is gone."
 func TestClearThenDictateWithStaleID(t *testing.T) {
 	ts, root := newTestServer(t, nil)
 	if err := os.MkdirAll(filepath.Join(root, "proj"), 0o755); err != nil {
@@ -407,13 +407,14 @@ func TestClearThenDictateWithStaleID(t *testing.T) {
 		t.Fatalf("expected pong, got %v", out["text"])
 	}
 
-	// Clear rotates the session_id and retires oldID; the context_reset carries the
-	// fresh id so the app can reset+refresh that session's cached rows.
+	// Clear rotates the session_id and retires oldID; it emits a fresh `attached`
+	// carrying the new id so the app can re-key and refresh that session's rows.
 	send(t, ws, map[string]any{"type": "utterance", "text": "hey buddy clear context", "session_id": oldID})
-	reset := readUntil(t, ws, "context_reset")
-	if newID, _ := reset["session_id"].(string); newID == "" || newID == oldID {
-		t.Fatalf("context_reset should carry the rotated session_id (got %q, old %q)", reset["session_id"], oldID)
+	reattached := readUntil(t, ws, "attached")
+	if newID, _ := reattached["session_id"].(string); newID == "" || newID == oldID {
+		t.Fatalf("clear should re-emit attached with the rotated session_id (got %q, old %q)", reattached["session_id"], oldID)
 	}
+	readUntil(t, ws, "context_reset")
 
 	// The app dictates again, still keyed to the retired oldID. Before the fix this
 	// tripped "that session is gone." (no output); now it must reach the session.
@@ -1376,6 +1377,41 @@ func TestInteractiveAskInstructionPrimedOnce(t *testing.T) {
 	}
 }
 
+func TestClearPublishesFreshSessionIDForTargetedTurns(t *testing.T) {
+	ts, root, gw := newTestServerGW(t, nil)
+	if err := os.MkdirAll(filepath.Join(root, "myproj"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	capPath := filepath.Join(t.TempDir(), "prompts.txt")
+	gw.driver.HostBin(fakeClaudeCapture(t, "ok", capPath))
+
+	ws := dial(t, ts)
+	send(t, ws, map[string]any{"type": "hello", "token": "secret"})
+	readUntil(t, ws, "hello_ok")
+
+	name := spawnAttachVoice(t, ws, filepath.Join(root, "myproj"))
+	send(t, ws, map[string]any{"type": "utterance", "text": "first turn"})
+	readUntil(t, ws, "output")
+	origID := gw.store.Get(name).SessionID
+
+	send(t, ws, map[string]any{"type": "clear"})
+	attached := readUntil(t, ws, "attached")
+	newID, _ := attached["session_id"].(string)
+	if newID == "" || newID == origID {
+		t.Fatalf("clear attached session_id = %q, want fresh id distinct from %q", newID, origID)
+	}
+	if attached["name"] != name {
+		t.Fatalf("clear attached name = %#v, want %q", attached["name"], name)
+	}
+	readUntil(t, ws, "say")
+
+	send(t, ws, map[string]any{"type": "utterance", "text": "after clear", "session_id": newID})
+	readUntil(t, ws, "output")
+	if rec := gw.store.Get(name); rec == nil || !rec.Started {
+		t.Fatal("targeted turn after clear did not start the rotated session")
+	}
+}
+
 // TestCompressSummarizesAndSeedsNextTurn: `compress` runs a summary turn, rotates
 // the session_id (old id retired to PriorIDs), and prepends the summary to the
 // NEXT dictation so context is carried forward condensed rather than dropped.
@@ -1401,6 +1437,7 @@ func TestCompressSummarizesAndSeedsNextTurn(t *testing.T) {
 	// Compress: a background summary turn, then a rotation. The confirming say lands
 	// after the summary completes.
 	send(t, ws, map[string]any{"type": "compress"})
+	attached := readUntil(t, ws, "attached")
 	if m := readUntil(t, ws, "say"); !strings.Contains(m["text"].(string), "compressed") {
 		t.Fatalf("compress say = %v, want a 'compressed' confirmation", m["text"])
 	}
@@ -1410,6 +1447,9 @@ func TestCompressSummarizesAndSeedsNextTurn(t *testing.T) {
 	}
 	if rec.SessionID == origID {
 		t.Fatalf("compress must rotate to a fresh session_id, still %q", rec.SessionID)
+	}
+	if attached["session_id"] != rec.SessionID {
+		t.Fatalf("compress attached session_id = %#v, want %q", attached["session_id"], rec.SessionID)
 	}
 	if rec.PendingSeed != "recap-blob" {
 		t.Fatalf("compress should stash the summary as PendingSeed, got %q", rec.PendingSeed)

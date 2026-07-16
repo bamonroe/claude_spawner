@@ -12,55 +12,72 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
-- [ ] 2026-07-16 — **Local↔server chat-cache reconciliation (the "duplicate rows" epic).** The
+- [x] 2026-07-16 — **Local↔server chat-cache reconciliation (the "duplicate rows" epic).** The
       app keeps a local-centric message/session cache, but reconciliation between local state and
-      what the server reports is scattered across several code paths with no single coherent apply
+      what the server reports was scattered across several code paths with no single coherent apply
       point. Symptom: sporadic **duplicated message rows** displayed even though the transcript holds
-      the message once; and mutating commands (`clear`/`compress`) do the work server-side but don't
-      tell the app to update its local rows. This is a two-worktree effort — split below. The two
-      halves share a small protocol change, so **coordinate and land the server field before the app
-      builds on it** (the `docsync` drift test enforces both sides + `docs/protocol.md`).
+      the message once; and mutating commands (`clear`/`compress`) did the work server-side but didn't
+      tell the app to update its local rows. Landed as a coordinated two-worktree effort.
 
-  - **Root cause (from the code map):** duplicates come from reconciling by *exact trimmed text*
-    instead of a *stable server identity*. Streamed replies append one live CLAUDE row **per
-    `output` chunk** (`VoiceController.kt:1250` via `addChat` at `:1488`, live rows carry
-    `index = -1`), while server `history` stores the whole turn as **one** indexed row
-    (`onHistory` at `:1541`). The N partial live rows never text-match the 1 full history row, so
-    the text dedup (`dedupeCachedLog` at `:126`, `onHistory` histTexts filter at `:1570-1573`)
-    can't collapse them → leftover duplicate bubbles. Any whitespace/markdown difference between
-    streamed text and the persisted transcript breaks the same equality. Separately, `clear`/
-    `compress` rotate the session_id server-side and send only `context_reset`, which the app
-    treats as a context-meter reset only (`:1278`) — the rotated session's now-stale rows are never
-    dropped or refreshed.
+  - **Root cause (from the code map):** duplicates came from reconciling by *exact trimmed text*
+    instead of a *stable server identity*. Streamed replies appended one live CLAUDE row **per
+    `output` chunk** (live rows carry `index = -1`), while server `history` stores the whole turn as
+    **one** indexed row. The N partial live rows never text-matched the 1 full history row, so the
+    text dedup couldn't collapse them → leftover duplicate bubbles. Separately, `clear`/`compress`
+    rotate the session_id server-side but the app treated `context_reset` as a context-meter reset
+    only, so the rotated session's now-stale rows were never dropped or refreshed.
 
-  - **App-side work** (worktree `/data/claude_spawner_app`, branch `app` — Kotlin; do the same
-    change in **both** `VoiceController.kt` (Android, authoritative) and `WebAppController.kt`
-    (web), and hoist the shared logic into `commonMain` so it exists once):
-    - [ ] **Collapse streamed chunks into one live row.** Accumulate `output chunk=true` text into
-          a **single** in-progress CLAUDE row per turn (append to that row's text) instead of a new
-          `addChat` row per chunk (`VoiceController.kt:1250`). On turn close (`chunk=false`) finalize
-          that one row. This makes the live turn line up 1:1 with the single server-history row.
-    - [ ] **Reconcile by server identity, not text.** Replace the exact-text dedup (`:126`,
-          `:1570-1573`) with identity-based reconciliation keyed on the server transcript `index`
-          (a live `index=-1` row is *promoted/replaced* by the matching indexed history row by turn
-          position, not by string equality). Keep exactly one row per logical message.
-    - [ ] **Make `context_reset` reset the local log.** In the `ContextReset` handler (`:1278`),
-          drop the local rows for that session (`logs[name]`) and re-request fresh history, in
-          addition to nulling the usage meter — the session_id rotated, so the old rows are stale.
-    - [ ] **Centralize + de-duplicate the logic.** Extract one `applyServerState`/reconcile
-          function (the single mutation boundary for `logs[key]`) into `commonMain`, replacing the
-          scattered `addChat`/`onHistory`/`dedupeCachedLog` paths, and have both controllers call it
-          so Android and web can't drift.
-    - **Server contract the app can rely on** (delivered by the server half below): `context_reset`
-      will additionally carry the **new (rotated) `session_id`** so the app can re-key/refresh the
-      session cleanly rather than inferring it. Treat that field as the trigger to reset+refresh.
+  - **Chosen mechanism (reconciled across both worktrees):** the rotated `session_id` rides on a
+    **re-emitted `attached`** the clear/compress paths now send right before `context_reset` — the
+    app already refreshes history off `attached`, so this reuses the attach path instead of
+    threading a new id field through `context_reset`. (An earlier server-only draft that added
+    `session_id` to `context_reset` was dropped in the merge in favour of this, since the shipped
+    client consumes `attached`.)
 
-  - **Server-side work** (worktree `/data/claude_spawner`, branch `master` — Go):
-    - [x] 2026-07-16 — `context_reset` now carries the rotated `session_id` (`messages.go`, sent by
-          `doClear` and the compress job); documented in `docs/protocol.md`, asserted in the clear
-          test. This is the shared protocol field the app half depends on — **landed and merge-ready**.
-    - [ ] Audit the other mutation messages (`attached`, `renamed`, `session_list`, `detached`) for
-          the same completeness so the app never has to infer a state change.
+  - **App-side** (branch `app`, done): streamed chunks now collapse into one live bubble per turn
+    (badged on turn close) instead of one row per chunk; live `output` and terminal notices route by
+    the message's `name` not the visible key, with streamed-reply de-dupe state keyed per session;
+    cached-log de-dupe is index-aware (`dedupeCachedLog`); session focus is local-first; and a
+    same-name id change from the `attached` re-emit is treated as a rotation (refresh) rather than a
+    previous-session switch. (Commits: local-first focus, dedupe cached rows, publish rotated id,
+    route swapped output.)
+
+  - **Server-side** (branch `master`, done): `doClear` (`ops.go`) and the compress job (`jobs.go`)
+    emit a refreshed `attached` carrying the rotated `session_id` before `context_reset`;
+    `docs/protocol.md` documents the `-> attached + context_reset + say` sequence; clear test
+    asserts the re-emitted `attached` carries a fresh id. `go test ./...` green.
+    - [ ] **Refinement (optional):** finish hoisting the reconcile logic into one shared
+          `commonMain` function so `VoiceController`/`WebAppController` can't drift, and move the
+          remaining text-based `dedupeCachedLog` fully onto server `index` identity. Verify
+          end-to-end on the phone that the sporadic duplicate rows are actually gone.
+    - [ ] **Audit** the other mutation messages (`renamed`, `session_list`, `detached`) for the same
+          completeness so the app never has to infer a state change.
+
+- [x] 2026-07-16 — **New-session picker uses dropdowns for expanding option sets.** The sidebar
+  `BrowseScreen` now renders host/profile and provider/model choices as compact dropdown controls
+  instead of chip clouds, so growing host, profile, backend, and model catalogues do not crowd the
+  filesystem tree.
+
+- [x] 2026-07-16 — **Server URL scheme by port + trust a private CA.** The Server-URL field now
+  picks the scheme from whether a port is given: a bare host → `wss://…/ws` (443, through the TLS
+  reverse proxy), an explicit `host:port` → plain `ws://…/ws` (straight to the gateway). New
+  **Settings → Server → Trusted CA** imports a private CA (e.g. Caddy `tls internal`, downloadable
+  from caddyedit's "Download CA" button) that the Android OkHttp client trusts on top of the system
+  store; a CA `adb push`ed into the app's external files dir is auto-imported on connect. Lets a bare
+  `claude.bam` connect over `wss` with no self-maintained certs. (caddyedit side: a root-watcher CA
+  export at `GET /api/ca`, in that repo.)
+
+- [x] 2026-07-15 — **Fix: gesture swap no longer misroutes late output.** The clients were
+      appending live `output` frames to the currently visible chat key instead of the `name` carried
+      by the server message, and a right-edge swap changes that key before every late frame has
+      drained. Android/web now route named output and terminal notices to the named session, and
+      streamed-reply de-dupe state is keyed per session instead of one global boolean.
+
+- [x] 2026-07-15 — **Fix: clear/compress publish the rotated session id.** Clear and compress
+      rotate the server-side `session_id`, but app-declared dictation targeting meant the phone
+      kept sending the retired id and the next command could get "that session is gone." The
+      rotation paths now emit a refreshed `attached` message before `context_reset`, and Android/web
+      treat a same-name id change as a rotation rather than a previous-session switch.
 
 - [x] 2026-07-15 — **Antigravity (`agy`) backend.** Added Google's Gemini-powered `agy` CLI as the
       fourth AI backend (`server/internal/agent/antigravity.go`), registered in `agent.Default()`.
@@ -137,7 +154,14 @@ Dates are `YYYY-MM-DD`.
       case, registry entry, vocab) and a new `swap` WebSocket message fired by a **right-to-left
       swipe** on the chat (right-edge strip in `MainScreen`, clear of the mic button). `Outbound.swap`
       + `AppController.swap` in both controllers. Docs: commands.md, protocol.md, commands.json
-      regenerated. Server tests green. **APK install pending.**
+      regenerated. Server tests green. APK installed on the Pixel 8a during the follow-up gesture
+      hardening pass.
+
+- [x] 2026-07-15 — **Local session focus intents.** The app now treats registered session opens,
+      detach, and the right-to-left swap gesture as local-first focus changes: it updates the visible
+      attached session immediately, uses that session id for subsequent dictation, and silently syncs
+      the new focus to the server with `attach`/`detach`. The server `swap` message remains as the
+      voice-command and legacy fallback when the app has no local previous-focus target.
 
 - [x] 2026-07-14 — **Settings reorg: session-behavior toggles moved to the Server page.** The
       **Brief replies** and **Ask before guessing** switches were on the Audio page but change how
@@ -168,6 +192,10 @@ Dates are `YYYY-MM-DD`.
       `verifyHeadsetMic` path already does) before trusting the selection — and surface a transient
       state if it never engages. Needs real in-car BT testing to validate; deferred from the
       2026-07-14 hands-free mic fixes. See `VoiceController.setAudioOutput` / `AudioRouter.setOutput`.
+      Code-side fix landed 2026-07-16: route picks now retry for ~6 s and commit prefs/UI only after
+      `AudioRouter.outputActive` confirms the route; failed picks restore the previous route and show
+      a transient "audio route unavailable" status. Clean `:app:assembleDebug` green and installed on
+      the Pixel 8a. Still open for real in-car Bluetooth validation.
 
 - [x] 2026-07-14 — **Fix: hands-free Bluetooth mic needed toggling to engage.** The SCO-failure
       latch only cleared when the input *value* changed, so re-tapping "Headset" was a no-op (had to
@@ -833,6 +861,20 @@ Accurate full transcription on commit stays on Whisper, untouched.
       Whisper string-match** on nil/error (the A/B safety net). Keep the fast transcript for the live
       draft. Riskiest bits: threshold calibration (10× gap default vs optimal — extend the `calibrate`
       path to report detector scores) and per-clip vs accumulated end-token semantics.
+- [x] 2026-07-15 — **Per-client wake/end-token backend toggle (default Whisper).** The detector is
+      no longer forced on every client when `SPAWNER_WAKEWORD_URL` is set. A new `hello` field
+      `wake_service` (`whisper` default | `detector`) is stored per-`conn` (`c.wakeService`); the
+      detector is only scored in `endTokenFired` when the client opted into `detector`, otherwise (and
+      for older/empty clients) the always-present Whisper string-match runs — with the same graceful
+      fallback if `detector` is chosen but no sidecar is configured or it errors. Since we don't yet
+      trust the trained LiveKit model live, Whisper stays the default so hands-free is guaranteed to
+      work. Server + protocol.md + `TestEndTokenFired` cases done on the server worktree. **App half
+      done (app worktree):** persisted `Prefs.wakeService` (default `"whisper"`) in `SettingsStore` +
+      `WebPrefs`, a "Wake/end-token detection" switch in the Commands settings screen (off = Whisper
+      default, on = dedicated detector), threaded through `HelloConfig`/`Outbound.hello`
+      (`put("wake_service", …)`) from both the Android `VoiceController` and the web `WebAppController`.
+      Clean-built and installed on the Pixel 8a (launch verified — no stale-dex crash from the grown
+      ctor).
 - [ ] **Positional detection → correct Whisper with the detector (proposed 2026-07-15).** The
       detector knows a token was said far more reliably than Whisper; use *where* it fired to stop
       Whisper's mishearings from corrupting the parse. Enabling change: the sidecar returns the token's

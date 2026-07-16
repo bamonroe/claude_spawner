@@ -60,7 +60,8 @@ class WebAppController(private val prefs: Prefs) : AppController {
     private val hasMore = mutableMapOf<String, Boolean>()
     private var currentKey = ""
     private var loadingOlder = false
-    private var turnStreamed = false
+    private val streamedSessions = mutableSetOf<String>()
+    private var previousFocusedSession: DiscoveredInfo? = null
 
     private val _chat = MutableStateFlow<List<ChatMessage>>(emptyList())
     override val chat: StateFlow<List<ChatMessage>> = _chat.asStateFlow()
@@ -191,6 +192,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
         _status.value = "connecting…"
         val hello = HelloConfig(
             prefs.endToken, prefs.wakeToken, prefs.speakToken, prefs.dictationGate,
+            prefs.wakeService,
             prefs.sttMode, prefs.sttModel, prefs.aliasMap(),
             prefs.whisperUrl, prefs.brief, prefs.interactive,
             prefs.warmCompress, prefs.autoCompress, prefs.autoCompressThreshold,
@@ -214,12 +216,56 @@ class WebAppController(private val prefs: Prefs) : AppController {
         _hasMoreHistory.value = hasMore[currentKey] ?: false
     }
 
-    private fun addChat(role: Role, text: String, usage: com.bam.spawner.net.TokenUsage? = null) {
-        val now = nowEpochSeconds()
-        logs[currentKey] = ((logs[currentKey] ?: emptyList()) +
-            ChatMessage(role, text, usage = usage, ts = now)).takeLast(2000)
-        if (currentKey.isNotEmpty() || role == Role.SYSTEM) publish()
+    private fun currentFocusedSession(): DiscoveredInfo? {
+        val id = _attachedId.value
+        val name = _attachedName.value ?: return null
+        if (id.isBlank()) return null
+        return _discovered.value.find { it.sessionId == id } ?: DiscoveredInfo(
+            name = name,
+            dir = "",
+            sessionId = id,
+            lastActive = 0,
+            active = false,
+            registered = true,
+            agent = _attachedAgent.value,
+            model = _attachedModel.value,
+        )
+    }
+
+    private fun focusKnownSession(session: DiscoveredInfo, syncServer: Boolean) {
+        if (session.sessionId.isBlank()) {
+            client?.send(Outbound.attach(session.name, silent = syncServer))
+            return
+        }
+        val current = currentFocusedSession()
+        if (current?.sessionId != session.sessionId) {
+            current?.let { previousFocusedSession = it }
+        }
+        _activity.value = ""
+        _pending.value = ""
+        _lastTurnUsage.value = null
+        _attachedId.value = session.sessionId
+        _attachedName.value = session.name
+        _attachedAgent.value = session.agent
+        _attachedModel.value = session.model
+        prefs.lastSession = session.name
+        prefs.lastSessionId = session.sessionId
+        _status.value = "attached: ${session.name}"
+        currentKey = session.name
+        publish()
         _scrollTick.value = _scrollTick.value + 1
+        client?.send(Outbound.history(session.name, null))
+        if (syncServer) client?.send(Outbound.attach(session.name, sessionId = session.sessionId, silent = true))
+    }
+
+    private fun addChat(role: Role, text: String, usage: com.bam.spawner.net.TokenUsage? = null, key: String = currentKey) {
+        val now = nowEpochSeconds()
+        logs[key] = ((logs[key] ?: emptyList()) +
+            ChatMessage(role, text, usage = usage, ts = now)).takeLast(2000)
+        if (key == currentKey) {
+            publish()
+            _scrollTick.value = _scrollTick.value + 1
+        }
     }
 
     private fun roleOf(role: String) = if (role == "user") Role.USER else Role.CLAUDE
@@ -259,15 +305,19 @@ class WebAppController(private val prefs: Prefs) : AppController {
                 // Summary-only: beep through intermediate steps, speak only the final result.
                 val summaryOnly = prefs.summaryOnlySpeech
                 if (msg.chunk) {
-                    turnStreamed = true; addChat(Role.CLAUDE, msg.text)
-                    if (summaryOnly) webBeep() else speak(msg.text)
-                } else {
-                    if (!turnStreamed) { addChat(Role.CLAUDE, msg.text, msg.usage); speak(msg.text) }
-                    else {
-                        if (msg.usage != null) attachUsageToLastClaude(msg.usage)
-                        if (summaryOnly) speak(msg.text) // chunks only beeped — speak the final now
+                    streamedSessions.add(msg.name); addChat(Role.CLAUDE, msg.text, key = msg.name)
+                    if (msg.name == currentKey) {
+                        if (summaryOnly) webBeep() else speak(msg.text)
                     }
-                    turnStreamed = false
+                } else {
+                    if (!streamedSessions.remove(msg.name)) {
+                        addChat(Role.CLAUDE, msg.text, msg.usage, key = msg.name)
+                        if (msg.name == currentKey) speak(msg.text)
+                    }
+                    else {
+                        if (msg.usage != null) attachUsageToLastClaude(msg.name, msg.usage)
+                        if (summaryOnly && msg.name == currentKey) speak(msg.text) // chunks only beeped — speak the final now
+                    }
                     // Anchor the cache-warm countdown to the turn's real completion
                     // time (usage_at), not to when a buffered reply reached us.
                     msg.usage?.let { u ->
@@ -299,12 +349,20 @@ class WebAppController(private val prefs: Prefs) : AppController {
             is ServerMsg.Usage -> { _usageLoading.value = false; _usageReport.value = msg.report }
             is ServerMsg.UsageEstimate -> _usageEstimate.value = msg.est
             is ServerMsg.Ask -> {
-                _activity.value = ""; turnStreamed = false; _ask.value = msg.questions
-                addChat(Role.SYSTEM, "❓ " + msg.questions.joinToString("  ") { it.q })
+                _activity.value = ""; streamedSessions.remove(msg.name); _ask.value = msg.questions
+                addChat(Role.SYSTEM, "❓ " + msg.questions.joinToString("  ") { it.q }, key = msg.name)
             }
-            is ServerMsg.Transcript -> { _ask.value = null; turnStreamed = false; addChat(Role.USER, msg.text) }
+            is ServerMsg.Transcript -> {
+                _ask.value = null
+                (_attachedName.value ?: currentKey).takeIf { it.isNotEmpty() }?.let { streamedSessions.remove(it) }
+                addChat(Role.USER, msg.text)
+            }
             is ServerMsg.Attached -> {
-                turnStreamed = false; _activity.value = ""
+                val sameLogicalSession = _attachedName.value == msg.name
+                if (_attachedId.value.isNotEmpty() && _attachedId.value != msg.sessionId && !sameLogicalSession) {
+                    currentFocusedSession()?.let { previousFocusedSession = it }
+                }
+                _activity.value = ""
                 _attachedId.value = msg.sessionId
                 _attachedName.value = msg.name
                 _attachedAgent.value = msg.agent; _attachedModel.value = msg.model
@@ -323,7 +381,8 @@ class WebAppController(private val prefs: Prefs) : AppController {
                 client?.send(Outbound.history(msg.name, null))
             }
             is ServerMsg.Detached -> {
-                turnStreamed = false; _attachedId.value = ""; _attachedName.value = null
+                currentFocusedSession()?.let { previousFocusedSession = it }
+                _attachedId.value = ""; _attachedName.value = null
                 _attachedAgent.value = ""; _attachedModel.value = ""
                 prefs.lastSession = ""; prefs.lastSessionId = ""
                 _status.value = "connected"; currentKey = ""; publish()
@@ -353,18 +412,24 @@ class WebAppController(private val prefs: Prefs) : AppController {
                     _discoverError.value = msg.message
                 } else addChat(Role.SYSTEM, "⚠️ ${msg.code}: ${msg.message}")
             }
-            is ServerMsg.TurnInterrupted -> { _activity.value = ""; turnStreamed = false; addChat(Role.SYSTEM, "⚠️ turn interrupted (${msg.reason}) — say it again.") }
-            is ServerMsg.TurnStopped -> { _activity.value = ""; turnStreamed = false; addChat(Role.SYSTEM, "⏹ stopped that turn.") }
+            is ServerMsg.TurnInterrupted -> {
+                _activity.value = ""; streamedSessions.remove(msg.name)
+                addChat(Role.SYSTEM, "⚠️ turn interrupted (${msg.reason}) — say it again.", key = msg.name)
+            }
+            is ServerMsg.TurnStopped -> {
+                _activity.value = ""; streamedSessions.remove(msg.name)
+                addChat(Role.SYSTEM, "⏹ stopped that turn.", key = msg.name)
+            }
             else -> {} // Pending / Calibration / ReadLast / Dialog / Unknown
         }
     }
 
-    private fun attachUsageToLastClaude(usage: com.bam.spawner.net.TokenUsage) {
-        val log = logs[currentKey] ?: return
+    private fun attachUsageToLastClaude(key: String, usage: com.bam.spawner.net.TokenUsage) {
+        val log = logs[key] ?: return
         val idx = log.indexOfLast { it.role == Role.CLAUDE }
         if (idx < 0) return
-        logs[currentKey] = log.toMutableList().also { it[idx] = it[idx].copy(usage = usage) }
-        publish()
+        logs[key] = log.toMutableList().also { it[idx] = it[idx].copy(usage = usage) }
+        if (key == currentKey) publish()
     }
 
     private fun onHistory(msg: ServerMsg.History) {
@@ -391,9 +456,44 @@ class WebAppController(private val prefs: Prefs) : AppController {
         addChat(Role.USER, t)
         client?.send(Outbound.utterance(t, sessionId = _attachedId.value))
     }
-    override fun attachTo(name: String) { client?.send(Outbound.attach(name)) }
-    override fun detach() { client?.send(Outbound.detach()) }
-    override fun swap() { client?.send(Outbound.swap()) }
+    override fun focusSession(session: DiscoveredInfo) = focusKnownSession(session, syncServer = true)
+    override fun attachTo(name: String) {
+        _discovered.value.firstOrNull { it.registered && it.name == name }?.let {
+            focusKnownSession(it, syncServer = true)
+            return
+        }
+        client?.send(Outbound.attach(name))
+    }
+    override fun detach() {
+        currentFocusedSession()?.let { previousFocusedSession = it }
+        _activity.value = ""
+        _pending.value = ""
+        _lastTurnUsage.value = null
+        _attachedId.value = ""
+        _attachedName.value = null
+        _attachedAgent.value = ""
+        _attachedModel.value = ""
+        prefs.lastSession = ""
+        prefs.lastSessionId = ""
+        _status.value = "connected"
+        currentKey = ""
+        publish()
+        client?.send(Outbound.detach())
+    }
+    override fun swap() {
+        val target = previousFocusedSession
+        if (target == null || target.sessionId.isBlank()) {
+            client?.send(Outbound.swap())
+            return
+        }
+        val refreshed = _discovered.value.firstOrNull { it.sessionId == target.sessionId }
+        if (refreshed == null && _discovered.value.isNotEmpty()) {
+            previousFocusedSession = null
+            _status.value = "previous session is gone"
+            return
+        }
+        focusKnownSession(refreshed ?: target, syncServer = true)
+    }
     override fun abortTurn() { client?.send(Outbound.abort()) }
     override fun loadOlder() {
         val before = oldest[currentKey] ?: return
@@ -452,7 +552,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
 
     override fun setWhisperModel(model: String, fast: Boolean) { client?.send(Outbound.setWhisperModel(model, fast)) }
     override fun setAutoCompress(warm: Boolean, auto: Boolean, thresholdK: Int) { client?.send(Outbound.autoCompress(warm, auto, thresholdK)) }
-    override fun restartServer(rebuild: Boolean) { client?.send(Outbound.restart(rebuild)) }
+    override fun restartServer(mode: String) { client?.send(Outbound.restart(mode)) }
 
     // --- Push-to-talk mic capture (concrete, off the interface like Android) -------
     // Mirrors the phone: grab the mic on press, send the whole clip on release as

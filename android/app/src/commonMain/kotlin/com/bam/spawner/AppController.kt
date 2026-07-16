@@ -105,9 +105,11 @@ interface AppController : HostsIdentitiesController, ProfilesController, Provide
 
     // --- Turn I/O ------------------------------------------------------------
     fun sendText(text: String)
+    /** Make a known registered session the app's focused dictation target immediately. */
+    fun focusSession(session: DiscoveredInfo)
     fun attachTo(name: String)
     fun detach()
-    /** Toggle back to the previously attached session (server-tracked). */
+    /** Toggle back to the app's previously focused session; falls back to server swap if unknown. */
     fun swap()
     fun abortTurn()
     fun loadOlder()
@@ -143,6 +145,11 @@ interface AppController : HostsIdentitiesController, ProfilesController, Provide
     fun previewTtsVoice(voice: String)
     /** Push the context-compression preference (warm + auto) to the server (live, no reconnect). */
     fun setAutoCompress(warm: Boolean, auto: Boolean, thresholdK: Int)
-    /** Restart the server; rebuild=true recompiles from source, false is a fast bounce that reuses the current image. */
-    fun restartServer(rebuild: Boolean = true)
+    /**
+     * Rebuild and/or restart the server. mode is one of:
+     *  - "build"   rebuild the image only, leaving the running container in place (no bounce)
+     *  - "bounce"  recreate the container from the existing image (no rebuild)
+     *  - "rebuild" build then recreate (the default)
+     */
+    fun restartServer(mode: String = "rebuild")
 }
