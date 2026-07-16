@@ -1025,7 +1025,7 @@ fun ServerSettings(
     // The pending restart mode awaiting confirmation ("build" | "bounce" | "rebuild"), or null.
     var restartMode by remember { mutableStateOf<String?>(null) }
     SettingsScaffold("Server", onBack) {
-        OutlinedTextField(url, { url = it }, label = { Text("Server URL") }, placeholder = { Text("cs.bam") }, supportingText = { Text("Host is enough — ws:// and /ws are added for you") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(url, { url = it }, label = { Text("Server URL") }, placeholder = { Text("cs.bam") }, supportingText = { Text("Host is enough — wss:// and /ws are added. Add :port for a plain-ws direct connection.") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(token, { token = it }, label = { Text("Token") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         Button(onClick = {
             settings.url = url; settings.token = token
