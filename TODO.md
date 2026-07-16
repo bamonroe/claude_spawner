@@ -12,6 +12,15 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-16 — **Server URL scheme by port + trust a private CA.** The Server-URL field now
+  picks the scheme from whether a port is given: a bare host → `wss://…/ws` (443, through the TLS
+  reverse proxy), an explicit `host:port` → plain `ws://…/ws` (straight to the gateway). New
+  **Settings → Server → Trusted CA** imports a private CA (e.g. Caddy `tls internal`, downloadable
+  from caddyedit's "Download CA" button) that the Android OkHttp client trusts on top of the system
+  store; a CA `adb push`ed into the app's external files dir is auto-imported on connect. Lets a bare
+  `claude.bam` connect over `wss` with no self-maintained certs. (caddyedit side: a root-watcher CA
+  export at `GET /api/ca`, in that repo.)
+
 - [x] 2026-07-15 — **Fix: gesture swap no longer misroutes late output.** The clients were
       appending live `output` frames to the currently visible chat key instead of the `name` carried
       by the server message, and a right-edge swap changes that key before every late frame has

@@ -456,6 +456,10 @@ is **no client certificate to install in the app** (removed; if you need mutual 
 the proxy). By default, with no proxy, the WebSocket is plain `ws://`, which is fine when the only
 hop is a Tailscale/WireGuard tunnel (it already encrypts).
 
+If the proxy's `wss://` cert is signed by a **private** CA rather than a public one (e.g. Caddy `tls
+internal`), the Android app can trust it via **Settings → Server → Trusted CA** — see "Trusting a
+private CA" under the browser-client section for how to import or `adb push` the CA.
+
 The server can also do TLS itself (for setups without a proxy) via these env vars:
 
 - **Server TLS (`wss://`)** — set `SPAWNER_TLS_CERT` and `SPAWNER_TLS_KEY` to a PEM cert/key pair
@@ -589,13 +593,27 @@ page is https), so a server-hosted client connects with no setup — you only ed
 **Settings → Server** if you're pointing elsewhere. The static assets are public; the privileged
 surface stays behind the token-authenticated `/ws` handshake (and mutual TLS if configured).
 
-**Server URL — a bare host is enough.** The **Settings → Server** URL field accepts just a
-hostname: the client fills in the scheme and gateway path for you, so `cs.bam` becomes
-`ws://cs.bam/ws`. A port (`cs.bam:8098`) or a pasted `http(s)://` URL work too (`http`→`ws`,
-`https`→`wss`); a fully-formed `ws://host:port/ws` is left untouched. This lets you put the server
-behind a memorable reverse-proxy hostname instead of an IP:port — e.g. a Caddy `cs.bam:80` site that
-reverse-proxies to the gateway, which transparently carries both the web client at `/` and the `/ws`
-WebSocket upgrade.
+**Server URL — a bare host is enough, and the port picks the scheme.** The **Settings → Server** URL
+field accepts just a hostname: the client fills in the scheme and gateway path for you. Whether a
+**port** is given decides the scheme, matching the usual deployment — a bare host means "go through
+the TLS reverse proxy," and an explicit port means "talk straight to that port":
+
+- `cs.bam` → `wss://cs.bam/ws` (secure, port 443 — through the proxy);
+- `cs.bam:8098` → `ws://cs.bam:8098/ws` (plain, straight to the gateway port).
+
+A pasted `http(s)://` URL is mapped (`http`→`ws`, `https`→`wss`) and a fully-formed `ws(s)://host/ws`
+is left untouched. So a Caddy site (e.g. `cs.bam` reverse-proxying to the gateway) transparently
+carries both the web client at `/` and the `/ws` WebSocket upgrade over `wss://`, while the bare port
+form stays available for a direct, no-TLS connection.
+
+**Trusting a private CA (Android).** If the proxy serves `wss://` with a **private** certificate — a
+Caddy `tls internal` site, whose cert isn't in the device trust store — the Android app won't
+validate it by default. **Settings → Server → Trusted CA** imports a CA (a `.crt`/PEM file) that the
+app trusts *in addition to* the system store, so that server validates while public certs still work.
+Get the CA from the caddyedit editor's **Download CA** button. A CA `adb push`ed into the app's
+external files dir (`Android/data/<pkg>/files/caddy-root.crt`) is auto-imported on the next connect,
+for hands-off setup. (The browser client has no such control — trust the CA in the browser/OS
+instead.)
 
 Text chat, the session drawer, hosts/identities, usage, **file transfer** (the 📎 button — the same
 upload/download flow as the app, reading/writing the browser's own files), and **spawning new
