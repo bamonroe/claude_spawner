@@ -12,6 +12,23 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-15 — **Antigravity (`agy`) backend.** Added Google's Gemini-powered `agy` CLI as the
+      fourth AI backend (`server/internal/agent/antigravity.go`), registered in `agent.Default()`.
+      Driven non-interactively via `agy --prompt` (its only headless mode — verified live: no
+      machine-readable stream, plain-prose stdout is the reply). Caller-supplied `--conversation`
+      uuid (created then resumed, like Claude, so `SelfAssignsID` false — verified resume recalls
+      prior context). agy ignores the process cwd, so a new `TurnSpec.Dir` threads the session
+      directory into `--add-dir`. Per-target binaries `SPAWNER_SSH_AGY_BIN` / `SPAWNER_SANDBOX_AGY_BIN`.
+      Gemini 3.x Pro/Flash model catalogue with spoken aliases. Its on-disk store isn't wired to a
+      reader (keyed by an internal id we don't hold, no usage recorded), so it routes to a new
+      `nullTranscript` reader — reply streams live, but no history replay/context/deletion. Unit tests
+      for args + parser; full `go test ./...` green.
+  - [ ] **Follow-up (gated on Google): rich agy turns via JSON output.** When `agy` grows a
+        `--output-format json`/stream mode (or a resolvable transcript path keyed by our conversation
+        id), replace `parseAgyText` with a real stream parser and wire an antigravity transcript
+        reader, to recover live tool breadcrumbs, **token/context accounting**, and reattach history —
+        the three things the plain-text v1 can't do. Today agy exposes no token counts anywhere.
+
 - [x] 2026-07-15 — **App-declared dictation target.** `wake` and `utterance` now carry the app's
       currently focused `session_id`; the server validates it and makes the connection follow that
       session before routing dictation or command text, falling back to the old per-WebSocket

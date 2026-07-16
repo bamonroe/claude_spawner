@@ -162,7 +162,7 @@ and parse it — so the server drives more than `claude`.
   Executor never mentions claude/codex. Adding a backend touches neither the executors nor the
   gateway.
 
-**Three backends ship today.** *Claude* (`--output-format stream-json`; the server mints the
+**Four backends ship today.** *Claude* (`--output-format stream-json`; the server mints the
 `session_id` and passes `--session-id`/`--resume`). *Codex* (`codex exec` / `codex exec resume`,
 `--json` JSONL): Codex **mints its own** session id (`thread_id`, read from the first output event),
 so `Agent.SelfAssignsID` tells `Turn` to adopt the id `ParseTurn` returns in
@@ -181,7 +181,17 @@ runnable) is all it takes, no server rebuild. `Driver.RefreshModels` runs the pr
 pool at boot (before the provider overlay is validated) and, throttled, on each client connect. It
 persists
 sessions in a SQLite DB rather than flat files, so its transcript reader shells out to opencode's own
-commands (see below).
+commands (see below). *Antigravity* (Google's Gemini-powered `agy` CLI) is the outlier: it has **no
+machine-readable stream mode**, so it's driven with `agy --prompt` (non-interactive "print" mode) and
+its `ParseTurn` reads the plain-prose stdout as the whole reply — no live tool breadcrumbs and **no
+token accounting** (agy exposes none). Like Claude it takes a **caller-supplied** id (`--conversation
+<uuid>`, created on the first turn and resumed on later ones, so `SelfAssignsID` is false), and unlike
+every other backend it **ignores the process cwd** — it works in its own scratch project unless the
+workspace is named, so `Turn` threads the session directory through `TurnSpec.Dir` and the build passes
+`--add-dir`. Its transcript store isn't wired to a reader (keyed by an internal id we don't hold, and
+carrying no usage), so it maps to the **null** transcript reader — the live reply streams off stdout,
+but reattach shows no prior history. Making agy first-class the way the other three are is a follow-up
+gated on Google shipping a JSON output mode (see `TODO.md`).
 
 **Reattach replays each backend's own on-disk transcript.** A session has no live process, so the
 `history` page and the on-attach context badge are rebuilt from disk — and *where* that record lives
@@ -195,9 +205,10 @@ by `codexFS` (`internal/session/codex_transcript.go`). opencode keeps sessions i
 (`internal/session/opencode_transcript.go`) instead shells out to opencode's own stable commands over
 the same SSH seam — `opencode export <id>` for history (mapping its message/part JSON, taking each
 turn's context size from the last `step-finish` part's tokens, since the session-level `info.tokens`
-is summed across turns) and `opencode session delete <id>` for removal. All three normalize to the same
+is summed across turns) and `opencode session delete <id>` for removal. Those three normalize to the same
 `[]Message` / `ContextSnapshot` the gateway already sends, so a Codex or opencode session's past turns
-replay on reattach exactly like a Claude session's. (These persisted records are *not* the live
+replay on reattach exactly like a Claude session's. Antigravity is the exception: it maps to the null
+reader (`nullTranscript`), reporting no history, no context, and deleting nothing. (These persisted records are *not* the live
 `--json` streams the agents' `ParseTurn` consume during a turn.)
 
 ### Adding an AI backend (e.g. Gemini CLI, a local model)

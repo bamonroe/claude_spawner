@@ -2,6 +2,7 @@ package agent
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -102,5 +103,65 @@ func TestClaudeArgsMatchLegacyPlusModel(t *testing.T) {
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("resume args\n got %v\nwant %v", got, want)
+	}
+}
+
+func TestAntigravityArgs(t *testing.T) {
+	a, ok := Default().Get("antigravity")
+	if !ok {
+		t.Fatal("antigravity not registered")
+	}
+	if a.Bin != "agy" {
+		t.Errorf("antigravity Bin = %q, want agy", a.Bin)
+	}
+	if a.SelfAssignsID {
+		t.Error("antigravity should take a caller-supplied conversation id (SelfAssignsID false)")
+	}
+
+	// The caller-supplied conversation id rides every turn (create and resume look
+	// identical to agy); the workspace goes via --add-dir, model pinned, prompt in
+	// =form so a leading-dash dictation can't be misparsed as a flag.
+	got := a.Args(TurnSpec{Prompt: "-rf be careful", SessionID: "conv-1", Dir: "/work", Model: "gemini-flash-low", Bypass: true})
+	want := []string{
+		"--conversation", "conv-1", "--add-dir", "/work",
+		"--dangerously-skip-permissions", "--model", "Gemini 3.5 Flash (Low)",
+		"--print-timeout", agyPrintTimeout, "--prompt=-rf be careful",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("antigravity args\n got %v\nwant %v", got, want)
+	}
+
+	// No Dir and no bypass: --add-dir and the skip-permissions flag are both omitted.
+	got = a.Args(TurnSpec{Prompt: "hi", SessionID: "conv-2", Model: "gemini-pro"})
+	if slices.Contains(got, "--add-dir") {
+		t.Errorf("empty Dir should omit --add-dir, got %v", got)
+	}
+	if slices.Contains(got, "--dangerously-skip-permissions") {
+		t.Errorf("no bypass should omit skip-permissions, got %v", got)
+	}
+}
+
+func TestParseAgyText(t *testing.T) {
+	// Clean stdout is the whole reply, trimmed; OnText fires once with it.
+	var streamed string
+	res, err := parseAgyText(strings.NewReader("  the answer is 42\n"), TurnCallbacks{
+		OnText: func(s string) { streamed = s },
+	})
+	if err != nil {
+		t.Fatalf("parseAgyText: %v", err)
+	}
+	if res.Reply != "the answer is 42" {
+		t.Errorf("reply = %q, want trimmed prose", res.Reply)
+	}
+	if streamed != "the answer is 42" {
+		t.Errorf("OnText got %q, want the reply", streamed)
+	}
+	if res.Usage != (Usage{}) {
+		t.Errorf("agy reports no usage, got %+v", res.Usage)
+	}
+
+	// Empty stdout on a clean exit is a failed turn.
+	if _, err := parseAgyText(strings.NewReader("   \n"), TurnCallbacks{}); err == nil {
+		t.Error("empty agy output should error")
 	}
 }

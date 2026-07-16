@@ -85,6 +85,7 @@ func main() {
 	// SPAWNER_SSH_CLAUDE_BIN for Claude.
 	hostCodexBin := cfg.SSHCodexBin
 	hostOpencodeBin := cfg.SSHOpencodeBin
+	hostAgyBin := cfg.SSHAgyBin
 	driver.AgentBins = map[string]map[session.Target]string{
 		"codex": {
 			session.TargetHost:    hostCodexBin,
@@ -93,6 +94,10 @@ func main() {
 		"opencode": {
 			session.TargetHost:    hostOpencodeBin,
 			session.TargetSandbox: cfg.SandboxOpencodeBin,
+		},
+		"antigravity": {
+			session.TargetHost:    hostAgyBin,
+			session.TargetSandbox: cfg.SandboxAgyBin,
 		},
 	}
 	// SSH-native execution is unconditional: every host-target turn runs over SSH —

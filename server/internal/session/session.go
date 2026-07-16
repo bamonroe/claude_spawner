@@ -482,6 +482,12 @@ func (d *Driver) transcriptReaderFor(agentID, host string) transcriptReader {
 		return codexFS{d.claudeFSFor(host)}
 	case agent.TranscriptOpencode:
 		return opencodeFS{d.claudeFSFor(host)}
+	case agent.TranscriptAntigravity:
+		// agy's on-disk store isn't wired to a reader yet (keyed by an internal id
+		// we don't hold, and it records no token usage), so history replay/context/
+		// deletion are backed by nothing rather than accidentally reading a
+		// co-located Claude transcript. Its reply still streams live off stdout.
+		return nullTranscript{}
 	}
 	return d.claudeFSFor(host)
 }
@@ -541,6 +547,10 @@ func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool fun
 		Resume:    s.Started,
 		Model:     s.Model,
 		Bypass:    d.Bypass,
+		// The session's working directory. Most backends inherit it as the process
+		// cwd (set by the Executor) and ignore this; Antigravity ignores cwd and
+		// needs it passed explicitly (--add-dir), so it reads TurnSpec.Dir.
+		Dir: s.Dir,
 		// Install the PreToolUse hook that blocks background bash and redirects it to
 		// spawner-job (only the Claude backend consumes this). The wrapper is staged at
 		// this same home before the turn (reconcileJobs → StageJobScript); if staging

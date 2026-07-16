@@ -38,6 +38,14 @@ const (
 	// out to opencode's own `export`/`session delete` commands rather than reading
 	// a path (see opencode_transcript.go).
 	TranscriptOpencode TranscriptKind = "opencode-db"
+	// TranscriptAntigravity is the Antigravity (agy) layout: conversations live in
+	// per-id SQLite databases plus a brain/<internal-id>/.system_generated/logs/
+	// transcript.jsonl, keyed by an internal id we don't hold (agy maps our
+	// caller-supplied --conversation uuid to it). No reader is wired yet, so this
+	// kind routes to the null transcript reader — agy's spoken reply streams live
+	// off stdout, but past-turn history replay/context/deletion are not backed by
+	// its on-disk store. See antigravity.go and null_transcript.go.
+	TranscriptAntigravity TranscriptKind = "antigravity"
 )
 
 // Model is one selectable model within an [Agent], chosen by a short alias the
@@ -65,6 +73,11 @@ type TurnSpec struct {
 	Resume    bool   // false: first turn (create the session); true: reattach
 	Model     string // model alias; "" resolves to the Agent's DefaultModel
 	Bypass    bool   // add the backend's skip-permissions flag
+	// Dir is the session's working directory. Most backends inherit it as the
+	// process cwd (the Executor sets it) and ignore this field; Antigravity (agy)
+	// ignores cwd and instead needs the workspace passed explicitly (--add-dir),
+	// so its build reads Dir. Empty means "no explicit workspace".
+	Dir string
 	// SettingsJSON is a backend-settings JSON string injected at launch (Claude's
 	// --settings). The server uses it to install the PreToolUse hook that enforces
 	// detached background jobs. Empty for backends/turns that don't need it; only
@@ -254,6 +267,7 @@ func Default() *Registry {
 	r.register(claude())
 	r.register(codex())
 	r.register(opencode())
+	r.register(antigravity())
 	return r
 }
 

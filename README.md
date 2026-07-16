@@ -361,7 +361,7 @@ picker drops its entries and any headset selection falls back (Output → Earpie
 ### Choosing the AI backend and its model
 
 The server drives more than one headless AI. Each **backend** is an entry in an AI registry that
-declares how to invoke it and how to read its output, so they share one interface; three ship today:
+declares how to invoke it and how to read its output, so they share one interface; four ship today:
 
 - **Claude Code** (the default) — `claude` headless in stream-json mode.
 - **Codex** (OpenAI's CLI) — `codex exec`; the server captures Codex's own session id and resumes
@@ -386,6 +386,15 @@ declares how to invoke it and how to read its output, so they share one interfac
     wire into opencode stays hidden — opencode couldn't run it anyway. If the discovery probe ever
     fails (opencode unreachable), the picker falls back to a built-in `qwen2.5-coder` / `llama3.1`
     pair so it's never empty.
+- **Antigravity** (Google's Gemini-powered `agy` CLI) — `agy --prompt` in its non-interactive
+  "print" mode. It offers the Gemini 3.x models (Pro and Flash, plus hosted Claude/GPT-OSS options);
+  like Claude the server supplies the conversation id (`--conversation`) and resumes it turn to turn.
+  Needs `agy` installed and signed in on the host (host turns run over SSH, so set `SPAWNER_SSH_AGY_BIN`
+  if `agy` isn't on the host's `PATH`, and `SPAWNER_SANDBOX_AGY_BIN` for the sandbox). **Caveat:** agy
+  has no machine-readable output mode yet, so the server captures only the final spoken reply —
+  there are **no live tool breadcrumbs, no token/context accounting, and no history replay on
+  reattach** (its on-disk store isn't wired up). Everything else — spoken answers, model switching,
+  and turn-to-turn resume — works. When Google ships a JSON output mode these gaps close.
 
 Pick the backend when you spawn — by **voice**, "hey buddy, spawn a codex session" (or "…on
 opencode") creates that backend's session; a plain spawn uses Claude. In the **visual New-session picker** (the app or
