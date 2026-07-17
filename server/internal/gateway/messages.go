@@ -44,7 +44,6 @@ type inbound struct {
 	WakeService           string               `json:"wake_service"`            // on `hello`: which backend scores the live wake/end tokens — "whisper" (default; string-match the fast transcript) | "detector" (the trained SPAWNER_WAKEWORD_URL sidecar)
 	Calibrate             bool                 `json:"calibrate"`               // on `wake`: transcribe (fast model) and return, don't dispatch
 	Aliases               map[string]string    `json:"aliases"`                 // on `hello`: mis-transcription -> canonical command word
-	WhisperURL            string               `json:"whisper_url"`             // on `hello`: resident whisper server URL (overrides the default)
 	WhisperModel          string               `json:"whisper_model"`           // on `hello`: ggml model to hot-load on the resident server (e.g. "medium.en")
 	Fast                  bool                 `json:"fast"`                    // on `set_whisper_model`: target the fast (draft/detection) server instead of the accurate one
 	Mode                  string               `json:"mode"`                    // on `restart`: "build" (rebuild the image only — the running container is left in place, so no bounce) | "bounce" (recreate the container from the existing image, no rebuild) | "rebuild" (build then recreate; the default, and what the voice command uses). Empty = rebuild

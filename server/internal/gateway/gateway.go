@@ -650,7 +650,6 @@ type conn struct {
 	sttModel        string                 // fixed-mode model: "tiny" | "base" | "small"
 	wakeService     string                 // live wake/end-token backend: "whisper" (default string-match) | "detector" (the SPAWNER_WAKEWORD_URL sidecar)
 	aliases         map[string]string      // mis-transcription -> canonical command word
-	stt             transcribe.Transcriber // per-conn override (app-set whisper URL); nil = server default
 	scratch         bool                   // scratch mode: while detached, echo each transcription back aloud (STT test)
 
 	speakCh     chan speakReq      // queued `speak` requests, drained in order by speakWorker; nil = server TTS disabled
@@ -676,12 +675,9 @@ func (c *conn) attachedSession() *session.Session {
 	return c.attached
 }
 
-// transcriber returns this connection's STT — an app-set override if present,
-// else the server default.
+// transcriber returns this connection's STT — the server default (the whisper
+// server is fixed by config; clients no longer override the URL).
 func (c *conn) transcriber() transcribe.Transcriber {
-	if c.stt != nil {
-		return c.stt
-	}
 	return c.srv.stt
 }
 
@@ -765,9 +761,6 @@ func (c *conn) authenticate() bool {
 	// is configured server-wide. Anything other than "detector" means Whisper.
 	c.wakeService = strings.TrimSpace(in.WakeService)
 	c.aliases = in.Aliases
-	if u := strings.TrimSpace(in.WhisperURL); u != "" {
-		c.stt = &transcribe.RemoteWhisper{URL: u} // app-chosen resident whisper server
-	}
 	// The whisper model is server-global: the app reads it here rather than pushing
 	// its own (so two clients don't bounce it), and changes it via set_whisper_model.
 	model, fastModel := c.srv.currentWhisperModels()
