@@ -552,6 +552,30 @@ func (s *Server) broadcast(v any) {
 	}
 }
 
+// broadcastRenamed pushes the `renamed` title update to every connection attached
+// to the just-renamed session — the initiator plus any other device the user has
+// on the same session — so each client refreshes its attached-session title in
+// place instead of inferring the rename from a later discovered-list diff. A
+// connection is "attached to this session" when it holds the very *Session pointer
+// the store renamed in place (Rename mutates the shared record, and all
+// attachments resolve to it), which is precisely the session identity the app then
+// matches on by the carried session_id. Connections attached to another session,
+// or none, are skipped.
+func (s *Server) broadcastRenamed(rec *session.Session, old, newName string) {
+	s.connsMu.Lock()
+	cs := make([]*conn, 0, len(s.conns))
+	for c := range s.conns {
+		cs = append(cs, c)
+	}
+	s.connsMu.Unlock()
+	msg := msgRenamed(old, newName, rec.SessionID)
+	for _, c := range cs {
+		if c.attachedSession() == rec {
+			c.send(msg)
+		}
+	}
+}
+
 // job returns the session job for a name, if any.
 func (s *Server) job(name string) *sessionJob {
 	s.jobsMu.Lock()

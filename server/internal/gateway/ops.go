@@ -1050,12 +1050,18 @@ func (c *conn) doRename(old, newName string) bool {
 		c.fail("rename_failed", err.Error())
 		return false
 	}
-	// Follow the rename if we're attached to it. The job hub and in-flight state are
-	// keyed by session_id (stable across a rename), so nothing there needs re-keying;
-	// just refresh the attached record and update the app's title in place.
-	if c.attached != nil && c.attached.Name == old {
-		c.setAttached(c.srv.store.Get(newName))
-		c.send(msgRenamed(old, newName, c.attached.SessionID)) // update the attached-session title in place (matched by id)
+	// Rename mutates the record in place, so every connection attached to this
+	// session — the initiator plus any other device the user has on it (they run a
+	// phone AND a tablet at once) — holds this same *Session pointer. The job hub and
+	// in-flight state are keyed by session_id (stable across a rename), so nothing
+	// there needs re-keying.
+	rec := c.srv.store.Get(newName)
+	// Push the `renamed` title update to EVERY connection attached to this session,
+	// not just the initiator, so each client updates its attached-session title in
+	// place (matching by the stable session_id) instead of inferring the rename from
+	// a later discovered-list diff.
+	if rec != nil {
+		c.srv.broadcastRenamed(rec, old, newName)
 	}
 	c.sendSessionList() // push the refreshed list back to the app (quietly)
 	return true

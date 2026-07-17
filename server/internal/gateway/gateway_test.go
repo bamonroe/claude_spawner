@@ -958,6 +958,68 @@ func TestRenameSession(t *testing.T) {
 	}
 }
 
+// TestRenameBroadcastsToAllAttachedConns proves a rename fans the `renamed` title
+// update out to EVERY connection attached to that session — the initiator plus any
+// other device the user has on the same session (they run a phone AND a tablet at
+// once) — so each client updates its title in place rather than inferring the
+// rename from a later discovered-list diff. A connection attached to a DIFFERENT
+// session must not receive it.
+func TestRenameBroadcastsToAllAttachedConns(t *testing.T) {
+	ts, root := newTestServer(t, nil)
+	for _, d := range []string{"projone", "projtwo"} {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Conn A: the initiator — spawn + attach session S.
+	a := dial(t, ts)
+	send(t, a, map[string]any{"type": "hello", "token": "secret", "client_id": "devA"})
+	readUntil(t, a, "hello_ok")
+	sName := spawnAttachVoice(t, a, filepath.Join(root, "projone"))
+
+	// Conn C: a second user device attached to a DIFFERENT session T.
+	c := dial(t, ts)
+	send(t, c, map[string]any{"type": "hello", "token": "secret", "client_id": "devC"})
+	readUntil(t, c, "hello_ok")
+	spawnAttachVoice(t, c, filepath.Join(root, "projtwo"))
+
+	// Conn B: a second device attached to the SAME session S as A.
+	b := dial(t, ts)
+	send(t, b, map[string]any{"type": "hello", "token": "secret", "client_id": "devB"})
+	readUntil(t, b, "hello_ok")
+	send(t, b, map[string]any{"type": "attach", "name": sName})
+	readUntil(t, b, "attached")
+
+	// A renames S. Every connection attached to S (A and B) must be told directly.
+	send(t, a, map[string]any{"type": "rename", "name": sName, "new_name": "renamed"})
+
+	if m := readUntil(t, a, "renamed"); m["name"] != "renamed" || m["old"] != sName {
+		t.Fatalf("initiator did not get renamed: %v", m)
+	}
+	if m := readUntil(t, b, "renamed"); m["name"] != "renamed" || m["old"] != sName {
+		t.Fatalf("second device on the same session did not get renamed: %v", m)
+	}
+
+	// C, attached to a different session, must NOT receive `renamed`. Fence with an
+	// explicit request whose reply proves C's stream drained past the rename: any
+	// stray `renamed` would have been written to C before this reply.
+	send(t, c, map[string]any{"type": "hosts"})
+	_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
+	for {
+		var m map[string]any
+		if err := c.ReadJSON(&m); err != nil {
+			t.Fatalf("fencing conn C: %v", err)
+		}
+		if m["type"] == "renamed" {
+			t.Fatalf("connection attached to a different session received renamed: %v", m)
+		}
+		if m["type"] == "host_list" {
+			break
+		}
+	}
+}
+
 // TestVoiceRename drives the "hey buddy rename to <name>" command end to end:
 // attach to a session, rename it by voice, and confirm both the spoken
 // confirmation and the refreshed session list carry the new name.
