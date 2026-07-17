@@ -95,6 +95,16 @@ type Session struct {
 	// isn't re-appended every turn. Reset by clear/compress like AskPrimed
 	// (re-priming after a context rotation is harmless).
 	JobsPrimed bool `json:"jobs_primed,omitempty"`
+	// AgyBrainIDs records, in turn order, the antigravity "brain" directory id each
+	// turn wrote under ~/.gemini/antigravity-cli/brain/<id>/. Unlike Claude/Codex,
+	// agy IGNORES the --conversation id we pass and files every turn under a fresh
+	// internal id of its own, so we can't recover a session's history by our own
+	// session_id. Instead we capture the brain id when we locate a turn's transcript
+	// to rebuild its reply (reconstructAgyReply), building our own ordered map from
+	// this session to agy's on-disk turns — the antigravity history reader replays
+	// these. Empty for non-antigravity sessions. Like Jobs, it rides through the
+	// clear/compress session_id rotation (its transcripts stay on disk for scrollback).
+	AgyBrainIDs []string `json:"agy_brain_ids,omitempty"`
 }
 
 // BackgroundJob is one detached job Claude launched via the spawner-job wrapper,
@@ -631,7 +641,15 @@ func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool fun
 	// blob; rebuild the paragraph breaks from agy's on-disk transcript (best-effort —
 	// falls back to the stdout reply on any miss). See antigravity_transcript.go.
 	if ag.Transcript == agent.TranscriptAntigravity {
-		res.Reply = d.reconstructAgyReply(ctx, s, res.Reply)
+		var brainID string
+		res.Reply, brainID = d.reconstructAgyReply(ctx, s, res.Reply)
+		// Record the brain dir this turn wrote (when we could pin it down) so the
+		// history reader can later replay the session's turns — agy won't let us find
+		// them by our own id. Skip a repeat of the last id (a retry matching the same
+		// dir) so the chain stays one entry per turn. The caller persists s.
+		if brainID != "" && (len(s.AgyBrainIDs) == 0 || s.AgyBrainIDs[len(s.AgyBrainIDs)-1] != brainID) {
+			s.AgyBrainIDs = append(s.AgyBrainIDs, brainID)
+		}
 	}
 	return res.Reply, res.Usage, nil
 }

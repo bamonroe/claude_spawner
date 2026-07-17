@@ -34,15 +34,21 @@ import (
 // fall back to the original stdout reply on any miss, mismatch, or error.
 //
 // (The ignored --conversation id also means agy is not actually resuming our
-// conversations turn-to-turn and the backend's TranscriptAntigravity history reader
-// is still the nullTranscript stub — both tracked as follow-ups in TODO.md.)
+// conversations turn-to-turn. To recover a session's history despite that, we CAPTURE
+// each turn's brain id here — reconstructAgyReply returns the id of the matched dir,
+// and the caller records it on the session (Session.AgyBrainIDs), building our own
+// ordered map from a session to agy's on-disk turns for the history reader to replay.
+// The TranscriptAntigravity history reader that consumes that map is still a follow-up
+// in TODO.md.)
 
 // agyBrainScript lists the newest brain transcripts on the target (newest first)
-// and, for each, emits a marker line followed by only its PLANNER_RESPONSE records.
-// The type filter keeps the payload small — a transcript's bulky tool-result lines
-// (embedded file dumps) never leave the target. $HOME and $() expand in the target
-// shell; RunOnTarget runs the command via sh -c on host, SSH, and sandbox alike.
-const agyBrainScript = `for f in $(ls -1dt "$HOME"/.gemini/antigravity-cli/brain/*/.system_generated/logs/transcript.jsonl 2>/dev/null | head -6); do echo "@@AGY@@"; grep -F '"PLANNER_RESPONSE"' "$f" 2>/dev/null; done`
+// and, for each, emits a marker line carrying the transcript's path followed by only
+// its PLANNER_RESPONSE records. The path lets the caller recover the brain dir id of
+// the block it matched. The type filter keeps the payload small — a transcript's
+// bulky tool-result lines (embedded file dumps) never leave the target. $HOME and
+// $() expand in the target shell; RunOnTarget runs the command via sh -c on host,
+// SSH, and sandbox alike.
+const agyBrainScript = `for f in $(ls -1dt "$HOME"/.gemini/antigravity-cli/brain/*/.system_generated/logs/transcript.jsonl 2>/dev/null | head -6); do echo "@@AGY@@ $f"; grep -F '"PLANNER_RESPONSE"' "$f" 2>/dev/null; done`
 
 // agyMarker separates one transcript's PLANNER_RESPONSE lines from the next in the
 // script's combined output.
@@ -65,39 +71,67 @@ type agyTranscriptLine struct {
 }
 
 // reconstructAgyReply returns flat re-broken into paragraphs when it can find and
-// verify the transcript agy just wrote, else flat unchanged. flat is parseAgyText's
-// stdout reply — both the fallback and the correctness key.
-func (d *Driver) reconstructAgyReply(ctx context.Context, s *Session, flat string) string {
+// verify the transcript agy just wrote, else flat unchanged, plus the brain dir id
+// of the matched transcript ("" on any miss). flat is parseAgyText's stdout reply —
+// both the fallback and the correctness key; the id lets the caller record which
+// on-disk turn this reply came from (Session.AgyBrainIDs).
+func (d *Driver) reconstructAgyReply(ctx context.Context, s *Session, flat string) (string, string) {
 	want := agyCollapseWS(flat)
 	if want == "" {
-		return flat
+		return flat, ""
 	}
 	out, err := d.RunOnTarget(ctx, s, agyBrainScript)
 	if err != nil {
-		return flat
+		return flat, ""
 	}
-	if para, ok := matchAgyParagraphs(string(out), want); ok {
-		return para
+	if para, id, ok := matchAgyParagraphs(string(out), want); ok {
+		return para, id
 	}
-	return flat
+	return flat, ""
 }
 
 // matchAgyParagraphs scans the brain-script output (marker-separated transcript
 // blocks, newest first) for the block whose PLANNER_RESPONSE messages, joined by
 // spaces, reproduce want (an already-whitespace-collapsed stdout blob). On a match
-// it returns those messages rejoined with blank lines; otherwise ok is false and
-// the caller keeps the original stdout reply.
-func matchAgyParagraphs(out, want string) (string, bool) {
+// it returns those messages rejoined with blank lines and the matched block's brain
+// dir id (parsed from the marker's path payload; "" if unrecognizable); otherwise ok
+// is false and the caller keeps the original stdout reply.
+func matchAgyParagraphs(out, want string) (string, string, bool) {
 	for _, block := range strings.Split(out, agyMarker) {
 		msgs := agyPlannerMessages(block)
 		if len(msgs) == 0 {
 			continue
 		}
 		if agyCollapseWS(strings.Join(msgs, " ")) == want {
-			return strings.Join(msgs, "\n\n"), true
+			return strings.Join(msgs, "\n\n"), agyBrainID(block), true
 		}
 	}
-	return "", false
+	return "", "", false
+}
+
+// agyBrainID extracts the brain dir id (the <id> in
+// .../brain/<id>/.system_generated/logs/transcript.jsonl) from a block's leading
+// marker-payload line — the transcript path agyBrainScript emits after each @@AGY@@.
+// Returns "" if the block has no recognizable path line (e.g. a synthetic test block
+// whose marker carried no path).
+func agyBrainID(block string) string {
+	const seg = "/brain/"
+	for _, line := range strings.Split(block, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "{") {
+			continue // skip blanks and the PLANNER_RESPONSE json lines
+		}
+		i := strings.Index(line, seg)
+		if i < 0 {
+			return "" // first non-json line isn't a brain path
+		}
+		rest := line[i+len(seg):]
+		if j := strings.IndexByte(rest, '/'); j >= 0 {
+			return rest[:j]
+		}
+		return ""
+	}
+	return ""
 }
 
 // agyPlannerMessages parses one transcript block's PLANNER_RESPONSE lines into the

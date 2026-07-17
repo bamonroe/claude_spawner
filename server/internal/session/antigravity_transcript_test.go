@@ -52,7 +52,7 @@ func TestMatchAgyParagraphs_RebuildsParagraphsWhenSpaceJoinMatchesStdout(t *test
 	// agy's stdout blob is exactly the messages space-joined; the collapsed form is
 	// what reconstructAgyReply passes as `want`.
 	flat := agyMsg1 + " " + agyMsg2 + " " + agyMsg3
-	para, ok := matchAgyParagraphs(agyBlockThreeMsgs, agyCollapseWS(flat))
+	para, _, ok := matchAgyParagraphs(agyBlockThreeMsgs, agyCollapseWS(flat))
 	if !ok {
 		t.Fatal("expected a match against the stdout blob")
 	}
@@ -69,7 +69,7 @@ func TestMatchAgyParagraphs_PicksTheMatchingBlockAmongCandidates(t *testing.T) {
 		`{"step_index":3,"type":"PLANNER_RESPONSE","content":"some other session reply"}` + "\n"
 	out := other + agyBlockThreeMsgs
 	flat := agyMsg1 + " " + agyMsg2 + " " + agyMsg3
-	para, ok := matchAgyParagraphs(out, agyCollapseWS(flat))
+	para, _, ok := matchAgyParagraphs(out, agyCollapseWS(flat))
 	if !ok {
 		t.Fatal("expected a match")
 	}
@@ -81,7 +81,32 @@ func TestMatchAgyParagraphs_PicksTheMatchingBlockAmongCandidates(t *testing.T) {
 func TestMatchAgyParagraphs_NoMatchFallsBack(t *testing.T) {
 	// Nothing on disk reproduces the stdout blob (e.g. the transcript wasn't found or
 	// agy changed its format) → no substitution, caller keeps the flat reply.
-	if _, ok := matchAgyParagraphs(agyBlockThreeMsgs, agyCollapseWS("a completely different reply")); ok {
+	if _, _, ok := matchAgyParagraphs(agyBlockThreeMsgs, agyCollapseWS("a completely different reply")); ok {
 		t.Fatal("expected no match for an unrelated stdout blob")
+	}
+}
+
+// The real brain-script emits "@@AGY@@ <path>" per block; matchAgyParagraphs must
+// return the brain dir id parsed from that path so the caller can record which
+// on-disk turn produced the reply (Session.AgyBrainIDs).
+func TestMatchAgyParagraphs_CapturesBrainID(t *testing.T) {
+	const id = "60c2fae2-eb8f-4ed5-853f-05955e68fd15"
+	block := agyMarker + " /home/bam/.gemini/antigravity-cli/brain/" + id +
+		"/.system_generated/logs/transcript.jsonl\n" +
+		`{"step_index":142,"type":"PLANNER_RESPONSE","content":"` + agyMsg1 + `"}` + "\n"
+	_, gotID, ok := matchAgyParagraphs(block, agyCollapseWS(agyMsg1))
+	if !ok {
+		t.Fatal("expected a match")
+	}
+	if gotID != id {
+		t.Errorf("brain id = %q, want %q", gotID, id)
+	}
+}
+
+// A block with no path payload (the synthetic marker the other tests use) yields no
+// id rather than a bogus one — capture is best-effort and must degrade cleanly.
+func TestAgyBrainID_NoPathYieldsEmpty(t *testing.T) {
+	if got := agyBrainID(agyBlockThreeMsgs); got != "" {
+		t.Errorf("brain id = %q, want empty for a pathless block", got)
 	}
 }

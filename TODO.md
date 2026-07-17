@@ -279,10 +279,24 @@ Dates are `YYYY-MM-DD`.
         `--log-file`'s `Print mode: conversation=<id>` line) and passing THAT back as `--conversation`
         next turn — which would also give a stable id to key a real history reader on. The comments in
         `antigravity.go` are corrected to say resume is a no-op today.
-  - [ ] **Follow-up: real antigravity history reader (still `nullTranscript`).** `TranscriptAntigravity`
+  - [~] **Follow-up: real antigravity history reader (still `nullTranscript`).** `TranscriptAntigravity`
         routes to the `nullTranscript` stub, so reattach history / context meter / deletion are empty.
-        Blocked on the id problem above (no stable our-id → agy-id mapping); once turns resume by a
-        captured agy id, wire an `antigravityFS` reader over `brain/<id>/…/transcript.jsonl`.
+        Blocked on the id problem above (no stable our-id → agy-id mapping).
+    - [x] 2026-07-17 — **Foundation: capture the per-turn brain id (the missing mapping).** Since agy
+          ignores our `--conversation` id and files every turn under a fresh internal brain id, we now
+          build the mapping ourselves: `agyBrainScript` emits each transcript's path, `matchAgyParagraphs`
+          returns the matched block's brain id, and `Driver.Turn` records it in turn order on the new
+          `Session.AgyBrainIDs` field (deduped against the last, rides through clear/compress). Read path
+          unchanged (still `nullTranscript`), so zero regression — this just starts recording the data the
+          reader needs. Unit tests in `antigravity_transcript_test.go`. Needs live agy turns to confirm
+          the ids populate on real hardware.
+    - [ ] **Next: wire the `antigravityFS` reader over `AgyBrainIDs`.** With the map now recorded, add an
+          `antigravityFS` transcript reader that, given a session's `AgyBrainIDs`, reads each
+          `brain/<id>/…/transcript.jsonl` and assembles `[]Message` (USER_INPUT → user turn, its
+          PLANNER_RESPONSEs → the reply). Interface seam to resolve: the reader is selected/called by our
+          session_ids (`TranscriptIDs()`), but agy needs the brain ids — route `AgyBrainIDs` to it (e.g. a
+          backend-aware `HistoryIDs()`), and back `deleteByIDs` (remove the brain dirs) + `lastContextUsage`
+          (nil; agy has no token counts).
   - [ ] **Follow-up (gated on Google): rich agy turns via JSON output.** When `agy` grows a
         `--output-format json`/stream mode (or a resolvable transcript path keyed by our conversation
         id), replace `parseAgyText` with a real stream parser and wire an antigravity transcript
