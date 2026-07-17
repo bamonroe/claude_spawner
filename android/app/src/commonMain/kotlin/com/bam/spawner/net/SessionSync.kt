@@ -205,10 +205,18 @@ class SessionSync(private val host: Host) {
     /**
      * The one true chat de-dup, keyed on the stable server `index`. Server history rows
      * carry a real index; live streamed rows carry `index == -1`. Collapse duplicate
-     * indexed rows by index, and drop a live row only when its `(role, text)` already
-     * appears in an indexed row — the fallback that folds the N partial live chunks of a
-     * streamed reply into the one indexed history row once it lands. Live rows with no
-     * indexed match are kept (a turn still streaming, not yet persisted).
+     * indexed rows by index, and drop a live row when its `(role, text)` already appears
+     * in an indexed row — the fallback that folds the N partial live chunks of a streamed
+     * reply into the one indexed history row once it lands — OR when it exactly repeats the
+     * live row immediately before it. That adjacent-live case is the hands-free double
+     * bubble: the utterance is streamed as a live draft/echo row and then the committed
+     * `transcript` lands the SAME text as a second live row (index==-1 both), which the
+     * index-keyed rule can't touch because neither is indexed yet; a backend can likewise
+     * double-emit a reply's closing frame. It is safe to collapse an *adjacent* identical
+     * live pair — two genuinely separate messages can never sit adjacent here, because the
+     * server refuses a new dictation while a turn is in flight, so a real repeat always has
+     * a reply/ask/error row between the two. Live rows with no such match are kept (a turn
+     * still streaming, not yet persisted).
      */
     fun dedupe(messages: List<ChatMessage>): List<ChatMessage> {
         val indexedText = messages
@@ -216,12 +224,17 @@ class SessionSync(private val host: Host) {
             .map { it.role to it.text.trim() }
             .toSet()
         val seenIndexes = mutableSetOf<Int>()
-        return messages.filter { m ->
-            when {
+        val out = ArrayList<ChatMessage>(messages.size)
+        for (m in messages) {
+            val keep = when {
                 m.index >= 0 -> seenIndexes.add(m.index)
                 indexedText.isNotEmpty() && (m.role to m.text.trim()) in indexedText -> false
+                out.isNotEmpty() && out.last().index < 0 && out.last().role == m.role &&
+                    out.last().text.trim() == m.text.trim() -> false
                 else -> true
             }
+            if (keep) out.add(m)
         }
+        return out
     }
 }

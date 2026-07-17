@@ -408,6 +408,10 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     // turn. Keyed by session name so a gesture swap cannot make a late frame from
     // the previous session render into the newly visible log.
     private val streamedSessions = mutableSetOf<String>()
+    // Per-session count of streamed replies already SPOKEN this turn, for the
+    // "speak initial replies" refinement of summary-only mode. Reset at every
+    // turn boundary alongside [streamedSessions] so it starts at 0 each turn.
+    private val spokenReplyCounts = mutableMapOf<String, Int>()
 
     init {
         // While Claude's reply is spoken, raise the recorder's VAD bar (echo) and
@@ -1251,17 +1255,39 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                     _activity.value = "" // prose is arriving — drop the "thinking" breadcrumb
                     addChat(Role.CLAUDE, msg.text, key = msg.name)
                     if (msg.name == currentKey) {
-                        if (summaryOnly) speaker.beep() else speakText(Markdown.toSpeech(msg.text))
+                        if (summaryOnly) {
+                            // Speak the first N replies of the turn aloud; beep the rest.
+                            val spoken = spokenReplyCounts.getOrElse(msg.name) { 0 }
+                            if (spoken < settings.speakInitialReplies) {
+                                spokenReplyCounts[msg.name] = spoken + 1
+                                speakText(Markdown.toSpeech(msg.text))
+                            } else {
+                                speaker.beep()
+                            }
+                        } else {
+                            speakText(Markdown.toSpeech(msg.text))
+                        }
                     }
                 } else {
                     clearTurnInFlight()
                     _activity.value = "" // turn done — stop the thinking indicator
-                    if (!streamedSessions.remove(msg.name)) { // no live stream reached us (buffered reply on reconnect)
+                    val streamed = streamedSessions.remove(msg.name)
+                    spokenReplyCounts.remove(msg.name) // new turn starts the initial-reply count over
+                    // Does a live bubble for this exact reply already exist? It does when the
+                    // turn streamed (built from chunks), but ALSO when a duplicate closing
+                    // Output arrives for the same turn after streamedSessions was cleared
+                    // mid-turn (an interleaved Ask/Transcript/error) or the backend emits the
+                    // final message twice — that second close is what appended a second
+                    // identical bubble. Reuse the existing bubble in either case.
+                    val lastClaude = logs[msg.name]?.lastOrNull { it.role == Role.CLAUDE }
+                    val haveLiveBubble = lastClaude != null && lastClaude.index < 0 &&
+                        lastClaude.text.trim() == msg.text.trim()
+                    if (!streamed && !haveLiveBubble) { // genuinely no live stream reached us (buffered reply on reconnect)
                         addChat(Role.CLAUDE, msg.text, msg.usage, key = msg.name)
                         if (msg.name == currentKey) speakText(Markdown.toSpeech(msg.text))
                     } else {
-                        // Streamed turn: the bubble already exists from chunks, so badge it
-                        // in place — the closing message isn't re-rendered as a new bubble.
+                        // Streamed (or already-shown) turn: the bubble exists, so badge it in
+                        // place — the closing message isn't re-rendered as a new bubble.
                         if (msg.usage != null) attachUsageToLastClaude(msg.name, msg.usage)
                         // In summary-only mode the chunks only beeped, so speak the final
                         // result now (the closing message carries the full reply text).
@@ -1323,6 +1349,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
             is ServerMsg.Ask -> {
                 clearTurnInFlight()
                 streamedSessions.remove(msg.name)
+                spokenReplyCounts.remove(msg.name)
                 _activity.value = ""
                 if (hfOn) _voiceState.value = VoiceState.LISTENING
                 _ask.value = msg.questions
@@ -1331,7 +1358,10 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
             }
             is ServerMsg.Transcript -> {
                 _ask.value = null // a spoken/typed reply answers any pending questions
-                (_attachedName.value ?: currentKey).takeIf { it.isNotEmpty() }?.let { streamedSessions.remove(it) }
+                (_attachedName.value ?: currentKey).takeIf { it.isNotEmpty() }?.let { streamedSessions.remove(it); spokenReplyCounts.remove(it) }
+                // The committed transcript supersedes the live hands-free draft — drop the
+                // greyed draft line so the utterance isn't shown as both a draft and a bubble.
+                _pending.value = ""
                 addChat(Role.USER, msg.text); _mic.value = ""
                 // Chirp the "heard you" acknowledgment: the server has recognized the
                 // utterance and is dispatching it to the session, so confirm receipt
@@ -1470,7 +1500,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                 // (we just get no digests and fall back to fetching history), so swallow it
                 // instead of spamming a scary note in the chat during a rollout.
                 if (msg.code == "bad_message" && msg.message.contains("digest")) return
-                if (msg.code == "turn_failed") { clearTurnInFlight(); streamedSessions.clear() }
+                if (msg.code == "turn_failed") { clearTurnInFlight(); streamedSessions.clear(); spokenReplyCounts.clear() }
                 if (_usageLoading.value) _usageLoading.value = false // any error unsticks a pending usage fetch
                 _activity.value = ""
                 _mic.value = "" // a transcribe_failed / not_implemented error ends the PTT clip; clear "transcribing…"
@@ -1485,6 +1515,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
             is ServerMsg.TurnInterrupted -> {
                 clearTurnInFlight()
                 streamedSessions.remove(msg.name)
+                spokenReplyCounts.remove(msg.name)
                 _activity.value = ""
                 if (hfOn) _voiceState.value = VoiceState.LISTENING
                 addChat(Role.SYSTEM, "⚠️ turn interrupted (${msg.reason}) — say it again.", key = msg.name)
@@ -1493,6 +1524,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
             is ServerMsg.TurnStopped -> {
                 clearTurnInFlight()
                 streamedSessions.remove(msg.name)
+                spokenReplyCounts.remove(msg.name)
                 _activity.value = ""
                 cancelServerSpeech()
                 speaker.stop() // also quiet any reply already being read
@@ -1508,7 +1540,14 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     // onHistory instead.
     private fun addChat(role: Role, text: String, usage: TokenUsage? = null, key: String = currentKey) {
         if (text.isBlank()) return
-        val updated = ((logs[key] ?: emptyList()) + ChatMessage(role, text, usage = usage, ts = System.currentTimeMillis() / 1000)).takeLast(2000)
+        // Run the shared reconciler on the LIVE path, not only on a history merge: a
+        // hands-free utterance streams a live draft/echo row and then lands the committed
+        // `transcript` as a second identical live row, and both are index==-1 — so nothing
+        // collapsed them until a full reattach. Deduping here drops that adjacent duplicate
+        // the moment it's appended (see SessionSync.dedupe).
+        val updated = session.dedupe(
+            (logs[key] ?: emptyList()) + ChatMessage(role, text, usage = usage, ts = System.currentTimeMillis() / 1000)
+        ).takeLast(2000)
         logs[key] = updated
         if (key == currentKey) _chat.value = updated
         // A user/claude line grows this session's server transcript, so our stored

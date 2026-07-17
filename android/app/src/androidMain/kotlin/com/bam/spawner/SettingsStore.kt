@@ -101,6 +101,11 @@ class SettingsStore(context: Context) : Prefs {
         get() = prefs.getBoolean("summary_only_speech", false)
         set(v) = prefs.edit().putBoolean("summary_only_speech", v).apply()
 
+    /** In summary-only mode, speak the first N replies of each turn (rest beep). */
+    override var speakInitialReplies: Int
+        get() = prefs.getInt("speak_initial_replies", Prefs.DEFAULT_SPEAK_INITIAL_REPLIES)
+        set(v) = prefs.edit().putInt("speak_initial_replies", v).apply()
+
     /** Server-side Kokoro voice vs on-device TTS (default on; falls back automatically). */
     override var serverTts: Boolean
         get() = prefs.getBoolean("server_tts", true)

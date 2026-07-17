@@ -1220,6 +1220,21 @@ fun AudioSettings(
             }
             Switch(checked = summaryOnly, onCheckedChange = { summaryOnly = it; controller.setSummaryOnly(it) })
         }
+        if (summaryOnly) {
+            var speakInitial by remember { mutableStateOf(settings.speakInitialReplies.toString()) }
+            OutlinedTextField(
+                value = speakInitial,
+                onValueChange = { v ->
+                    speakInitial = v.filter { it.isDigit() }.take(2)
+                    settings.speakInitialReplies = speakInitial.toIntOrNull()?.coerceAtLeast(0) ?: 0
+                },
+                label = { Text("Speak initial replies") },
+                supportingText = { Text("In summary-only mode, speak the first N replies of each turn aloud (the rest beep); the final summary is always spoken. 0 = summary only.") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
         var serverTts by remember { mutableStateOf(settings.serverTts) }
         val ttsAvailable by controller.serverTtsAvailable.collectAsState()
         Row(verticalAlignment = Alignment.CenterVertically) {

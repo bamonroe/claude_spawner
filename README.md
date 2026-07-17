@@ -268,7 +268,17 @@ buddy, speak everything"** turns it back off ("summary only off" works too).
 
 The same toggle is the **Summary only** switch on the **Audio** settings page. The setting lives on
 the client (persisted per device), so the voice command and the switch stay in lock-step and the
-server keeps no per-connection state. The beep is a low, round sine tone with a smooth envelope —
+server keeps no per-connection state.
+
+**Speak initial replies** (an integer field under the switch, default 0) refines this: in
+summary-only mode, the **first N streamed replies of each turn** are spoken aloud like normal, and
+only the *remaining* intermediate steps beep — the turn's final result is always spoken either way.
+So N=1 speaks a turn's opening reply (usually Claude's plan or first take) and its final summary,
+beeping the working steps in between. It's a per-turn count that resets at the start of every turn,
+and it has no effect when summary-only is off (everything is already spoken). The field only appears
+while **Summary only** is on.
+
+The beep is a low, round sine tone with a smooth envelope —
 deliberately unlike a sharp notification chime — and in hands-free mode it plays through the
 echo-cancelled voice path so the open mic doesn't hear it.
 
