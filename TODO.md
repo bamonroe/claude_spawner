@@ -12,6 +12,28 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- **Move the whisper/kokoro STT+TTS containers out to `/data/speech_services`.** The speech
+  models (accurate whisper on `:8571`, kokoro TTS on `:8880`) are being consolidated into the
+  standalone `/data/speech_services` stack, which republishes the **same ports**, so the spawner
+  needs **no URL/config change** — `SPAWNER_WHISPER_URL`/`SPAWNER_TTS_URL` still point at
+  `localhost:8571`/`:8880`. Work:
+  - [x] 2026-07-17 — Retire the app-supplied per-connection whisper URL so the endpoint is fixed
+        server-side (below); prerequisite so nothing but config can repoint STT.
+  - [ ] Drop the `whisper` and `kokoro` services from this repo's `docker-compose.yml` (keep
+        `wakeword` + `spawner-server`; speech_services has no wakeword). Delete the now-unused
+        `whisper/` build context here.
+  - [ ] Update `docs/architecture.md` + `README.md` to say STT/TTS containers live in
+        `/data/speech_services` (same ports); keep the `SPAWNER_WHISPER_URL`/`_TTS_URL` docs.
+  - [ ] **Live swap (needs a safe moment — interrupts STT):** `docker compose` down whisper+kokoro
+        here, bring up the `/data/speech_services` stack. Only one process can bind `:8571`/`:8880`,
+        so they can't overlap.
+- [x] 2026-07-17 — **Fix the resident whisper server URL server-side; drop the app override.** The
+  app's Audio settings had a per-device "Whisper server URL" field that rode in `hello` and made the
+  server build a per-connection `RemoteWhisper` shadowing its configured default — more footgun than
+  feature. Removed end to end: server drops the `whisper_url` inbound field + the per-conn `stt`
+  override (drift test + `docs/protocol.md` updated); app drops the settings field, the `whisperUrl`
+  pref (`Prefs`/`SettingsStore`/`WebPrefs`), the `HelloConfig` field + wire `put`, and both call
+  sites. The whisper server is now fixed by `SPAWNER_WHISPER_URL` alone.
 - [x] 2026-07-17 — **"Speak initial replies" — spoken lead-in for summary-only mode.** New
   integer Audio setting (`speak_initial_replies`, default 0), shown under the **Summary only**
   switch. In summary-only mode the first N streamed replies of each turn are spoken aloud like

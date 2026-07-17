@@ -441,7 +441,6 @@ data class HelloConfig(
     val sttMode: String,
     val sttModel: String,
     val aliases: Map<String, String>,
-    val whisperUrl: String,
     val brief: Boolean,
     val interactive: Boolean,
     val warmCompress: Boolean,
@@ -475,7 +474,7 @@ object Outbound {
         put("wake_service", cfg.wakeService)
         put("stt_mode", cfg.sttMode); put("stt_model", cfg.sttModel)
         putJsonObject("aliases") { for ((k, v) in cfg.aliases) put(k, v) }
-        put("whisper_url", cfg.whisperUrl); put("brief", cfg.brief); put("interactive", cfg.interactive)
+        put("brief", cfg.brief); put("interactive", cfg.interactive)
         put("warm_compress", cfg.warmCompress); put("auto_compress", cfg.autoCompress)
         put("auto_compress_threshold", cfg.autoCompressThreshold)
         put("hosts_digest", digests.hosts); put("identities_digest", digests.identities)

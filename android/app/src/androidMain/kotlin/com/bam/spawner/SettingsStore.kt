@@ -151,11 +151,6 @@ class SettingsStore(context: Context) : Prefs {
         get() = prefs.getString("stt_model", Prefs.DEFAULT_STT_MODEL) ?: Prefs.DEFAULT_STT_MODEL
         set(v) = prefs.edit().putString("stt_model", v).apply()
 
-    /** Resident whisper server URL (resolved on the server host); blank = server default. */
-    override var whisperUrl: String
-        get() = prefs.getString("whisper_url", Prefs.DEFAULT_WHISPER_URL) ?: Prefs.DEFAULT_WHISPER_URL
-        set(v) = prefs.edit().putString("whisper_url", v).apply()
-
     /** Resident whisper model to hot-load (ggml name, e.g. "medium.en"). */
     override var whisperModel: String
         get() = prefs.getString("whisper_model", Prefs.DEFAULT_WHISPER_MODEL) ?: Prefs.DEFAULT_WHISPER_MODEL

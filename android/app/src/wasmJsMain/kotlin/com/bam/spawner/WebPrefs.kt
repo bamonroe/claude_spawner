@@ -126,9 +126,6 @@ class WebPrefs : Prefs {
     override var sttModel: String
         get() = str("stt_model", Prefs.DEFAULT_STT_MODEL)
         set(v) = putStr("stt_model", v)
-    override var whisperUrl: String
-        get() = str("whisper_url", Prefs.DEFAULT_WHISPER_URL)
-        set(v) = putStr("whisper_url", v)
     override var whisperModel: String
         get() = str("whisper_model", Prefs.DEFAULT_WHISPER_MODEL)
         set(v) = putStr("whisper_model", v)

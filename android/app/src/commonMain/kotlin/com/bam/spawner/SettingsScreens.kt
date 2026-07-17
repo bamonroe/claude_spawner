@@ -1172,7 +1172,6 @@ fun AudioSettings(
     micMeter: @Composable (Double) -> Unit = {},
 ) {
     var threshold by remember { mutableStateOf(settings.vadThreshold.toFloat()) }
-    var whisperUrl by remember { mutableStateOf(settings.whisperUrl) }
 
     SettingsScaffold("Audio", onBack) {
         micMeter(threshold.toDouble())
@@ -1282,21 +1281,6 @@ fun AudioSettings(
                 }
             }
         }
-
-        HorizontalDivider()
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(
-                whisperUrl, { whisperUrl = it; settings.whisperUrl = it },
-                label = { Text("Whisper server URL") }, singleLine = true, modifier = Modifier.weight(1f),
-            )
-            OutlinedButton(onClick = { settings.whisperUrl = whisperUrl; onSttChanged() }) { Text("Apply") }
-        }
-        Text(
-            "A resident whisper server (blank = server default). Resolved on the server host — "
-                + "\"localhost:8571\" is the whisper container running alongside it. When set, the "
-                + "model there is authoritative (the toggles above are ignored).",
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
-        )
 
         HorizontalDivider()
         Text("Transcription models", style = MaterialTheme.typography.titleMedium)

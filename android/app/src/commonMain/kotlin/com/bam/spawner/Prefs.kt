@@ -98,8 +98,6 @@ interface Prefs {
     var sttMode: String
     /** Fixed-mode whisper model: "tiny" | "base" | "small". */
     var sttModel: String
-    /** Resident whisper server URL (resolved on the server host); blank = server default. */
-    var whisperUrl: String
     /** Resident whisper model to hot-load (ggml name, e.g. "medium.en"). */
     var whisperModel: String
     /** Fast (draft/detection, "quick" transcribe) whisper model; "" = server default/none. */
@@ -180,9 +178,6 @@ interface Prefs {
         // stored list becomes authoritative (an empty list = a deliberately empty tray).
         const val DEFAULT_TRAY_COMMANDS =
             "abort,cancel,clear,compress,detach,help,list,list models,read last,scratch,status,stop,summary only,usage"
-
-        // Resolved on the SERVER host — the resident whisper container's published port.
-        const val DEFAULT_WHISPER_URL = "http://localhost:8571"
 
         // Every non-zero default lives here, once, so the two Prefs backends
         // (SettingsStore / WebPrefs) can't drift apart. Defaults of false or ""

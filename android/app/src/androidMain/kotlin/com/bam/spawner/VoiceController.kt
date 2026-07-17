@@ -530,7 +530,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
             settings.endToken, settings.wakeToken, settings.speakToken, settings.dictationGate,
             settings.wakeService,
             settings.sttMode, settings.sttModel, settings.aliasMap(),
-            settings.whisperUrl, settings.brief, settings.interactive,
+            settings.brief, settings.interactive,
             settings.warmCompress, settings.autoCompress, settings.autoCompressThreshold,
         )
         // Pick up a CA pushed over adb (hands-off), then trust it for this wss server.
