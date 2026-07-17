@@ -47,6 +47,10 @@ class SessionSync(private val host: Host) {
         fun attachedModel(): String
         /** Whether we hold any real (indexed) transcript content for [name]. */
         fun heldContent(name: String): Boolean
+        /** Drop a session's platform-held transcript rows + paging cursors (and digests) —
+         *  the same wipe `context_reset` performs — when a same-name `session_id` rotation
+         *  delivered via `attached` has invalidated the rows we hold under that name. */
+        fun dropRows(name: String)
     }
 
     // The digest caches, per session name. `serverDigest` is the latest truth the server
@@ -172,6 +176,28 @@ class SessionSync(private val host: Host) {
         val server = serverDigest[name]
         if (held != null && held == server && host.heldContent(name)) return
         host.send(Outbound.history(name, null, haveHash = held?.second ?: ""))
+    }
+
+    /**
+     * `attached`-path rotation guard. A backend switch (`set_agent`) rotates a session's
+     * `session_id` while KEEPING its name and re-emits `attached` (not `context_reset`) — so
+     * the rows we still hold under that name are the wiped OLD backend's transcript, and a
+     * name-keyed digest match could even make [requestFreshHistory] skip the refetch. Detect
+     * exactly that: the incoming attach is for the session we're already attached to (same
+     * name) but carries a DIFFERENT, non-empty id than the one we currently hold. When it is,
+     * drop the stale rows + digests through [Host.dropRows] so the caller's following
+     * [requestFreshHistory] refetches from scratch, mirroring `context_reset`. A normal
+     * re-attach — or a swap to a session with the SAME id — drops nothing. Call this BEFORE
+     * updating the attached id/name state (it reads the id/name still held). Returns true when
+     * a rotation was detected and dropped.
+     */
+    fun onAttachRotation(name: String, sessionId: String): Boolean {
+        if (sessionId.isEmpty()) return false
+        if (host.attachedName() != name) return false
+        val held = host.attachedId()
+        if (held.isEmpty() || held == sessionId) return false
+        host.dropRows(name)
+        return true
     }
 
     // --- Chat de-dup ---------------------------------------------------------

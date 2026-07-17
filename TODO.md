@@ -61,8 +61,23 @@ Dates are `YYYY-MM-DD`.
           change; `:app:compileKotlinWasmJs` + `:app:clean :app:assembleDebug` both green.
       - [ ] Still to do: verify end-to-end on the phone that the sporadic duplicate rows are
             actually gone (needs a real device run; not verifiable from the build).
-    - [ ] **Audit** the other mutation messages (`renamed`, `session_list`, `detached`) for the same
-          completeness so the app never has to infer a state change.
+    - [x] 2026-07-17 — **Audit** the other mutation messages (`renamed`, `session_list`, `detached`)
+          for the same completeness so the app never has to infer a state change. Findings: the wire
+          shapes of `renamed`/`detached`/`context_reset` were already complete; `session_list` has no
+          client consumer (sidebar rides `discovered`, per drift-test exemption). Four gaps closed:
+          (1) **server** — `renamed` was sent only to the initiator; now broadcast to **every**
+          connection attached to the session (`gateway.broadcastRenamed`), so a rename on one device
+          reflects on the other instead of being inferred from a later `discovered`. (2) **web** —
+          `renamed` handler now `session.migrate`s the digest caches (was orphaning them). (3) **web**
+          — `discovered` handler now re-derives the attached title by stable `session_id` and migrates
+          name-keyed state on a cross-device rename, mirroring Android (closes the pre-existing
+          "web `renamed`/`discovered` don't re-key digest keys / re-derive title" gap noted below).
+          (4) **both clients** — a `set_agent` backend switch rotates the `session_id` but keeps the
+          name and re-emits `attached` (not `context_reset`); the clients kept the wiped old backend's
+          rows. New shared `SessionSync.onAttachRotation` drops the stale rows + digests on a same-name
+          id change (guarded so a normal re-attach drops nothing) — a latent repeat of the original
+          clear/compress duplicate-rows bug. Server `go test` green; both APK/wasm builds green.
+          Still needs on-device confirmation of (4) via a live backend switch.
 
 - [ ] **Unified versioned app↔server sync layer (one entry point, no drift).** Today every piece
       of shared state is reconciled ad-hoc: the four app-managed catalogues (hosts, identities,
@@ -136,9 +151,9 @@ Dates are `YYYY-MM-DD`.
                 `distinctBy`. Both targets build; no wire change.
                 - [ ] **Follow-up (deferred, optional):** history-merge algorithm left per-client by
                       design (Android timestamp+gap-fill vs web index-replace) — only the dedup
-                      primitive is shared; unifying would be a behavior change. Web `renamed`/
-                      `discovered` still don't re-key digest keys / re-derive title (pre-existing gap,
-                      not regressed). Revisit if full parity is wanted.
+                      primitive is shared; unifying would be a behavior change. (The web
+                      `renamed`/`discovered` digest-key / title gap noted here was closed 2026-07-17 by
+                      the mutation-message audit above.) Revisit if full history-merge parity is wanted.
           - [ ] **On-device verification (still open):** run on the phone and confirm the sporadic
                 duplicate rows are actually gone end-to-end (no emulator/APK step done yet).
     - [~] **Phase 2 — add `updated_at` to the catalogue records + messages (both worktrees).** Extend
