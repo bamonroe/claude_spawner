@@ -77,7 +77,21 @@ class WebAppController(private val prefs: Prefs) : AppController {
         override fun attachedAgent() = _attachedAgent.value
         override fun attachedModel() = _attachedModel.value
         override fun heldContent(name: String) = logs[name]?.any { it.index >= 0 } == true
+        override fun dropRows(name: String) = dropSessionCache(name)
     })
+
+    // dropSessionCache forgets every name-keyed trace of a session's transcript (in-memory
+    // log + paging cursors + held/server digests) so the next history fetch rebuilds it from
+    // scratch. Used when a clear/compress OR a same-name session_id rotation wipes the
+    // session server-side: the old rows carry stale indexes and merging a fresh page over
+    // them would duplicate, so discard wholesale and refetch. Mirror of Android's method.
+    private fun dropSessionCache(name: String) {
+        logs.remove(name)
+        hasMore.remove(name)
+        oldest.remove(name)
+        session.drop(name) // held + server digests
+        if (name == currentKey) publish()
+    }
 
     private val _chat = MutableStateFlow<List<ChatMessage>>(emptyList())
     override val chat: StateFlow<List<ChatMessage>> = _chat.asStateFlow()
@@ -346,11 +360,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
                         _attachedId.value = msg.sessionId
                         prefs.lastSessionId = msg.sessionId
                     }
-                    logs.remove(msg.name)
-                    hasMore.remove(msg.name)
-                    oldest.remove(msg.name)
-                    session.drop(msg.name) // rotated id's transcript wiped/summarized: forget the stale digests
-                    if (msg.name == currentKey) publish()
+                    dropSessionCache(msg.name) // rotated id's transcript wiped/summarized: forget rows + digests
                     client?.send(Outbound.history(msg.name, null))
                 }
             }
@@ -378,6 +388,13 @@ class WebAppController(private val prefs: Prefs) : AppController {
             }
             is ServerMsg.Attached -> {
                 session.rememberPreviousOnAttach(msg.name, msg.sessionId)
+                // A backend switch (set_agent) rotates the session_id but keeps the name and
+                // re-emits `attached` (not context_reset). If this is that rotation of the
+                // session we're already on — same name, different id — the rows we hold are
+                // the wiped old backend's, so drop them (+ digests) before requesting history
+                // below, like context_reset. Reads the still-held id/name, so run before we
+                // overwrite them. A same-id re-attach drops nothing.
+                session.onAttachRotation(msg.name, msg.sessionId)
                 _activity.value = ""
                 _attachedId.value = msg.sessionId
                 _attachedName.value = msg.name
@@ -406,6 +423,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
             is ServerMsg.Renamed -> {
                 if (msg.old == _attachedName.value || (msg.sessionId.isNotBlank() && msg.sessionId == _attachedId.value)) {
                     logs[msg.name] = logs.remove(msg.old) ?: emptyList()
+                    session.migrate(msg.old, msg.name) // held + server digests follow the rename
                     if (currentKey == msg.old) currentKey = msg.name
                     _attachedName.value = msg.name; prefs.lastSession = msg.name
                     _status.value = "attached: ${msg.name}"
@@ -413,7 +431,30 @@ class WebAppController(private val prefs: Prefs) : AppController {
                 }
             }
             is ServerMsg.History -> onHistory(msg)
-            is ServerMsg.Discovered -> { _discovered.value = msg.sessions; _discoverError.value = "" }
+            is ServerMsg.Discovered -> {
+                _discovered.value = msg.sessions
+                _discoverError.value = ""
+                // Re-derive the attached title from the fresh list by stable id. After a
+                // server switch the same session can carry a different name here, leaving the
+                // title stale; if the current server calls our attached id something else,
+                // migrate the name-keyed state (logs/oldest/hasMore + digests) and title.
+                if (_attachedId.value.isNotEmpty()) {
+                    val cur = msg.sessions.find { it.sessionId == _attachedId.value }?.name
+                    if (cur != null && cur != _attachedName.value) {
+                        _attachedName.value?.let { from ->
+                            logs.remove(from)?.let { logs[cur] = it }
+                            oldest.remove(from)?.let { oldest[cur] = it }
+                            hasMore.remove(from)?.let { hasMore[cur] = it }
+                            session.migrate(from, cur) // held + server digests
+                            if (currentKey == from) currentKey = cur
+                        }
+                        _attachedName.value = cur
+                        prefs.lastSession = cur
+                        _status.value = "attached: $cur"
+                        publish()
+                    }
+                }
+            }
             is ServerMsg.Listing -> _listing.value = msg
             is ServerMsg.FileSaved -> _fileSaved.tryEmit(msg.path)
             is ServerMsg.FileData -> _fileData.tryEmit(msg)

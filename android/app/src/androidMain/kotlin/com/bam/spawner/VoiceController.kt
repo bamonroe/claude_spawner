@@ -101,6 +101,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
         override fun attachedAgent() = _attachedAgent.value
         override fun attachedModel() = _attachedModel.value
         override fun heldContent(name: String) = logs[name]?.any { it.index >= 0 } == true
+        override fun dropRows(name: String) = dropSessionCache(name)
     })
 
     // migrateSessionKey re-keys every session-name-keyed piece of client state from
@@ -1358,6 +1359,13 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
             is ServerMsg.Dialog -> _status.value = "dialog: ${msg.state}"
             is ServerMsg.Attached -> {
                 session.rememberPreviousOnAttach(msg.name, msg.sessionId)
+                // A backend switch (set_agent) rotates the session_id but keeps the name and
+                // re-emits `attached` (not context_reset). If this is that rotation of the
+                // session we're already on — same name, different id — the rows we hold are
+                // the wiped old backend's, so drop them (and the digests) before requesting
+                // history below, exactly like context_reset. Reads the still-held id/name, so
+                // it must run before we overwrite them. A same-id re-attach drops nothing.
+                session.onAttachRotation(msg.name, msg.sessionId)
                 // Fresh view of this session: drop any stale turn spinner/watchdog.
                 // If a turn is genuinely still running, the server's bindJob sends a
                 // "still working" breadcrumb right after this (which re-arms it); if
