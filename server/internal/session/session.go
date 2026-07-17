@@ -105,6 +105,27 @@ type Session struct {
 	// these. Empty for non-antigravity sessions. Like Jobs, it rides through the
 	// clear/compress session_id rotation (its transcripts stay on disk for scrollback).
 	AgyBrainIDs []string `json:"agy_brain_ids,omitempty"`
+	// History holds the display transcripts of PREVIOUS backends this session ran,
+	// oldest first — archived each time set_agent switches the backend. A switch
+	// rotates to a fresh session_id and drops the old chain from the CONTEXT the new
+	// backend reads (their on-disk formats are incompatible), but the old messages
+	// stay on disk and belong in the chat log. Each segment records the backend +
+	// host that wrote its ids so the display path reads it with the RIGHT reader
+	// (a Codex segment via the Codex reader, etc.) and concatenates — see
+	// Driver.ReadDisplayHistory. Distinct from PriorIDs, which is the SAME-backend
+	// clear/compress rotation chain of the current backend. Empty for a session that
+	// has never switched backends (behaves exactly as before).
+	History []HistorySegment `json:"history,omitempty"`
+}
+
+// HistorySegment is one previous backend's slice of a session's display history:
+// the ids under which that backend stored its transcripts (a session_id chain for
+// Claude/Codex/opencode, brain-dir ids for antigravity), tagged with the backend
+// and host so Driver.ReadDisplayHistory reads each with the matching reader.
+type HistorySegment struct {
+	Agent string   `json:"agent,omitempty"` // AI backend id that wrote these transcripts
+	Host  string   `json:"host,omitempty"`  // SSH host they live on (empty = local)
+	IDs   []string `json:"ids"`             // that backend's transcript ids, oldest first
 }
 
 // BackgroundJob is one detached job Claude launched via the spawner-job wrapper,
@@ -526,6 +547,71 @@ func (d *Driver) transcriptReaderFor(agentID, host string) transcriptReader {
 // agentID selects the backend's on-disk format (Claude transcript vs Codex rollout).
 func (d *Driver) ReadTranscriptChain(agentID, host string, ids []string) ([]Message, error) {
 	return d.transcriptReaderFor(agentID, host).readTranscriptChain(ids)
+}
+
+// currentHistoryIDs returns the ids under which the session's CURRENT backend
+// stores its display transcripts: antigravity files under its own brain ids (agy
+// ignores our session_id), every other backend under its session_id chain.
+func (d *Driver) currentHistoryIDs(rec *Session) []string {
+	if d.agents().Resolve(rec.Agent).Transcript == agent.TranscriptAntigravity {
+		return append([]string(nil), rec.AgyBrainIDs...)
+	}
+	return rec.TranscriptIDs()
+}
+
+// ArchiveSegment captures the session's current backend as a display HistorySegment,
+// to be appended to rec.History just before a set_agent switch rotates the backend
+// away — so the outgoing backend's messages stay in the chat log even though the new
+// backend won't read them as context.
+func (d *Driver) ArchiveSegment(rec *Session) HistorySegment {
+	return HistorySegment{Agent: rec.Agent, Host: rec.Host, IDs: d.currentHistoryIDs(rec)}
+}
+
+// ReadDisplayHistory reads a session's full cross-backend chat log for display: each
+// archived HistorySegment (a previous backend) via that backend's own reader, oldest
+// first, then the current backend's chain — concatenated and re-indexed contiguously
+// so pagination cursors stay stable across the whole log. A failed archived segment is
+// logged and skipped (best-effort scrollback); only the current backend's read fails
+// the call, matching pre-split behavior. With no History this equals the old
+// ReadTranscriptChain(current) exactly.
+func (d *Driver) ReadDisplayHistory(rec *Session) ([]Message, error) {
+	var all []Message
+	for _, seg := range rec.History {
+		msgs, err := d.transcriptReaderFor(seg.Agent, seg.Host).readTranscriptChain(seg.IDs)
+		if err != nil {
+			log.Printf("display history[%s]: read archived %s segment: %v", rec.Name, seg.Agent, err)
+			continue
+		}
+		all = append(all, msgs...)
+	}
+	cur, err := d.transcriptReaderFor(rec.Agent, rec.Host).readTranscriptChain(d.currentHistoryIDs(rec))
+	if err != nil {
+		return nil, err
+	}
+	all = append(all, cur...)
+	for i := range all {
+		all[i].Index = i
+	}
+	return all, nil
+}
+
+// DeleteSessionAll purges every on-disk transcript of a session across ALL the
+// backends it ran: each archived History segment via its own backend reader, plus
+// the current backend's chain. Use for a full session delete so a backend switched
+// away from doesn't orphan its transcripts. Returns the count removed; best-effort
+// per segment (a segment error is logged, not fatal).
+func (d *Driver) DeleteSessionAll(rec *Session) (int, error) {
+	total := 0
+	for _, seg := range rec.History {
+		n, err := d.transcriptReaderFor(seg.Agent, seg.Host).deleteByIDs(seg.IDs)
+		if err != nil {
+			log.Printf("delete session[%s]: purge archived %s segment: %v", rec.Name, seg.Agent, err)
+		}
+		total += n
+	}
+	n, err := d.transcriptReaderFor(rec.Agent, rec.Host).deleteByIDs(d.currentHistoryIDs(rec))
+	total += n
+	return total, err
 }
 
 // LastContextUsage returns a session's live context snapshot (last usage-bearing

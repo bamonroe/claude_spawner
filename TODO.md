@@ -244,8 +244,20 @@ Dates are `YYYY-MM-DD`.
       whose transcript is readable hands off to any other with zero per-backend code. A backend with a
       null transcript (antigravity today) yields an empty recap and switches clean as before. Unit
       tests in `gateway/handoff_test.go`; full `go test ./...` green. Not yet confirmed on-device.
-  - [ ] **Follow-up: preserve the OLD backend's messages in the display log across a switch (server-owned,
-        drift-free).** Live-tested finding: after a Codex→Claude switch the app's chat log goes blank —
+  - [x] 2026-07-17 — **Server side DONE (segmented display history).** Shipped: `Session.History
+        []HistorySegment{Agent,Host,IDs}` (durable, omitempty → old sessions unchanged); `doSetAgent`
+        archives the outgoing backend (`Driver.ArchiveSegment`, skipped for an un-run backend) before the
+        rotation nulls `PriorIDs`; display (`serveHistory`, `serveDigests`) now reads
+        `Driver.ReadDisplayHistory` — each archived segment via its own backend reader, then the current
+        chain, concat + globally re-indexed for stable pagination; full delete uses `Driver.DeleteSessionAll`
+        so a switched-away backend's transcripts don't orphan; CONTEXT/usage reads stay current-backend
+        (unchanged). Antigravity convergence in place: `currentHistoryIDs`/`ArchiveSegment` use `AgyBrainIDs`
+        for agy. Tests in `session/history_display_test.go`; full `go test ./... -count=1` green. **Remaining
+        (app worktree): reword/drop the now-false "this deletes history" warning in the switch dialog** — the
+        server keeps the transcript and carries a recap, so nothing is deleted. Scrollback needs NO app change
+        (server serves one merged list as before). Not yet confirmed on-device.
+  - [ ] ~~**Follow-up: preserve the OLD backend's messages in the display log across a switch (server-owned,
+        drift-free).**~~ *(design below — implemented above)* Live-tested finding: after a Codex→Claude switch the app's chat log goes blank —
         you can't scroll back to the Codex messages — and the app still shows a "this will delete history"
         warning that is now false (the server keeps the transcript; it carries a recap forward). Fix both
         **server-side** so the app just renders what the server serves (no app-local message memory → no

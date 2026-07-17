@@ -371,6 +371,13 @@ func (c *conn) doSetAgent(sessionID, dir, agentID, modelAlias string) {
 		} else {
 			handoffSeed = formatHandoffRecap(msgs)
 		}
+		// Archive the outgoing backend as a display segment so its messages stay in
+		// the chat log after the rotation drops them from context (rec.Agent/host/ids
+		// still point at the old backend here). Skip an un-run backend — nothing to
+		// show — so repeated no-op switches don't pile up empty segments.
+		if rec.Started {
+			rec.History = append(rec.History, c.srv.driver.ArchiveSegment(rec))
+		}
 		newID, err := session.NewSessionID()
 		if err != nil {
 			c.fail("internal", err.Error())
@@ -467,10 +474,11 @@ func (c *conn) doDeleteDiscovered(sessionID string) {
 	// that dir — otherwise deleting one just re-surfaces the row on a dir-mate.
 	var err error
 	if rec != nil {
-		// Backend-aware full purge of the whole chain (current + rotated prior ids):
-		// transcript, sidecar, and per-session state for Claude; rollout files for
-		// Codex. Leaves any dir-mates that have their own rows.
-		_, err = c.srv.driver.DeleteSession(rec.Agent, rec.Host, rec.TranscriptIDs())
+		// Backend-aware full purge across every backend the session ran: the current
+		// chain (current + rotated prior ids) plus any archived cross-backend History
+		// segments — transcript, sidecar, and per-session state for Claude; rollout
+		// files for Codex. Leaves any dir-mates that have their own rows.
+		_, err = c.srv.driver.DeleteSessionAll(rec)
 	} else {
 		// Unregistered rows come from the discovery scan on the loopback host
 		// (TranscriptPathByID above reads the same place), so delete there.
@@ -503,7 +511,7 @@ func (c *conn) serveHistory(name string, before *int, limit int, haveHash string
 		c.fail("no_session", "no such session: "+name)
 		return
 	}
-	msgs, err := c.srv.driver.ReadTranscriptChain(s.Agent, s.Host, s.TranscriptIDs())
+	msgs, err := c.srv.driver.ReadDisplayHistory(s)
 	if err != nil {
 		c.fail("history_failed", err.Error())
 		return
@@ -541,7 +549,7 @@ func (c *conn) serveDigests() {
 	sessions := c.srv.store.List()
 	items := make([]digestView, 0, len(sessions))
 	for _, s := range sessions {
-		msgs, err := c.srv.driver.ReadTranscriptChain(s.Agent, s.Host, s.TranscriptIDs())
+		msgs, err := c.srv.driver.ReadDisplayHistory(s)
 		if err != nil {
 			continue
 		}
@@ -1017,9 +1025,9 @@ func (c *conn) removeSession(name string) bool {
 		c.send(msgDetached())
 	}
 	// Purge every on-disk trace of the session (transcript, sidecar, per-session
-	// state) for its backend — not just the registry record — so nothing about it
-	// is left on disk. Best-effort: a purge error still drops the record below.
-	if _, err := c.srv.driver.DeleteSession(s.Agent, s.Host, s.TranscriptIDs()); err != nil {
+	// state) across every backend it ran — not just the registry record — so nothing
+	// about it is left on disk. Best-effort: a purge error still drops the record below.
+	if _, err := c.srv.driver.DeleteSessionAll(s); err != nil {
 		log.Printf("delete session %s transcripts: %v", s.Name, err)
 	}
 	if err := c.srv.store.Delete(s.Name); err != nil {
