@@ -244,6 +244,44 @@ Dates are `YYYY-MM-DD`.
       whose transcript is readable hands off to any other with zero per-backend code. A backend with a
       null transcript (antigravity today) yields an empty recap and switches clean as before. Unit
       tests in `gateway/handoff_test.go`; full `go test ./...` green. Not yet confirmed on-device.
+  - [ ] **Follow-up: preserve the OLD backend's messages in the display log across a switch (server-owned,
+        drift-free).** Live-tested finding: after a Codex→Claude switch the app's chat log goes blank —
+        you can't scroll back to the Codex messages — and the app still shows a "this will delete history"
+        warning that is now false (the server keeps the transcript; it carries a recap forward). Fix both
+        **server-side** so the app just renders what the server serves (no app-local message memory → no
+        app/server drift). Design:
+    - **Root constraint (reshapes the naive fix).** Display history now spans *multiple backends*, and
+      `ReadTranscriptChain(agentID, host, ids)` is **monomorphic** — it reads every id with the *one*
+      current backend's reader (`session.go:507`). So we cannot just keep the old Codex id in `PriorIDs`:
+      after the switch the Claude reader would try to parse a Codex transcript and get nothing. The
+      display history must be a **segmented list tagged with the backend (+host) that wrote each segment**,
+      each segment read by its own reader and concatenated.
+    - **New field** `Session.History []HistorySegment` where `HistorySegment{ Agent, Host string; IDs []string }`
+      (durable JSON, rides clear/compress like `PriorIDs`). `PriorIDs` stays the *current-backend*
+      rotation chain (clear/compress); `History` holds the *archived previous-backend* segments.
+    - **Split the three consumer groups of `TranscriptIDs()`** (all conflated today):
+      **DISPLAY** (`serveHistory` ops.go:506, `serveDigests` ops.go:544, and the handoff recap read
+      ops.go:369) → read each `History` segment with `ReadTranscriptChain(seg.Agent, seg.Host, seg.IDs)`,
+      concat, then append the current chain, re-index globally for stable pagination.
+      **CONTEXT/usage** (attach badge ops.go:670/698, turn-complete jobs.go:314, autocompress.go:85) →
+      **unchanged**, stays current-backend `TranscriptIDs()` (usage must reflect the live backend; note
+      `lastContextUsage` already walks newest-first so it only ever reads the current id in practice).
+      **DELETE** (`doDeleteDiscovered` ops.go:473, `doClear` purge ops.go:1022) → full-session delete must
+      **also** enumerate `History` segments and call each backend's `deleteByIDs`, else a switched-away
+      transcript is orphaned on disk forever.
+    - **`doSetAgent` change** (ops.go:384): instead of `rec.PriorIDs = nil` discarding the old chain, push
+      `HistorySegment{oldAgent, oldHost, TranscriptIDs()}` onto `rec.History`, THEN reset `PriorIDs=nil`
+      and rotate. The recap-into-context path is untouched — this only preserves the old messages for
+      *display/delete*, orthogonal to what the new backend reads.
+    - **No protocol/app change for the display fix** (the drift win): `serveHistory` still emits one flat
+      `messages` list built server-side, so the app renders the merged log unchanged. The only app-side
+      edit is the stale warning copy in the switch dialog — reword to "context is carried over, history is
+      kept" (or drop it); coordinate that one string in the `app` worktree.
+    - **Converges with antigravity.** An antigravity `History` segment's `IDs` are its `AgyBrainIDs`, read
+      by the future `antigravityFS` reader — the same backend-tagged-segment seam the "Next: wire the
+      `antigravityFS` reader" item below needs. Build this split and that reader together.
+    - **Back-compat:** existing sessions have no `History` (omitempty) → behaves exactly as today. Optional
+      nicety: `store.GetByAnyID` (store.go:178) could also scan `History` ids so attach-by-old-id resolves.
 
 - [x] 2026-07-15 — **Fix: clear/compress publish the rotated session id.** Clear and compress
       rotate the server-side `session_id`, but app-declared dictation targeting meant the phone
