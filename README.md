@@ -169,9 +169,12 @@ button** on the right of each card **attaches to that session directly**, no exp
 
 - **Open** — attach to the session (the same as tapping a row used to do).
 - **Edit** — rename it, and (when the server advertises more than one backend) **switch its AI
-  agent + model**. Changing only the model keeps the conversation; **switching the backend starts a
-  fresh conversation** on the new AI (Claude and Codex transcripts aren't interchangeable on disk —
-  the old history stays on disk but isn't carried over), and the dialog warns you before you commit.
+  agent + model**. Changing only the model keeps the conversation; **switching the backend rotates to
+  a fresh conversation** on the new AI (Claude and Codex transcripts aren't interchangeable on disk),
+  but the context is **carried across**: the server reads the outgoing backend's transcript and seeds
+  the new backend's first turn with a recap of the recent conversation, so the new AI continues where
+  the old one left off. The old transcript also stays on disk. (A backend with no readable transcript
+  — antigravity today — hands off nothing and starts clean.) The dialog still warns you before you commit.
 - **Delete** — permanently remove the session's transcript(s) (with the same confirmation as before).
 
 ### Transferring files to and from a session

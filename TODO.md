@@ -234,6 +234,17 @@ Dates are `YYYY-MM-DD`.
       drained. Android/web now route named output and terminal notices to the named session, and
       streamed-reply de-dupe state is keyed per session instead of one global boolean.
 
+- [x] 2026-07-17 — **Context handoff across backend switch.** Switching a session's AI (`set_agent`,
+      `doSetAgent` in `gateway/ops.go`) still rotates to a fresh `session_id` (Claude/Codex/opencode
+      transcripts are incompatible on disk), but no longer drops the conversation: before rotating it
+      reads the outgoing backend's transcript via the existing **generic** `transcriptReader`
+      (`Driver.ReadTranscriptChain`) and stashes a portable, recent-weighted, neutrally-labeled recap
+      (`formatHandoffRecap`, budget-bounded) as `PendingSeed`. The existing compress seed path
+      (`dictate` → `seedPreamble`) then injects it into the new backend's first turn, so any backend
+      whose transcript is readable hands off to any other with zero per-backend code. A backend with a
+      null transcript (antigravity today) yields an empty recap and switches clean as before. Unit
+      tests in `gateway/handoff_test.go`; full `go test ./...` green. Not yet confirmed on-device.
+
 - [x] 2026-07-15 — **Fix: clear/compress publish the rotated session id.** Clear and compress
       rotate the server-side `session_id`, but app-declared dictation targeting meant the phone
       kept sending the retired id and the next command could get "that session is gone." The

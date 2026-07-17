@@ -323,9 +323,12 @@ func (c *conn) doRenameDiscovered(sessionID, dir, newName string) {
 // discovered one by dir first), then stamps the resolved backend + a model valid
 // for it (an explicit alias that isn't in the new backend's catalogue falls back to
 // its default). Changing the backend rotates to a fresh session_id and un-Starts
-// the session: Claude and Codex transcripts use incompatible on-disk formats, so a
-// switch begins a clean conversation on the new AI rather than trying to resume
-// history it can't parse (the old transcript stays on disk, just off this chain).
+// the session: Claude and Codex transcripts use incompatible on-disk formats, so the
+// new AI can't resume the old one's history directly. Rather than drop that context,
+// it reads the outgoing backend's transcript through the generic per-backend reader
+// and carries a portable recap forward as PendingSeed, so the new backend continues
+// the same conversation from its first turn (the old transcript stays on disk too). A
+// backend whose transcript isn't readable yields an empty recap and switches clean.
 func (c *conn) doSetAgent(sessionID, dir, agentID, modelAlias string) {
 	rec := c.srv.store.GetBySessionID(sessionID)
 	if rec == nil {
@@ -356,6 +359,18 @@ func (c *conn) doSetAgent(sessionID, dir, agentID, modelAlias string) {
 			c.fail("busy", "still working — switch the agent when the turn finishes")
 			return
 		}
+		// Carry the outgoing backend's conversation across the switch: read its
+		// transcript through the generic per-backend reader and stash a portable recap
+		// as the seed for the first turn on the new backend. Must run BEFORE the
+		// rotation below — rec.Agent and TranscriptIDs() still point at the old chain
+		// here. A backend with no readable transcript (e.g. antigravity's null reader)
+		// yields an empty recap, so the switch is clean exactly as before.
+		var handoffSeed string
+		if msgs, err := c.srv.driver.ReadTranscriptChain(rec.Agent, rec.Host, rec.TranscriptIDs()); err != nil {
+			log.Printf("set_agent[%s]: read prior transcript for handoff: %v", rec.Name, err)
+		} else {
+			handoffSeed = formatHandoffRecap(msgs)
+		}
 		newID, err := session.NewSessionID()
 		if err != nil {
 			c.fail("internal", err.Error())
@@ -365,9 +380,9 @@ func (c *conn) doSetAgent(sessionID, dir, agentID, modelAlias string) {
 		rec.SessionID = newID
 		rec.Started = false
 		rec.AskPrimed = false
-		rec.JobsPrimed = false // re-prime the background-job instruction on the new backend
-		rec.PriorIDs = nil     // don't chain the old backend's transcripts into the new one
-		rec.PendingSeed = ""
+		rec.JobsPrimed = false        // re-prime the background-job instruction on the new backend
+		rec.PriorIDs = nil            // don't chain the old backend's transcripts into the new one
+		rec.PendingSeed = handoffSeed // ...carry a recap of them across the switch instead
 	}
 	rec.Agent = ag.ID
 	rec.Model = model
@@ -1174,6 +1189,59 @@ const (
 
 func seedPreamble(seed string) string {
 	return seedRecapOpen + seed + seedRecapClose
+}
+
+// handoffRecapBudget bounds the verbatim history carried across a backend switch
+// (doSetAgent). It keeps the most recent messages — the active working context —
+// and elides older ones, so the recap is enough for real continuity without blowing
+// the new backend's first-turn context. It runs through the same PendingSeed →
+// seedPreamble path a compress summary does; the difference is only how the seed is
+// produced (verbatim tail here vs. an LLM summary there).
+const handoffRecapBudget = 16000
+
+// formatHandoffRecap renders a session's transcript as a plain-text dialogue that
+// seeds the next backend when the session switches AIs. It is backend-agnostic: the
+// messages come from the generic transcriptReader (Driver.ReadTranscriptChain), and
+// roles are labeled neutrally ("User"/"Assistant" rather than any backend's name) so
+// the recap reads the same whichever AI produced it. Keeps the newest messages that
+// fit handoffRecapBudget, marking older elided history. Returns "" when there's
+// nothing to carry (empty chain, or a backend with no readable transcript).
+func formatHandoffRecap(msgs []session.Message) string {
+	blocks := make([]string, 0, len(msgs))
+	for _, m := range msgs {
+		text := strings.TrimSpace(m.Text)
+		if text == "" {
+			continue
+		}
+		label := "Assistant"
+		if m.Role == "user" {
+			label = "User"
+		}
+		blocks = append(blocks, label+": "+text)
+	}
+	if len(blocks) == 0 {
+		return ""
+	}
+	// Keep newest-first within budget, then restore chronological order.
+	kept := make([]string, 0, len(blocks))
+	total := 0
+	elided := false
+	for i := len(blocks) - 1; i >= 0; i-- {
+		if len(kept) > 0 && total+len(blocks[i]) > handoffRecapBudget {
+			elided = true
+			break
+		}
+		kept = append(kept, blocks[i])
+		total += len(blocks[i])
+	}
+	for l, r := 0, len(kept)-1; l < r; l, r = l+1, r-1 {
+		kept[l], kept[r] = kept[r], kept[l]
+	}
+	recap := strings.Join(kept, "\n\n")
+	if elided {
+		recap = "[…earlier conversation elided…]\n\n" + recap
+	}
+	return recap
 }
 
 // stripInjected removes the server-appended prompt scaffolding — the brief-reply
