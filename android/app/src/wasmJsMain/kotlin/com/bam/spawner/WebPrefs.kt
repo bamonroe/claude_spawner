@@ -94,6 +94,9 @@ class WebPrefs : Prefs {
     override var summaryOnlySpeech: Boolean
         get() = bool("summary_only_speech", false)
         set(v) = putBool("summary_only_speech", v)
+    override var speakInitialReplies: Int
+        get() = int("speak_initial_replies", Prefs.DEFAULT_SPEAK_INITIAL_REPLIES)
+        set(v) = putInt("speak_initial_replies", v)
     override var serverTts: Boolean
         get() = bool("server_tts", true)
         set(v) = putBool("server_tts", v)

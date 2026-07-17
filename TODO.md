@@ -12,6 +12,14 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-17 — **"Speak initial replies" — spoken lead-in for summary-only mode.** New
+  integer Audio setting (`speak_initial_replies`, default 0), shown under the **Summary only**
+  switch. In summary-only mode the first N streamed replies of each turn are spoken aloud like
+  normal (the rest beep); the final summary is always spoken. Per-turn count that resets at every
+  turn boundary (mirrors the `streamedSessions` lifecycle in both `VoiceController` and
+  `WebAppController`); no effect when summary-only is off. Client-local pref (no server/voice
+  command). `Prefs`/`SettingsStore`/`WebPrefs`/`SettingsScreens` + both controllers; documented in
+  `README.md`.
 - [x] 2026-07-16 — **Local↔server chat-cache reconciliation (the "duplicate rows" epic).** The
       app keeps a local-centric message/session cache, but reconciliation between local state and
       what the server reports was scattered across several code paths with no single coherent apply
@@ -61,16 +69,20 @@ Dates are `YYYY-MM-DD`.
           change; `:app:compileKotlinWasmJs` + `:app:clean :app:assembleDebug` both green.
       - [ ] Still to do: verify end-to-end on the phone that the sporadic duplicate rows are
             actually gone (needs a real device run; not verifiable from the build).
-      - [ ] **Open bug (observed 2026-07-17 on the newest app, tablet):** a transient duplicate
-            reply bubble still appears — two identical fully-badged rows (same timestamp + token
-            counts). Detaching and reattaching the session collapses it to one, which proves the
-            server stored the turn ONCE and this is a client-side render dedupe miss: the turn-close
-            dedupe fails to drop the live streamed row (`index==-1`) against the landed indexed
-            history row, and only a full reattach's index-first `SessionSync.dedupe` catches it.
-            Seen in a **Codex CLI** session ("trainer") — likely specific to how the Codex backend
-            streams/badges, since the earlier fix was validated on the Claude streaming path. Look at
-            the turn-close badging→dedupe seam (why the live row isn't collapsed when its indexed row
-            arrives without a reattach).
+      - [x] 2026-07-17 — **Transient duplicate reply bubble** — two identical fully-badged rows
+            (same timestamp + token counts); detach/reattach collapsed it to one. **Root cause found
+            (not the earlier guess):** both duplicate rows are LIVE rows (`index==-1`), not a
+            live-vs-indexed miss — so `SessionSync.dedupe` (which only drops a live row against an
+            *indexed* row) never applied, and only a full reattach's `onHistory` (the sole indexed-row
+            producer) collapsed them. The second live row came from the turn-close `Output` handler's
+            buffered-reply branch: it appended a fresh badged row whenever `streamedSessions` no longer
+            held the name — which also fires when a duplicate closing `Output` arrives for a turn that
+            *did* stream (backend double-emit, or `streamedSessions` cleared mid-turn by an interleaved
+            Ask/Transcript/error). NOT Codex-specific — 2026-07-17 screenshots show it on the Opus
+            session too. **Fix (both controllers):** before appending in the buffered branch, check if
+            the last Claude row is a live row with the same trimmed text; if so, badge it in place
+            instead of adding a second bubble (`VoiceController` Output handler + `WebAppController`
+            mirror). Needs on-device confirmation the double bubble no longer appears.
     - [x] 2026-07-17 — **Audit** the other mutation messages (`renamed`, `session_list`, `detached`)
           for the same completeness so the app never has to infer a state change. Findings: the wire
           shapes of `renamed`/`detached`/`context_reset` were already complete; `session_list` has no

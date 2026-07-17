@@ -62,6 +62,10 @@ class WebAppController(private val prefs: Prefs) : AppController {
     private var currentKey = ""
     private var loadingOlder = false
     private val streamedSessions = mutableSetOf<String>()
+    // Per-session count of streamed replies already spoken this turn, for the
+    // "speak initial replies" refinement of summary-only mode (mirrors the phone).
+    // Reset at every turn boundary alongside [streamedSessions].
+    private val spokenReplyCounts = mutableMapOf<String, Int>()
 
     // Session focus, per-session digest freshness (the phone's cache-validation fast-path,
     // minus the on-disk cache — the browser holds transcripts in memory only), and the one
@@ -273,8 +277,13 @@ class WebAppController(private val prefs: Prefs) : AppController {
 
     private fun addChat(role: Role, text: String, usage: com.bam.spawner.net.TokenUsage? = null, key: String = currentKey) {
         val now = nowEpochSeconds()
-        logs[key] = ((logs[key] ?: emptyList()) +
-            ChatMessage(role, text, usage = usage, ts = now)).takeLast(2000)
+        // Reconcile on the LIVE path (see SessionSync.dedupe): a hands-free utterance
+        // streams a live draft/echo row and then lands the committed `transcript` as a
+        // second identical live row (index==-1 both), which nothing collapsed until a
+        // reattach. Deduping here drops that adjacent duplicate as it's appended.
+        logs[key] = session.dedupe(
+            (logs[key] ?: emptyList()) + ChatMessage(role, text, usage = usage, ts = now)
+        ).takeLast(2000)
         if (key == currentKey) {
             publish()
             _scrollTick.value = _scrollTick.value + 1
@@ -321,10 +330,28 @@ class WebAppController(private val prefs: Prefs) : AppController {
                 if (msg.chunk) {
                     streamedSessions.add(msg.name); addChat(Role.CLAUDE, msg.text, key = msg.name)
                     if (msg.name == currentKey) {
-                        if (summaryOnly) webBeep() else speak(msg.text)
+                        if (summaryOnly) {
+                            // Speak the first N replies of the turn aloud; beep the rest.
+                            val spoken = spokenReplyCounts.getOrElse(msg.name) { 0 }
+                            if (spoken < prefs.speakInitialReplies) {
+                                spokenReplyCounts[msg.name] = spoken + 1
+                                speak(msg.text)
+                            } else {
+                                webBeep()
+                            }
+                        } else speak(msg.text)
                     }
                 } else {
-                    if (!streamedSessions.remove(msg.name)) {
+                    val streamed = streamedSessions.remove(msg.name)
+                    spokenReplyCounts.remove(msg.name) // new turn restarts the initial-reply count
+                    // A live bubble for this reply already exists when the turn streamed, but
+                    // also when a duplicate closing Output arrives for the same turn (backend
+                    // double-emit, or streamedSessions cleared mid-turn) — that second close
+                    // is what appended a second identical bubble. Reuse it in either case.
+                    val lastClaude = logs[msg.name]?.lastOrNull { it.role == Role.CLAUDE }
+                    val haveLiveBubble = lastClaude != null && lastClaude.index < 0 &&
+                        lastClaude.text.trim() == msg.text.trim()
+                    if (!streamed && !haveLiveBubble) {
                         addChat(Role.CLAUDE, msg.text, msg.usage, key = msg.name)
                         if (msg.name == currentKey) speak(msg.text)
                     }
@@ -378,12 +405,15 @@ class WebAppController(private val prefs: Prefs) : AppController {
             is ServerMsg.Usage -> { _usageLoading.value = false; _usageReport.value = msg.report }
             is ServerMsg.UsageEstimate -> _usageEstimate.value = msg.est
             is ServerMsg.Ask -> {
-                _activity.value = ""; streamedSessions.remove(msg.name); _ask.value = msg.questions
+                _activity.value = ""; streamedSessions.remove(msg.name); spokenReplyCounts.remove(msg.name); _ask.value = msg.questions
                 addChat(Role.SYSTEM, "❓ " + msg.questions.joinToString("  ") { it.q }, key = msg.name)
             }
             is ServerMsg.Transcript -> {
                 _ask.value = null
-                (_attachedName.value ?: currentKey).takeIf { it.isNotEmpty() }?.let { streamedSessions.remove(it) }
+                (_attachedName.value ?: currentKey).takeIf { it.isNotEmpty() }?.let { streamedSessions.remove(it); spokenReplyCounts.remove(it) }
+                // The committed transcript supersedes the live hands-free draft — clear it
+                // so the utterance isn't shown as both a draft and a committed bubble.
+                _pending.value = ""
                 addChat(Role.USER, msg.text)
             }
             is ServerMsg.Attached -> {
@@ -477,11 +507,11 @@ class WebAppController(private val prefs: Prefs) : AppController {
                 } else addChat(Role.SYSTEM, "⚠️ ${msg.code}: ${msg.message}")
             }
             is ServerMsg.TurnInterrupted -> {
-                _activity.value = ""; streamedSessions.remove(msg.name)
+                _activity.value = ""; streamedSessions.remove(msg.name); spokenReplyCounts.remove(msg.name)
                 addChat(Role.SYSTEM, "⚠️ turn interrupted (${msg.reason}) — say it again.", key = msg.name)
             }
             is ServerMsg.TurnStopped -> {
-                _activity.value = ""; streamedSessions.remove(msg.name)
+                _activity.value = ""; streamedSessions.remove(msg.name); spokenReplyCounts.remove(msg.name)
                 addChat(Role.SYSTEM, "⏹ stopped that turn.", key = msg.name)
             }
             // Phone-only voice surfaces with no web analogue — explicit, documented

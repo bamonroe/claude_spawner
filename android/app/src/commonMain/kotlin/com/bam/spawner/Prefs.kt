@@ -56,6 +56,11 @@ interface Prefs {
      *  soft beep instead of being read aloud. Toggled by voice ("summary only" /
      *  "speak everything") and by the audio-settings switch. */
     var summaryOnlySpeech: Boolean
+    /** Refines [summaryOnlySpeech]: when summary-only is on, the first N streamed
+     *  replies of each turn are spoken aloud like normal (the rest beep), and the
+     *  turn's final summary is always spoken. 0 = pure summary-only (the default).
+     *  Per-turn count that resets each turn; no effect when summary-only is off. */
+    var speakInitialReplies: Int
     /** Speak with the server's Kokoro voice (synthesized server-side, streamed
      *  down as audio) instead of on-device TTS. Only takes effect when the
      *  server offers TTS (hello_ok `tts`); on-device speech remains the
@@ -193,6 +198,7 @@ interface Prefs {
         const val DEFAULT_STT_MODE = "dynamic"
         const val DEFAULT_STT_MODEL = "small"
         const val DEFAULT_WHISPER_MODEL = "medium.en"
+        const val DEFAULT_SPEAK_INITIAL_REPLIES = 0
         const val DEFAULT_VAD_THRESHOLD = 500
         const val DEFAULT_VAD_ONSET_MS = 120
         const val DEFAULT_VAD_SILENCE_MS = 800
