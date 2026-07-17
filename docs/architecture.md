@@ -249,10 +249,11 @@ rootless runtime for sandbox turns **on the host** over that same SSH connection
 session's Claude transcript back over it. There is no spawn-directory jail — a session may launch
 anywhere on the target host. No component holds host root: the server is an unprivileged
 container and sandboxes use a rootless runtime on the host. Recipe: the root `docker-compose.yml`
-(the `spawner-server` service alongside `whisper`, so one `docker compose up -d --build` launches the
-whole backend; host networking so `localhost:22` is the host sshd; only durable state and the
-whisper models dir are mounted — discovery, browse, and transcript reads all run on the host over
-SSH, not off a host home/root mount). See the Dockerfile at `server/Dockerfile`.
+(the `spawner-server` gateway + the `wakeword` detector; STT/TTS containers live in the separate
+`/data/speech_services` stack on the same ports; host networking so `localhost:22` is the host sshd
+and `localhost:8571` reaches whisper; only durable state and the whisper models dir are mounted —
+discovery, browse, and transcript reads all run on the host over SSH, not off a host home/root
+mount). See the Dockerfile at `server/Dockerfile`.
 
 > **Design note — the containerized-server + broker detour (reverted 2026-07-06).** An earlier design
 > ran the server in a container and put a small host-side **broker** daemon (`cmd/broker`, dialed
@@ -383,12 +384,14 @@ The gateway depends only on the `Transcriber` interface; there are **two impleme
 either can back it:
 
 - **`RemoteWhisper`** (`remote.go`) — POSTs the WAV to a **resident whisper.cpp HTTP server**
-  (`/inference`). This is the preferred path on this host, which has an **Nvidia GPU**: the
-  `whisper` compose service runs whisper.cpp built with **CUDA** and keeps the model warm
-  (`medium.en`, `:8571`), handling both real dictation and the live hands-free draft +
-  end-token detection. An optional second, fast draft server (`base.en`, `:8572`) can offload
-  the cheap high-frequency work so it never blocks the accurate model — see `whisper/README.md`
-  for how to add it. Enabled via `SPAWNER_WHISPER_URL` / `SPAWNER_WHISPER_FAST_URL`.
+  (`/inference`). This is the preferred path on this host, which has an **Nvidia GPU**: a
+  CUDA-built whisper.cpp keeps the model warm (`medium.en`, `:8571`), handling both real
+  dictation and the live hands-free draft + end-token detection. An optional second, fast draft
+  server (`base.en`, `:8572`) can offload the cheap high-frequency work so it never blocks the
+  accurate model. The whisper (and Kokoro TTS) containers no longer live in this repo — they were
+  moved out to the standalone **`/data/speech_services`** stack, which republishes the same ports,
+  so nothing here changes but where the containers are launched. Enabled via
+  `SPAWNER_WHISPER_URL` / `SPAWNER_WHISPER_FAST_URL`.
 - **`WhisperCPP`** (`transcribe.go`) — shells out to the **whisper.cpp CLI** (one process per
   utterance), `exec`'d like `claude`/`tmux`, no server. The fallback when no whisper URL is set.
   It size-picks a model per clip (tiny/base/small) from `SPAWNER_WHISPER_MODEL{,_FAST,_BASE}`.
@@ -400,7 +403,7 @@ large-v3-turbo) stays a one-file change behind the `Transcriber` interface.
 
 Whisper hallucinates on silence (it fills quiet stretches with looped YouTube-outro phrases), so
 the resident server images run with **Silero VAD + non-speech-token suppression** as entrypoint
-defaults — see `whisper/README.md` (the anti-hallucination defaults) for the details.
+defaults — those defaults live with the whisper image in the `/data/speech_services` stack.
 
 Known limitation: STT output is all-lowercase, so sessions can't be created in directories with
 uppercase letters by voice. Acceptable; documented in `docs/commands.md`.
@@ -443,9 +446,8 @@ uppercase letters by voice. Acceptable; documented in `docs/commands.md`.
   cmd/wsclient/main.go          text client for manual testing; -audio streams a WAV
   cmd/gencommands/main.go       regenerate docs/commands.json from the command registry
   main.go                       server entrypoint (built into the Docker image from server/Dockerfile)
-docker-compose.yml              the whole stack: spawner-server gateway + whisper transcription (one `up` launches both)
+docker-compose.yml              spawner-server gateway + wakeword detector (STT/TTS containers live in /data/speech_services)
 /sandbox                        Arch-based sandbox image (Containerfile) for `target: sandbox` sessions (see sandbox/README.md)
-/whisper                        Vulkan/CPU Dockerfiles for the resident whisper.cpp server (see whisper/README.md)
 /deploy                         containerized server compose + env example + container-rebuild + claude-log helpers (see deploy/README.md)
 /android                        Android app (Kotlin/Compose) — see android/README.md
 /docs

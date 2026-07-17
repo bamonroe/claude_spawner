@@ -17,11 +17,11 @@ This directory holds the server's env template, the rebuild script, and a transc
 
 ## The whisper transcription service
 
-The `whisper` service is the resident whisper.cpp HTTP server (on `:8571`) the gateway transcribes
-through. It carries `restart: unless-stopped`, so once created it survives reboots, but a
-`docker compose down` removes it and voice goes silent until the next `up`. An optional second "fast"
-draft model on `:8572` (`whisper-fast`) can offload the live hands-free draft — start it and set
-`SPAWNER_WHISPER_FAST_URL` to enable it. See [`../whisper/README.md`](../whisper/README.md).
+The resident whisper.cpp HTTP server (on `:8571`) the gateway transcribes through **now lives in the
+separate `/data/speech_services` stack** (moved out of this repo, same port), so bring it up from
+there with `docker compose up -d`. `docker compose down` in that stack removes it and voice goes
+silent until the next `up`. An optional second "fast" draft model on `:8572` can offload the live
+hands-free draft — start it and set `SPAWNER_WHISPER_FAST_URL` to enable it.
 
 ## The wakeword detector service (optional)
 
@@ -87,20 +87,20 @@ create it as your user before the first `up` (a Docker-created bind source is ro
 gateway then can't download models into it).
 
 You don't have to pre-place model files — the gateway **downloads** catalogue models into this dir
-on demand. Pre-dropping a `ggml-*.bin` still works and skips the download. The whisper service boots
-the model named in the compose `command:` (default `ggml-medium.en.bin`), so that one must be
-present (auto-downloaded on first use or placed by hand). See [`../whisper/README.md`](../whisper/README.md).
+on demand. Pre-dropping a `ggml-*.bin` still works and skips the download. The whisper container
+(now in the `/data/speech_services` stack, mounting this same dir ro) boots the model named in its
+compose `command:` (default `ggml-medium.en.bin`), so that one must be present (auto-downloaded on
+first use or placed by hand).
 
 ### Kokoro TTS (optional)
 
-The `kokoro` compose service is a resident [Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI)
-speech-synthesis server on `:8880`, sharing the GPU with whisper (~2–3 GB VRAM at inference).
-`SPAWNER_TTS_URL` in `deploy/spawner-container.env` points the gateway at it; leave it unset and
-clients fall back to their on-device voices. The Kokoro model (<1 GB) auto-downloads on the
-service's first start into a named Docker volume, so recreates don't re-fetch it. Voice and audio
-format defaults are `SPAWNER_TTS_VOICE` / `SPAWNER_TTS_FORMAT` (see `CLAUDE.md`'s config section).
-Bring it up with `docker compose up -d kokoro`; it needs the same Nvidia container toolkit as
-whisper.
+`kokoro` is a resident [Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI)
+speech-synthesis server on `:8880`, sharing the GPU with whisper (~2–3 GB VRAM at inference). It
+lives in the separate **`/data/speech_services`** stack (moved there alongside whisper); bring it up
+from there with `docker compose up -d`. `SPAWNER_TTS_URL` in `deploy/spawner-container.env` points
+the gateway at it (`http://localhost:8880`); leave it unset and clients fall back to their on-device
+voices. Voice and audio format defaults are `SPAWNER_TTS_VOICE` / `SPAWNER_TTS_FORMAT` (see
+`CLAUDE.md`'s config section). It needs the same Nvidia container toolkit as whisper.
 
 ### Getting a client
 

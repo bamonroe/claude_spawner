@@ -2,7 +2,8 @@
 # Rebuild + recreate the CONTAINERIZED claude_spawner server (the spawner-server
 # service in the root docker-compose.yml). This is what the app's restart button runs:
 # it rebuilds the image from current source and recreates the container, so one tap
-# ships new server code. The whisper service is left untouched.
+# ships new server code. It only touches spawner-server; the STT/TTS containers live in
+# the separate /data/speech_services stack and are never touched here.
 #
 # It MUST run on the HOST, not inside the container — recreating the container would
 # kill anything running inside it (including this script). The restart command SSHes
@@ -49,7 +50,7 @@ esac
 if [ "$DO_BUILD" -eq 0 ]; then
   echo "==> bounce: recreate the server container from the existing image (no rebuild)"
 else
-  echo "==> build image (whisper left as-is)"
+  echo "==> build image (spawner-server only)"
   # Stage the web bundle into the image build context so it bakes into the image
   # (served at SPAWNER_WEB_DIR=/srv/web) — no host mount. Developers rebuild the bundle
   # out-of-band with `:app:wasmJsBrowserDistribution` when the UI changes and a rebuild

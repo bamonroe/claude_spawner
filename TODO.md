@@ -19,11 +19,13 @@ Dates are `YYYY-MM-DD`.
   `localhost:8571`/`:8880`. Work:
   - [x] 2026-07-17 — Retire the app-supplied per-connection whisper URL so the endpoint is fixed
         server-side (below); prerequisite so nothing but config can repoint STT.
-  - [ ] Drop the `whisper` and `kokoro` services from this repo's `docker-compose.yml` (keep
-        `wakeword` + `spawner-server`; speech_services has no wakeword). Delete the now-unused
-        `whisper/` build context here.
-  - [ ] Update `docs/architecture.md` + `README.md` to say STT/TTS containers live in
-        `/data/speech_services` (same ports); keep the `SPAWNER_WHISPER_URL`/`_TTS_URL` docs.
+  - [x] 2026-07-17 — Dropped the `whisper` and `kokoro` services from this repo's
+        `docker-compose.yml` (kept `wakeword` + `spawner-server`; speech_services has no wakeword),
+        deleted the now-unused `whisper/` build context, and fixed the `rebuild-container.sh`
+        comments.
+  - [x] 2026-07-17 — Updated `docs/architecture.md` + `README.md` + `deploy/README.md` to say the
+        STT/TTS containers live in `/data/speech_services` (same ports); kept the
+        `SPAWNER_WHISPER_URL`/`_TTS_URL` docs.
   - [ ] **Live swap (needs a safe moment — interrupts STT):** `docker compose` down whisper+kokoro
         here, bring up the `/data/speech_services` stack. Only one process can bind `:8571`/`:8880`,
         so they can't overlap.

@@ -3,19 +3,20 @@
 #
 #   docker compose up -d --build
 #
-# Four services:
+# Two services:
 #   spawner-server — the Go gateway. This container builds the binary from ./server
 #                    and drives the HOST over SSH (unconditionally): `claude` for host
 #                    turns and rootless Podman for sandbox turns both run on the host.
-#   whisper        — the resident whisper.cpp transcription server on :8571 (CUDA).
-#                    spawner-server points at it via SPAWNER_WHISPER_URL.
-#   kokoro         — the resident Kokoro TTS server on :8880 (CUDA, shares the GPU
-#                    with whisper). spawner-server points at it via SPAWNER_TTS_URL;
-#                    optional — without it clients fall back to on-device speech.
 #   wakeword       — the resident spawner-wakeword detector on :9060 (CPU-only). scores
 #                    each hands-free clip for the bump_bump/beep_beep tokens; spawner-server
 #                    points at it via SPAWNER_WAKEWORD_URL. Optional — without it detection
 #                    falls back to the Whisper string-match.
+#
+# STT + TTS live in a SEPARATE stack: the whisper transcription server (:8571,
+# SPAWNER_WHISPER_URL) and the Kokoro TTS server (:8880, SPAWNER_TTS_URL) were moved out
+# to /data/speech_services, which republishes the SAME ports — bring that stack up
+# alongside this one. Only one process can bind :8571/:8880, so the two stacks' speech
+# services must not overlap.
 #
 # Prereqs FIRST (see deploy/README.md for the full first-run guide): copy
 # deploy/spawner-container.env.example to deploy/spawner-container.env and fill it in
@@ -26,7 +27,8 @@
 # first boot (you just authorize its public key afterwards; see deploy/README.md).
 #
 # Text-only / no GPU: `docker compose up -d --build spawner-server` runs just the
-# gateway; voice needs the whisper service (and an Nvidia GPU + the container toolkit).
+# gateway; voice needs the whisper server from the /data/speech_services stack (and an
+# Nvidia GPU + the container toolkit).
 
 services:
   # The Go gateway. Host networking so localhost:22 is the host's sshd (host turns run
@@ -42,45 +44,19 @@ services:
     network_mode: host
     user: "${SPAWNER_UID:?set SPAWNER_UID=$(id -u) (or put it in .env)}:${SPAWNER_GID:?set SPAWNER_GID=$(id -g) (or put it in .env)}"
     env_file: deploy/spawner-container.env
-    # No depends_on whisper: the gateway only dials it lazily over localhost, and tying
-    # them together would drag the GPU-requiring whisper service into the documented
-    # text-only `up … spawner-server` (hard-failing hosts without the nvidia toolkit).
+    # No depends_on for whisper: it lives in the separate /data/speech_services stack and
+    # the gateway only dials it lazily over localhost:8571, so the two stacks stay
+    # independent (and text-only `up … spawner-server` needs no GPU).
     volumes:
       # Whisper ggml models, mounted directly (rw) so the gateway can download
-      # catalogue models on demand; the whisper service mounts the same dir ro at
-      # /models. The only host-path mount besides state — a deliberate shared artifact
-      # dir, not a blanket assumption that the host's /data/$HOME mean anything here.
+      # catalogue models on demand; the whisper server in /data/speech_services mounts
+      # the same host dir ro at /models. The only host-path mount besides state — a
+      # deliberate shared artifact dir, not a blanket assumption that the host's
+      # /data/$HOME mean anything here.
       - "${SPAWNER_WHISPER_MODELS_DIR:-/data/storage/whisper}:${SPAWNER_WHISPER_MODELS_DIR:-/data/storage/whisper}"
       # Durable server state (sessions.json, hosts.json, the server's SSH key) kept out
       # of the image.
       - "./deploy/state:/state"
-    restart: unless-stopped
-
-  # Resident whisper.cpp server on the Nvidia GPU via CUDA. The server + app point at
-  # http://localhost:8571. Swap the model by changing `command:` — options in /models:
-  # ggml-medium.en.bin, ggml-large-v3.bin, ggml-small.en.bin.
-  # (A CPU-only build lives in ./whisper/Dockerfile if the GPU is ever unavailable.)
-  whisper:
-    build:
-      context: ./whisper
-      dockerfile: Dockerfile.cuda
-    volumes:
-      - ${SPAWNER_WHISPER_MODELS_DIR:-/data/storage/whisper}:/models:ro   # ggml model files (only mount)
-    environment:
-      NVIDIA_VISIBLE_DEVICES: all
-      NVIDIA_DRIVER_CAPABILITIES: compute,utility
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities:
-                - gpu
-                - compute
-    command: ["-m", "/models/ggml-medium.en.bin"]
-    ports:
-      - "8571:8571"
     restart: unless-stopped
 
   # Resident wake-word / end-token detector (spawner-wakeword — the Rust sidecar wrapping
@@ -103,31 +79,3 @@ services:
     ports:
       - "9060:9060"
     restart: unless-stopped
-
-  # Resident Kokoro TTS server (Kokoro-FastAPI, OpenAI-compatible /v1/audio/speech),
-  # sharing the same Nvidia GPU as whisper (Kokoro-82M needs ~2-3 GB VRAM at inference).
-  # The gateway points at http://localhost:8880 via SPAWNER_TTS_URL. The model
-  # auto-downloads (<1 GB) on first start into the named volume, so recreates don't
-  # re-fetch it.
-  kokoro:
-    image: ghcr.io/remsky/kokoro-fastapi-gpu:latest
-    environment:
-      NVIDIA_VISIBLE_DEVICES: all
-      NVIDIA_DRIVER_CAPABILITIES: compute,utility
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities:
-                - gpu
-                - compute
-    volumes:
-      - kokoro-models:/app/api/src/models
-    ports:
-      - "8880:8880"
-    restart: unless-stopped
-
-volumes:
-  kokoro-models:

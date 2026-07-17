@@ -284,8 +284,9 @@ echo-cancelled voice path so the open mic doesn't hear it.
 
 ### Server voice: Kokoro speech synthesis streamed to the device
 
-When the server is configured with a resident Kokoro TTS server (`SPAWNER_TTS_URL`; see the compose
-stack's `kokoro` service), replies can be spoken with a **neural server-side voice** instead of the
+When the server is configured with a resident Kokoro TTS server (`SPAWNER_TTS_URL`; the `kokoro`
+service in the `/data/speech_services` stack), replies can be spoken with a **neural server-side
+voice** instead of the
 device's built-in text-to-speech. The decision stays on the client — the **Server voice** switch on
 the **Audio** settings page (on by default, active only when the connected server offers TTS): for
 each reply the app sends the text up as a `speak` request, the server synthesizes it with Kokoro and
@@ -525,8 +526,8 @@ supported deployment. It runs as your ordinary user (never root) and drives the 
 (unconditional): `claude` for host sessions and rootless Podman for sandbox sessions both execute
 **on the host**, over the same SSH connection, so the container needs no host root and no separate
 broker. A session may spawn anywhere on the host (no spawn-directory jail). Transcription is a second container — a resident
-whisper.cpp HTTP server ([`whisper/`](./whisper/README.md))
-on `:8571`. One model handles both dictation and the live hands-free draft; on fast enough hardware
+whisper.cpp HTTP server on `:8571`, which lives in the separate `/data/speech_services` stack.
+One model handles both dictation and the live hands-free draft; on fast enough hardware
 there's no need to split the load. An optional second **fast** draft/detection model on `:8572`
 (`whisper-fast`) can offload the live draft — start that container and set `SPAWNER_WHISPER_FAST_URL`
 to enable it; with it unset, the **quick** field simply reads "none" and everything routes to the one
@@ -583,8 +584,10 @@ go run -C server ./cmd/wsclient -url ws://localhost:8080/ws
 
 - `claude` authenticates via your host creds in `~/.claude` + `~/.claude.json` (or set
   `ANTHROPIC_API_KEY`). Sessions can spawn anywhere on the target host (no directory jail).
-- Voice end-to-end needs the resident whisper server running (`docker compose up -d whisper`)
-  and `SPAWNER_WHISPER_URL` pointed at it.
+- Voice end-to-end needs the resident whisper server running and `SPAWNER_WHISPER_URL` pointed at
+  it. The whisper (and Kokoro TTS) containers live in the separate **`/data/speech_services`** stack
+  (`docker compose up -d` there) on the same ports `:8571`/`:8880` — bring that up alongside the
+  gateway.
 - To test a change without killing a live turn, run the fresh binary on a scratch port
   (`SPAWNER_ADDR=:8557`) with a separate `SPAWNER_STATE` — see [`deploy/README.md`](./deploy/README.md).
 
