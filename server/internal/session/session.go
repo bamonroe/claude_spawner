@@ -627,6 +627,12 @@ func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool fun
 	if perr != nil {
 		return "", Usage{}, perr
 	}
+	// Antigravity's stdout collapses a turn's several messages into one blank-line-less
+	// blob; rebuild the paragraph breaks from agy's on-disk transcript (best-effort —
+	// falls back to the stdout reply on any miss). See antigravity_transcript.go.
+	if ag.Transcript == agent.TranscriptAntigravity {
+		res.Reply = d.reconstructAgyReply(ctx, s, res.Reply)
+	}
 	return res.Reply, res.Usage, nil
 }
 

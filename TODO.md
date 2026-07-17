@@ -251,6 +251,27 @@ Dates are `YYYY-MM-DD`.
       reader (keyed by an internal id we don't hold, no usage recorded), so it routes to a new
       `nullTranscript` reader — reply streams live, but no history replay/context/deletion. Unit tests
       for args + parser; full `go test ./...` green.
+  - [x] 2026-07-17 — **Antigravity reply paragraph reconstruction.** `agy --print` concatenates a
+        turn's several assistant messages into one blank-line-less blob on stdout, so multi-message
+        turns rendered as a single wall-of-text paragraph in the app. After each antigravity turn the
+        driver now reads agy's on-disk `brain/<id>/…/transcript.jsonl`, pulls the ordered
+        `PLANNER_RESPONSE` messages, and rejoins them with blank lines
+        (`session/antigravity_transcript.go`, `reconstructAgyReply`). Since agy ignores our
+        `--conversation` id (see below), the right transcript is found by content-matching the newest
+        few brain transcripts against the stdout blob — which also guards the rewrite: only line breaks
+        change, never wording, and it falls back to the stdout reply on any miss. Unit tests + full
+        `go test ./...` green.
+  - [ ] **Follow-up: agy ignores `--conversation` → turns don't actually resume.** Recent `agy` logs
+        "conversation … not found, ignoring --conversation flag" and creates a fresh conversation
+        (keyed by its own internal id) every turn, so an antigravity session has NO cross-turn memory
+        despite the code passing our uuid. Fix by capturing the id agy creates (e.g. from a pinned
+        `--log-file`'s `Print mode: conversation=<id>` line) and passing THAT back as `--conversation`
+        next turn — which would also give a stable id to key a real history reader on. The comments in
+        `antigravity.go` are corrected to say resume is a no-op today.
+  - [ ] **Follow-up: real antigravity history reader (still `nullTranscript`).** `TranscriptAntigravity`
+        routes to the `nullTranscript` stub, so reattach history / context meter / deletion are empty.
+        Blocked on the id problem above (no stable our-id → agy-id mapping); once turns resume by a
+        captured agy id, wire an `antigravityFS` reader over `brain/<id>/…/transcript.jsonl`.
   - [ ] **Follow-up (gated on Google): rich agy turns via JSON output.** When `agy` grows a
         `--output-format json`/stream mode (or a resolvable transcript path keyed by our conversation
         id), replace `parseAgyText` with a real stream parser and wire an antigravity transcript

@@ -17,16 +17,25 @@ import (
 // surfaces the reply only. When agy grows a `--output-format json` mode (or a
 // resolvable transcript path), swap parseAgyText for a real stream parser and wire
 // a transcript reader.
+//
+// One thing IS reconstructed from that on-disk transcript today: `agy --print`
+// concatenates a turn's several assistant messages into one blank-line-less blob on
+// stdout, so after the turn the driver reads the transcript back and restores the
+// paragraph breaks (session.reconstructAgyReply). parseAgyText still produces the
+// fallback/live reply; the driver only rewrites its line breaks.
 
 // agyPrintTimeout caps agy's own non-interactive wait. Its default is 5m, too
 // short for a real agentic turn; the gateway's context still governs cancellation,
 // this just keeps agy from self-aborting a long turn before we do.
 const agyPrintTimeout = "45m"
 
-// antigravity builds the Antigravity backend entry. Session identity is
-// caller-supplied like Claude's: agy accepts our own uuid via --conversation and
-// creates it on the first turn, resuming the same conversation on later turns
-// (verified live), so SelfAssignsID stays false. agy ignores the process cwd and
+// antigravity builds the Antigravity backend entry. NOTE: the --conversation resume
+// below is currently a no-op — recent agy ignores a caller-supplied conversation id
+// ("not found, ignoring --conversation flag") and keys its store by an internal id
+// of its own, so turns do NOT actually resume the same conversation and there is no
+// stable id to key a history reader on (see TODO.md; reconstructAgyReply works
+// around this by content-matching the transcript instead of by id). SelfAssignsID
+// stays false regardless. agy ignores the process cwd and
 // works in its own scratch project unless a workspace is named, so every turn
 // passes the session's directory via --add-dir. Models are agy's display strings
 // (what `agy --model` accepts verbatim), fronted by short spoken aliases.
