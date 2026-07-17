@@ -67,10 +67,10 @@ Dates are `YYYY-MM-DD`.
             server stored the turn ONCE and this is a client-side render dedupe miss: the turn-close
             dedupe fails to drop the live streamed row (`index==-1`) against the landed indexed
             history row, and only a full reattach's index-first `SessionSync.dedupe` catches it.
-            Seen in a **Codex CLI** session ("trainer") — likely specific to how the Codex backend
-            streams/badges, since the earlier fix was validated on the Claude streaming path. Look at
-            the turn-close badging→dedupe seam (why the live row isn't collapsed when its indexed row
-            arrives without a reattach).
+            **NOT Codex-specific** (2026-07-17 screenshots): seen in the Codex CLI "trainer" session
+            *and* the Opus/Claude "spawner" session, and back on 2026-07-16 too — so it's the shared
+            turn-close→dedupe seam, not one backend's streaming/badging. Fix is app-side: collapse the
+            live row (`index==-1`) when its indexed history row lands, without waiting for a reattach.
     - [x] 2026-07-17 — **Audit** the other mutation messages (`renamed`, `session_list`, `detached`)
           for the same completeness so the app never has to infer a state change. Findings: the wire
           shapes of `renamed`/`detached`/`context_reset` were already complete; `session_list` has no

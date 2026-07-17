@@ -39,7 +39,7 @@ func (c *conn) doUpload(dir, name, host, content string) {
 	// smuggles path separators by taking only its base.
 	dest := filepath.Join(filepath.Clean(dir), filepath.Base(name))
 	if err := c.writeFile(host, dest, data); err != nil {
-		c.fail("bad_path", err.Error())
+		c.fail("transfer_failed", err.Error())
 		return
 	}
 	c.send(msgFileSaved(dest))
@@ -56,7 +56,7 @@ func (c *conn) doDownload(path, host string) {
 	clean := filepath.Clean(path)
 	data, err := c.readFile(host, clean)
 	if err != nil {
-		c.fail("bad_path", err.Error())
+		c.fail("transfer_failed", err.Error())
 		return
 	}
 	if len(data) > maxTransferBytes {

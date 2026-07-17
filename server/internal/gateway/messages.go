@@ -368,6 +368,7 @@ func msgError(code, message string) map[string]any {
 // absent — they come from the app, not from speech, and stay screen-only.
 var spokenError = map[string]string{
 	"bad_path":          "that path won't work, bud — it's outside where I can spawn, or it isn't a directory.",
+	"transfer_failed":   "couldn't move that file, bud — the target host rejected it.",
 	"not_found":         "couldn't find that, bud.",
 	"no_session":        "there's no session by that name, bud.",
 	"session_active":    "that session's open in a terminal — close it there first, bud.",

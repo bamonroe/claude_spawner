@@ -271,6 +271,7 @@ wire-level / programmer-facing codes that only come from the app — `bad_messag
 | `not_found`        | referenced directory/session not found                   |
 | `not_implemented`  | audio path invoked but STT is disabled (no whisper)      |
 | `file_too_large`   | `upload`/`download` file exceeds the 64 MiB transfer cap |
+| `transfer_failed`  | `upload`/`download` read/write on the target host failed (folds in the remote stderr — e.g. permission denied, not a directory) |
 | `session_active`   | refused: an interactive `claude` is live in a terminal   |
 | `discover_failed`  | scanning `~/.claude/projects` failed                     |
 | `history_failed`   | reading a session transcript failed                      |

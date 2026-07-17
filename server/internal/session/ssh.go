@@ -702,8 +702,19 @@ func writeRemote(ctx context.Context, client *ssh.Client, path string, data []by
 	stop := context.AfterFunc(ctx, func() { _ = sess.Signal(ssh.SIGKILL); _ = sess.Close() })
 	defer stop()
 	sess.Stdin = bytes.NewReader(data)
+	var stderr bytes.Buffer
+	sess.Stderr = &stderr
 	dir := filepath.Dir(path)
-	return sess.Run("mkdir -p " + shellQuote(dir) + " && cat > " + shellQuote(path))
+	if err := sess.Run("mkdir -p " + shellQuote(dir) + " && cat > " + shellQuote(path)); err != nil {
+		// sess.Run's ExitError is just "status N" — fold in the remote command's
+		// stderr (e.g. "Permission denied", "Not a directory") so an upload failure
+		// reports why, not an opaque status code.
+		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+			return fmt.Errorf("%s: %w", msg, err)
+		}
+		return err
+	}
+	return nil
 }
 
 // Run executes a short command on host over the pooled connection and returns its
