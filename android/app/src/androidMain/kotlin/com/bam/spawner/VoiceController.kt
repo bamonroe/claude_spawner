@@ -1261,11 +1261,13 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                             if (spoken < settings.speakInitialReplies) {
                                 spokenReplyCounts[msg.name] = spoken + 1
                                 speakText(Markdown.toSpeech(msg.text))
+                                session.noteSpokenChunk(msg.name, msg.text)
                             } else {
                                 speaker.beep()
                             }
                         } else {
                             speakText(Markdown.toSpeech(msg.text))
+                            session.noteSpokenChunk(msg.name, msg.text)
                         }
                     }
                 } else {
@@ -1279,20 +1281,24 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                     // mid-turn (an interleaved Ask/Transcript/error) or the backend emits the
                     // final message twice — that second close is what appended a second
                     // identical bubble. Reuse the existing bubble in either case.
+                    // Whether to VOICE this close is decided by the shared reconciler
+                    // (SessionSync), not by the transient `streamed` flag: the flag can be
+                    // cleared mid-turn (interleaved Ask/Transcript) and a backend can emit the
+                    // close twice, both of which re-speak a reply the display dedupe silently
+                    // folds. shouldSpeakClose tracks what the chunks already voiced + the last
+                    // close per turn, and must be called exactly once per closing frame.
+                    val wantSpeak = session.shouldSpeakClose(msg.name, msg.text, summaryOnly)
                     val lastClaude = logs[msg.name]?.lastOrNull { it.role == Role.CLAUDE }
                     val haveLiveBubble = lastClaude != null && lastClaude.index < 0 &&
                         lastClaude.text.trim() == msg.text.trim()
                     if (!streamed && !haveLiveBubble) { // genuinely no live stream reached us (buffered reply on reconnect)
                         addChat(Role.CLAUDE, msg.text, msg.usage, key = msg.name)
-                        if (msg.name == currentKey) speakText(Markdown.toSpeech(msg.text))
                     } else {
                         // Streamed (or already-shown) turn: the bubble exists, so badge it in
                         // place — the closing message isn't re-rendered as a new bubble.
                         if (msg.usage != null) attachUsageToLastClaude(msg.name, msg.usage)
-                        // In summary-only mode the chunks only beeped, so speak the final
-                        // result now (the closing message carries the full reply text).
-                        if (summaryOnly && msg.name == currentKey) speakText(Markdown.toSpeech(msg.text))
                     }
+                    if (wantSpeak && msg.name == currentKey) speakText(Markdown.toSpeech(msg.text))
                     // Anchor the cache-warm countdown to the turn's real completion
                     // time (usage_at), so a reply delivered buffered on reconnect
                     // counts down from its true age, not from when it arrived.
@@ -1358,7 +1364,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
             }
             is ServerMsg.Transcript -> {
                 _ask.value = null // a spoken/typed reply answers any pending questions
-                (_attachedName.value ?: currentKey).takeIf { it.isNotEmpty() }?.let { streamedSessions.remove(it); spokenReplyCounts.remove(it) }
+                (_attachedName.value ?: currentKey).takeIf { it.isNotEmpty() }?.let { streamedSessions.remove(it); spokenReplyCounts.remove(it); session.noteTurnStart(it) }
                 // The committed transcript supersedes the live hands-free draft — drop the
                 // greyed draft line so the utterance isn't shown as both a draft and a bubble.
                 _pending.value = ""

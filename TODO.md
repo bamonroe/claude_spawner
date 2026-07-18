@@ -107,6 +107,20 @@ Dates are `YYYY-MM-DD`.
             the last Claude row is a live row with the same trimmed text; if so, badge it in place
             instead of adding a second bubble (`VoiceController` Output handler + `WebAppController`
             mirror). Needs on-device confirmation the double bubble no longer appears.
+      - [x] 2026-07-18 — **Duplicate hands-free VOICE (not the display row).** Same root-cause family
+            as the double bubble, but on the TTS path: the *display* log dedupes correctly, yet
+            hands-free still SPEAKS a reply twice. Cause: the display went through the shared
+            `SessionSync.dedupe` reconciler while speech was decided imperatively in the Output handler
+            off the transient `streamedSessions` flag + a single last-bubble text match — which the
+            close's whole-reply text (≠ any single streamed chunk) and a doubled closing `Output`
+            (backend double-emit, or the flag cleared mid-turn) both defeat, re-speaking the reply on
+            top of the chunks that already voiced it. **Fix:** moved the speak decision into the same
+            single source of truth — new `SessionSync.noteSpokenChunk` / `shouldSpeakClose` /
+            `noteTurnStart` track the text the chunks actually voiced this turn plus the last close, so
+            a streamed reply's close and any doubled close are not re-spoken, while a buffered reply
+            (reconnect) and the summary-only final still are; the guard is per-turn (reset on the
+            committed `transcript`) so an identical short reply next turn is still spoken. Covered by
+            `SessionSyncSpeakTest`. Needs on-device confirmation the voice no longer doubles.
     - [x] 2026-07-17 — **Audit** the other mutation messages (`renamed`, `session_list`, `detached`)
           for the same completeness so the app never has to infer a state change. Findings: the wire
           shapes of `renamed`/`detached`/`context_reset` were already complete; `session_list` has no

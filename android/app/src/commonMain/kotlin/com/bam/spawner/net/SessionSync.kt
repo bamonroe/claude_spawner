@@ -237,4 +237,66 @@ class SessionSync(private val host: Host) {
         }
         return out
     }
+
+    // --- Spoken-reply de-dup (hands-free TTS) --------------------------------
+    //
+    // The *speech* analog of [dedupe]. [dedupe] keeps the displayed log from SHOWING a
+    // reply twice; this keeps the voice from SAYING it twice — and they have to agree even
+    // though the display self-heals silently while a duplicate speak has already been
+    // uttered. The signals differ from the display's:
+    //  - a streamed reply is voiced as N chunks (never one full-reply bubble), and its
+    //    closing frame carries the whole text AGAIN — re-speaking it duplicates the chunks;
+    //  - a backend can emit that closing frame twice, or it can arrive after the old
+    //    `streamedSessions` flag was cleared mid-turn — both re-speak a reply the display
+    //    dedupe folds by index/adjacency.
+    // Two per-session facts drive the decision, and a fresh user turn ([noteTurnStart])
+    // clears both so an identical short reply in the very next turn ("done", "yes") is
+    // still spoken — the guard is scoped to one turn, never a wall-clock window.
+    private val turnVoiced = mutableMapOf<String, StringBuilder>() // chunk text spoken so far this turn
+    private val lastCloseVoiced = mutableMapOf<String, String>()   // last closing reply we decided on
+
+    private fun collapseSpace(s: String) = s.trim().replace(whitespace, "")
+
+    /** A fresh user turn began for [name] (dictation committed / new prompt): reset the
+     *  spoken-reply tracking so the next reply — even byte-identical text — is voiced. */
+    fun noteTurnStart(name: String) {
+        turnVoiced.remove(name)
+        lastCloseVoiced.remove(name)
+    }
+
+    /** A chunk of the streaming reply for [name] was actually SPOKEN aloud (not beeped).
+     *  Accumulates the voiced text so [shouldSpeakClose] can tell the closing frame just
+     *  repeats what the chunks already said. The first chunk of a turn also resets the
+     *  doubled-close guard, so a new streamed turn starts clean without a [noteTurnStart]. */
+    fun noteSpokenChunk(name: String, text: String) {
+        val sb = turnVoiced[name]
+        if (sb == null) {
+            lastCloseVoiced.remove(name)
+            turnVoiced[name] = StringBuilder(text.trim())
+        } else {
+            sb.append(text.trim())
+        }
+    }
+
+    /**
+     * Should the turn-closing reply [text] for [name] be spoken aloud? Returns false when
+     * the chunks already voiced this exact reply piecewise (a normal streamed turn), or when
+     * this is a doubled closing frame for a reply we just decided on. Returns true for a
+     * buffered reply delivered whole (reconnect) and for the final result in [summaryOnly]
+     * mode (there only the first N steps streamed aloud, so the full result is still spoken).
+     * Finalizes the turn's voiced state either way, so call it exactly once per closing frame.
+     */
+    fun shouldSpeakClose(name: String, text: String, summaryOnly: Boolean): Boolean {
+        val norm = collapseSpace(text)
+        val voiced = turnVoiced.remove(name)?.let { collapseSpace(it.toString()) }.orEmpty()
+        val doubled = lastCloseVoiced[name] == norm
+        lastCloseVoiced[name] = norm
+        if (doubled) return false
+        if (!summaryOnly && voiced.isNotEmpty() && voiced == norm) return false
+        return true
+    }
+
+    private companion object {
+        private val whitespace = Regex("\\s+")
+    }
 }
