@@ -293,6 +293,19 @@ class SessionSync(private val host: Host) {
     fun closeSeen(name: String, turn: String): Boolean =
         turn.isNotEmpty() && lastCloseTurn[name] == turn
 
+    /** Check-and-record any turn-terminal frame (`ask`, `turn_stopped`, a turn-failed
+     *  `error`, the compress `say`) by its [turn] id: true means this terminal was already
+     *  presented — a buffered redelivery on reconnect — and the caller should drop it
+     *  (don't re-render, don't re-speak). Shares the close registry with
+     *  [shouldSpeakClose], since a turn ends in exactly one terminal. A missing id
+     *  (pre-turn-id server) returns false so legacy handling decides. */
+    fun terminalSeen(name: String, turn: String): Boolean {
+        if (turn.isEmpty()) return false
+        if (lastCloseTurn[name] == turn) return true
+        lastCloseTurn[name] = turn
+        return false
+    }
+
     /** A chunk of the streaming reply for [name] was actually SPOKEN aloud (not beeped).
      *  Accumulates the voiced text so [shouldSpeakClose] can tell the closing frame just
      *  repeats what the chunks already said. The first chunk of a turn (fresh [turn] id,

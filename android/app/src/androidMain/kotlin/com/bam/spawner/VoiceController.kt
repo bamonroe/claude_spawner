@@ -1238,7 +1238,11 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                 clearTurnInFlight()
                 _activity.value = ""
                 _mic.value = "" // a terminal `say` (e.g. "didn't catch that") ends the PTT clip; clear "transcribing…"
-                addChat(Role.SYSTEM, msg.text); speakText(Markdown.toSpeech(msg.text))
+                // A turn-terminal say (compress done) can be redelivered buffered on
+                // reconnect — its turn id drops the repeat. Breadcrumb says have no id.
+                if (!session.terminalSeen(currentKey, msg.turn)) {
+                    addChat(Role.SYSTEM, msg.text); speakText(Markdown.toSpeech(msg.text))
+                }
             }
             is ServerMsg.Output -> {
                 // Summary-only mode: don't read the intermediate streamed steps aloud —
@@ -1365,9 +1369,15 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                 spokenReplyCounts.remove(msg.name)
                 _activity.value = ""
                 if (hfOn) _voiceState.value = VoiceState.LISTENING
-                _ask.value = msg.questions
-                addChat(Role.SYSTEM, "❓ " + msg.questions.joinToString("  ") { it.q }, key = msg.name)
-                speakText(spokenQuestions(msg.questions)) // read aloud so you can answer by voice
+                // An ask is a turn-terminal (it ends the turn in place of the closing
+                // output) and can be redelivered buffered on reconnect — keyed by its
+                // turn id. Re-presenting is harmless for the chat row (dedupe folds it)
+                // but re-SPEAKING the questions is not; drop a seen terminal outright.
+                if (!session.terminalSeen(msg.name, msg.turn)) {
+                    _ask.value = msg.questions
+                    addChat(Role.SYSTEM, "❓ " + msg.questions.joinToString("  ") { it.q }, key = msg.name)
+                    speakText(spokenQuestions(msg.questions)) // read aloud so you can answer by voice
+                }
             }
             is ServerMsg.Transcript -> {
                 _ask.value = null // a spoken/typed reply answers any pending questions
@@ -1517,9 +1527,13 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                 if (_usageLoading.value) _usageLoading.value = false // any error unsticks a pending usage fetch
                 _activity.value = ""
                 _mic.value = "" // a transcribe_failed / not_implemented error ends the PTT clip; clear "transcribing…"
+                // Turn-terminal errors (turn_failed / compress failures) carry a turn id
+                // and can be redelivered buffered on reconnect — drop the repeated row.
+                // The state clearing above is idempotent and safe to re-run either way.
+                if (session.terminalSeen(currentKey, msg.turn)) return
                 // Discover/adopt/delete errors surface on the Discover screen; the
                 // rest go to the chat log.
-                if (msg.code in setOf("session_active", "not_found", "bad_delete", "bad_adopt", "discover_failed")) {
+                if (msg.code in setOf("session_active", "not_found", "bad_adopt", "bad_delete", "discover_failed")) {
                     _discoverError.value = msg.message
                 } else {
                     addChat(Role.SYSTEM, "⚠️ ${msg.code}: ${msg.message}")
@@ -1539,10 +1553,14 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                 streamedSessions.remove(msg.name)
                 spokenReplyCounts.remove(msg.name)
                 _activity.value = ""
-                cancelServerSpeech()
-                speaker.stop() // also quiet any reply already being read
                 if (hfOn) _voiceState.value = VoiceState.LISTENING
-                addChat(Role.SYSTEM, "⏹ stopped that turn.", key = msg.name)
+                // A redelivered stop (buffered terminal, keyed by turn id) must not
+                // silence whatever is being read NOW or re-add its row.
+                if (!session.terminalSeen(msg.name, msg.turn)) {
+                    cancelServerSpeech()
+                    speaker.stop() // also quiet any reply already being read
+                    addChat(Role.SYSTEM, "⏹ stopped that turn.", key = msg.name)
+                }
             }
             is ServerMsg.Unknown -> {}
         }

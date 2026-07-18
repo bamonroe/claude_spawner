@@ -16,6 +16,16 @@ import (
 	"github.com/bam/claude_spawner/server/internal/session"
 )
 
+// stampTurn tags a turn-terminal frame (ask / turn_stopped / error / the
+// compress say) with the turn's id. Every frame that can land in j.final and be
+// redelivered on reconnect must carry the id, or the client has no way to tell
+// a buffered redelivery from a fresh event (an unstamped ask would re-present
+// its questions — and re-speak them — on every reconnect).
+func stampTurn(m map[string]any, turn string) map[string]any {
+	m["turn"] = turn
+	return m
+}
+
 // newTurnID mints the opaque per-turn id stamped on every `output` frame of one
 // turn (chunks + close) — the client's dedup key, since text equality between a
 // chunk and its close is not guaranteed and a close can be redelivered.
@@ -258,7 +268,7 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk, primeJo
 			j.mu.Unlock()
 			if aborted {
 				log.Printf("turn[%s] stopped on request", sess.Name)
-				j.finish(msgTurnStopped(sess.Name))
+				j.finish(stampTurn(msgTurnStopped(sess.Name), turnID))
 				return
 			}
 			log.Printf("turn[%s] error: %v", sess.Name, err)
@@ -275,7 +285,7 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk, primeJo
 			if spoken := spokenError["turn_failed"]; spoken != "" {
 				j.emit(msgSay(spoken)) // don't leave a voice user with a silent failure
 			}
-			j.finish(msgError("turn_failed", err.Error()))
+			j.finish(stampTurn(msgError("turn_failed", err.Error()), turnID))
 			return
 		}
 		log.Printf("turn[%s] reply: %q", sess.Name, logField(reply))
@@ -315,7 +325,7 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk, primeJo
 		if qs, ok := parseAsk(reply); ok {
 			// Interactive mode: Claude wants clarification — deliver the questions
 			// for the app to render/read, not as a final answer.
-			j.finish(msgAsk(sess.Name, qs))
+			j.finish(stampTurn(msgAsk(sess.Name, qs), turnID))
 			return
 		}
 		// The context-size badge must reflect the CURRENT context window, not the turn's
@@ -366,6 +376,7 @@ func (s *Server) startCompress(sess *session.Session) bool {
 	j.mu.Unlock()
 
 	s.inflight.add(sess.SessionID)
+	turnID := newTurnID() // the compress is a turn too — its terminal frames carry an id
 	log.Printf("compress[%s] summarizing", sess.Name)
 	go func() {
 		defer s.inflight.remove(sess.SessionID)
@@ -385,14 +396,14 @@ func (s *Server) startCompress(sess *session.Session) bool {
 			j.mu.Unlock()
 			if aborted {
 				log.Printf("compress[%s] stopped on request", sess.Name)
-				j.finish(msgTurnStopped(sess.Name))
+				j.finish(stampTurn(msgTurnStopped(sess.Name), turnID))
 				return
 			}
 			log.Printf("compress[%s] error: %v", sess.Name, err)
 			if spoken := spokenError["compress_failed"]; spoken != "" {
 				j.emit(msgSay(spoken))
 			}
-			j.finish(msgError("compress_failed", err.Error()))
+			j.finish(stampTurn(msgError("compress_failed", err.Error()), turnID))
 			return
 		}
 		// The summary turn consumed usage too — count it toward the estimate.
@@ -403,7 +414,7 @@ func (s *Server) startCompress(sess *session.Session) bool {
 		// rotation resets it so the seed turn recreates the session with --session-id.
 		newID, err := session.NewSessionID()
 		if err != nil {
-			j.finish(msgError("internal", err.Error()))
+			j.finish(stampTurn(msgError("internal", err.Error()), turnID))
 			return
 		}
 		oldID := sess.SessionID
@@ -414,7 +425,7 @@ func (s *Server) startCompress(sess *session.Session) bool {
 		sess.JobsPrimed = false // ditto for the background-job instruction (Jobs/PendingNotes survive a compress)
 		sess.PendingSeed = strings.TrimSpace(summary)
 		if err := s.store.Put(sess); err != nil {
-			j.finish(msgError("internal", err.Error()))
+			j.finish(stampTurn(msgError("internal", err.Error()), turnID))
 			return
 		}
 		// The session_id rotated: move the hub (holds this connection's sink) and the
@@ -427,7 +438,7 @@ func (s *Server) startCompress(sess *session.Session) bool {
 		// One self-describing reset carrying the rotated session_id (see doClear);
 		// the seeded next turn sets the new context size.
 		j.emit(msgContextReset(sess.Name, sess.SessionID))
-		j.finish(msgSay("compressed. carried a summary forward — your history is still here."))
+		j.finish(stampTurn(msgSay("compressed. carried a summary forward — your history is still here."), turnID))
 	}()
 	return true
 }

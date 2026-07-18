@@ -32,7 +32,8 @@ sealed interface ServerMsg {
     // Progress of an on-demand ggml model download the server runs when a client
     // picks a catalogue model that isn't on disk yet. total 0 = unknown size.
     data class WhisperDownload(val model: String, val fast: Boolean, val received: Long, val total: Long, val done: Boolean, val error: String) : ServerMsg
-    data class Say(val text: String) : ServerMsg
+    // turn non-empty only on the redeliverable turn-terminal say (compress done).
+    data class Say(val text: String, val turn: String = "") : ServerMsg
     data class Transcript(val text: String, val final: Boolean) : ServerMsg
     data class Pending(val text: String) : ServerMsg // live hands-free draft buffer
     data class Calibration(val text: String) : ServerMsg // what the detection model heard for a sample
@@ -61,11 +62,13 @@ sealed interface ServerMsg {
     data class RateLimit(val info: RateLimitInfo) : ServerMsg // Claude plan's usage-window state
     data class Usage(val report: UsageReport) : ServerMsg // `/usage` report (session/weekly % used)
     data class UsageEstimate(val est: UsageEstimateInfo) : ServerMsg // drift-live server-global estimate
-    data class Err(val code: String, val message: String) : ServerMsg
+    // turn (turn-terminal errors only — turn_failed / compress failures): the per-turn
+    // dedup id, "" on live-only errors (bad_message, …) and pre-turn-id servers.
+    data class Err(val code: String, val message: String, val turn: String = "") : ServerMsg
     data class TurnInterrupted(val name: String, val reason: String) : ServerMsg
-    data class TurnStopped(val name: String) : ServerMsg // a turn was deliberately aborted
+    data class TurnStopped(val name: String, val turn: String = "") : ServerMsg // a turn was deliberately aborted
     data class Diff(val text: String) : ServerMsg // post-turn `git diff --stat` review
-    data class Ask(val name: String, val questions: List<AskQuestion>) : ServerMsg // interactive clarification
+    data class Ask(val name: String, val questions: List<AskQuestion>, val turn: String = "") : ServerMsg // interactive clarification
     data object StopSpeaking : ServerMsg
     // Server-side TTS (the Kokoro epic): heads one synthesized utterance — the
     // binary frames that follow, up to the matching SpeakEnd, are its audio in
@@ -101,7 +104,7 @@ sealed interface ServerMsg {
                 "hello_ok" -> HelloOk(o.str("server_version"), o.str("whisper_model"), o.str("whisper_model_fast"), readStrings(o.arr("whisper_models")), readStrings(o.arr("whisper_models_local")), o.bool("tts"))
                 "whisper_model" -> WhisperModel(o.str("model"), o.str("fast_model"), readStrings(o.arr("whisper_models")), readStrings(o.arr("whisper_models_local")))
                 "whisper_download" -> WhisperDownload(o.str("model"), o.bool("fast"), o.long("received"), o.long("total"), o.bool("done"), o.str("error"))
-                "say" -> Say(o.str("text"))
+                "say" -> Say(o.str("text"), o.str("turn"))
                 "transcript" -> Transcript(o.str("text"), o.bool("final", true))
                 "pending" -> Pending(o.str("text"))
                 "calibration" -> Calibration(o.str("text"))
@@ -135,11 +138,11 @@ sealed interface ServerMsg {
                     o.dbl("bench_sess_pct", -1.0), o.dbl("bench_week_pct", -1.0),
                     o.long("bench_tokens"), o.long("tokens_since_set"),
                 ))
-                "error" -> Err(o.str("code"), o.str("message"))
+                "error" -> Err(o.str("code"), o.str("message"), o.str("turn"))
                 "turn_interrupted" -> TurnInterrupted(o.str("name"), o.str("reason"))
-                "turn_stopped" -> TurnStopped(o.str("name"))
+                "turn_stopped" -> TurnStopped(o.str("name"), o.str("turn"))
                 "diff" -> Diff(o.str("text"))
-                "ask" -> Ask(o.str("name"), readAsk(o.arr("questions")))
+                "ask" -> Ask(o.str("name"), readAsk(o.arr("questions")), o.str("turn"))
                 "stop_speaking" -> StopSpeaking
                 "speak_audio" -> SpeakAudio(o.str("id"), o.str("codec"))
                 "speak_end" -> SpeakEnd(o.str("id"), o.str("error"))

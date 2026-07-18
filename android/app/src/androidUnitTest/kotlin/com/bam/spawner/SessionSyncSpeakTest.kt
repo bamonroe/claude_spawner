@@ -183,4 +183,26 @@ class SessionSyncSpeakTest {
         assertFalse(sync.closeStreamed(s, "t1"))
         assertFalse(sync.closeSeen(s, "t1"))
     }
+
+    // terminalSeen guards the non-output turn terminals (ask / turn_stopped / error /
+    // compress say): first presentation records, a redelivery reports seen, a fresh
+    // turn's different id does not, and a missing id (old server) never reports seen.
+    @Test
+    fun terminalSeenChecksAndRecords() {
+        val sync = sync()
+        assertFalse(sync.terminalSeen(s, "t1")) // first presentation
+        assertTrue(sync.terminalSeen(s, "t1"))  // buffered redelivery — drop
+        assertFalse(sync.terminalSeen(s, "t2")) // next turn's terminal — present
+        assertFalse(sync.terminalSeen(s, ""))   // pre-turn-id server — legacy path decides
+        assertFalse(sync.terminalSeen(s, ""))
+    }
+
+    // A turn ends in exactly one terminal, and ask/error share the close registry: an
+    // output close already decided on makes the same turn's redelivered ask "seen" too.
+    @Test
+    fun terminalSharesCloseRegistry() {
+        val sync = sync()
+        sync.shouldSpeakClose(s, "reply", summaryOnly = false, turn = "t1")
+        assertTrue(sync.terminalSeen(s, "t1"))
+    }
 }

@@ -137,6 +137,41 @@ Dates are `YYYY-MM-DD`.
             old whitespace-collapsed text comparison survives only as the fallback for a pre-turn-id
             server (`turn: ""`), so mixed app/server versions degrade gracefully in both directions.
             Covered by the id cases in `SessionSyncSpeakTest`. Server bounce pending to activate.
+      - [x] 2026-07-18 — **Identity sweep: every buffered turn-terminal now carries the turn id,
+            web client brought to parity.** A full audit of both halves found the output close was
+            only one of six frame kinds `finish()` can buffer in `j.final` and redeliver on
+            reconnect — `ask`, `turn_stopped`, `turn_failed`/`compress_failed`/`internal` errors,
+            and the compress `say` carried no id at all (a redelivered ask re-rendered *and
+            re-spoke* its questions). **Server:** all `finish()` frames are now stamped with the
+            turn id (`stampTurn`; the compress mints its own), documented per-message in
+            `docs/protocol.md`. **App (shared):** new `SessionSync.terminalSeen` — a check-and-record
+            guard sharing the close registry (a turn ends in exactly one terminal) — wired into both
+            controllers' ask/stopped/error/say handlers (idempotent state-clearing still runs;
+            presentation and speech are dropped on a seen id). **Web parity:** `WebAppController` was
+            still on the pre-turn-id text heuristics — wired to
+            `noteChunk`/`closeSeen`/`closeStreamed`/`shouldSpeakClose`/`noteTurnStart` like Android;
+            its `turn_failed` now clears the streamed/spoken turn state and the old-server digest
+            probe error is swallowed (both Android parity). **Web data-loss fix:** the non-paging
+            `history` branch replaced the whole in-memory log with the fetched page, so a backend
+            with no readable transcript (Antigravity digests count=0, serves empty pages) wiped the
+            only copy of the conversation on every reconnect — it now preserves out-of-page and
+            live rows like the Android merge.
+      - [ ] **Per-sink delivery accounting.** `broadcast` returns any-success, so `finish` marks a
+            reply delivered when *one* of two attached devices got it — the other silently loses the
+            buffered redelivery (recovers via history; `ask`/`turn_stopped` aren't in any transcript
+            and are lost outright). With every terminal now id-stamped, the server could redeliver
+            the last terminal to each newly bound conn (a `replay: true` flag keeping clients from
+            speaking replays) instead of the single job-wide `delivered` boolean.
+      - [ ] **Stable history row ids.** History rows are keyed by a rotation-unstable positional
+            `index`; every backend transcript has durable ids we currently drop (Claude JSONL
+            `uuid`/`parentUuid`, Codex response-item ids, opencode `msg_…` ids, Antigravity
+            `step_index`). Surfacing them as an optional `id` on `history` rows (and feeding the
+            digest hash) would make live↔history reconciliation id-keyed like the turn stream, and
+            survive clear/compress re-indexing.
+      - [ ] **Antigravity readable transcript.** `nullTranscript` means agy sessions digest as
+            empty and history refetches return nothing (clients now preserve their cached rows, but
+            a fresh device sees an empty conversation). A brain-transcript reader
+            (`Session.AgyBrainIDs` exists, unconsumed) would close it.
     - [x] 2026-07-17 — **Audit** the other mutation messages (`renamed`, `session_list`, `detached`)
           for the same completeness so the app never has to infer a state change. Findings: the wire
           shapes of `renamed`/`detached`/`context_reset` were already complete; `session_list` has no

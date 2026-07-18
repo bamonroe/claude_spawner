@@ -322,13 +322,22 @@ class WebAppController(private val prefs: Prefs) : AppController {
                     if (msg.done && msg.error.isBlank()) null
                     else WhisperDownloadInfo(msg.model, msg.fast, msg.received, msg.total, msg.done, msg.error)
             }
-            is ServerMsg.Say -> { _activity.value = ""; addChat(Role.SYSTEM, msg.text); speak(msg.text) }
+            is ServerMsg.Say -> {
+                _activity.value = ""
+                // A turn-terminal say (compress done) can be redelivered buffered on
+                // reconnect — its turn id drops the repeat. Breadcrumb says have no id.
+                if (!session.terminalSeen(currentKey, msg.turn)) {
+                    addChat(Role.SYSTEM, msg.text); speak(msg.text)
+                }
+            }
             is ServerMsg.Output -> {
                 _activity.value = ""
                 // Summary-only: beep through intermediate steps, speak only the final result.
                 val summaryOnly = prefs.summaryOnlySpeech
                 if (msg.chunk) {
-                    streamedSessions.add(msg.name); addChat(Role.CLAUDE, msg.text, key = msg.name)
+                    streamedSessions.add(msg.name)
+                    session.noteChunk(msg.name, msg.turn)
+                    addChat(Role.CLAUDE, msg.text, key = msg.name)
                     if (msg.name == currentKey) {
                         if (summaryOnly) {
                             // Speak the first N replies of the turn aloud; beep the rest.
@@ -336,14 +345,26 @@ class WebAppController(private val prefs: Prefs) : AppController {
                             if (spoken < prefs.speakInitialReplies) {
                                 spokenReplyCounts[msg.name] = spoken + 1
                                 speak(msg.text)
+                                session.noteSpokenChunk(msg.name, msg.text, msg.turn)
                             } else {
                                 webBeep()
                             }
-                        } else speak(msg.text)
+                        } else {
+                            speak(msg.text)
+                            session.noteSpokenChunk(msg.name, msg.text, msg.turn)
+                        }
                     }
                 } else {
-                    val streamed = streamedSessions.remove(msg.name)
+                    // Same id-keyed close reconciliation as the Android controller:
+                    // redelivered = this close's turn was already decided on (buffered
+                    // resend / doubled close); streamed = its chunks reached us, by id
+                    // even when the legacy flag was cleared mid-turn. Query the ids
+                    // BEFORE shouldSpeakClose — that call records them.
+                    val redelivered = session.closeSeen(msg.name, msg.turn)
+                    val streamed = streamedSessions.remove(msg.name) ||
+                        session.closeStreamed(msg.name, msg.turn)
                     spokenReplyCounts.remove(msg.name) // new turn restarts the initial-reply count
+                    val wantSpeak = session.shouldSpeakClose(msg.name, msg.text, summaryOnly, msg.turn)
                     // A live bubble for this reply already exists when the turn streamed, but
                     // also when a duplicate closing Output arrives for the same turn (backend
                     // double-emit, or streamedSessions cleared mid-turn) — that second close
@@ -351,14 +372,13 @@ class WebAppController(private val prefs: Prefs) : AppController {
                     val lastClaude = logs[msg.name]?.lastOrNull { it.role == Role.CLAUDE }
                     val haveLiveBubble = lastClaude != null && lastClaude.index < 0 &&
                         lastClaude.text.trim() == msg.text.trim()
-                    if (!streamed && !haveLiveBubble) {
+                    if (!streamed && !haveLiveBubble && !redelivered) {
                         addChat(Role.CLAUDE, msg.text, msg.usage, key = msg.name)
-                        if (msg.name == currentKey) speak(msg.text)
                     }
                     else {
                         if (msg.usage != null) attachUsageToLastClaude(msg.name, msg.usage)
-                        if (summaryOnly && msg.name == currentKey) speak(msg.text) // chunks only beeped — speak the final now
                     }
+                    if (wantSpeak && msg.name == currentKey) speak(msg.text)
                     // Anchor the cache-warm countdown to the turn's real completion
                     // time (usage_at), not to when a buffered reply reached us.
                     msg.usage?.let { u ->
@@ -405,12 +425,17 @@ class WebAppController(private val prefs: Prefs) : AppController {
             is ServerMsg.Usage -> { _usageLoading.value = false; _usageReport.value = msg.report }
             is ServerMsg.UsageEstimate -> _usageEstimate.value = msg.est
             is ServerMsg.Ask -> {
-                _activity.value = ""; streamedSessions.remove(msg.name); spokenReplyCounts.remove(msg.name); _ask.value = msg.questions
-                addChat(Role.SYSTEM, "❓ " + msg.questions.joinToString("  ") { it.q }, key = msg.name)
+                _activity.value = ""; streamedSessions.remove(msg.name); spokenReplyCounts.remove(msg.name)
+                // An ask is a turn-terminal and can be redelivered buffered on reconnect
+                // — keyed by its turn id; drop a repeat instead of re-presenting it.
+                if (!session.terminalSeen(msg.name, msg.turn)) {
+                    _ask.value = msg.questions
+                    addChat(Role.SYSTEM, "❓ " + msg.questions.joinToString("  ") { it.q }, key = msg.name)
+                }
             }
             is ServerMsg.Transcript -> {
                 _ask.value = null
-                (_attachedName.value ?: currentKey).takeIf { it.isNotEmpty() }?.let { streamedSessions.remove(it); spokenReplyCounts.remove(it) }
+                (_attachedName.value ?: currentKey).takeIf { it.isNotEmpty() }?.let { streamedSessions.remove(it); spokenReplyCounts.remove(it); session.noteTurnStart(it) }
                 // The committed transcript supersedes the live hands-free draft — clear it
                 // so the utterance isn't shown as both a draft and a committed bubble.
                 _pending.value = ""
@@ -500,8 +525,18 @@ class WebAppController(private val prefs: Prefs) : AppController {
             is ServerMsg.ReadLast -> onReadLast(msg.count)
             is ServerMsg.Pending -> _pending.value = msg.text // live hands-free draft (the web has VAD hands-free too)
             is ServerMsg.Err -> {
+                // Version skew: an older server rejects the connect-time `digest` probe
+                // with bad_message — harmless (we fall back to fetching history), so
+                // swallow it instead of a scary chat note (mirrors the Android client).
+                if (msg.code == "bad_message" && msg.message.contains("digest")) return
+                // A failed turn ends it: clear the streamed/spoken turn state so a later
+                // stray close for the session isn't misread as "streamed" (Android parity).
+                if (msg.code == "turn_failed") { streamedSessions.clear(); spokenReplyCounts.clear() }
                 _activity.value = ""
                 if (_usageLoading.value) _usageLoading.value = false
+                // Turn-terminal errors carry a turn id and can be redelivered buffered
+                // on reconnect — drop the repeated row (state above is idempotent).
+                if (session.terminalSeen(currentKey, msg.turn)) return
                 if (msg.code in setOf("session_active", "not_found", "bad_delete", "bad_adopt", "discover_failed")) {
                     _discoverError.value = msg.message
                 } else addChat(Role.SYSTEM, "⚠️ ${msg.code}: ${msg.message}")
@@ -512,7 +547,10 @@ class WebAppController(private val prefs: Prefs) : AppController {
             }
             is ServerMsg.TurnStopped -> {
                 _activity.value = ""; streamedSessions.remove(msg.name); spokenReplyCounts.remove(msg.name)
-                addChat(Role.SYSTEM, "⏹ stopped that turn.", key = msg.name)
+                // A redelivered stop (buffered terminal, keyed by turn id) — drop the row.
+                if (!session.terminalSeen(msg.name, msg.turn)) {
+                    addChat(Role.SYSTEM, "⏹ stopped that turn.", key = msg.name)
+                }
             }
             // Phone-only voice surfaces with no web analogue — explicit, documented
             // no-ops so the omission is intentional, not an accidental gap:
@@ -556,7 +594,19 @@ class WebAppController(private val prefs: Prefs) : AppController {
             session.dedupe(hist + existing.filter { it.index < 0 || it.index > (hist.lastOrNull()?.index ?: -1) })
                 .sortedBy { if (it.index >= 0) it.index else Int.MAX_VALUE }
         } else {
-            hist
+            // The top page is the authoritative transcript tail — but PRESERVE what it
+            // doesn't cover, like the Android client: indexed rows from older pages we
+            // already loaded, and live (index < 0) rows whose text isn't in the page
+            // yet (a turn still streaming — or a backend with NO readable transcript,
+            // e.g. Antigravity, whose pages are always empty; a naked replace here
+            // wiped the only copy of those conversations on every reconnect).
+            val histIdx = hist.mapNotNull { m -> m.index.takeIf { i -> i >= 0 } }.toSet()
+            val histTexts = hist.map { it.role to it.text }.toSet()
+            val kept = existing.filter {
+                (it.index < 0 && (it.role to it.text) !in histTexts) ||
+                    (it.index >= 0 && it.index !in histIdx)
+            }
+            session.dedupe((hist + kept).sortedBy { if (it.index >= 0) it.index else Int.MAX_VALUE })
         }
         loadingOlder = false
         oldest[msg.name] = hist.firstOrNull()?.index ?: (oldest[msg.name] ?: 0)
