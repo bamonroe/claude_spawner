@@ -2,6 +2,8 @@ package gateway
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"log"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +15,18 @@ import (
 
 	"github.com/bam/claude_spawner/server/internal/session"
 )
+
+// newTurnID mints the opaque per-turn id stamped on every `output` frame of one
+// turn (chunks + close) — the client's dedup key, since text equality between a
+// chunk and its close is not guaranteed and a close can be redelivered.
+func newTurnID() string {
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		// Fall back to a time-based id; uniqueness per turn is all that matters.
+		return strconv.FormatInt(time.Now().UnixNano(), 36)
+	}
+	return hex.EncodeToString(b)
+}
 
 // diffSummary returns a compact `git diff --stat` of the working tree in dir, or
 // "" if dir isn't a git repo, has no uncommitted changes, or on any error. Capped
@@ -196,6 +210,7 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk, primeJo
 	j.mu.Unlock()
 
 	s.inflight.add(sess.SessionID) // persist "running" so a restart can flag it interrupted
+	turnID := newTurnID()          // shared by every output frame of this turn — the client's dedup key
 	log.Printf("turn[%s] input: %q", sess.Name, logField(text))
 	go func() {
 		defer s.inflight.remove(sess.SessionID)
@@ -219,7 +234,7 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk, primeJo
 			if strings.Contains(prose, "::ASK::") {
 				return
 			}
-			j.emit(msgOutput(sess.Name, prose, true, nil))
+			j.emit(msgOutput(sess.Name, prose, turnID, true, nil))
 		}
 		// The rate_limit_event lands early in the stream; broadcast the plan's
 		// session-limit state to every attached device as soon as it arrives, and
@@ -314,7 +329,7 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk, primeJo
 		if cx := s.driver.LastContextUsage(sess.Agent, sess.Host, sess.TranscriptIDs()); cx != nil {
 			badge = cx.Usage
 		}
-		j.finish(msgOutput(sess.Name, reply, false, &badge))
+		j.finish(msgOutput(sess.Name, reply, turnID, false, &badge))
 	}()
 	return true
 }

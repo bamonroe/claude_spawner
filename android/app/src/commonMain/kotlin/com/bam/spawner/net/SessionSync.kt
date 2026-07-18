@@ -249,11 +249,20 @@ class SessionSync(private val host: Host) {
     //  - a backend can emit that closing frame twice, or it can arrive after the old
     //    `streamedSessions` flag was cleared mid-turn — both re-speak a reply the display
     //    dedupe folds by index/adjacency.
-    // Two per-session facts drive the decision, and a fresh user turn ([noteTurnStart])
-    // clears both so an identical short reply in the very next turn ("done", "yes") is
-    // still spoken — the guard is scoped to one turn, never a wall-clock window.
+    // The server stamps every `output` frame of one turn (chunks + close) with an opaque
+    // `turn` id — the authoritative dedup key (see docs/protocol.md, Output path note).
+    // Text equality between a chunk and its close is NOT guaranteed (Antigravity restores
+    // paragraph breaks, opencode re-joins parts, Claude/Codex's close is only the last
+    // message of a multi-message turn), so when an id is present it decides alone; the
+    // text comparison survives only as the fallback for a pre-turn-id server ("").
+    // A fresh user turn ([noteTurnStart]) clears everything so an identical short reply
+    // in the very next turn ("done", "yes") is still spoken — the guard is scoped to one
+    // turn, never a wall-clock window.
     private val turnVoiced = mutableMapOf<String, StringBuilder>() // chunk text spoken so far this turn
     private val lastCloseVoiced = mutableMapOf<String, String>()   // last closing reply we decided on
+    private val chunkTurn = mutableMapOf<String, String>()         // turn id of the chunks last SHOWN
+    private val voicedTurn = mutableMapOf<String, String>()        // turn id of the chunks last SPOKEN
+    private val lastCloseTurn = mutableMapOf<String, String>()     // turn id of the last close decided on
 
     private fun collapseSpace(s: String) = s.trim().replace(whitespace, "")
 
@@ -262,15 +271,38 @@ class SessionSync(private val host: Host) {
     fun noteTurnStart(name: String) {
         turnVoiced.remove(name)
         lastCloseVoiced.remove(name)
+        chunkTurn.remove(name)
+        voicedTurn.remove(name)
+        lastCloseTurn.remove(name)
     }
+
+    /** A streamed chunk for [name] was SHOWN (spoken or not — beeped summary chunks and
+     *  chunks of a non-current session count too). Lets [closeStreamed] answer "did this
+     *  close's turn already stream to us?" for the display's bubble-vs-badge decision. */
+    fun noteChunk(name: String, turn: String) {
+        if (turn.isNotEmpty()) chunkTurn[name] = turn
+    }
+
+    /** Did the closing frame's [turn] already stream chunks to this client? True means
+     *  the reply's bubble was built from chunks and the close is just an end marker. */
+    fun closeStreamed(name: String, turn: String): Boolean =
+        turn.isNotEmpty() && chunkTurn[name] == turn
+
+    /** Is this closing frame a redelivery of a close already handled (buffered-final
+     *  resend, doubled close)? Query BEFORE [shouldSpeakClose] — that call records the id. */
+    fun closeSeen(name: String, turn: String): Boolean =
+        turn.isNotEmpty() && lastCloseTurn[name] == turn
 
     /** A chunk of the streaming reply for [name] was actually SPOKEN aloud (not beeped).
      *  Accumulates the voiced text so [shouldSpeakClose] can tell the closing frame just
-     *  repeats what the chunks already said. The first chunk of a turn also resets the
-     *  doubled-close guard, so a new streamed turn starts clean without a [noteTurnStart]. */
-    fun noteSpokenChunk(name: String, text: String) {
+     *  repeats what the chunks already said. The first chunk of a turn (fresh [turn] id,
+     *  or accumulator absent when no id) also resets the doubled-close guard, so a new
+     *  streamed turn starts clean without a [noteTurnStart]. */
+    fun noteSpokenChunk(name: String, text: String, turn: String = "") {
+        val newTurn = turn.isNotEmpty() && voicedTurn[name] != turn
+        if (turn.isNotEmpty()) voicedTurn[name] = turn
         val sb = turnVoiced[name]
-        if (sb == null) {
+        if (sb == null || newTurn) {
             lastCloseVoiced.remove(name)
             turnVoiced[name] = StringBuilder(text.trim())
         } else {
@@ -280,15 +312,25 @@ class SessionSync(private val host: Host) {
 
     /**
      * Should the turn-closing reply [text] for [name] be spoken aloud? Returns false when
-     * the chunks already voiced this exact reply piecewise (a normal streamed turn), or when
-     * this is a doubled closing frame for a reply we just decided on. Returns true for a
+     * the chunks of the same [turn] were already voiced (a normal streamed turn — the id
+     * decides, whatever the close's text looks like), or when this close's id was already
+     * decided on (a buffered-final redelivery / doubled close). Returns true for a
      * buffered reply delivered whole (reconnect) and for the final result in [summaryOnly]
      * mode (there only the first N steps streamed aloud, so the full result is still spoken).
+     * With no id (pre-turn-id server) falls back to whitespace-insensitive text equality.
      * Finalizes the turn's voiced state either way, so call it exactly once per closing frame.
      */
-    fun shouldSpeakClose(name: String, text: String, summaryOnly: Boolean): Boolean {
-        val norm = collapseSpace(text)
+    fun shouldSpeakClose(name: String, text: String, summaryOnly: Boolean, turn: String = ""): Boolean {
         val voiced = turnVoiced.remove(name)?.let { collapseSpace(it.toString()) }.orEmpty()
+        if (turn.isNotEmpty()) {
+            val voicedThisTurn = voicedTurn.remove(name) == turn
+            val doubled = lastCloseTurn[name] == turn
+            lastCloseTurn[name] = turn
+            if (doubled) return false
+            if (!summaryOnly && voicedThisTurn) return false
+            return true
+        }
+        val norm = collapseSpace(text)
         val doubled = lastCloseVoiced[name] == norm
         lastCloseVoiced[name] = norm
         if (doubled) return false

@@ -110,4 +110,77 @@ class SessionSyncSpeakTest {
         assertTrue(sync.shouldSpeakClose("a", "done", summaryOnly = false))
         assertTrue(sync.shouldSpeakClose("b", "done", summaryOnly = false))
     }
+
+    // --- Turn-id keyed decisions (the server stamps every output frame with `turn`) ---
+
+    // The id decides, not the text: a backend that reshapes the closing text (Antigravity
+    // paragraph restore, opencode part-joins, Claude/Codex multi-message turns) must still
+    // have its close suppressed after the same turn's chunks were voiced.
+    @Test
+    fun idSuppressesCloseWithDifferentTextThanChunks() {
+        val sync = sync()
+        sync.noteSpokenChunk(s, "flat reply text", turn = "t1")
+        assertFalse(sync.shouldSpeakClose(s, "flat reply\n\ntext, reshaped", summaryOnly = false, turn = "t1"))
+    }
+
+    // A redelivered close (buffered-final resend / doubled close) with the same id is
+    // spoken once, even when the text is identical across turns.
+    @Test
+    fun idDoubledCloseSpokenOnce() {
+        val sync = sync()
+        assertTrue(sync.shouldSpeakClose(s, "done", summaryOnly = false, turn = "t1"))
+        assertFalse(sync.shouldSpeakClose(s, "done", summaryOnly = false, turn = "t1"))
+        // …but the same text under a NEW turn id is a new reply and is spoken.
+        assertTrue(sync.shouldSpeakClose(s, "done", summaryOnly = false, turn = "t2"))
+    }
+
+    // A buffered whole reply (no chunks reached us) is spoken even with an id present.
+    @Test
+    fun idBufferedReplyIsSpoken() {
+        assertTrue(sync().shouldSpeakClose(s, "the answer", summaryOnly = false, turn = "t1"))
+    }
+
+    // Chunks voiced under an OLD turn id don't suppress a different turn's close.
+    @Test
+    fun idChunksOfOtherTurnDontSuppress() {
+        val sync = sync()
+        sync.noteSpokenChunk(s, "previous turn prose", turn = "t1")
+        assertTrue(sync.shouldSpeakClose(s, "previous turn prose", summaryOnly = false, turn = "t2"))
+    }
+
+    // Summary-only mode still speaks the final result even when early chunks of the same
+    // turn were voiced (only the first N steps stream aloud there).
+    @Test
+    fun idSummaryOnlyFinalStillSpoken() {
+        val sync = sync()
+        sync.noteSpokenChunk(s, "step one", turn = "t1")
+        assertTrue(sync.shouldSpeakClose(s, "step one and the rest", summaryOnly = true, turn = "t1"))
+    }
+
+    // closeSeen/closeStreamed drive the DISPLAY decision: closeStreamed links a close to
+    // its shown chunks by id; closeSeen flags a redelivery — and must be queried before
+    // shouldSpeakClose records the id.
+    @Test
+    fun closeSeenAndStreamedTrackIds() {
+        val sync = sync()
+        sync.noteChunk(s, "t1")
+        assertTrue(sync.closeStreamed(s, "t1"))
+        assertFalse(sync.closeStreamed(s, "t2"))
+        assertFalse(sync.closeSeen(s, "t1")) // not yet decided on
+        sync.shouldSpeakClose(s, "reply", summaryOnly = false, turn = "t1")
+        assertTrue(sync.closeSeen(s, "t1")) // now a redelivery
+        assertFalse(sync.closeSeen(s, "t2"))
+        assertFalse(sync.closeSeen(s, "")) // no id → never "seen" (legacy path decides)
+    }
+
+    // noteTurnStart clears the id tracking too: a fresh user turn re-arms everything.
+    @Test
+    fun idStateClearedByTurnStart() {
+        val sync = sync()
+        sync.noteChunk(s, "t1")
+        sync.shouldSpeakClose(s, "reply", summaryOnly = false, turn = "t1")
+        sync.noteTurnStart(s)
+        assertFalse(sync.closeStreamed(s, "t1"))
+        assertFalse(sync.closeSeen(s, "t1"))
+    }
 }

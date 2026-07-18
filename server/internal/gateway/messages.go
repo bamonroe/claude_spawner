@@ -297,8 +297,13 @@ func msgRenamed(old, name, sessionID string) map[string]any {
 // The final message is stamped with `usage_at` (this turn's completion time) so
 // a client that receives it buffered on reconnect anchors its cache-warm
 // countdown to the turn's real age, not to when the message finally arrived.
-func msgOutput(name, text string, chunk bool, usage *session.Usage) map[string]any {
-	m := map[string]any{"type": "output", "name": name, "text": text, "chunk": chunk}
+// `turn` is an opaque id shared by every frame of one turn (chunks + close), the
+// client's dedup key: text equality between a chunk and its close is NOT
+// guaranteed (some backends reshape the closing text), and a close can reach a
+// client twice (buffered redelivery), so clients key "did I already show/speak
+// this turn" on the id, never on the text.
+func msgOutput(name, text, turn string, chunk bool, usage *session.Usage) map[string]any {
+	m := map[string]any{"type": "output", "name": name, "text": text, "chunk": chunk, "turn": turn}
 	if usage != nil {
 		m["usage"] = usage
 		m["usage_at"] = time.Now().Unix()

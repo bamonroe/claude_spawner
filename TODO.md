@@ -121,6 +121,22 @@ Dates are `YYYY-MM-DD`.
             (reconnect) and the summary-only final still are; the guard is per-turn (reset on the
             committed `transcript`) so an identical short reply next turn is still spoken. Covered by
             `SessionSyncSpeakTest`. Needs on-device confirmation the voice no longer doubles.
+      - [x] 2026-07-18 — **Per-turn `turn` id on the wire — deterministic chunk/close linkage.**
+            Root fix for the whole duplicate family: `output` frames carried no id, so the app could
+            only link a close to its chunks by *text equality*, which the server doesn't guarantee
+            (Antigravity restores paragraph breaks vs its flat streamed text, opencode `\n\n`-joins
+            per-part chunks, Claude/Codex's close is only the *last* message of a multi-message turn)
+            — and a buffered-final redelivery re-presents a close the app already handled. **Fix
+            (server):** `startTurn` mints an opaque `turn` id stamped on every `output` frame of the
+            turn (chunks + close, `msgOutput`); documented in `docs/protocol.md` (fieldsync-checked).
+            **Fix (app):** `SessionSync` now keys the decisions on the id when present —
+            `noteChunk`/`closeStreamed` link a close to its *shown* chunks for the display's
+            bubble-vs-badge choice, `closeSeen` flags a redelivered close, and
+            `noteSpokenChunk`/`shouldSpeakClose` gained the id so a streamed turn's close is
+            suppressed *whatever its text* and a doubled/redelivered close speaks exactly once; the
+            old whitespace-collapsed text comparison survives only as the fallback for a pre-turn-id
+            server (`turn: ""`), so mixed app/server versions degrade gracefully in both directions.
+            Covered by the id cases in `SessionSyncSpeakTest`. Server bounce pending to activate.
     - [x] 2026-07-17 — **Audit** the other mutation messages (`renamed`, `session_list`, `detached`)
           for the same completeness so the app never has to infer a state change. Findings: the wire
           shapes of `renamed`/`detached`/`context_reset` were already complete; `session_list` has no

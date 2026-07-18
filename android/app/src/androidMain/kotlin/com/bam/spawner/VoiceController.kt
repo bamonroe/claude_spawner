@@ -1252,6 +1252,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                     turnInFlight = true
                     lostTurnWatchdog?.cancel(); lostTurnWatchdog = null
                     streamedSessions.add(msg.name)
+                    session.noteChunk(msg.name, msg.turn)
                     _activity.value = "" // prose is arriving — drop the "thinking" breadcrumb
                     addChat(Role.CLAUDE, msg.text, key = msg.name)
                     if (msg.name == currentKey) {
@@ -1261,19 +1262,26 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                             if (spoken < settings.speakInitialReplies) {
                                 spokenReplyCounts[msg.name] = spoken + 1
                                 speakText(Markdown.toSpeech(msg.text))
-                                session.noteSpokenChunk(msg.name, msg.text)
+                                session.noteSpokenChunk(msg.name, msg.text, msg.turn)
                             } else {
                                 speaker.beep()
                             }
                         } else {
                             speakText(Markdown.toSpeech(msg.text))
-                            session.noteSpokenChunk(msg.name, msg.text)
+                            session.noteSpokenChunk(msg.name, msg.text, msg.turn)
                         }
                     }
                 } else {
                     clearTurnInFlight()
                     _activity.value = "" // turn done — stop the thinking indicator
-                    val streamed = streamedSessions.remove(msg.name)
+                    // The close's `turn` id is the authoritative link to its chunks (query
+                    // the reconciler BEFORE shouldSpeakClose — that call records the id):
+                    // redelivered = a close for a turn already closed (buffered-final
+                    // resend / doubled close) — never a new bubble; streamed = this turn's
+                    // chunks reached us, by id or (pre-turn-id server) the legacy flag.
+                    val redelivered = session.closeSeen(msg.name, msg.turn)
+                    val streamed = streamedSessions.remove(msg.name) ||
+                        session.closeStreamed(msg.name, msg.turn)
                     spokenReplyCounts.remove(msg.name) // new turn starts the initial-reply count over
                     // Does a live bubble for this exact reply already exist? It does when the
                     // turn streamed (built from chunks), but ALSO when a duplicate closing
@@ -1282,16 +1290,15 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                     // final message twice — that second close is what appended a second
                     // identical bubble. Reuse the existing bubble in either case.
                     // Whether to VOICE this close is decided by the shared reconciler
-                    // (SessionSync), not by the transient `streamed` flag: the flag can be
-                    // cleared mid-turn (interleaved Ask/Transcript) and a backend can emit the
-                    // close twice, both of which re-speak a reply the display dedupe silently
-                    // folds. shouldSpeakClose tracks what the chunks already voiced + the last
-                    // close per turn, and must be called exactly once per closing frame.
-                    val wantSpeak = session.shouldSpeakClose(msg.name, msg.text, summaryOnly)
+                    // (SessionSync), keyed on the turn id when the server sends one (text
+                    // equality between chunks and close is not guaranteed) and falling back
+                    // to the voiced-text comparison when it doesn't. Must be called exactly
+                    // once per closing frame.
+                    val wantSpeak = session.shouldSpeakClose(msg.name, msg.text, summaryOnly, msg.turn)
                     val lastClaude = logs[msg.name]?.lastOrNull { it.role == Role.CLAUDE }
                     val haveLiveBubble = lastClaude != null && lastClaude.index < 0 &&
                         lastClaude.text.trim() == msg.text.trim()
-                    if (!streamed && !haveLiveBubble) { // genuinely no live stream reached us (buffered reply on reconnect)
+                    if (!streamed && !haveLiveBubble && !redelivered) { // genuinely no live stream reached us (buffered reply on reconnect)
                         addChat(Role.CLAUDE, msg.text, msg.usage, key = msg.name)
                     } else {
                         // Streamed (or already-shown) turn: the bubble exists, so badge it in
