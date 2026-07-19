@@ -660,6 +660,32 @@ fun SettingsHub(onOpen: (String) -> Unit, onBack: () -> Unit) {
         SettingsRow("Profiles", "How & where sessions run (sandbox, mounts, env)") { onOpen("set_profiles") }
         SettingsRow("Providers", "AI backends: default model & voice model list") { onOpen("set_providers") }
         SettingsRow("Debug", "Hit-zone overlays & gesture logging") { onOpen("set_debug") }
+        SettingsRow("About", "Version & build") { onOpen("set_about") }
+    }
+}
+
+/**
+ * About: the app version and the exact git commit this bundle was built from, so you
+ * can tell which build is installed on any given device. Values come from [BuildInfo],
+ * generated at build time by the generateBuildInfo Gradle task.
+ */
+@Composable
+fun AboutSettings(onBack: () -> Unit) {
+    SettingsScaffold("About", onBack) {
+        Text("Claude Spawner", style = MaterialTheme.typography.titleLarge)
+        AboutRow("Version", "${BuildInfo.versionName} (build ${BuildInfo.versionCode})")
+        AboutRow("Commit", "${BuildInfo.gitCommitShort} · ${BuildInfo.gitBranch}")
+        AboutRow("Full commit", BuildInfo.gitCommit)
+        AboutRow("Built", BuildInfo.buildTime)
+    }
+}
+
+/** A labelled read-only value row for the About page. */
+@Composable
+private fun AboutRow(label: String, value: String) {
+    Column(Modifier.fillMaxWidth()) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.outline)
+        Text(value, style = MaterialTheme.typography.bodyLarge)
     }
 }
 

@@ -257,6 +257,7 @@ private fun AppRoot(
         "set_profiles" -> ProfilesSettings(controller, onBack = { screen = "settings" })
         "set_providers" -> ProvidersSettings(controller, onBack = { screen = "settings" })
         "set_debug" -> DebugSettings(settings, onBack = { screen = "settings" })
+        "set_about" -> AboutSettings(onBack = { screen = "settings" })
         "set_appearance" -> AppearanceSettings(
             settings, themeMode, onThemeChange,
             onBack = { screen = "settings" },

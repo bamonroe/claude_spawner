@@ -29,6 +29,12 @@ Dates are `YYYY-MM-DD`.
   - [ ] **Live swap (needs a safe moment — interrupts STT):** `docker compose` down whisper+kokoro
         here, bring up the `/data/speech_services` stack. Only one process can bind `:8571`/`:8880`,
         so they can't overlap.
+- [x] 2026-07-19 — **App version / build-stamp About page (Settings → About).** A new shared
+  settings page shows the app version plus the exact git commit the bundle was built from (short
+  hash + branch, full commit, build time), so you can tell which build is on the phone vs. the
+  tablet vs. the browser. Commit is stamped at build time by a `generateBuildInfo` Gradle task that
+  reads `.git` directly (no `git` binary needed, works in the container build image), mirroring the
+  existing `generateCommands` codegen; wired into both the Android and web `when(screen)` routers.
 - [x] 2026-07-17 — **Fix the resident whisper server URL server-side; drop the app override.** The
   app's Audio settings had a per-device "Whisper server URL" field that rode in `hello` and made the
   server build a per-connection `RemoteWhisper` shadowing its configured default — more footgun than

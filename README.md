@@ -143,6 +143,13 @@ over the normally-invisible push-to-talk zones — the red **discard** zone (dra
 hold, and logs each hold's end reason and drift to logcat (tag `PTT`). Meant for diagnosing a fiddly
 hold-to-talk, not everyday use.
 
+**About / build stamp (Settings → About).** Shows the app version and the exact git commit the
+installed bundle was built from — short hash + branch, the full commit, and the build time — so you
+can tell at a glance which build is running on any given device (phone vs. tablet vs. browser). The
+commit is stamped in automatically at build time by a Gradle step that reads it straight from `.git`,
+so it can never drift from the code that was actually compiled. The page is shared UI, so it appears
+in the browser client too.
+
 **Without your voice:** swipe up on the message box — or tap the **chevron handle** just above it —
 for a **command tray** of tap buttons, one per command you've chosen. The tray is **curated in
 Settings › Commands**: each command is a **card you tap to expand**, and an expanded card lets you
