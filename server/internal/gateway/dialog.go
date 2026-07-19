@@ -319,7 +319,7 @@ func (c *conn) beginAttachQuestion(dir, prompt string, target session.Target) {
 
 func (c *conn) spawnAwaitAttach(text string) {
 	switch {
-	case affirmative(text, c.wakePhrase):
+	case affirmative(text, c.wakePhrases()):
 		sess := c.dlg.sess
 		if perr := c.srv.store.Put(sess); perr != nil {
 			c.fail("internal", perr.Error())
@@ -339,7 +339,7 @@ func (c *conn) spawnAwaitAttach(text string) {
 			where = ", in a sandbox."
 		}
 		c.send(msgSay("attached to " + sess.Name + where))
-	case negative(text, c.wakePhrase):
+	case negative(text, c.wakePhrases()):
 		sess := c.dlg.sess
 		if perr := c.srv.store.Put(sess); perr != nil {
 			c.fail("internal", perr.Error())

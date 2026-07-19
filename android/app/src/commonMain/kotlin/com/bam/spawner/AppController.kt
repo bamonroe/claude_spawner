@@ -40,7 +40,7 @@ data class WhisperDownloadInfo(
  * Extends [HostsIdentitiesController] (which already contributes `connected`/`hosts`/
  * `identities` and their editing methods) so a single interface covers the whole UI.
  */
-interface AppController : HostsIdentitiesController, ProfilesController, ProvidersController {
+interface AppController : HostsIdentitiesController, ProfilesController, ProvidersController, SpokenTokensController {
     // --- Connection / status -------------------------------------------------
     val status: StateFlow<String>
 

@@ -20,9 +20,12 @@ import (
 	"time"
 
 	"github.com/bam/claude_spawner/server/internal/agent"
+	"github.com/bam/claude_spawner/server/internal/command"
 	"github.com/bam/claude_spawner/server/internal/config"
+	"github.com/bam/claude_spawner/server/internal/detect"
 	"github.com/bam/claude_spawner/server/internal/gateway"
 	"github.com/bam/claude_spawner/server/internal/session"
+	"github.com/bam/claude_spawner/server/internal/spoken"
 	"github.com/bam/claude_spawner/server/internal/tmux"
 	"github.com/bam/claude_spawner/server/internal/transcribe"
 	"github.com/bam/claude_spawner/server/internal/tts"
@@ -71,6 +74,14 @@ func main() {
 		log.Fatalf("execution profiles: %v", err)
 	}
 	driver.Profiles = profiles
+	// First-run spoken-token catalogue: the built-in "hey buddy" wake family (the
+	// canonical phrase carrying the wake detector model) + the "beep" end token,
+	// seeded once to SPAWNER_SPOKEN_TOKENS. After that the app owns the list.
+	tokens, err := session.OpenSpokenTokenStore(cfg.SpokenTokensPath,
+		spoken.DefaultTokens(command.DefaultWakePhrases(), detect.WakeModel, detect.EndModel))
+	if err != nil {
+		log.Fatalf("spoken tokens: %v", err)
+	}
 	driver.Home = os.Getenv("HOME")
 	driver.GlobalVars = cfg.ProfileVars
 	log.Printf("execution profiles loaded: %d profile(s)", len(profiles.List()))
@@ -243,7 +254,7 @@ func main() {
 		log.Printf("tts: DISABLED (set SPAWNER_TTS_URL); clients use on-device speech")
 	}
 
-	gw := gateway.New(cfg, store, hostStore, idStore, sshConns, driver, tmuxMgr, stt, kokoro)
+	gw := gateway.New(cfg, store, hostStore, idStore, tokens, sshConns, driver, tmuxMgr, stt, kokoro)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {

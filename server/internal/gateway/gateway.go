@@ -26,6 +26,7 @@ import (
 	"github.com/bam/claude_spawner/server/internal/config"
 	"github.com/bam/claude_spawner/server/internal/detect"
 	"github.com/bam/claude_spawner/server/internal/session"
+	"github.com/bam/claude_spawner/server/internal/spoken"
 	"github.com/bam/claude_spawner/server/internal/tmux"
 	"github.com/bam/claude_spawner/server/internal/transcribe"
 	"github.com/bam/claude_spawner/server/internal/tts"
@@ -36,9 +37,10 @@ import (
 type Server struct {
 	cfg     *config.Config
 	store   *session.Store
-	hosts   *session.HostStore     // app-managed SSH host registry (Settings → Hosts)
-	ids     *session.IdentityStore // app-managed SSH identity registry (Settings → Identities)
-	ssh     *session.SSHPool       // pooled SSH connections; nil when SSH-native is disabled
+	hosts   *session.HostStore        // app-managed SSH host registry (Settings → Hosts)
+	ids     *session.IdentityStore    // app-managed SSH identity registry (Settings → Identities)
+	tokens  *session.SpokenTokenStore // app-managed spoken-token catalogue (wake/end/speak phrases + models)
+	ssh     *session.SSHPool          // pooled SSH connections; nil when SSH-native is disabled
 	driver  *session.Driver
 	tmuxMgr *tmux.Manager
 	stt     transcribe.Transcriber // nil disables the audio path
@@ -333,7 +335,7 @@ type clientState struct {
 // New builds a gateway Server. stt may be nil, in which case audio frames are
 // rejected but text `utterance` messages still work. ttsClient may be nil, in
 // which case `speak` requests are refused and clients use on-device TTS.
-func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, ids *session.IdentityStore, sshPool *session.SSHPool, driver *session.Driver, tmuxMgr *tmux.Manager, stt transcribe.Transcriber, ttsClient *tts.Client) *Server {
+func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, ids *session.IdentityStore, tokens *session.SpokenTokenStore, sshPool *session.SSHPool, driver *session.Driver, tmuxMgr *tmux.Manager, stt transcribe.Transcriber, ttsClient *tts.Client) *Server {
 	var fast transcribe.Transcriber
 	if cfg.WhisperFastURL != "" {
 		fast = &transcribe.RemoteWhisper{URL: cfg.WhisperFastURL}
@@ -373,6 +375,7 @@ func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, ids
 		store:         store,
 		hosts:         hosts,
 		ids:           ids,
+		tokens:        tokens,
 		ssh:           sshPool,
 		driver:        driver,
 		tmuxMgr:       tmuxMgr,
@@ -637,20 +640,17 @@ type conn struct {
 	gated          bool   // current utterance is hands-free (VAD-gated → accumulate)
 	calibrate      bool   // current utterance is an end-token calibration sample
 
-	buffer          []string               // hands-free rough draft (per-chunk fast transcripts, for detection)
-	audioPCM        []byte                 // hands-free raw PCM of all chunks, re-transcribed as one on commit
-	bufferSessionID string                 // app-declared target session for the hands-free buffer
-	brief           bool                   // append a "reply briefly for TTS" hint to dictation
-	interactive     bool                   // let Claude ask clarifying questions mid-task
-	endToken        string                 // spoken word that commits the buffer (default "beep")
-	wakePhrase      [][]string             // client's custom wake token(s) (nil = built-in "hey buddy" only)
-	speakPhrase     [][]string             // dictation-gate speak token(s) (nil = none); with dictationGate, only speech after it is dictated
-	dictationGate   bool                   // discard un-bracketed speech instead of dictating it (needs speakPhrase set)
-	sttMode         string                 // "dynamic" | "fixed" whisper model selection
-	sttModel        string                 // fixed-mode model: "tiny" | "base" | "small"
-	wakeService     string                 // live wake/end-token backend: "whisper" (default string-match) | "detector" (the SPAWNER_WAKEWORD_URL sidecar)
-	aliases         map[string]string      // mis-transcription -> canonical command word
-	scratch         bool                   // scratch mode: while detached, echo each transcription back aloud (STT test)
+	buffer          []string          // hands-free rough draft (per-chunk fast transcripts, for detection)
+	audioPCM        []byte            // hands-free raw PCM of all chunks, re-transcribed as one on commit
+	bufferSessionID string            // app-declared target session for the hands-free buffer
+	brief           bool              // append a "reply briefly for TTS" hint to dictation
+	interactive     bool              // let Claude ask clarifying questions mid-task
+	dictationGate   bool              // discard un-bracketed speech instead of dictating it (needs a speech-gate token configured)
+	sttMode         string            // "dynamic" | "fixed" whisper model selection
+	sttModel        string            // fixed-mode model: "tiny" | "base" | "small"
+	wakeService     string            // live wake/end-token backend: "whisper" (default string-match) | "detector" (the SPAWNER_WAKEWORD_URL sidecar)
+	aliases         map[string]string // mis-transcription -> canonical command word
+	scratch         bool              // scratch mode: while detached, echo each transcription back aloud (STT test)
 
 	speakCh     chan speakReq      // queued `speak` requests, drained in order by speakWorker; nil = server TTS disabled
 	speakMu     sync.Mutex         // guards speakCancel (read loop vs speak worker)
@@ -746,12 +746,11 @@ func (c *conn) authenticate() bool {
 	// Auto-compress is no longer clobbered from hello — it's a synced setting now,
 	// reconciled below via the settings digest / last-writer-wins, so a fresh client
 	// doesn't stomp a preference another client set. See the settings catalogue block.
-	c.endToken = strings.TrimSpace(in.EndToken)
-	if c.endToken == "" {
-		c.endToken = "beep"
-	}
-	c.wakePhrase = command.WakePhrase(in.WakeToken)
-	c.speakPhrase = command.WakePhrase(in.SpeakToken)
+	// Wake, end and speak phrases now come from the server-wide spoken-token
+	// catalogue (c.wakePhrases/endPhrases/speakPhrases), not per-hello flat fields —
+	// so all clients share one configurable set. The flat in.EndToken/WakeToken/
+	// SpeakToken hints from older apps are ignored. Only the per-device gate toggle
+	// and detector-service choice stay per connection.
 	c.dictationGate = in.DictationGate
 	c.sttMode = in.SttMode
 	c.sttModel = in.SttModel
@@ -788,6 +787,13 @@ func (c *conn) authenticate() bool {
 	profReg := c.srv.driver.ProfileRegistry()
 	if in.ProfilesDigest != profilesDigest(profReg.List()) {
 		c.send(msgProfiles(profReg))
+	}
+	// Advertise the closed action set (compile-time) unconditionally, then re-send the
+	// spoken-token catalogue only when the app's digest differs (skip-if-equal fast
+	// path). The app binds phrases to the advertised actions and edits the tokens.
+	c.send(msgActions())
+	if in.SpokenTokensDigest != spokenTokensDigest(c.srv.tokens.List()) {
+		c.send(msgSpokenTokens(c.srv.tokens.List()))
 	}
 	// Hosts and identities were previously request-only; presenting a digest lets us
 	// proactively reconcile them on connect too, so a different client's edit reflects
@@ -926,12 +932,16 @@ var wireHandlers = map[string]func(c *conn, in inbound){
 	"identity_create": func(c *conn, in inbound) {
 		c.doIdentityCreate(in.Name, in.User, in.Password, in.GenKey == nil || *in.GenKey, in.UpdatedAt)
 	},
-	"identity_import":     func(c *conn, in inbound) { c.doIdentityImport(in.Name, in.User, in.Password, in.KeyPath, in.UpdatedAt) },
-	"identity_update":     func(c *conn, in inbound) { c.doIdentityUpdate(in.Name, in.User, in.SetPassword, in.Password, in.UpdatedAt) },
+	"identity_import": func(c *conn, in inbound) { c.doIdentityImport(in.Name, in.User, in.Password, in.KeyPath, in.UpdatedAt) },
+	"identity_update": func(c *conn, in inbound) {
+		c.doIdentityUpdate(in.Name, in.User, in.SetPassword, in.Password, in.UpdatedAt)
+	},
 	"identity_delete":     func(c *conn, in inbound) { c.doIdentityDelete(in.Name, in.UpdatedAt) },
 	"profile_put":         func(c *conn, in inbound) { c.doProfilePut(in.ProfileDef) },
 	"profile_delete":      func(c *conn, in inbound) { c.doProfileDelete(in.Name, in.UpdatedAt) },
 	"profile_set_default": func(c *conn, in inbound) { c.doProfileSetDefault(in.Name) },
+	"spoken_token_put":    func(c *conn, in inbound) { c.doSpokenTokenPut(in.SpokenToken) },
+	"spoken_token_delete": func(c *conn, in inbound) { c.doSpokenTokenDelete(in.Name, in.UpdatedAt) },
 	"provider_put":        func(c *conn, in inbound) { c.doProviderPut(in.Agent, in.DefaultModel, in.VoiceModels, in.UpdatedAt) },
 	"setting_put":         func(c *conn, in inbound) { c.doSettingPut(in.Key, in.Value, in.UpdatedAt) },
 }
@@ -965,20 +975,36 @@ func (c *conn) loop() {
 	}
 }
 
-// stripWake / splitWake are the connection-scoped wake matchers: they honor this
-// client's custom wake token (c.wakePhrase) in addition to the built-in "hey
-// buddy" family. Use these instead of the package-level command.StripWake /
-// command.SplitWake anywhere a *conn is in scope.
+// wakePhrases / speakPhrases / endPhrases resolve the connection's live wake, speak
+// (dictation-gate) and end token phrases from the app-managed spoken-token
+// catalogue — reading the store on each call so a catalogue edit takes effect for
+// every connection immediately, without a reconnect. These sets REPLACE the old
+// hardcoded "hey buddy"/"beep" built-ins (which survive only as the store's seed).
+func (c *conn) wakePhrases() [][]string {
+	return spoken.Phrases(c.srv.tokens.List(), spoken.ActionWake)
+}
+func (c *conn) speakPhrases() [][]string {
+	return spoken.Phrases(c.srv.tokens.List(), spoken.ActionSpeechGate)
+}
+func (c *conn) endPhrases() [][]string { return spoken.Phrases(c.srv.tokens.List(), spoken.ActionEnd) }
+
+// endModels are the distinct detector (ONNX) model keys bound to end-token tokens,
+// scored against the wakeword sidecar when the detector service is on.
+func (c *conn) endModels() []string { return spoken.Models(c.srv.tokens.List(), spoken.ActionEnd) }
+
+// stripWake / splitWake are the connection-scoped wake matchers: they match the
+// configured wake phrases (c.wakePhrases()). Use these instead of the package-level
+// command.StripWake / command.SplitWake anywhere a *conn is in scope.
 func (c *conn) stripWake(text string) (rest string, hadWake bool) {
-	return command.StripWakeWith(text, c.wakePhrase)
+	return command.StripWakeWith(text, c.wakePhrases())
 }
 
 func (c *conn) splitWake(text string) (before, after string, found bool) {
-	return command.SplitWakeWith(text, c.wakePhrase)
+	return command.SplitWakeWith(text, c.wakePhrases())
 }
 
 func (c *conn) splitWakeAll(text string) (before string, commands []string) {
-	return command.SplitWakeAllWith(text, c.wakePhrase)
+	return command.SplitWakeAllWith(text, c.wakePhrases())
 }
 
 // gateDictation applies the dictation gate to a would-be dictation string. When
@@ -988,10 +1014,11 @@ func (c *conn) splitWakeAll(text string) (before string, commands []string) {
 // passes text through unchanged, preserving the ungated behavior. Commands are
 // never routed through here, so "hey buddy stop" always works regardless.
 func (c *conn) gateDictation(text string) string {
-	if !c.dictationGate || len(c.speakPhrase) == 0 {
+	speak := c.speakPhrases()
+	if !c.dictationGate || len(speak) == 0 {
 		return text
 	}
-	if _, after, found := command.SplitOn(text, c.speakPhrase); found {
+	if _, after, found := command.SplitOn(text, speak); found {
 		return strings.TrimSpace(after)
 	}
 	return ""

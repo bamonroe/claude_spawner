@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/bam/claude_spawner/server/internal/command"
 	"github.com/bam/claude_spawner/server/internal/detect"
+	"github.com/bam/claude_spawner/server/internal/spoken"
 )
 
 // stubDetector returns canned scores (or an error) for endTokenFired tests.
@@ -45,7 +45,7 @@ func TestEndTokenFired(t *testing.T) {
 		{"whisper-explicit", "whisper", stubDetector{scores: detect.Scores{detect.EndModel: 0.99}}, 0.5, false, false},
 	}
 	for _, c := range cases {
-		cn := &conn{ctx: context.Background(), wakeService: c.service, srv: &Server{detector: c.detector, wakeThreshold: c.threshold}}
+		cn := &conn{ctx: context.Background(), wakeService: c.service, srv: &Server{detector: c.detector, wakeThreshold: c.threshold, tokens: testTokens(t)}}
 		fired, ok := cn.endTokenFired([]byte{0, 0})
 		if fired != c.wantFired || ok != c.wantOK {
 			t.Errorf("%s: endTokenFired = (%v,%v), want (%v,%v)", c.name, fired, ok, c.wantFired, c.wantOK)
@@ -54,13 +54,17 @@ func TestEndTokenFired(t *testing.T) {
 }
 
 func TestGateDictation(t *testing.T) {
-	speak := command.WakePhrase("take a note, dictate")
+	// Speech-gate tokens as they now live in the catalogue: "take a note" / "dictate".
+	speak := []*spoken.Token{
+		{Name: "note", Phrase: "take a note", Action: spoken.ActionSpeechGate},
+		{Name: "dictate", Phrase: "dictate", Action: spoken.ActionSpeechGate},
+	}
 	cases := []struct {
-		name string
-		gate bool
-		spk  [][]string
-		in   string
-		want string
+		name   string
+		gate   bool
+		tokens []*spoken.Token
+		in     string
+		want   string
 	}{
 		// Gate off: text passes through verbatim (current behavior).
 		{"off", false, speak, "some ambient chatter", "some ambient chatter"},
@@ -74,33 +78,9 @@ func TestGateDictation(t *testing.T) {
 		{"no-token", true, nil, "still dictate this", "still dictate this"},
 	}
 	for _, c := range cases {
-		cn := &conn{dictationGate: c.gate, speakPhrase: c.spk}
+		cn := &conn{dictationGate: c.gate, srv: &Server{tokens: tokensSeed(t, c.tokens)}}
 		if got := cn.gateDictation(c.in); got != c.want {
 			t.Errorf("%s: gateDictation(%q) = %q, want %q", c.name, c.in, got, c.want)
-		}
-	}
-}
-
-func TestSplitEndToken(t *testing.T) {
-	cases := []struct {
-		text   string
-		token  string
-		before string
-		after  string
-		found  bool
-	}{
-		{"refactor this beep", "beep", "refactor this", "", true},
-		{"refactor this", "beep", "refactor this", "", false},
-		{"do it beep then more", "beep", "do it", "then more", true},
-		{"stuff Beep.", "beep", "stuff", "", true},             // case + punctuation
-		{"hello send it now", "send it", "hello", "now", true}, // multi-word token
-		{"nothing here", "send it", "nothing here", "", false},
-	}
-	for _, c := range cases {
-		b, a, f := splitEndToken(c.text, c.token)
-		if b != c.before || a != c.after || f != c.found {
-			t.Errorf("splitEndToken(%q,%q) = (%q,%q,%v), want (%q,%q,%v)",
-				c.text, c.token, b, a, f, c.before, c.after, c.found)
 		}
 	}
 }

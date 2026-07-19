@@ -130,6 +130,7 @@ func wireFieldSet(t *testing.T, root string) map[string]bool {
 	gw := filepath.Join(root, "server", "internal", "gateway")
 	sess := filepath.Join(root, "server", "internal", "session")
 	ag := filepath.Join(root, "server", "internal", "agent")
+	sp := filepath.Join(root, "server", "internal", "spoken")
 	set := map[string]bool{}
 	for _, group := range [][]string{
 		structJSONTags(t, filepath.Join(gw, "messages.go")), // inbound + the view structs
@@ -137,6 +138,7 @@ func wireFieldSet(t *testing.T, root string) map[string]bool {
 		structJSONTags(t, filepath.Join(gw, "ask.go"), "askQuestion"),
 		structJSONTags(t, filepath.Join(sess, "hosts.go"), "Host"),
 		structJSONTags(t, filepath.Join(sess, "profile.go"), "ExecProfile"), // in profiles + profile_put
+		structJSONTags(t, filepath.Join(sp, "token.go"), "Token"),           // in spoken_tokens + spoken_token_put
 		structJSONTags(t, filepath.Join(ag, "turn.go"), "Usage"),            // aliased as session.Usage
 		structJSONTags(t, filepath.Join(sess, "transcript.go"), "Message"),
 	} {

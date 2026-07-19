@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/bam/claude_spawner/server/internal/command"
-	"github.com/bam/claude_spawner/server/internal/detect"
 	"github.com/bam/claude_spawner/server/internal/transcribe"
 )
 
@@ -58,7 +57,7 @@ func (c *conn) gatedChunk(pcm []byte) {
 	// string-match; it doesn't replace it, so a custom end token keeps working.
 	end := detOK && detFired
 	if !end {
-		_, _, end = splitEndToken(joined, c.endToken)
+		_, _, end = command.SplitOn(joined, c.endPhrases())
 	}
 	if !end {
 		// Draft only what would actually be dictated: with the dictation gate on,
@@ -85,14 +84,25 @@ func (c *conn) endTokenFired(pcm []byte) (fired, ok bool) {
 	if c.wakeService != "detector" || c.srv.detector == nil {
 		return false, false
 	}
+	// The detector model keys come from the end-token tokens in the catalogue (a
+	// token with no model is Whisper-only, so it doesn't participate here). No
+	// end-token model configured ⇒ nothing to score, fall back to the string-match.
+	models := c.endModels()
+	if len(models) == 0 {
+		return false, false
+	}
 	scores, err := c.srv.detector.Detect(c.ctx, pcm)
 	if err != nil {
 		log.Printf("wakeword: detect failed, falling back to whisper string-match: %v", err)
 		return false, false
 	}
-	log.Printf("wakeword: %s=%.4f %s=%.4f (thr %.3f)", detect.EndModel, scores[detect.EndModel],
-		detect.WakeModel, scores[detect.WakeModel], c.srv.wakeThreshold)
-	return scores[detect.EndModel] >= c.srv.wakeThreshold, true
+	for _, m := range models {
+		if scores[m] >= c.srv.wakeThreshold {
+			log.Printf("wakeword: %s=%.4f fired (thr %.3f)", m, scores[m], c.srv.wakeThreshold)
+			return true, true
+		}
+	}
+	return false, true
 }
 
 // commitMessage re-transcribes the whole buffered audio accurately, strips the
@@ -120,7 +130,7 @@ func (c *conn) commitMessage() {
 		c.fail("transcribe_failed", err.Error())
 		return
 	}
-	msg, _, _ := splitEndToken(full, c.endToken) // drop the end token (+ any trailing)
+	msg, _, _ := command.SplitOn(full, c.endPhrases()) // drop the end token (+ any trailing)
 	msg = strings.TrimSpace(msg)
 	if msg == "" {
 		c.send(msgPending("")) // nothing recognized — clear the "transcribing…" state
@@ -214,13 +224,13 @@ func applyCancel(intents []command.Intent) (kept []command.Intent, hadCancel boo
 // words come first (always present); session names are appended when any exist.
 func (c *conn) vocabBias() string {
 	vocab := command.Vocabulary()
-	// Bias STT toward the client's custom wake token(s) and dictation-gate speak
-	// token(s) too, so a non-"hey buddy" wake word and the speak marker survive
-	// transcription and can actually match.
-	for _, phrase := range c.wakePhrase {
+	// Bias STT toward the configured wake and dictation-gate speak phrases (from the
+	// spoken-token catalogue), so the wake word and the speak marker survive
+	// transcription and can actually match — whatever they've been configured to.
+	for _, phrase := range c.wakePhrases() {
 		vocab = append(vocab, strings.Join(phrase, " "))
 	}
-	for _, phrase := range c.speakPhrase {
+	for _, phrase := range c.speakPhrases() {
 		vocab = append(vocab, strings.Join(phrase, " "))
 	}
 	parts := []string{"Commands: " + strings.Join(vocab, ", ") + "."}
@@ -241,25 +251,6 @@ func (c *conn) clearBuffer() {
 	c.send(msgPending(""))
 }
 
-// splitEndToken finds the (whole-word, case-insensitive) end token — which may
-// be multiple words — and splits the text around it.
-func splitEndToken(text, token string) (before, after string, found bool) {
-	tok := strings.Fields(strings.ToLower(strings.TrimSpace(token)))
-	if len(tok) == 0 {
-		return text, "", false
-	}
-	words := strings.Fields(text)
-	for i := 0; i+len(tok) <= len(words); i++ {
-		match := true
-		for j, tw := range tok {
-			if strings.Trim(strings.ToLower(words[i+j]), ",.!?") != tw {
-				match = false
-				break
-			}
-		}
-		if match {
-			return strings.Join(words[:i], " "), strings.Join(words[i+len(tok):], " "), true
-		}
-	}
-	return text, "", false
-}
+// End-token splitting now uses command.SplitOn over the configured end phrases
+// (c.endPhrases()), which matches any of several end tokens whole-word — replacing
+// the old single-token splitEndToken helper.

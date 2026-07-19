@@ -57,19 +57,22 @@ type Intent struct {
 	Name string
 }
 
-// wakePhrases is the single source of truth for the wake token — the spoken
-// prefix that flags an utterance as a control command rather than dictation. It
-// is the wake-word analogue of command.Registry's per-command Aliases: the
-// canonical "hey buddy" first, then accepted whisper mishearings. TWO-word forms
-// cover mishearings of "buddy"; SINGLE-word forms cover cases where whisper
-// collapsed the whole phrase into one token (e.g. "everybody" for "hey buddy").
-// Teach the server a new mishearing by adding it here — every wake match reads
-// from this list, nothing is hardcoded elsewhere.
+// wakePhrases is the DEFAULT wake token — the canonical "hey buddy" first, then
+// accepted whisper mishearings. TWO-word forms cover mishearings of "buddy";
+// SINGLE-word forms cover cases where whisper collapsed the whole phrase into one
+// token (e.g. "everybody" for "hey buddy").
+//
+// It is no longer the runtime source of truth: the wake token (and the end/speak
+// tokens) are now the app-managed spoken-token catalogue, which the gateway feeds
+// into the matchers below as an explicit phrase set. This list survives only as
+// that catalogue's first-run seed (DefaultWakePhrases) and as the fallback the
+// bare StripWake/SplitWake helpers use — the with-phrases variants match ONLY the
+// set they are handed, so a configured catalogue fully REPLACES these built-ins.
 //
 // Caution on single-word aliases: they are ordinary English words, so they wake
 // more eagerly than the distinctive two-word "hey buddy" (e.g. "everybody knows"
-// now strips a wake). They earn their place only because whisper reliably emits
-// them for the real wake word; keep the single-word set small.
+// strips a wake). They earn their place only because whisper reliably emits them
+// for the real wake word; keep the single-word set small.
 var wakePhrases = [][]string{
 	{"hey", "buddy"},
 	{"hey", "bud"},
@@ -96,24 +99,31 @@ var commandVocab = []string{
 	"called", "named", "profile", "swap",
 }
 
-// Vocabulary returns the control words worth biasing STT toward: the canonical
-// wake phrase (wakePhrases[0]) followed by commandVocab. gateway.vocabBias folds
-// this into the whisper initial-prompt so the wake word and command verbs
-// transcribe reliably. This is the single source of truth for that bias list —
-// nothing hardcodes the command words elsewhere.
+// Vocabulary returns the control words worth biasing STT toward: commandVocab,
+// the distinctive command verbs/nouns. gateway.vocabBias folds this into the
+// whisper initial-prompt so the command verbs transcribe reliably, and appends
+// the connection's live wake/speak phrases (from the spoken-token catalogue) on
+// top — so the wake word itself is biased from the configured catalogue, not a
+// hardcoded default here.
 func Vocabulary() []string {
-	out := make([]string, 0, len(commandVocab)+1)
-	out = append(out, strings.Join(wakePhrases[0], " "))
-	return append(out, commandVocab...)
+	return append([]string(nil), commandVocab...)
 }
 
-// WakePhrase tokenizes a client's custom wake token(s) into the phrase form the
-// matchers below accept (lowercased, punctuation-trimmed words). The token is a
-// COMMA-SEPARATED list, so several variants ("hey buddy, hey bud, ok buddy") can
-// be configured — misheard forms all still trigger. It returns nil for a blank
-// token so callers can pass the result straight through as the `extra` argument
-// (nil = built-in wakePhrases only). Also used for the dictation-gate speak
-// token, which is likewise a comma-separated variant list.
+// DefaultWakePhrases returns a copy of the built-in wake phrases, for seeding the
+// app-managed spoken-token catalogue on first run (see spoken.DefaultTokens).
+func DefaultWakePhrases() [][]string {
+	out := make([][]string, len(wakePhrases))
+	for i, p := range wakePhrases {
+		out[i] = append([]string(nil), p...)
+	}
+	return out
+}
+
+// WakePhrase tokenizes a COMMA-SEPARATED phrase list ("hey buddy, hey bud, ok
+// buddy") into the phrase form the matchers below accept (lowercased,
+// punctuation-trimmed words), returning nil for a blank token. The spoken-token
+// catalogue now supplies wake/end/speak phrases (spoken.Phrases), so this survives
+// as a tokenizing helper for tests and any ad-hoc comma-list callers.
 func WakePhrase(token string) [][]string {
 	var phrases [][]string
 	for _, variant := range strings.Split(token, ",") {
@@ -130,11 +140,11 @@ func WakePhrase(token string) [][]string {
 	return phrases
 }
 
-// SplitOn splits text on the FIRST occurrence of any phrase in `phrases` — and
-// ONLY those (the built-in "hey buddy" wake set is NOT considered): before = the
-// words up to the first match, after = the words following it. It backs the
-// dictation gate's speak token, which is a start marker independent of the
-// command wake word. No match ⇒ found=false, before = the whole text.
+// SplitOn splits text on the FIRST occurrence of any phrase in `phrases`: before =
+// the words up to the first match, after = the words following it. It backs both
+// the dictation gate's speak token (a start marker) and the end token (a commit
+// marker) — each a phrase set independent of the wake word. No match ⇒
+// found=false, before = the whole text.
 func SplitOn(text string, phrases [][]string) (before, after string, found bool) {
 	words := strings.Fields(strings.TrimSpace(text))
 	for i := 0; i < len(words); i++ {
@@ -145,16 +155,19 @@ func SplitOn(text string, phrases [][]string) (before, after string, found bool)
 	return strings.TrimSpace(text), "", false
 }
 
-// StripWake removes an optional leading wake phrase (any wakePhrases entry, with
-// optional punctuation) and reports whether it was present. Used to distinguish
-// control commands from plain dictation while attached.
-func StripWake(text string) (rest string, hadWake bool) { return StripWakeWith(text, nil) }
+// StripWake removes an optional leading wake phrase (any default wakePhrases
+// entry, with optional punctuation) and reports whether it was present. Used to
+// distinguish control commands from plain dictation while attached. The gateway
+// uses StripWakeWith with the configured catalogue instead; this bare form (on the
+// built-in defaults) backs tests and any callerless-of-a-conn path.
+func StripWake(text string) (rest string, hadWake bool) { return StripWakeWith(text, wakePhrases) }
 
-// StripWakeWith is StripWake extended with `extra` wake phrases (a client's
-// custom wake token, from WakePhrase) tried alongside the built-in wakePhrases.
-func StripWakeWith(text string, extra [][]string) (rest string, hadWake bool) {
+// StripWakeWith strips a leading wake phrase drawn from `phrases` — the EXACT set
+// to match (the app-managed spoken-token catalogue's wake phrases), replacing the
+// built-in defaults rather than adding to them. An empty set matches nothing.
+func StripWakeWith(text string, phrases [][]string) (rest string, hadWake bool) {
 	words := strings.Fields(strings.TrimSpace(text))
-	if n := wakeAt(words, 0, extra); n > 0 {
+	if n := wakeAt(words, 0, phrases); n > 0 {
 		return strings.Join(words[n:], " "), true
 	}
 	return strings.TrimSpace(text), false
@@ -165,15 +178,17 @@ func StripWakeWith(text string, extra [][]string) (rest string, hadWake bool) {
 // command), the LAST one wins: before = text preceding the FIRST wake (the
 // dictation), after = text following the LAST wake (the command); anything in
 // between (earlier command attempts) is discarded.
-func SplitWake(text string) (before, after string, found bool) { return SplitWakeWith(text, nil) }
+func SplitWake(text string) (before, after string, found bool) {
+	return SplitWakeWith(text, wakePhrases)
+}
 
-// SplitWakeWith is SplitWake extended with `extra` wake phrases (a client's
-// custom wake token, from WakePhrase) tried alongside the built-in wakePhrases.
-func SplitWakeWith(text string, extra [][]string) (before, after string, found bool) {
+// SplitWakeWith is SplitWake matching the EXACT `phrases` set (the app-managed
+// catalogue's wake phrases) instead of the built-in defaults. Empty ⇒ no match.
+func SplitWakeWith(text string, phrases [][]string) (before, after string, found bool) {
 	words := strings.Fields(strings.TrimSpace(text))
 	first, last, lastN := -1, -1, 0
 	for i := 0; i < len(words); {
-		if n := wakeAt(words, i, extra); n > 0 {
+		if n := wakeAt(words, i, phrases); n > 0 {
 			if first < 0 {
 				first = i
 			}
@@ -196,17 +211,17 @@ func SplitWakeWith(text string, extra [][]string) (before, after string, found b
 // "hey buddy <command>" commands in a single utterance and have them run in order
 // (whereas SplitWake keeps only the last). No wake ⇒ nil commands, before = text.
 func SplitWakeAll(text string) (before string, commands []string) {
-	return SplitWakeAllWith(text, nil)
+	return SplitWakeAllWith(text, wakePhrases)
 }
 
-// SplitWakeAllWith is SplitWakeAll extended with `extra` wake phrases (a client's
-// custom wake token, from WakePhrase) tried alongside the built-in wakePhrases.
-func SplitWakeAllWith(text string, extra [][]string) (before string, commands []string) {
+// SplitWakeAllWith is SplitWakeAll matching the EXACT `phrases` set (the
+// app-managed catalogue's wake phrases) instead of the built-in defaults.
+func SplitWakeAllWith(text string, phrases [][]string) (before string, commands []string) {
 	words := strings.Fields(strings.TrimSpace(text))
 	type span struct{ start, end int }
 	var wakes []span
 	for i := 0; i < len(words); {
-		if n := wakeAt(words, i, extra); n > 0 {
+		if n := wakeAt(words, i, phrases); n > 0 {
 			wakes = append(wakes, span{i, i + n})
 			i += n // skip the matched phrase so it isn't re-scanned
 			continue
@@ -230,17 +245,11 @@ func SplitWakeAllWith(text string, extra [][]string) (before string, commands []
 }
 
 // wakeAt reports how many words the wake phrase at words[i] consumes (0 if none),
-// tolerating surrounding punctuation and case. Both the built-in wakePhrases and
-// any `extra` phrases are considered; the longest matching phrase wins, so a
-// one-word alias can't shadow the canonical two-word form.
-func wakeAt(words []string, i int, extra [][]string) (consumed int) {
-	if n := phrasesAt(words, i, wakePhrases); n > consumed {
-		consumed = n
-	}
-	if n := phrasesAt(words, i, extra); n > consumed {
-		consumed = n
-	}
-	return consumed
+// tolerating surrounding punctuation and case. Only `phrases` is considered (the
+// configured catalogue set, or the built-in defaults for the bare helpers) — the
+// longest matching phrase wins, so a one-word alias can't shadow a longer form.
+func wakeAt(words []string, i int, phrases [][]string) (consumed int) {
+	return phrasesAt(words, i, phrases)
 }
 
 // phrasesAt reports how many words the longest phrase in `phrases` matching at

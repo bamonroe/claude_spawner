@@ -2,6 +2,7 @@ package com.bam.spawner
 
 import com.bam.spawner.net.CatalogueDigest
 import com.bam.spawner.net.SettingRecord
+import com.bam.spawner.net.SpokenTokenInfo
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -25,5 +26,20 @@ class CatalogueDigestTest {
         assertEquals("d7a850f0b07c87bd", CatalogueDigest.settings(recs.reversed()))
         // Empty folds to all-zero.
         assertEquals("0000000000000000", CatalogueDigest.settings(emptyList()))
+    }
+
+    /**
+     * Cross-language parity for the spoken-token catalogue's digest. Pins the SAME
+     * fixture and known hex the Go test asserts (TestSpokenTokensDigestFold).
+     */
+    @Test
+    fun spokenTokensFoldMatchesGoKnownHex() {
+        val toks = listOf(
+            SpokenTokenInfo("hey-buddy", "hey buddy", "wake", "bump_bump", 100),
+            SpokenTokenInfo("end-token", "beep", "end", "", 200),
+        )
+        assertEquals("0f155d6e0bcbfc37", CatalogueDigest.spokenTokens(toks))
+        assertEquals("0f155d6e0bcbfc37", CatalogueDigest.spokenTokens(toks.reversed()))
+        assertEquals("0000000000000000", CatalogueDigest.spokenTokens(emptyList()))
     }
 }

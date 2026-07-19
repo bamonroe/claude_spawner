@@ -275,6 +275,7 @@ private fun AppRoot(
                 if (calibrating) CalibrationDialog(controller, endTok) { controller.stopCalibration(); calibrating = false }
             },
         )
+        "set_spoken_tokens" -> SpokenTokensSettings(controller, onBack = { screen = "settings" })
         "set_audio" -> AudioSettings(
             settings,
             controller,

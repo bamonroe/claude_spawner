@@ -113,22 +113,23 @@ func TestWakePhrase(t *testing.T) {
 }
 
 func TestStripWakeWith(t *testing.T) {
-	extra := WakePhrase("hey computer")
-	// The custom token strips like a wake word...
-	if rest, had := StripWakeWith("Hey Computer, status", extra); rest != "status" || !had {
-		t.Errorf("custom wake: got (%q,%v), want (%q,%v)", rest, had, "status", true)
+	wake := WakePhrase("hey computer")
+	// The configured wake set strips like a wake word...
+	if rest, had := StripWakeWith("Hey Computer, status", wake); rest != "status" || !had {
+		t.Errorf("configured wake: got (%q,%v), want (%q,%v)", rest, had, "status", true)
 	}
-	// ...and the built-in "hey buddy" family still works alongside it.
-	if rest, had := StripWakeWith("hey buddy detach", extra); rest != "detach" || !had {
-		t.Errorf("built-in wake with extra: got (%q,%v), want (%q,%v)", rest, had, "detach", true)
+	// ...and it REPLACES the built-in — "hey buddy" no longer matches unless it's in
+	// the configured set (the catalogue is the whole wake token now).
+	if rest, had := StripWakeWith("hey buddy detach", wake); had || rest != "hey buddy detach" {
+		t.Errorf("configured set should replace built-in: got (%q,%v), want no match", rest, had)
 	}
-	// A blank custom token leaves matching identical to plain StripWake.
+	// An empty set matches nothing.
 	if rest, had := StripWakeWith("hey computer status", nil); had || rest != "hey computer status" {
-		t.Errorf("no extra: got (%q,%v), want (%q,%v)", rest, had, "hey computer status", false)
+		t.Errorf("empty set: got (%q,%v), want (%q,%v)", rest, had, "hey computer status", false)
 	}
-	// SplitWake honors the custom token mid-utterance too.
-	if b, a, f := SplitWakeWith("fix the bug hey computer detach", extra); b != "fix the bug" || a != "detach" || !f {
-		t.Errorf("custom split: got (%q,%q,%v), want (%q,%q,%v)", b, a, f, "fix the bug", "detach", true)
+	// SplitWake honors the configured set mid-utterance too.
+	if b, a, f := SplitWakeWith("fix the bug hey computer detach", wake); b != "fix the bug" || a != "detach" || !f {
+		t.Errorf("configured split: got (%q,%q,%v), want (%q,%q,%v)", b, a, f, "fix the bug", "detach", true)
 	}
 }
 

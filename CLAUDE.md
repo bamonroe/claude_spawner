@@ -163,6 +163,17 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
   (compiled default model, all models voice-enabled). Like the profile/host
   catalogues, the app is the source of truth and the server persists it and
   re-broadcasts the `agents` message on change),
+  `SPAWNER_SPOKEN_TOKENS` (`spoken_tokens.json`; the app-managed spoken-token catalogue
+  — the wake/end/speak phrases and their optional dedicated-detector (ONNX) models.
+  Each token binds a spoken phrase to one of a closed, code-defined set of actions
+  (wake, end, speech-gate — advertised to the app as the `actions` message); several
+  tokens may share an action (so "hey buddy" and "hey gecko" both wake). A token with
+  a model is scored by that model when the wakeword sidecar is on, else it falls back
+  to Whisper string-matching. Like the profile/host catalogues, the app is the source
+  of truth and the server persists it and re-broadcasts the `spoken_tokens` message on
+  change; a missing file is seeded with the built-in "hey buddy" wake family + the
+  "beep" end token, then the app owns it — the configured list fully REPLACES the old
+  built-in wake word),
   `SPAWNER_HOSTS` (`hosts.json`; the
   app-managed SSH host registry — the app is the source of truth, this file just persists it),
   `SPAWNER_IDENTITIES` (`identities.json`; the app-managed SSH identity registry — names + public

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/bam/claude_spawner/server/internal/session"
+	"github.com/bam/claude_spawner/server/internal/spoken"
 	"github.com/gorilla/websocket"
 )
 
@@ -78,6 +79,45 @@ func TestSettingsDigestFold(t *testing.T) {
 	} {
 		if d := settingsDigest(mustSettings(t, recs...)); d == base {
 			t.Errorf("%s did not flip the settings digest (still %q)", name, d)
+		}
+	}
+}
+
+// TestSpokenTokensDigestFold covers the spoken-token catalogue's digest: empty
+// folds to all-zero, order doesn't matter, edits flip it, and a KNOWN HEX pinned
+// byte-for-byte against the Kotlin CatalogueDigest.spokenTokens fold (see
+// CatalogueDigestTest.kt) guarantees cross-language parity.
+func TestSpokenTokensDigestFold(t *testing.T) {
+	if empty := spokenTokensDigest(nil); empty != "0000000000000000" {
+		t.Fatalf("empty spoken-tokens digest = %q, want all-zero", empty)
+	}
+
+	// Known-hex fixture, mirrored exactly in the Kotlin test.
+	pinned := []*spoken.Token{
+		{Name: "hey-buddy", Phrase: "hey buddy", Action: spoken.ActionWake, Model: "bump_bump", UpdatedAt: 100},
+		{Name: "end-token", Phrase: "beep", Action: spoken.ActionEnd, UpdatedAt: 200},
+	}
+	const wantHex = "0f155d6e0bcbfc37"
+	if d := spokenTokensDigest(pinned); d != wantHex {
+		t.Fatalf("spoken-tokens digest = %q, want pinned %q (Kotlin parity)", d, wantHex)
+	}
+	rev := []*spoken.Token{
+		{Name: "end-token", Phrase: "beep", Action: spoken.ActionEnd, UpdatedAt: 200},
+		{Name: "hey-buddy", Phrase: "hey buddy", Action: spoken.ActionWake, Model: "bump_bump", UpdatedAt: 100},
+	}
+	if d := spokenTokensDigest(rev); d != wantHex {
+		t.Fatalf("spoken-tokens digest is order-dependent: %q vs pinned %q", d, wantHex)
+	}
+
+	base := spokenTokensDigest(pinned)
+	for name, toks := range map[string][]*spoken.Token{
+		"add":            {{Name: "hey-buddy", Phrase: "hey buddy", Action: spoken.ActionWake, Model: "bump_bump", UpdatedAt: 100}, {Name: "end-token", Phrase: "beep", Action: spoken.ActionEnd, UpdatedAt: 200}, {Name: "gecko", Phrase: "hey gecko", Action: spoken.ActionWake, UpdatedAt: 1}},
+		"phrase edit":    {{Name: "hey-buddy", Phrase: "hey pal", Action: spoken.ActionWake, Model: "bump_bump", UpdatedAt: 100}, {Name: "end-token", Phrase: "beep", Action: spoken.ActionEnd, UpdatedAt: 200}},
+		"model edit":     {{Name: "hey-buddy", Phrase: "hey buddy", Action: spoken.ActionWake, Model: "other", UpdatedAt: 100}, {Name: "end-token", Phrase: "beep", Action: spoken.ActionEnd, UpdatedAt: 200}},
+		"timestamp only": {{Name: "hey-buddy", Phrase: "hey buddy", Action: spoken.ActionWake, Model: "bump_bump", UpdatedAt: 101}, {Name: "end-token", Phrase: "beep", Action: spoken.ActionEnd, UpdatedAt: 200}},
+	} {
+		if d := spokenTokensDigest(toks); d == base {
+			t.Errorf("%s did not flip the spoken-tokens digest (still %q)", name, d)
 		}
 	}
 }

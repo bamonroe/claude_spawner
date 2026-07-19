@@ -12,14 +12,40 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"github.com/bam/claude_spawner/server/internal/command"
 	"github.com/bam/claude_spawner/server/internal/config"
+	"github.com/bam/claude_spawner/server/internal/detect"
 	"github.com/bam/claude_spawner/server/internal/session"
+	"github.com/bam/claude_spawner/server/internal/spoken"
 	"github.com/bam/claude_spawner/server/internal/tmux"
 	"github.com/bam/claude_spawner/server/internal/transcribe"
 )
 
 // fakeClaude writes a script that mimics `claude -p --output-format stream-json`:
 // it emits an init event and a success result, ignoring all arguments.
+// testTokens builds an in-temp spoken-token store seeded with the built-in
+// defaults, so wake/end matching behaves like production in gateway tests.
+func testTokens(t *testing.T) *session.SpokenTokenStore {
+	t.Helper()
+	ts, err := session.OpenSpokenTokenStore(filepath.Join(t.TempDir(), "spoken_tokens.json"),
+		spoken.DefaultTokens(command.DefaultWakePhrases(), detect.WakeModel, detect.EndModel))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ts
+}
+
+// tokensSeed builds an in-temp spoken-token store from an explicit seed, for tests
+// that need a specific set of wake/end/speak tokens.
+func tokensSeed(t *testing.T, seed []*spoken.Token) *session.SpokenTokenStore {
+	t.Helper()
+	ts, err := session.OpenSpokenTokenStore(filepath.Join(t.TempDir(), "spoken_tokens.json"), seed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ts
+}
+
 func fakeClaude(t *testing.T, reply string) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -100,7 +126,7 @@ func newTestServerGW(t *testing.T, stt transcribe.Transcriber) (*httptest.Server
 	if err != nil {
 		t.Fatal(err)
 	}
-	gw := New(cfg, store, hosts, ids, nil, driver, tmux.NewManager(), stt, nil)
+	gw := New(cfg, store, hosts, ids, testTokens(t), nil, driver, tmux.NewManager(), stt, nil)
 	ts := httptest.NewServer(http.HandlerFunc(gw.HandleWS))
 	t.Cleanup(ts.Close)
 	return ts, root, gw
@@ -709,7 +735,7 @@ func newSandboxTestServer(t *testing.T) (*httptest.Server, string, *Server) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	gw := New(cfg, store, hosts, ids, nil, driver, tmux.NewManager(), nil, nil)
+	gw := New(cfg, store, hosts, ids, testTokens(t), nil, driver, tmux.NewManager(), nil, nil)
 	ts := httptest.NewServer(http.HandlerFunc(gw.HandleWS))
 	t.Cleanup(ts.Close)
 	return ts, root, gw

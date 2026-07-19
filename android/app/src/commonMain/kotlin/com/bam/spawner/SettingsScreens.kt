@@ -63,10 +63,12 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.bam.spawner.net.ActionInfo
 import com.bam.spawner.net.AgentInfo
 import com.bam.spawner.net.Host
 import com.bam.spawner.net.Identity
 import com.bam.spawner.net.ProfileInfo
+import com.bam.spawner.net.SpokenTokenInfo
 import com.bam.spawner.ui.ThemeMode
 import kotlinx.coroutines.flow.StateFlow
 
@@ -114,6 +116,21 @@ interface ProvidersController {
     val connected: StateFlow<Boolean>
     val agents: StateFlow<List<AgentInfo>>
     fun putProvider(agent: String, defaultModel: String, voiceModels: List<String>)
+}
+
+/**
+ * The slice the shared Spoken-tokens editor (Settings → Spoken tokens) needs. The
+ * app-managed catalogue binds spoken phrases to a closed set of server-advertised
+ * actions (wake/end/speech-gate), with an optional dedicated-detector model. Both
+ * clients show and edit the same server-persisted list; the server broadcasts an
+ * updated `spoken_tokens` after every change and advertises `actions` on connect.
+ */
+interface SpokenTokensController {
+    val connected: StateFlow<Boolean>
+    val spokenTokens: StateFlow<List<SpokenTokenInfo>>
+    val spokenActions: StateFlow<List<ActionInfo>>
+    fun putSpokenToken(t: SpokenTokenInfo)
+    fun deleteSpokenToken(name: String)
 }
 
 /** Common wrapper: back arrow + title over a scrollable column. */
@@ -549,6 +566,116 @@ fun ProfilesSettings(controller: ProfilesController, onBack: () -> Unit) {
 }
 
 /**
+ * Settings → Spoken tokens. The app-managed catalogue of spoken phrases that trigger
+ * the app's spoken features: the **wake** word that opens a command, the **end** token
+ * that commits a hands-free message, and the **speech gate**. Several phrases can
+ * trigger the same action (so "hey buddy" and "hey gecko" both wake), and a phrase
+ * can carry a dedicated-detector (ONNX) model that scores it when the wake-word
+ * service is on. This list REPLACES the old built-in wake word; the server persists
+ * it and broadcasts an updated `spoken_tokens` after every change, advertising the
+ * bindable actions as `actions` on connect.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun SpokenTokensSettings(controller: SpokenTokensController, onBack: () -> Unit) {
+    val tokens by controller.spokenTokens.collectAsState()
+    val advertised by controller.spokenActions.collectAsState()
+    val connected by controller.connected.collectAsState()
+
+    // Fall back to the three built-in actions if the server hasn't advertised yet
+    // (older server), so the editor still works.
+    val actionList = if (advertised.isNotEmpty()) advertised else listOf(
+        ActionInfo("wake", "Wake", "Starts a spoken command, e.g. \"hey buddy\"."),
+        ActionInfo("end", "End", "Commits a hands-free message, e.g. \"beep\"."),
+        ActionInfo("speech_gate", "Speech gate", "Opens the dictation gate; only speech after it is dictated."),
+    )
+
+    var phrase by rememberSaveable { mutableStateOf("") }
+    var action by rememberSaveable { mutableStateOf(actionList.first().id) }
+    var model by rememberSaveable { mutableStateOf("") }
+    var editing by rememberSaveable { mutableStateOf("") } // token name being edited, "" = new
+    var showForm by rememberSaveable { mutableStateOf(false) }
+    val clear = { phrase = ""; action = actionList.first().id; model = ""; editing = "" }
+
+    SettingsScaffold("Spoken tokens", onBack) {
+        Text(
+            "Spoken tokens are the phrases that trigger the app's spoken features. Several phrases can "
+                + "trigger the same action — so \"hey buddy\" and \"hey gecko\" can both wake. A phrase with a "
+                + "detector model is scored by that model when the wake-word service is on; otherwise it's "
+                + "matched in the Whisper transcript. The app owns this list; the server shares it across devices.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
+        )
+        if (!connected) {
+            Text("Connect to the server to manage spoken tokens.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        }
+
+        for (act in actionList) {
+            val group = tokens.filter { it.action == act.id }
+            HorizontalDivider()
+            Text(act.label, style = MaterialTheme.typography.titleMedium)
+            if (act.desc.isNotBlank()) {
+                Text(act.desc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            }
+            if (group.isEmpty()) {
+                Text("None yet.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            }
+            for (t in group) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(t.phrase, style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                if (t.model.isNotBlank()) "detector model: ${t.model}" else "Whisper match",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
+                            )
+                        }
+                        TextButton(onClick = {
+                            phrase = t.phrase; action = t.action; model = t.model; editing = t.name; showForm = true
+                        }) { Text("Edit") }
+                        TextButton(onClick = {
+                            controller.deleteSpokenToken(t.name)
+                            if (editing == t.name) { clear(); showForm = false }
+                        }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                    }
+                }
+            }
+        }
+
+        HorizontalDivider()
+        if (!showForm && editing.isBlank()) {
+            Button(enabled = connected, onClick = { clear(); showForm = true }) { Text("Add token") }
+        } else {
+            Text(if (editing.isBlank()) "Add token" else "Editing “$editing”", style = MaterialTheme.typography.titleMedium)
+            OutlinedTextField(phrase, { phrase = it }, label = { Text("Phrase (e.g. hey buddy)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            Text("Action", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                for (a in actionList) {
+                    FilterChip(selected = action == a.id, onClick = { action = a.id }, label = { Text(a.label) })
+                }
+            }
+            OutlinedTextField(model, { model = it }, label = { Text("Detector model (blank = Whisper match)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    enabled = connected && phrase.isNotBlank(),
+                    onClick = {
+                        val recordName = if (editing.isNotBlank()) editing else "tok-${nowEpochMs()}"
+                        controller.putSpokenToken(
+                            SpokenTokenInfo(name = recordName, phrase = phrase.trim(), action = action, model = model.trim()),
+                        )
+                        clear(); showForm = false
+                    },
+                ) { Text(if (editing.isBlank()) "Add" else "Save") }
+                OutlinedButton(onClick = { clear(); showForm = false }) { Text("Cancel") }
+            }
+        }
+    }
+}
+
+/**
  * Settings → Providers. One card per AI backend: pick the model a fresh spawn
  * defaults to, and toggle which models the voice "list models" / "use model N"
  * commands enumerate. The backends and their catalogues are fixed server-side; a
@@ -654,7 +781,8 @@ fun SettingsHub(onOpen: (String) -> Unit, onBack: () -> Unit) {
         SettingsRow("Server", "URL, token, connection") { onOpen("set_server") }
         SettingsRow("Appearance", "Theme") { onOpen("set_appearance") }
         SettingsRow("Commands", "Reference & aliases") { onOpen("set_commands") }
-        SettingsRow("Audio", "Mic meter, thresholds, transcription, end token") { onOpen("set_audio") }
+        SettingsRow("Spoken tokens", "Wake / end / speech-gate phrases & models") { onOpen("set_spoken_tokens") }
+        SettingsRow("Audio", "Mic meter, thresholds, transcription") { onOpen("set_audio") }
         SettingsRow("Hosts", "SSH targets sessions can run on") { onOpen("set_hosts") }
         SettingsRow("Identities", "SSH keypairs hosts authenticate with") { onOpen("set_identities") }
         SettingsRow("Profiles", "How & where sessions run (sandbox, mounts, env)") { onOpen("set_profiles") }
@@ -791,38 +919,15 @@ fun CommandsSettings(
 ) {
     var aliasMap by remember { mutableStateOf(settings.aliasMap()) }
     var trayNames by remember { mutableStateOf(settings.trayCommandNames().toSet()) }
-    var wakeTok by rememberSaveable { mutableStateOf(settings.wakeToken) }
-    var endTok by rememberSaveable { mutableStateOf(settings.endToken) }
-    var speakTok by rememberSaveable { mutableStateOf(settings.speakToken) }
     var gate by remember { mutableStateOf(settings.dictationGate) }
     var useDetector by remember { mutableStateOf(settings.wakeService == "detector") }
     var silence by remember { mutableStateOf(if (settings.silenceCommitSeconds <= 0f) "" else settings.silenceCommitSeconds.toString()) }
     SettingsScaffold("Commands", onBack) {
         Text("Say your wake word → a command → your end token.", style = MaterialTheme.typography.bodyMedium)
-
-        HorizontalDivider()
-        Text("Wake token", style = MaterialTheme.typography.titleMedium)
-        OutlinedTextField(
-            wakeTok, { wakeTok = it },
-            label = { Text("Custom wake words (blank = \"hey buddy\" only)") },
-            singleLine = true, modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedButton(onClick = { settings.wakeToken = wakeTok.trim(); onSttChanged() }) { Text("Apply wake token") }
         Text(
-            "Extra phrase(s) that also open a command, alongside the built-in \"hey buddy\". "
-                + "Separate several with commas — handy when whisper mis-hears one. "
-                + "Pick words whisper hears cleanly.",
+            "The wake, end and speech-gate phrases themselves live in Settings → Spoken tokens now.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
         )
-
-        HorizontalDivider()
-        Text("End token", style = MaterialTheme.typography.titleMedium)
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(endTok, { endTok = it }, label = { Text("Commits a message") }, singleLine = true, modifier = Modifier.weight(1f))
-            endTokenTest(endTok)
-        }
-        OutlinedButton(onClick = { settings.endToken = endTok; onSttChanged() }) { Text("Apply end token") }
-        Text("Say this to commit a hands-free message.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
 
         HorizontalDivider()
         Text("Wake/end-token detection", style = MaterialTheme.typography.titleMedium)
@@ -852,14 +957,9 @@ fun CommandsSettings(
             }
             Switch(checked = gate, onCheckedChange = { gate = it; settings.dictationGate = it; onSttChanged() })
         }
-        OutlinedTextField(
-            speakTok, { speakTok = it },
-            label = { Text("Speak token(s), comma-separated") },
-            singleLine = true, modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedButton(onClick = { settings.speakToken = speakTok.trim(); onSttChanged() }) { Text("Apply speak token") }
         Text(
-            "Say this to start dictating, then your end token to send — e.g. \"take a note … beep\". "
+            "Configure the speech-gate phrase(s) in Settings → Spoken tokens — say one to start "
+                + "dictating, then your end token to send (e.g. \"take a note … beep\"). "
                 + "Commands (\"hey buddy …\") always work, gate or no gate.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
         )

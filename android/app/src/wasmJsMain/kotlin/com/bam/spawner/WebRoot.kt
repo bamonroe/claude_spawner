@@ -56,6 +56,7 @@ fun WebRoot() {
                     onBack = { screen = "settings" },
                 )
                 "set_commands" -> CommandsSettings(prefs, onAliasesChanged = reconnect, onSttChanged = reconnect, onBack = { screen = "settings" })
+                "set_spoken_tokens" -> SpokenTokensSettings(controller, onBack = { screen = "settings" })
                 "set_about" -> AboutSettings(onBack = { screen = "settings" })
                 "browse" -> BrowseScreen(
                     controller,

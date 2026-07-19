@@ -89,6 +89,8 @@ sealed interface ServerMsg {
     data class FileData(val name: String, val path: String, val content: String) : ServerMsg // a download's base64 bytes
     data class Agents(val agents: List<AgentInfo>, val default: String) : ServerMsg // AI backend registry (for the new-session picker)
     data class Profiles(val profiles: List<ProfileInfo>, val default: String) : ServerMsg // execution profiles (for the new-session picker)
+    data class Actions(val actions: List<ActionInfo>) : ServerMsg // closed set of bindable spoken-token actions (advertise-only)
+    data class SpokenTokens(val tokens: List<SpokenTokenInfo>) : ServerMsg // app-managed wake/end/speak token catalogue
     data class HostList(val hosts: List<Host>) : ServerMsg // app-managed SSH host registry
     data class IdentityList(val identities: List<Identity>) : ServerMsg // app-managed SSH identities
     data class Settings(val settings: List<SettingRecord>) : ServerMsg // shared server-global scalars (whisper models, auto-compress, summary-only)
@@ -153,6 +155,8 @@ sealed interface ServerMsg {
                 "file_data" -> FileData(o.str("name"), o.str("path"), o.str("content"))
                 "agents" -> Agents(readAgents(o.arr("agents")), o.str("default"))
                 "profiles" -> Profiles(readProfiles(o.arr("profiles")), o.str("default"))
+                "actions" -> Actions(readActions(o.arr("actions")))
+                "spoken_tokens" -> SpokenTokens(readSpokenTokens(o.arr("spoken_tokens")))
                 "host_list" -> HostList(readHosts(o.arr("hosts")))
                 "identity_list" -> IdentityList(readIdentities(o.arr("identities")))
                 "settings" -> Settings(readSettings(o.arr("settings")))
@@ -233,6 +237,23 @@ sealed interface ServerMsg {
                     p.strList("mounts"), p.strList("creds"),
                     p.strMap("env"), p.strList("run_args"), p.strMap("vars"),
                     p.long("updated_at"),
+                )
+            }
+        }
+
+        private fun readActions(arr: JsonArray?): List<ActionInfo> {
+            if (arr == null) return emptyList()
+            return arr.map { it.jsonObject }.map { a ->
+                ActionInfo(a.str("id"), a.str("label"), a.str("desc"))
+            }
+        }
+
+        private fun readSpokenTokens(arr: JsonArray?): List<SpokenTokenInfo> {
+            if (arr == null) return emptyList()
+            return arr.map { it.jsonObject }.map { t ->
+                SpokenTokenInfo(
+                    t.str("name"), t.str("phrase"), t.str("action"),
+                    t.str("model"), t.long("updated_at"),
                 )
             }
         }
@@ -321,6 +342,27 @@ data class ProfileInfo(
     val env: Map<String, String> = emptyMap(),
     val runArgs: List<String> = emptyList(),
     val vars: Map<String, String> = emptyMap(),
+    // Client-stamped last-edit time (unix ms); drives last-writer-wins (see CatalogueSync).
+    val updatedAt: Long = 0,
+)
+
+/** One bindable spoken-token action advertised by the server (wake, end,
+ *  speech-gate). The set is closed and compile-time server-side; the app only reads
+ *  it to populate the token editor's action dropdown. */
+data class ActionInfo(
+    val id: String,
+    val label: String,
+    val desc: String = "",
+)
+
+/** One spoken token (Settings → Spoken tokens): a [phrase] bound to an [action],
+ *  with an optional dedicated-detector (ONNX) [model]. The app manages the
+ *  catalogue; the server persists it. Several tokens may share an action. */
+data class SpokenTokenInfo(
+    val name: String,
+    val phrase: String,
+    val action: String,
+    val model: String = "",
     // Client-stamped last-edit time (unix ms); drives last-writer-wins (see CatalogueSync).
     val updatedAt: Long = 0,
 )
@@ -485,7 +527,7 @@ object Outbound {
         put("auto_compress_threshold", cfg.autoCompressThreshold)
         put("hosts_digest", digests.hosts); put("identities_digest", digests.identities)
         put("profiles_digest", digests.profiles); put("providers_digest", digests.providers)
-        put("settings_digest", digests.settings)
+        put("settings_digest", digests.settings); put("spoken_tokens_digest", digests.spokenTokens)
     }.toString()
     // Live-update the server-global context-compression preference without reconnecting.
     fun autoCompress(warm: Boolean, auto: Boolean, thresholdK: Int) = buildJsonObject {
@@ -642,6 +684,18 @@ object Outbound {
     fun profileDelete(name: String, updatedAt: Long) =
         buildJsonObject { put("type", "profile_delete"); put("name", name); put("updated_at", updatedAt) }.toString()
     fun profileSetDefault(name: String) = buildJsonObject { put("type", "profile_set_default"); put("name", name) }.toString()
+
+    // Spoken tokens (Settings → Spoken tokens). The app owns the catalogue; the
+    // server persists it and broadcasts an updated `spoken_tokens` after every change.
+    fun spokenTokenPut(t: SpokenTokenInfo) = buildJsonObject {
+        put("type", "spoken_token_put")
+        putJsonObject("spoken_token") {
+            put("name", t.name); put("phrase", t.phrase); put("action", t.action)
+            put("model", t.model); put("updated_at", t.updatedAt)
+        }
+    }.toString()
+    fun spokenTokenDelete(name: String, updatedAt: Long) =
+        buildJsonObject { put("type", "spoken_token_delete"); put("name", name); put("updated_at", updatedAt) }.toString()
 
     // Provider (AI-backend) settings overlay (Settings → Providers). The backends
     // are compile-time; the app sets per-backend overrides — the model a spawn

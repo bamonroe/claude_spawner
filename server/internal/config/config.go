@@ -27,6 +27,12 @@ type Config struct {
 	// templating, parsed from SPAWNER_PROFILE_VARS (a JSON object). A profile's own
 	// vars overlay these. Empty/unset means no global vars.
 	ProfileVars map[string]string
+	// SpokenTokensPath is the file where the app-managed spoken-token catalogue is
+	// persisted — the wake/end/speak phrases (and their optional detector models). The
+	// app is the source of truth; the server stores it so it survives restarts and is
+	// shared across clients. A missing file is seeded with the built-in "hey buddy"
+	// wake family + the "beep" end token, then the app owns it.
+	SpokenTokensPath string
 	// ProvidersPath is the optional JSON file where the app-managed provider
 	// (AI-backend) settings overlay is persisted — per-backend default model and the
 	// voice-enumerable model subset. The backends themselves are compile-time; this
@@ -176,6 +182,7 @@ func Load() (*Config, error) {
 		WebDir:               os.Getenv("SPAWNER_WEB_DIR"),
 		StatePath:            env("SPAWNER_STATE", "sessions.json"),
 		ProfilesPath:         env("SPAWNER_PROFILES", "profiles.json"),
+		SpokenTokensPath:     env("SPAWNER_SPOKEN_TOKENS", "spoken_tokens.json"),
 		ProvidersPath:        env("SPAWNER_PROVIDERS", "providers.json"),
 		HostsPath:            env("SPAWNER_HOSTS", "hosts.json"),
 		IdentitiesPath:       env("SPAWNER_IDENTITIES", "identities.json"),

@@ -9,6 +9,7 @@ import (
 
 	"github.com/bam/claude_spawner/server/internal/agent"
 	"github.com/bam/claude_spawner/server/internal/session"
+	"github.com/bam/claude_spawner/server/internal/spoken"
 )
 
 // Per-catalogue digest: a stable, order-INDEPENDENT checksum over the live
@@ -128,6 +129,19 @@ func providersDigest(reg *agent.Registry, settings *agent.SettingsStore) string 
 			a.ID, a.Name, settings.DefaultModel(a),
 			digestList(models), digestList(voice),
 			strconv.FormatInt(settings.UpdatedAt(a), 10),
+		}, digestFieldSep))
+	}
+	return foldDigest(recs)
+}
+
+// spokenTokensDigest folds the spoken-token catalogue with the same FNV-1a-64
+// canonical scheme as the others: each record's (name, phrase, action, model,
+// updated_at). Must be byte-identical to the Kotlin CatalogueDigest.spokenTokens fold.
+func spokenTokensDigest(tokens []*spoken.Token) string {
+	recs := make([]string, 0, len(tokens))
+	for _, t := range tokens {
+		recs = append(recs, strings.Join([]string{
+			t.Name, t.Phrase, t.Action, t.Model, strconv.FormatInt(t.UpdatedAt, 10),
 		}, digestFieldSep))
 	}
 	return foldDigest(recs)

@@ -12,6 +12,24 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-19 — **Spoken tokens: fully configurable wake/end/speech-gate phrases.** Replaced the
+      hardcoded `command.wakePhrases` "hey buddy" family with a general **spoken-token** model: a new
+      leaf package `server/internal/spoken` owns a closed, extensible **action registry** (wake, end,
+      speech_gate) + a `Token` type (phrase, action, optional detector model) + match helpers. Tokens
+      are an app-managed, server-persisted, re-broadcast catalogue (`SPAWNER_SPOKEN_TOKENS` /
+      `session.SpokenTokenStore`, mirroring hosts/profiles: LWW + tombstones + digest), seeded on
+      first run with today's built-ins so a fresh deploy is unchanged. The configured list **fully
+      replaces** the built-in wake word (no longer a forced union). Several tokens can share an action
+      ("hey buddy" and "hey gecko" both wake); a token with a model is scored by the detector sidecar,
+      else Whisper string-matched. `command` matchers now take an explicit phrase set; the gateway
+      derives wake/end/speak phrases + detector models from the catalogue live (all seams repointed:
+      stripWake/split/gate/end-split/`endTokenFired`/vocabBias/dialog). New wire: `spoken_token_put`/
+      `spoken_token_delete` in, `spoken_tokens` (synced) + `actions` (advertised) out, `spoken_tokens_digest`
+      in `hello`. App: `SpokenTokenInfo`/`ActionInfo`, sixth `CatalogueSync` catalogue + digest parity,
+      a **Settings → Spoken tokens** editor (list by action, add/edit/delete, action chips + model
+      field); the flat wake/end/speak fields left Commands settings. Sets up the LiveKit epic's
+      per-token ONNX model picks. All drift tests updated + green.
+
 - **Move the whisper/kokoro STT+TTS containers out to `/data/speech_services`.** The speech
   models (accurate whisper on `:8571`, kokoro TTS on `:8880`) are being consolidated into the
   standalone `/data/speech_services` stack, which republishes the **same ports**, so the spawner

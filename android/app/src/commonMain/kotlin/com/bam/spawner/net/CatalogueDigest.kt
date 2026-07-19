@@ -76,9 +76,15 @@ object CatalogueDigest {
     fun settings(ss: List<SettingRecord>): String = fold(ss.map {
         listOf(it.key, it.value, it.updatedAt.toString()).joinToString(FS)
     })
+
+    // The spoken-token catalogue, folded (name, phrase, action, model, updated_at) —
+    // byte-identical to Go's spokenTokensDigest.
+    fun spokenTokens(ts: List<SpokenTokenInfo>): String = fold(ts.map {
+        listOf(it.name, it.phrase, it.action, it.model, it.updatedAt.toString()).joinToString(FS)
+    })
 }
 
-/** The four catalogue digests the app presents in the `hello` handshake so the
+/** The per-catalogue digests the app presents in the `hello` handshake so the
  *  server can skip re-sending an unchanged catalogue on connect. Empty strings
  *  (an older client's default) mismatch every server digest, so it re-sends all. */
 data class CatalogueDigests(
@@ -87,4 +93,5 @@ data class CatalogueDigests(
     val profiles: String = "",
     val providers: String = "",
     val settings: String = "",
+    val spokenTokens: String = "",
 )

@@ -376,6 +376,15 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     override val agents: StateFlow<List<com.bam.spawner.net.AgentInfo>> = catalogues.agents
     override val profiles: StateFlow<List<ProfileInfo>> = catalogues.profiles
 
+    // Spoken-token catalogue (`spoken_tokens`) + the closed action set the server
+    // advertises (`actions`). The tokens reconcile through `catalogues`; the actions
+    // are advertise-only, cached here to populate the editor's action dropdown.
+    override val spokenTokens: StateFlow<List<com.bam.spawner.net.SpokenTokenInfo>> = catalogues.spokenTokens
+    private val _spokenActions = MutableStateFlow<List<com.bam.spawner.net.ActionInfo>>(emptyList())
+    override val spokenActions: StateFlow<List<com.bam.spawner.net.ActionInfo>> = _spokenActions.asStateFlow()
+    override fun putSpokenToken(t: com.bam.spawner.net.SpokenTokenInfo) = catalogues.putSpokenToken(t)
+    override fun deleteSpokenToken(name: String) = catalogues.deleteSpokenToken(name)
+
     // Spoken-audio output routing (earpiece/speaker/bluetooth). `audioOutputs` is
     // what's currently selectable (bluetooth only when a headset is connected);
     // `audioOutput` is the active one.
@@ -1515,7 +1524,9 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                 session.noteServerTruth(msg.items)
             }
             is ServerMsg.HostList, is ServerMsg.IdentityList,
-            is ServerMsg.Agents, is ServerMsg.Profiles -> catalogues.apply(msg)
+            is ServerMsg.Agents, is ServerMsg.Profiles,
+            is ServerMsg.SpokenTokens -> catalogues.apply(msg)
+            is ServerMsg.Actions -> _spokenActions.value = msg.actions
             is ServerMsg.Settings -> { catalogues.apply(msg); mirrorSettingsToPrefs() }
             is ServerMsg.Err -> {
                 // Version skew: an older server that predates the transcript-cache feature

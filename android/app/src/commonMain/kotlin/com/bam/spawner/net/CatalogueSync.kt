@@ -38,8 +38,9 @@ class Catalogue<T>(
 }
 
 /**
- * The single, shared reconciliation point for the four app-managed catalogues —
- * hosts, identities, execution profiles, and provider (AI-backend) overlays. Both
+ * The single, shared reconciliation point for the app-managed catalogues — hosts,
+ * identities, execution profiles, provider (AI-backend) overlays, shared settings,
+ * and spoken tokens. Both
  * clients ([com.bam.spawner.VoiceController] on Android, the web controller on wasmJs)
  * own one of these and route their inbound catalogue apply and outbound catalogue
  * mutators through it, so the reconcile logic lives in `commonMain` exactly once and
@@ -60,11 +61,14 @@ class CatalogueSync(private val send: (String) -> Unit) {
     private val profileCat = Catalogue<ProfileInfo>(key = ProfileInfo::name, updatedAt = ProfileInfo::updatedAt)
     private val agentCat = Catalogue<AgentInfo>(key = AgentInfo::id, updatedAt = AgentInfo::updatedAt)
     private val settingCat = Catalogue<SettingRecord>(key = SettingRecord::key, updatedAt = SettingRecord::updatedAt)
+    private val tokenCat = Catalogue<SpokenTokenInfo>(key = SpokenTokenInfo::name, updatedAt = SpokenTokenInfo::updatedAt)
 
     val hosts: StateFlow<List<Host>> = hostCat.items
     val identities: StateFlow<List<Identity>> = identityCat.items
     val profiles: StateFlow<List<ProfileInfo>> = profileCat.items
     val agents: StateFlow<List<AgentInfo>> = agentCat.items
+    /** The app-managed spoken-token catalogue (wake/end/speak phrases + models). */
+    val spokenTokens: StateFlow<List<SpokenTokenInfo>> = tokenCat.items
     /** The shared server-global settings catalogue, as keyed records. Controllers
      *  read typed values off this (see [settingValue]) and mirror them into the UI. */
     val settings: StateFlow<List<SettingRecord>> = settingCat.items
@@ -83,6 +87,7 @@ class CatalogueSync(private val send: (String) -> Unit) {
         profiles = CatalogueDigest.profiles(profileCat.items.value),
         providers = CatalogueDigest.providers(agentCat.items.value),
         settings = CatalogueDigest.settings(settingCat.items.value),
+        spokenTokens = CatalogueDigest.spokenTokens(tokenCat.items.value),
     )
 
     /** The current string value of a shared setting, or null when the server hasn't
@@ -100,6 +105,7 @@ class CatalogueSync(private val send: (String) -> Unit) {
         is ServerMsg.Profiles -> { profileCat.apply(msg.profiles); true }
         is ServerMsg.Agents -> { agentCat.apply(msg.agents); true }
         is ServerMsg.Settings -> { settingCat.apply(msg.settings); true }
+        is ServerMsg.SpokenTokens -> { tokenCat.apply(msg.tokens); true }
         else -> false
     }
 
@@ -128,6 +134,10 @@ class CatalogueSync(private val send: (String) -> Unit) {
     // --- Providers / AI-backend overlays (Settings → Providers) --------------
     fun putProvider(agent: String, defaultModel: String, voiceModels: List<String>) =
         send(Outbound.providerPut(agent, defaultModel, voiceModels, nowEpochMs()))
+
+    // --- Spoken tokens (Settings → Spoken tokens) ----------------------------
+    fun putSpokenToken(t: SpokenTokenInfo) = send(Outbound.spokenTokenPut(t.copy(updatedAt = nowEpochMs())))
+    fun deleteSpokenToken(name: String) = send(Outbound.spokenTokenDelete(name, nowEpochMs()))
 
     // --- Shared settings (whisper models, auto-compress, summary-only) --------
     // Each scalar is its own keyed record so per-key last-writer-wins arbitrates

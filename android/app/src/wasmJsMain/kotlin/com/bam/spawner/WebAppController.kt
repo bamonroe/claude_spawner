@@ -210,6 +210,11 @@ class WebAppController(private val prefs: Prefs) : AppController {
     private val catalogues = com.bam.spawner.net.CatalogueSync { client?.send(it) }
     override val agents: StateFlow<List<AgentInfo>> = catalogues.agents
     override val profiles: StateFlow<List<ProfileInfo>> = catalogues.profiles
+    override val spokenTokens: StateFlow<List<com.bam.spawner.net.SpokenTokenInfo>> = catalogues.spokenTokens
+    private val _spokenActions = MutableStateFlow<List<com.bam.spawner.net.ActionInfo>>(emptyList())
+    override val spokenActions: StateFlow<List<com.bam.spawner.net.ActionInfo>> = _spokenActions.asStateFlow()
+    override fun putSpokenToken(t: com.bam.spawner.net.SpokenTokenInfo) = catalogues.putSpokenToken(t)
+    override fun deleteSpokenToken(name: String) = catalogues.deleteSpokenToken(name)
 
     private val _listing = MutableStateFlow<ServerMsg.Listing?>(null)
     override val listing: StateFlow<ServerMsg.Listing?> = _listing.asStateFlow()
@@ -514,7 +519,9 @@ class WebAppController(private val prefs: Prefs) : AppController {
             is ServerMsg.FileSaved -> _fileSaved.tryEmit(msg.path)
             is ServerMsg.FileData -> _fileData.tryEmit(msg)
             is ServerMsg.HostList, is ServerMsg.IdentityList,
-            is ServerMsg.Agents, is ServerMsg.Profiles -> catalogues.apply(msg)
+            is ServerMsg.Agents, is ServerMsg.Profiles,
+            is ServerMsg.SpokenTokens -> catalogues.apply(msg)
+            is ServerMsg.Actions -> _spokenActions.value = msg.actions
             is ServerMsg.Settings -> { catalogues.apply(msg); mirrorSettingsToPrefs() }
             is ServerMsg.Digests -> {
                 // Latest server truth per session (bodies-free), from the connect-time

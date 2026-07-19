@@ -5,6 +5,7 @@ import (
 
 	"github.com/bam/claude_spawner/server/internal/agent"
 	"github.com/bam/claude_spawner/server/internal/session"
+	"github.com/bam/claude_spawner/server/internal/spoken"
 	"github.com/bam/claude_spawner/server/internal/usage"
 )
 
@@ -32,6 +33,7 @@ type inbound struct {
 	VoiceModels           []string             `json:"voice_models"`            // on provider_put: the exact model aliases the voice commands enumerate (nil = leave at all)
 	Profile               string               `json:"profile"`                 // on spawn_at: execution profile name; "" = default profile
 	ProfileDef            *session.ExecProfile `json:"profile_def"`             // on profile_put: the full execution profile to add/update
+	SpokenToken           *spoken.Token        `json:"spoken_token"`            // on spoken_token_put: the wake/end/speak token to add/update (updated_at inside)
 	Codec                 string               `json:"codec"`                   // audio codec on wake: "ogg_opus" | "pcm16"
 	ClientID              string               `json:"client_id"`               // stable per-app id, for reconnect/resume
 	HandsFree             bool                 `json:"hands_free"`              // set on `wake` when the clip is VAD-gated (hands-free)
@@ -71,6 +73,7 @@ type inbound struct {
 	HostsDigest           string               `json:"hosts_digest"`            // on `hello`: the app's per-catalogue skip-if-equal digest of its cached hosts (order-independent fold over each record's key+updated_at+payload); a match lets the server skip re-sending host_list on connect
 	IdentitiesDigest      string               `json:"identities_digest"`       // on `hello`: the app's digest of its cached identities (same fast path)
 	ProfilesDigest        string               `json:"profiles_digest"`         // on `hello`: the app's digest of its cached profiles (same fast path)
+	SpokenTokensDigest    string               `json:"spoken_tokens_digest"`    // on `hello`: the app's digest of its cached spoken-token catalogue (same fast path)
 	ProvidersDigest       string               `json:"providers_digest"`        // on `hello`: the app's digest of its cached provider/agent catalogue (same fast path)
 	SettingsDigest        string               `json:"settings_digest"`         // on `hello`: the app's digest of its cached shared-settings catalogue (same fast path)
 	Key                   string               `json:"key"`                     // on `setting_put`: the shared-setting key (whisper_model, warm_compress, auto_compress, auto_compress_threshold, summary_only, …)
@@ -104,6 +107,31 @@ func msgAgents(reg *agent.Registry, settings *agent.SettingsStore) map[string]an
 		def = d.ID
 	}
 	return map[string]any{"type": "agents", "agents": agents, "default": def}
+}
+
+// msgActions advertises the closed set of bindable spoken-token actions (wake,
+// end, speech-gate) so the app's token editor knows which features a phrase can be
+// bound to. Advertise-only, like the shape of the agents backend list: the app
+// never echoes it back, it just populates the action dropdown. The set is
+// compile-time (spoken.Actions), so this ships on connect and never changes at
+// runtime.
+func msgActions() map[string]any {
+	acts := make([]map[string]any, 0)
+	for _, a := range spoken.Actions() {
+		acts = append(acts, map[string]any{"id": a.ID, "label": a.Label, "desc": a.Desc})
+	}
+	return map[string]any{"type": "actions", "actions": acts}
+}
+
+// msgSpokenTokens advertises the app-managed spoken-token catalogue (wake/end/speak
+// phrases + optional detector models). Each entry is the full spoken.Token, so the
+// app's token editor can round-trip every field; the Token structs marshal directly,
+// so their JSON tags are the wire shape. Synced like the profile/host catalogues.
+func msgSpokenTokens(tokens []*spoken.Token) map[string]any {
+	if tokens == nil {
+		tokens = []*spoken.Token{}
+	}
+	return map[string]any{"type": "spoken_tokens", "spoken_tokens": tokens}
 }
 
 // msgProfiles advertises the execution-profile catalogue. Each entry is the full
