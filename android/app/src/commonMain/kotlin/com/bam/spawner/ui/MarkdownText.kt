@@ -14,12 +14,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 
@@ -166,7 +169,9 @@ private fun inline(text: String): AnnotatedString {
                         if (close >= 0 && close + 1 < text.length && text[close + 1] == '(') {
                             val paren = text.indexOf(')', close + 2)
                             if (paren >= 0) {
-                                withStyle(SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline)) {
+                                val url = text.substring(close + 2, paren)
+                                val linkStyle = SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline)
+                                withLink(LinkAnnotation.Url(url, styles = TextLinkStyles(style = linkStyle))) {
                                     append(text.substring(i + 1, close))
                                 }
                                 i = paren + 1
