@@ -407,10 +407,13 @@ fun InputBar(
       Layout(
           modifier = Modifier.fillMaxWidth().padding(8.dp),
           content = {
-              // 📎: upload a phone file to — or download one from — the session's host,
-              // prefilling the box with "look at the file at <path>".
+              // 📎: upload phone files to — or download them from — the session's host,
+              // prefilling the box with "look at the file at <path>". Multiple uploads
+              // land as separate onUploaded calls, so append each after the first.
               Box(Modifier.layoutId("transfer")) {
-                  transferButton { path -> draft = "look at the file at $path" }
+                  transferButton { path ->
+                      draft = if (draft.isBlank()) "look at the file at $path" else "$draft, $path"
+                  }
               }
               Box(Modifier.layoutId("field")) { messageField() }
               Box(Modifier.layoutId("send")) { sendButton() }

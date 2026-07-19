@@ -1625,6 +1625,14 @@ same authenticated socket (base64 in one message each way, 64 MiB cap).
       `look at the file at <path>`. Download: files-mode `TransferPickerDialog` picks a file →
       `controller.downloadFile`; on `file_data`, SAF `CreateDocument` saves it. Fully wired in
       `MainActivity.kt` (`TransferButton`) + `VoiceController.kt`; nothing stubbed.
+- [x] 2026-07-17 — **Multi-file select (both directions, both clients).** Upload: Android SAF
+      `OpenMultipleDocuments` + web `<input multiple>` pick a batch → one destination-dir pick →
+      an `upload` message per file. Download: `TransferPickerDialog` file mode grew a per-row
+      checkbox with a selection that persists across folder navigation; confirm fires a `download`
+      per ticked file. No wire change — multi-file is just N of the existing per-file messages.
+      Android queues the SAF `CreateDocument` "save as" dialogs one at a time (only one activity
+      result may be in flight); the browser runs the blob saves concurrently. The draft prefill
+      comma-joins multiple uploaded paths. `TransferPickerDialog.onPick` is now `(List<String>)`.
 
 ### De-fragilize session identity (epic — make `session_id` the identity, not the name)
 

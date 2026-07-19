@@ -31,40 +31,59 @@ import kotlin.js.Promise
 // blob back out. Both are done in plain JS: the DOM File API to read, an object-URL anchor
 // to save. Kept out of the composable so the UI below is pure Compose.
 
-/** Opens the browser file picker and, once a file is chosen, calls [onPicked] with its
- *  name and base64 content. The picker is opened synchronously inside the click handler
- *  (browsers require the `<input>.click()` to be in the user-gesture task); the result is
- *  delivered later via the FileReader promise. */
-fun pickFileB64(onPicked: (name: String, contentB64: String) -> Unit) {
-    jsPickFileB64().then<JsAny?> { packed: JsString ->
-        val s = packed.toString()
-        if (s.isNotEmpty()) {
-            val nl = s.indexOf('\n')
-            if (nl >= 0) onPicked(s.substring(0, nl), s.substring(nl + 1))
-        }
+/** A browser file the user picked to upload: its display name and base64 bytes. */
+data class WebUploadFile(val name: String, val content: String)
+
+/** Opens the browser file picker (multi-select enabled) and, once files are chosen, calls
+ *  [onPicked] with every picked file's name and base64 content. The picker is opened
+ *  synchronously inside the click handler (browsers require the `<input>.click()` to be in
+ *  the user-gesture task); the result is delivered later via the FileReader promise. */
+fun pickFilesB64(onPicked: (List<WebUploadFile>) -> Unit) {
+    jsPickFilesB64().then<JsAny?> { packed: JsString ->
+        // The result is a flat list of alternating name / base64 lines (see below), so
+        // walk it two lines at a time. Neither a filename nor single-line base64 can
+        // contain a newline, so this pairing is unambiguous.
+        val lines = packed.toString().split('\n')
+        val files = mutableListOf<WebUploadFile>()
+        var i = 0
+        while (i + 1 < lines.size) { files.add(WebUploadFile(lines[i], lines[i + 1])); i += 2 }
+        if (files.isNotEmpty()) onPicked(files)
         null
     }
 }
 
-// The DOM result is packed as "<filename>\n<base64>" (empty string if the user cancelled),
-// so a single JsString crosses the boundary. readAsDataURL yields "data:...;base64,XXXX";
-// we keep only the part after the comma.
-private fun jsPickFileB64(): Promise<JsString> = js(
+// Every chosen file is packed as two newline-separated lines — "<name>" then "<base64>" —
+// and all files are concatenated into one newline-joined JsString (empty if the user
+// cancelled), so a single value crosses the boundary. readAsDataURL yields
+// "data:...;base64,XXXX"; we keep only the part after the comma.
+private fun jsPickFilesB64(): Promise<JsString> = js(
     """
     new Promise(function(resolve){
       var input = document.createElement('input');
       input.type = 'file';
+      input.multiple = true;
       input.onchange = function(){
-        var f = input.files && input.files[0];
-        if(!f){ resolve(''); return; }
-        var r = new FileReader();
-        r.onload = function(){
-          var s = String(r.result);
-          var comma = s.indexOf(',');
-          resolve(f.name + '\n' + (comma >= 0 ? s.substring(comma+1) : s));
-        };
-        r.onerror = function(){ resolve(''); };
-        r.readAsDataURL(f);
+        var files = input.files;
+        if(!files || !files.length){ resolve(''); return; }
+        var out = new Array(files.length);
+        var done = 0;
+        for(var i = 0; i < files.length; i++){
+          (function(idx){
+            var f = files[idx];
+            var r = new FileReader();
+            r.onload = function(){
+              var s = String(r.result);
+              var comma = s.indexOf(',');
+              out[idx] = f.name + '\n' + (comma >= 0 ? s.substring(comma+1) : s);
+              if(++done === files.length) resolve(out.filter(function(x){return x;}).join('\n'));
+            };
+            r.onerror = function(){
+              out[idx] = '';
+              if(++done === files.length) resolve(out.filter(function(x){return x;}).join('\n'));
+            };
+            r.readAsDataURL(f);
+          })(i);
+        }
       };
       input.click();
     })
@@ -89,11 +108,11 @@ fun saveB64(name: String, b64: String): Unit = js(
 
 // ── The web 📎 button ────────────────────────────────────────────────────────
 
-/** The browser equivalent of the Android SAF transfer button: a menu to upload a
- *  browser-picked file onto the session's host, or download a host file back to the
- *  browser's downloads — both over the same authenticated WebSocket, reusing the shared
- *  [TransferPickerDialog] to choose the host directory/file. An upload prefills the
- *  message box via [onUploaded]. */
+/** The browser equivalent of the Android SAF transfer button: a menu to upload one or
+ *  more browser-picked files onto the session's host, or download one or more host files
+ *  back to the browser's downloads — both over the same authenticated WebSocket, reusing
+ *  the shared [TransferPickerDialog] to choose the host directory/files. An upload prefills
+ *  the message box via [onUploaded]. */
 @Composable
 fun WebTransferButton(
     controller: AppController,
@@ -110,7 +129,8 @@ fun WebTransferButton(
 
     // An upload landed on the host: prefill the message box (do NOT send).
     LaunchedEffect(Unit) { controller.fileSaved.collect { onUploaded(it) } }
-    // A download's bytes arrived: hand them to the browser as a file save.
+    // A download's bytes arrived: hand them to the browser as a file save (the browser
+    // happily runs several concurrent blob downloads, so no queueing is needed here).
     LaunchedEffect(Unit) { controller.fileData.collect { fd -> saveB64(fd.name, fd.content) } }
 
     Box {
@@ -124,7 +144,7 @@ fun WebTransferButton(
             DropdownMenuItem(text = { Text("Upload file") }, onClick = {
                 menu = false
                 val where = start()
-                pickFileB64 { name, b64 -> pendingUpload = PendingWebUpload(name, b64, where) }
+                pickFilesB64 { files -> pendingUpload = PendingWebUpload(files, where) }
             })
             DropdownMenuItem(text = { Text("Download file") }, onClick = {
                 menu = false; downloadStart = start()
@@ -132,32 +152,35 @@ fun WebTransferButton(
         }
     }
 
-    // Upload: choose the destination directory on the session's host, then send.
+    // Upload: choose the destination directory on the session's host, then send each file.
     pendingUpload?.let { up ->
+        val title = up.files.singleOrNull()?.let { "Upload “${it.name}” to…" }
+            ?: "Upload ${up.files.size} files to…"
         TransferPickerDialog(
             controller = controller,
             host = up.start.host,
             startDir = up.start.dir,
             pickFiles = false,
-            title = "Upload “${up.name}” to…",
-            onPick = { dir ->
-                controller.uploadFile(dir, up.name, up.content, up.start.host)
+            title = title,
+            onPick = { dirs ->
+                val dir = dirs.first()
+                up.files.forEach { controller.uploadFile(dir, it.name, it.content, up.start.host) }
                 pendingUpload = null
             },
             onDismiss = { pendingUpload = null },
         )
     }
 
-    // Download: choose a file on the session's host; its bytes come back as file_data.
+    // Download: tick one or more files on the session's host; each comes back as file_data.
     downloadStart?.let { s ->
         TransferPickerDialog(
             controller = controller,
             host = s.host,
             startDir = s.dir,
             pickFiles = true,
-            title = "Download a file",
-            onPick = { path ->
-                controller.downloadFile(path, s.host)
+            title = "Download files",
+            onPick = { paths ->
+                paths.forEach { controller.downloadFile(it, s.host) }
                 downloadStart = null
             },
             onDismiss = { downloadStart = null },
@@ -165,5 +188,5 @@ fun WebTransferButton(
     }
 }
 
-/** A browser file the user picked to upload, held while they choose a destination dir. */
-private data class PendingWebUpload(val name: String, val content: String, val start: DirHost)
+/** Browser files the user picked to upload, held while they choose a destination dir. */
+private data class PendingWebUpload(val files: List<WebUploadFile>, val start: DirHost)

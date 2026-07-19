@@ -181,20 +181,24 @@ button** on the right of each card **attaches to that session directly**, no exp
 
 ### Transferring files to and from a session
 
-To the **left of the message box** is a transfer button (📎). Tap it to **upload** or **download** a
-file over the same authenticated WebSocket — no separate share sheet or `scp`.
+To the **left of the message box** is a transfer button (📎). Tap it to **upload** or **download**
+files over the same authenticated WebSocket — no separate share sheet or `scp`. Both directions
+support **selecting multiple files** at once.
 
-- **Upload:** pick a file on the phone (the system file picker), then choose a destination directory
-  on the session's host — the picker opens at the **session's own directory** and browses that host's
-  filesystem (the same host-scoped browser the New-session picker uses, over SSH). The file is written
-  there, and the message box is **prefilled** with `look at the file at <path>` — *not sent*, so you can
-  edit or add to it before dictating/hitting send.
+- **Upload:** pick one or more files on the phone (the system file picker is multi-select), then
+  choose a single destination directory on the session's host — the picker opens at the **session's
+  own directory** and browses that host's filesystem (the same host-scoped browser the New-session
+  picker uses, over SSH). All picked files are written there, and the message box is **prefilled**
+  with `look at the file at <path>` (paths comma-joined when you sent several) — *not sent*, so you
+  can edit or add to it before dictating/hitting send.
 - **Download:** the reverse — browse the host's filesystem starting at the session's directory (files
-  are shown alongside folders now), pick a file, then choose where to save it on the phone.
+  are shown alongside folders, each with a checkbox), **tick one or more files** (the selection
+  persists as you navigate between folders), confirm, then choose where to save each on the phone.
 
-Bytes travel base64-encoded in one message each way, capped at 64 MiB. Because the transfer runs on the
-session's host over SSH, an upload lands on the very machine the session runs on (loopback for a local
-session), exactly where Claude will look for it.
+Bytes travel base64-encoded in one message per file each way, capped at 64 MiB per file. Multi-file
+transfers are simply several of those messages. Because the transfer runs on the session's host over
+SSH, an upload lands on the very machine the session runs on (loopback for a local session), exactly
+where Claude will look for it.
 
 ### Offline transcript cache
 

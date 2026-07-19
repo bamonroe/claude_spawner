@@ -85,6 +85,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -327,9 +328,11 @@ private fun AppRoot(
     }
 }
 
-/** A file the user picked to upload, held while they choose a destination directory.
- *  [DirHost] is shared with the web transfer button (see commonMain/TransferPicker.kt). */
-private data class PendingUpload(val name: String, val content: String, val start: DirHost)
+/** A batch of files the user picked to upload, held while they choose one destination
+ *  directory. Each entry is a display name + base64 bytes; all land in the same [start]
+ *  dir. [DirHost] is shared with the web transfer button (see commonMain/TransferPicker.kt). */
+private data class PendingUpload(val files: List<UploadFile>, val start: DirHost)
+private data class UploadFile(val name: String, val content: String)
 
 /** The 📎 button left of the message box: a menu to upload a phone file onto the
  *  session's host, or download a host file back to the phone — both over the same
@@ -346,26 +349,32 @@ private fun TransferButton(
     var pendingUpload by remember { mutableStateOf<PendingUpload?>(null) }
     // Non-null while the download file-picker is open (its browse start point).
     var downloadStart by remember { mutableStateOf<DirHost?>(null) }
-    // A finished download's bytes, awaiting a "save as" destination.
+    // Downloaded files whose bytes have arrived but haven't been "saved as" yet. Android
+    // allows only one activity-result "save as" in flight, so multi-file downloads queue
+    // here and are drained one dialog at a time.
+    val saveQueue = remember { mutableStateListOf<ServerMsg.FileData>() }
+    // The file whose "save as" dialog is currently open (the head of the queue in flight).
     var pendingSave by remember { mutableStateOf<ServerMsg.FileData?>(null) }
 
     fun start(): DirHost =
         controller.attachedDirHost()?.let { DirHost(it.first, it.second) } ?: DirHost("/", "")
 
-    // Pick a phone file → hold its name + base64 bytes, then open the dest-dir picker.
-    val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
+    // Pick one or more phone files → hold their names + base64 bytes, then open the
+    // dest-dir picker (all selected files upload into the one chosen directory).
+    val pickFiles = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments(),
+    ) { uris ->
+        val files = uris.mapNotNull { uri ->
             val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                ?: return@mapNotNull null
             val name = context.contentResolver
                 .query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
                 ?.use { c -> if (c.moveToFirst()) c.getString(0) else null } ?: "upload.bin"
-            if (bytes != null) {
-                val b64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
-                pendingUpload = PendingUpload(name, b64, start())
-            }
+            UploadFile(name, android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP))
         }
+        if (files.isNotEmpty()) pendingUpload = PendingUpload(files, start())
     }
-    // "Save as" destination for a completed download → write the decoded bytes there.
+    // "Save as" destination for the in-flight download → write the decoded bytes there.
     val saveFile = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/octet-stream"),
     ) { uri ->
@@ -379,9 +388,17 @@ private fun TransferButton(
 
     // An upload landed: prefill the message box (do NOT send).
     LaunchedEffect(Unit) { controller.fileSaved.collect { onUploaded(it) } }
-    // A download's bytes arrived: open "save as" defaulting to the file's name.
-    LaunchedEffect(Unit) {
-        controller.fileData.collect { fd -> pendingSave = fd; saveFile.launch(fd.name) }
+    // A download's bytes arrived: enqueue for "save as".
+    LaunchedEffect(Unit) { controller.fileData.collect { saveQueue.add(it) } }
+    // Drain the queue one "save as" at a time: whenever nothing is in flight and files
+    // are waiting, pop the next and open its dialog. Clearing pendingSave (on result)
+    // re-triggers this to launch the following one.
+    LaunchedEffect(pendingSave, saveQueue.size) {
+        if (pendingSave == null && saveQueue.isNotEmpty()) {
+            val next = saveQueue.removeAt(0)
+            pendingSave = next
+            saveFile.launch(next.name)
+        }
     }
 
     Box {
@@ -393,7 +410,7 @@ private fun TransferButton(
         ) { Icon(Icons.Filled.AttachFile, contentDescription = "Transfer a file") }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
             DropdownMenuItem(text = { Text("Upload file") }, onClick = {
-                menu = false; pickFile.launch(arrayOf("*/*"))
+                menu = false; pickFiles.launch(arrayOf("*/*"))
             })
             DropdownMenuItem(text = { Text("Download file") }, onClick = {
                 menu = false; downloadStart = start()
@@ -401,32 +418,35 @@ private fun TransferButton(
         }
     }
 
-    // Upload: choose the destination directory on the session's host, then send.
+    // Upload: choose the destination directory on the session's host, then send each file.
     pendingUpload?.let { up ->
+        val title = up.files.singleOrNull()?.let { "Upload “${it.name}” to…" }
+            ?: "Upload ${up.files.size} files to…"
         TransferPickerDialog(
             controller = controller,
             host = up.start.host,
             startDir = up.start.dir,
             pickFiles = false,
-            title = "Upload “${up.name}” to…",
-            onPick = { dir ->
-                controller.uploadFile(dir, up.name, up.content, up.start.host)
+            title = title,
+            onPick = { dirs ->
+                val dir = dirs.first()
+                up.files.forEach { controller.uploadFile(dir, it.name, it.content, up.start.host) }
                 pendingUpload = null
             },
             onDismiss = { pendingUpload = null },
         )
     }
 
-    // Download: choose a file on the session's host; its bytes come back as file_data.
+    // Download: tick one or more files on the session's host; each comes back as file_data.
     downloadStart?.let { s ->
         TransferPickerDialog(
             controller = controller,
             host = s.host,
             startDir = s.dir,
             pickFiles = true,
-            title = "Download a file",
-            onPick = { path ->
-                controller.downloadFile(path, s.host)
+            title = "Download files",
+            onPick = { paths ->
+                paths.forEach { controller.downloadFile(it, s.host) }
                 downloadStart = null
             },
             onDismiss = { downloadStart = null },

@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -22,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -37,9 +39,11 @@ data class DirHost(val dir: String, val host: String)
 /** A host-scoped filesystem picker for file transfer, reusing the `browse`/`listing`
  *  protocol. In directory mode (pickFiles = false) folders are navigable and a confirm
  *  button selects the current directory; in file mode (pickFiles = true) the listing
- *  also shows regular files and tapping one selects it. [onPick] receives the chosen
- *  absolute path. The displayed entries and the confirmed directory are kept in lockstep
- *  by only rendering the listing once it matches the directory we asked for.
+ *  also shows regular files, each with a checkbox — tap files (across folders; the
+ *  selection persists as you navigate) then confirm to pick them all. [onPick] receives
+ *  the chosen absolute paths: the single confirmed directory in dir mode, or every ticked
+ *  file in file mode. The displayed entries and the confirmed directory are kept in
+ *  lockstep by only rendering the listing once it matches the directory we asked for.
  *
  *  Lives in commonMain (typed against [AppController]) so the Android SAF button and the
  *  browser file button share one picker. Glyphs are Material icons, not emoji, so the
@@ -51,10 +55,12 @@ fun TransferPickerDialog(
     startDir: String,
     pickFiles: Boolean,
     title: String,
-    onPick: (String) -> Unit,
+    onPick: (List<String>) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var dir by remember { mutableStateOf(startDir) }
+    // Ticked file paths in file mode; absolute so a selection survives folder navigation.
+    val selected = remember { mutableStateListOf<String>() }
     val listing by controller.listing.collectAsState()
     LaunchedEffect(Unit) { controller.browse(startDir, host, pickFiles) }
     // Only trust the listing when it's the answer to our current directory — otherwise
@@ -72,35 +78,47 @@ fun TransferPickerDialog(
                 LazyColumn(Modifier.heightIn(max = 360.dp)) {
                     if (dir != "/") item {
                         EntryRow(
-                            icon = Icons.Filled.Folder, label = "..",
+                            icon = Icons.Filled.Folder, label = "..", checked = null,
                             onClick = { go(current?.parent?.ifEmpty { "/" } ?: "/") },
                         )
                     }
                     items(current?.entries ?: emptyList()) { e ->
+                        val ticked = pickFiles && !e.dir && e.path in selected
                         EntryRow(
                             icon = if (e.dir) Icons.Filled.Folder else Icons.Filled.Description,
                             label = e.name,
-                            onClick = { if (e.dir) go(e.path) else if (pickFiles) onPick(e.path) },
+                            checked = if (pickFiles && !e.dir) ticked else null,
+                            onClick = {
+                                if (e.dir) go(e.path)
+                                else if (pickFiles) {
+                                    if (ticked) selected.remove(e.path) else selected.add(e.path)
+                                }
+                            },
                         )
                     }
                 }
             }
         },
         confirmButton = {
-            if (!pickFiles) TextButton(onClick = { onPick(dir) }) { Text("Upload here") }
-            else TextButton(onClick = onDismiss) { Text("Close") }
+            if (!pickFiles) {
+                TextButton(onClick = { onPick(listOf(dir)) }) { Text("Upload here") }
+            } else {
+                TextButton(enabled = selected.isNotEmpty(), onClick = { onPick(selected.toList()) }) {
+                    Text(if (selected.isEmpty()) "Download" else "Download (${selected.size})")
+                }
+            }
         },
-        dismissButton = {
-            if (!pickFiles) TextButton(onClick = onDismiss) { Text("Cancel") }
-        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
 
-/** One tappable row in the transfer picker: a leading folder/file icon and the name. */
+/** One tappable row in the transfer picker: a leading folder/file icon, the name, and —
+ *  when [checked] is non-null (file rows in file mode) — a trailing selection checkbox. */
 @Composable
 private fun EntryRow(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
+    checked: Boolean?,
     onClick: () -> Unit,
 ) {
     Row(
@@ -109,6 +127,7 @@ private fun EntryRow(
     ) {
         Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.width(10.dp))
-        Text(label)
+        Text(label, Modifier.weight(1f))
+        if (checked != null) Checkbox(checked = checked, onCheckedChange = { onClick() })
     }
 }
