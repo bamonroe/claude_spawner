@@ -180,12 +180,15 @@ Dates are `YYYY-MM-DD`.
             with no readable transcript (Antigravity digests count=0, serves empty pages) wiped the
             only copy of the conversation on every reconnect — it now preserves out-of-page and
             live rows like the Android merge.
-      - [ ] **Per-sink delivery accounting.** `broadcast` returns any-success, so `finish` marks a
-            reply delivered when *one* of two attached devices got it — the other silently loses the
-            buffered redelivery (recovers via history; `ask`/`turn_stopped` aren't in any transcript
-            and are lost outright). With every terminal now id-stamped, the server could redeliver
-            the last terminal to each newly bound conn (a `replay: true` flag keeping clients from
-            speaking replays) instead of the single job-wide `delivered` boolean.
+      - [x] 2026-07-19 — **Per-sink delivery accounting.** The job-wide `delivered` boolean is gone:
+            `sessionJob` now holds a per-connection `pending` buffer (`jobs.go`). `deliver()` writes
+            the final to every sink and records the failure against exactly the connection whose write
+            failed, clearing only the ones that received it; an unreachable final becomes the `orphan`
+            handed to just the next newly-bound conn (`bindJob`), and `flushPending` retries each
+            buffer against its own connection. So a two-device attach no longer marks a reply delivered
+            just because one device got it. Double-speak of a redelivered terminal is prevented by the
+            per-turn `turnID` stamped on every terminal frame (client dedups on the id) rather than the
+            proposed `replay: true` flag — same outcome. Shipped in `5f5f75f`.
       - [ ] **Stable history row ids.** History rows are keyed by a rotation-unstable positional
             `index`; every backend transcript has durable ids we currently drop (Claude JSONL
             `uuid`/`parentUuid`, Codex response-item ids, opencode `msg_…` ids, Antigravity
