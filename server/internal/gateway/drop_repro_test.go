@@ -111,10 +111,13 @@ func TestBufferedReplyRedeliveredAfterFailedSend(t *testing.T) {
 	j := gw.jobFor(sess.SessionID)
 
 	// The phone is attached but its socket is stalled: the sole sink records what
-	// the server tried to send and reports a FAILED write.
+	// the server tried to send and reports a FAILED write. The connection pointer is
+	// STABLE across the stall and recovery — the same socket recovers in place, which
+	// is why the per-connection buffer keys on it.
 	phone := &recorder{ok: false}
+	pc := &conn{}
 	j.mu.Lock()
-	j.sinks = map[*conn]func(any) bool{{}: phone.sink}
+	j.sinks = map[*conn]func(any) bool{pc: phone.sink}
 	j.mu.Unlock()
 
 	// Turn one — the answer the user asks for while the socket is stalled.
@@ -124,20 +127,16 @@ func TestBufferedReplyRedeliveredAfterFailedSend(t *testing.T) {
 	}
 	waitIdle(t, j)
 
-	// The write failed, so the reply is buffered and undelivered.
+	// The write failed, so the reply is buffered undelivered against this connection.
 	j.mu.Lock()
-	buffered := j.final != nil
-	delivered := j.delivered
+	buffered := j.pending[pc] != nil
 	j.mu.Unlock()
-	if !buffered || delivered {
-		t.Fatalf("after failed send want buffered && !delivered, got buffered=%v delivered=%v", buffered, delivered)
+	if !buffered {
+		t.Fatalf("after failed send want a per-connection pending buffer, got none (pending=%v)", j.pending)
 	}
 
-	// The phone's socket recovers. Model this by swapping in a healthy sink.
+	// The phone's socket recovers in place (same connection, healthy writes now).
 	phone.ok = true
-	j.mu.Lock()
-	j.sinks = map[*conn]func(any) bool{{}: phone.sink}
-	j.mu.Unlock()
 
 	// Turn two — the user asks the next question. Its startTurn no longer discards
 	// the buffered reply; flushPending redelivers it before the new turn runs.
@@ -157,7 +156,59 @@ func TestBufferedReplyRedeliveredAfterFailedSend(t *testing.T) {
 	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	if j.final != nil || !j.delivered {
-		t.Fatalf("after both delivered want final==nil && delivered, got final=%v delivered=%v", j.final, j.delivered)
+	if j.pending[pc] != nil {
+		t.Fatalf("after redelivery the connection's pending buffer should be cleared, got %v", j.pending[pc])
+	}
+}
+
+// TestBufferedReplyIsPerConnection is the regression test for the multi-client
+// drop: two devices attached to one session, and the turn's reply reaches device A
+// but the write to device B fails (B briefly unreachable). The OLD single-buffer
+// design treated "reached at least one client" as delivered and dropped the buffer,
+// stranding B. The per-connection buffer must instead redeliver to B alone while
+// leaving A untouched.
+func TestBufferedReplyIsPerConnection(t *testing.T) {
+	live := &conn{}
+	stalled := &conn{}
+	a := &recorder{ok: true}  // device A: healthy socket
+	b := &recorder{ok: false} // device B: write fails
+	j := &sessionJob{running: true, sinks: map[*conn]func(any) bool{
+		live:    a.sink,
+		stalled: b.sink,
+	}}
+
+	j.finish(map[string]any{"type": "output", "text": "the-answer"})
+
+	if !a.gotOutput("the-answer") {
+		t.Fatal("device A should have received the reply directly")
+	}
+	j.mu.Lock()
+	strandedBuffered := j.pending[stalled] != nil
+	aBuffered := j.pending[live] != nil
+	orphan := j.orphan
+	j.mu.Unlock()
+	if !strandedBuffered {
+		t.Fatal("device B's missed reply must be buffered against ITS connection, not dropped because A succeeded")
+	}
+	if aBuffered {
+		t.Fatal("device A received the reply — it must NOT have a pending buffer")
+	}
+	if orphan != nil {
+		t.Fatal("a live client (A) got the reply — no orphan copy should be kept")
+	}
+
+	// B's socket recovers; flushPending redelivers to B alone (A gets nothing extra).
+	b.ok = true
+	j.flushPending()
+	if !b.gotOutput("the-answer") {
+		t.Fatal("device B's buffered reply was never redelivered — it was lost")
+	}
+	if n := len(a.msgs); n != 1 {
+		t.Fatalf("device A should have received exactly one message, got %d (redelivery leaked to A)", n)
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.pending[stalled] != nil {
+		t.Fatal("B's pending buffer should be cleared after redelivery")
 	}
 }

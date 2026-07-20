@@ -633,7 +633,7 @@ func TestUtteranceSessionIDSelectsDictationTarget(t *testing.T) {
 
 // TestJobBuffersWhenSinkFails: if a turn finishes while its only sink's write
 // fails (a dropped socket the server hasn't noticed yet), the result must be
-// buffered (delivered=false) so it's delivered on reconnect — not treated as
+// kept as the orphan buffer so it's delivered on reconnect — not treated as
 // delivered and lost, which left the app stuck on "running the command".
 func TestJobBuffersWhenSinkFails(t *testing.T) {
 	dead := &conn{}
@@ -641,26 +641,20 @@ func TestJobBuffersWhenSinkFails(t *testing.T) {
 		dead: func(any) bool { return false }, // simulate a failed write
 	}}
 	j.finish(map[string]any{"type": "output", "text": "done"})
-	if j.delivered {
-		t.Fatal("delivered should be false when the only sink's write failed")
-	}
-	if j.final == nil {
-		t.Fatal("result must be buffered for delivery on reconnect")
+	if j.orphan == nil {
+		t.Fatal("result must be kept as the orphan buffer when no live client got it")
 	}
 
-	// A live sink attaching (reconnect) then gets the buffered result and frees it.
+	// A fresh connection attaching (reconnect) then gets the orphan result; the
+	// buffer is freed. This mirrors bindJob's orphan-delivery branch.
 	var got any
-	live := &conn{}
-	j.sinks[live] = func(v any) bool { got = v; return true }
-	// mimic bindJob's deliver-buffered branch
-	if !j.delivered && j.final != nil {
-		if j.sinks[live](j.final) {
-			j.delivered = true
-			j.final = nil
+	if sink := func(v any) bool { got = v; return true }; j.orphan != nil {
+		if sink(j.orphan) {
+			j.orphan = nil
 		}
 	}
-	if got == nil || j.final != nil || !j.delivered {
-		t.Fatalf("buffered result not delivered on reconnect: got=%v final=%v delivered=%v", got, j.final, j.delivered)
+	if got == nil || j.orphan != nil {
+		t.Fatalf("orphan result not delivered on reconnect: got=%v orphan=%v", got, j.orphan)
 	}
 }
 

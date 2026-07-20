@@ -17,7 +17,7 @@ import (
 )
 
 // stampTurn tags a turn-terminal frame (ask / turn_stopped / error / the
-// compress say) with the turn's id. Every frame that can land in j.final and be
+// compress say) with the turn's id. Every frame that can be buffered and
 // redelivered on reconnect must carry the id, or the client has no way to tell
 // a buffered redelivery from a fresh event (an unstamped ask would re-present
 // its questions — and re-speak them — on every reconnect).
@@ -79,8 +79,9 @@ func logField(s string) string {
 // any WebSocket connection so a long Claude job survives the app disconnecting.
 // It fans out live events (tool breadcrumbs, the final result) to EVERY currently
 // attached connection's sink — so several devices watching the same session all
-// see the turn live — and buffers the final result if nobody is attached when the
-// turn finishes, for delivery on the next reconnect.
+// see the turn live — and buffers the final result PER connection whose write
+// failed (redelivered to just that connection), plus an orphan copy for the next
+// attach when the turn finished with no live connection at all.
 //
 // The hub persists across turns (it holds the sink set + any buffered result)
 // until the session is deleted. Sinks are maintained by bindJob/unbindJob as
@@ -91,13 +92,19 @@ func logField(s string) string {
 // j.mu -> conn.wmu, never the reverse. A sink must not call back into the job
 // (it would re-enter j.mu and deadlock); it only does a websocket write.
 type sessionJob struct {
-	mu        sync.Mutex
-	running   bool
-	final     map[string]any           // last turn's result, buffered until delivered
-	delivered bool                     // was `final` delivered to at least one live sink?
-	sinks     map[*conn]func(any) bool // every attached connection's sink
-	cancel    context.CancelFunc       // aborts the running turn's claude child
-	aborted   bool                     // set when the current turn was cancelled on request
+	mu      sync.Mutex
+	running bool
+	// pending holds, PER attached connection, a turn's result whose write to THAT
+	// connection failed (a briefly-unreachable phone) — so it is redelivered to
+	// exactly the connection(s) that missed it, independent of whether a co-attached
+	// device received the same turn. One client succeeding no longer strands another.
+	pending map[*conn]map[string]any
+	// orphan is the last turn's result when it reached NO live connection at all
+	// (nobody attached, or every attached write failed) — handed to the next attach.
+	orphan  map[string]any
+	sinks   map[*conn]func(any) bool // every attached connection's sink
+	cancel  context.CancelFunc       // aborts the running turn's claude child
+	aborted bool                     // set when the current turn was cancelled on request
 }
 
 func (j *sessionJob) isRunning() bool {
@@ -142,47 +149,68 @@ func (j *sessionJob) finish(final map[string]any) {
 	defer j.mu.Unlock()
 	j.running = false
 	j.cancel = nil
-	if j.broadcast(final) {
-		j.delivered = true // reached at least one live client; no need to buffer
-		j.final = nil      // drop any now-stale buffer (this write reached someone)
+	j.deliver(final)
+}
+
+// deliver hands `final` to every attached sink. Any connection whose write fails
+// (backgrounded / a mobile stall past the write deadline) gets `final` recorded
+// in its per-connection pending buffer so flushPending redelivers to exactly that
+// connection later — a co-attached device receiving the turn does NOT clear it.
+// If no attached connection was reachable at all, `final` is stashed as the orphan
+// buffer for the next attach. Call with j.mu held.
+func (j *sessionJob) deliver(final map[string]any) {
+	reached := false
+	for c, sink := range j.sinks {
+		if sink(final) {
+			reached = true
+			delete(j.pending, c) // this connection is caught up
+		} else {
+			if j.pending == nil {
+				j.pending = map[*conn]map[string]any{}
+			}
+			j.pending[c] = final
+		}
+	}
+	// Reached a live connection ⇒ no orphan (a reconnecting device reloads history);
+	// reached nobody ⇒ keep it for the next attach so the reply isn't lost.
+	if reached {
+		j.orphan = nil
 	} else {
-		// The send failed (nobody attached, or the client is briefly unreachable —
-		// backgrounded / a mobile stall past the write deadline). Buffer this reply
-		// UNDELIVERED so flushPending / bindJob can redeliver it once the client is
-		// reachable again, instead of the next turn silently discarding it.
-		j.final = final
-		j.delivered = false
+		j.orphan = final
 	}
 }
 
-// flushPending redelivers a buffered-but-undelivered reply from an earlier turn
-// (its send failed because the client was momentarily unreachable) now that we
-// are about to write to the client again — e.g. at the next turn's "thinking"
-// ping, by which point a backgrounded/stalled socket has typically recovered.
-// If the write reaches a live sink the reply is finally delivered; otherwise it
-// stays buffered for the next attempt. Call WITHOUT j.mu held.
+// flushPending redelivers each connection's buffered-but-undelivered reply from an
+// earlier turn (its send failed because that connection was momentarily
+// unreachable) now that we are about to write again — e.g. at the next turn's
+// "thinking" ping, by which point a backgrounded/stalled socket has typically
+// recovered. Each buffer is retried against ITS OWN connection; one that succeeds
+// clears only that connection's buffer. A connection that has since detached is
+// dropped (it reloads history on reconnect). Call WITHOUT j.mu held.
 func (j *sessionJob) flushPending() {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	if j.final != nil && !j.delivered && j.broadcast(j.final) {
-		j.delivered = true
-		j.final = nil
+	for c, msg := range j.pending {
+		sink := j.sinks[c]
+		if sink == nil {
+			delete(j.pending, c) // detached — it reloads from the transcript on reconnect
+			continue
+		}
+		if sink(msg) {
+			delete(j.pending, c)
+		}
 	}
 }
 
-// beginTurn moves the job into the running state for a new turn or compress. It
-// PRESERVES a still-undelivered buffered reply from an earlier turn (whose send
-// failed on a brief client stall) so flushPending can redeliver it, rather than
-// silently discarding it the way an unconditional reset did. Call with j.mu held.
+// beginTurn moves the job into the running state for a new turn or compress. The
+// per-connection pending buffers and the orphan buffer are LEFT INTACT — they hold
+// only still-undelivered replies (deliver clears each buffer the moment its own
+// connection receives it), so flushPending can redeliver them; this turn's own
+// deliver overwrites them when it finishes. Call with j.mu held.
 func (j *sessionJob) beginTurn(cancel context.CancelFunc) {
 	j.running = true
 	j.aborted = false
 	j.cancel = cancel
-	if j.delivered {
-		j.final = nil // prior reply already delivered — safe to drop
-		j.delivered = false
-	}
-	// else: keep the undelivered j.final (j.delivered already false) for flushPending.
 }
 
 // jobFor returns the session's job hub, creating it if absent. The hub persists
@@ -530,15 +558,20 @@ func (s *Server) bindJob(c *conn, sess *session.Session, silent bool) {
 		j.sinks = map[*conn]func(any) bool{}
 	}
 	j.sinks[c] = sink
-	// Hand back a buffered reply from an earlier turn that never reached a live
-	// client (its send failed while the client was unreachable). This is done
-	// INDEPENDENTLY of whether a new turn is now running — a running turn does not
-	// mean the earlier reply was delivered, and skipping it here (as the old
-	// running-first switch did) would strand it until a later turn wiped it.
-	if !j.delivered && j.final != nil {
-		if sink(j.final) {
-			j.delivered = true
-			j.final = nil
+	// Hand back an orphan reply from an earlier turn that reached NO live client
+	// (its sends all failed, or nobody was attached). This is done INDEPENDENTLY of
+	// whether a new turn is now running — a running turn does not mean the earlier
+	// reply was delivered, and skipping it here would strand it. If this new
+	// connection can't take it either, fall it into that connection's pending buffer.
+	if j.orphan != nil {
+		if sink(j.orphan) {
+			j.orphan = nil
+		} else {
+			if j.pending == nil {
+				j.pending = map[*conn]map[string]any{}
+			}
+			j.pending[c] = j.orphan
+			j.orphan = nil
 		}
 	}
 	if j.running {
@@ -563,6 +596,7 @@ func (s *Server) unbindJob(c *conn, sessID string) {
 	if j != nil {
 		j.mu.Lock()
 		delete(j.sinks, c)
+		delete(j.pending, c) // it reloads history on reconnect; no per-conn buffer to keep
 		j.mu.Unlock()
 	}
 }
