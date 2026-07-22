@@ -105,7 +105,19 @@ type sessionJob struct {
 	sinks   map[*conn]func(any) bool // every attached connection's sink
 	cancel  context.CancelFunc       // aborts the running turn's claude child
 	aborted bool                     // set when the current turn was cancelled on request
+	// turnFrames holds the CURRENT in-flight turn's streamed `output` frames so a
+	// connection that attaches or reconnects mid-turn can be replayed everything the
+	// turn has produced so far — the in-flight steps aren't in the on-disk transcript
+	// yet, so a history refetch can't backfill them. Reset at each turn's start,
+	// capped at maxTurnFrames (oldest dropped; the tail is what a late joiner needs,
+	// and the whole turn lands in history once it finishes).
+	turnFrames []map[string]any
 }
+
+// maxTurnFrames bounds the per-turn replay buffer so a very long agentic turn
+// can't grow it without limit; older streamed frames beyond this fall out of the
+// live catch-up and are recovered from history once the turn completes.
+const maxTurnFrames = 400
 
 func (j *sessionJob) isRunning() bool {
 	j.mu.Lock()
@@ -151,7 +163,26 @@ func (j *sessionJob) broadcastExcept(origin *conn, msg any) {
 func (j *sessionJob) emit(msg map[string]any) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
+	// Record streamed reply prose for mid-turn attach/reconnect catch-up (bindJob
+	// replays it). Only `output` frames carry chat content; ephemeral activity /
+	// pending / rate-limit frames aren't worth replaying.
+	if j.running && msg["type"] == "output" {
+		j.turnFrames = append(j.turnFrames, msg)
+		if len(j.turnFrames) > maxTurnFrames {
+			j.turnFrames = j.turnFrames[len(j.turnFrames)-maxTurnFrames:]
+		}
+	}
 	j.broadcast(msg)
+}
+
+// replayInFlight sends the current turn's streamed `output` frames to a single
+// freshly-bound sink, catching a mid-turn attach/reconnect up on reply prose that
+// isn't in the on-disk transcript yet (so a history refetch can't backfill it).
+// Call with j.mu held.
+func (j *sessionJob) replayInFlight(sink func(any) bool) {
+	for _, f := range j.turnFrames {
+		sink(f)
+	}
 }
 
 func (j *sessionJob) finish(final map[string]any) {
@@ -221,6 +252,7 @@ func (j *sessionJob) beginTurn(cancel context.CancelFunc) {
 	j.running = true
 	j.aborted = false
 	j.cancel = cancel
+	j.turnFrames = nil // fresh replay buffer for this turn's streamed output
 }
 
 // jobFor returns the session's job hub, creating it if absent. The hub persists
@@ -546,9 +578,16 @@ func (s *Server) bindJob(c *conn, sess *session.Session, silent bool) {
 		}
 	}
 	if j.running {
-		// Catch up just this new connection (not a fan-out). Silent reconnect
-		// auto-attach gets a quiet breadcrumb (so the app knows the turn survived
-		// and its interruption watchdog resets); a voice attach gets a spoken nudge.
+		// Catch up just this new connection (not a fan-out). First replay the streamed
+		// prose this turn has produced so far — a device that attached or reconnected
+		// mid-turn has none of it, and the in-flight steps aren't in the on-disk
+		// transcript yet, so a history refetch can't backfill them. The client dedups
+		// replayed frames it already holds (by turn id / text), and once the turn
+		// finishes the whole reply lands in history and collapses any live overlap.
+		j.replayInFlight(sink)
+		// Then the "still working" breadcrumb. Silent reconnect auto-attach gets a quiet
+		// one (so the app knows the turn survived and its interruption watchdog resets);
+		// a voice attach gets a spoken nudge.
 		if silent {
 			sink(msgActivity("🤔 still working…"))
 		} else {

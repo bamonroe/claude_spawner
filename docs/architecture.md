@@ -211,6 +211,16 @@ replay on reattach exactly like a Claude session's. Antigravity is the exception
 reader (`nullTranscript`), reporting no history, no context, and deleting nothing. (These persisted records are *not* the live
 `--json` streams the agents' `ParseTurn` consume during a turn.)
 
+**A turn *in flight* isn't on disk yet — so mid-turn (re)attach is caught up from a live replay
+buffer, not history.** A turn's streamed prose is only written to the on-disk transcript when it
+finishes, so a device that attaches or reconnects *while* a turn is running can't recover the
+already-streamed steps via a `history` refetch. The `sessionJob` therefore buffers the current turn's
+`output` frames (`turnFrames`, reset each `beginTurn`, capped at `maxTurnFrames`) and `bindJob` replays
+them to the freshly-bound connection (`replayInFlight`) before the "still working" breadcrumb — so a
+long agentic turn's middle isn't lost to a reconnect. The turn-terminal reply is separately protected
+by the per-connection `pending`/`orphan` redelivery buffers; the client dedups any replay overlap and
+the whole reply collapses into the indexed history row once the turn lands.
+
 ### Adding an AI backend (e.g. Gemini CLI, a local model)
 
 The checklist, in dependency order — the design goal is that a new backend is **one new file plus

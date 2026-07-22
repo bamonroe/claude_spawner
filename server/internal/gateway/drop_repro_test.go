@@ -161,6 +161,58 @@ func TestBufferedReplyRedeliveredAfterFailedSend(t *testing.T) {
 	}
 }
 
+// TestMidTurnAttachReplaysStreamedOutput is the regression test for the "webapp
+// lost the middle of a long turn" bug. A connection that attaches or reconnects
+// while a turn is in flight has none of the prose already streamed, and those
+// in-flight steps aren't in the on-disk transcript yet, so a history refetch can't
+// backfill them — bindJob used to only send a "still working" nudge. Now the job
+// buffers the turn's streamed `output` frames and replayInFlight catches a fresh
+// sink up on all of them.
+func TestMidTurnAttachReplaysStreamedOutput(t *testing.T) {
+	j := &sessionJob{}
+	j.mu.Lock()
+	j.beginTurn(func() {})
+	j.mu.Unlock()
+
+	// The turn streams two prose steps plus an ephemeral activity breadcrumb; only
+	// the output prose should be buffered for replay.
+	j.emit(msgOutput("cpt", "step one", "t1", true, nil))
+	j.emit(msgActivity("🤔 thinking…"))
+	j.emit(msgOutput("cpt", "step two", "t1", true, nil))
+
+	j.mu.Lock()
+	if got := len(j.turnFrames); got != 2 {
+		t.Fatalf("want 2 buffered output frames (activity excluded), got %d", got)
+	}
+	// A device attaches mid-turn: replayInFlight must hand it every streamed step.
+	late := &recorder{ok: true}
+	j.replayInFlight(late.sink)
+	j.mu.Unlock()
+
+	if !late.gotOutput("step one") || !late.gotOutput("step two") {
+		t.Fatal("mid-turn attach was not caught up on the turn's streamed output")
+	}
+
+	// The turn ends; a NEW turn resets the buffer so last turn's prose isn't replayed
+	// to someone attaching later (they get history + any buffered terminal reply).
+	j.finish(msgOutput("cpt", "final", "t1", false, nil))
+	j.mu.Lock()
+	j.beginTurn(func() {})
+	stale := j.turnFrames
+	j.mu.Unlock()
+	if stale != nil {
+		t.Fatalf("beginTurn must clear the replay buffer, got %v", stale)
+	}
+	// Output emitted when no turn is running is not buffered.
+	j.finish(msgOutput("cpt", "x", "t2", false, nil)) // running=false
+	j.emit(msgOutput("cpt", "after", "t2", true, nil))
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if len(j.turnFrames) != 0 {
+		t.Fatalf("output with no turn running must not be buffered, got %v", j.turnFrames)
+	}
+}
+
 // TestBufferedReplyIsPerConnection is the regression test for the multi-client
 // drop: two devices attached to one session, and the turn's reply reaches device A
 // but the write to device B fails (B briefly unreachable). The OLD single-buffer

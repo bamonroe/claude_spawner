@@ -12,6 +12,18 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-22 — **Replay a turn's streamed output to a mid-turn (re)attach — stop losing the
+      middle of a long turn.** A device that attached or reconnected *while* a turn was running got
+      only a "still working" nudge from `bindJob`; the already-streamed prose was never resent, and an
+      in-flight turn's steps aren't in the on-disk transcript yet so a `history` refetch couldn't
+      backfill them (the terminal reply had per-conn redelivery, the intermediate frames had none).
+      Diagnosed from a live webapp session on the `work` host that showed one line of a 15-minute
+      agentic turn — the server logs had **no** `ws write` errors, so the frames weren't dropped on the
+      wire, the reconnecting web conn just wasn't a bound sink when they streamed. Fix: `sessionJob`
+      buffers the current turn's `output` frames (`turnFrames`, reset each `beginTurn`, capped at
+      `maxTurnFrames`) and `bindJob` replays them (`replayInFlight`) to the freshly-bound connection.
+      Regression test `TestMidTurnAttachReplaysStreamedOutput`; `docs/architecture.md` reattach section
+      updated. Server-only; the client's existing turn-id/text dedup collapses any replay overlap.
 - [x] 2026-07-22 — **Removed the drift-live token/usage estimate.** Dropped the server-global
       calibrated usage odometer (the `~68% (est)` drawer line + the two-point "Set/Calc" benchmark in
       the usage sheet). Deleted `server/internal/usage` (the `Estimator`) and its `usage_estimate.json`
