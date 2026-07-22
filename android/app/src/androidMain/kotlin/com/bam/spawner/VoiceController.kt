@@ -208,6 +208,24 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     private val _discovered = MutableStateFlow<List<DiscoveredInfo>>(discoveredCache.load())
     override val discovered: StateFlow<List<DiscoveredInfo>> = _discovered.asStateFlow()
 
+    /** Locally bump a session's sidebar metadata (recency + busy cue) the instant a
+     *  message arrives, so the list re-sorts and shows "working…" without waiting for
+     *  the next `discover` round trip. A no-op if the session isn't in the list yet
+     *  (a later discover fills it in). Not written to the disk cache — the authoritative
+     *  snapshot still comes from the server's `discovered` frame. */
+    private fun touchDiscovered(name: String, busy: Boolean? = null) {
+        if (name.isEmpty()) return
+        val now = System.currentTimeMillis() / 1000
+        var changed = false
+        val next = _discovered.value.map { d ->
+            if (d.name == name) {
+                changed = true
+                d.copy(lastActive = maxOf(d.lastActive, now), busy = busy ?: d.busy)
+            } else d
+        }
+        if (changed) _discovered.value = next
+    }
+
     // Last error from a discover/adopt/delete action, shown on the Discover
     // screen (otherwise it would go to the hidden chat log). "" = none.
     private val _discoverError = MutableStateFlow("")
@@ -1238,6 +1256,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                 // play a soft beep as a "still working…" cue and speak only the final
                 // result when the turn closes. Everything is still shown in the chat.
                 val summaryOnly = settings.summaryOnlySpeech
+                touchDiscovered(msg.name, busy = msg.chunk) // reorder + working cue live
                 if (msg.chunk) {
                     // A live segment of Claude's reply as it's produced. Show it now; a
                     // streamed chunk also proves the turn survived (like activity), so
@@ -1332,6 +1351,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                 turnInFlight = true
                 lostTurnWatchdog?.cancel(); lostTurnWatchdog = null
                 _activity.value = msg.text
+                touchDiscovered(currentKey, busy = true)
             }
             is ServerMsg.Transcribing -> {
                 // A committed hands-free clip is being re-transcribed accurately.
@@ -1356,6 +1376,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                 streamedSessions.remove(msg.name)
                 spokenReplyCounts.remove(msg.name)
                 _activity.value = ""
+                touchDiscovered(msg.name, busy = false) // turn-terminal → clear the working cue
                 if (hfOn) _voiceState.value = VoiceState.LISTENING
                 // An ask is a turn-terminal (it ends the turn in place of the closing
                 // output) and can be redelivered buffered on reconnect — keyed by its
@@ -1374,6 +1395,7 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
                 // greyed draft line so the utterance isn't shown as both a draft and a bubble.
                 _pending.value = ""
                 addChat(Role.USER, msg.text); _mic.value = ""
+                touchDiscovered(_attachedName.value ?: currentKey, busy = true) // dictation submitted → session is now working
                 // Chirp the "heard you" acknowledgment: the server has recognized the
                 // utterance and is dispatching it to the session, so confirm receipt
                 // now — before Claude replies (and distinct from its activity beep).

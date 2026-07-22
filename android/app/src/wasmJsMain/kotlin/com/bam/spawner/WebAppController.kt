@@ -118,6 +118,24 @@ class WebAppController(private val prefs: Prefs) : AppController {
     private val _discoverError = MutableStateFlow("")
     override val discoverError: StateFlow<String> = _discoverError.asStateFlow()
 
+    /** Locally bump a session's sidebar metadata (recency + busy cue) the instant a
+     *  message arrives, so the list re-sorts and shows "working…" without waiting for
+     *  the next `discover` round trip. A no-op if the session isn't in the list yet
+     *  (a later discover fills it in). Never persisted — the authoritative snapshot
+     *  still comes from the server's `discovered` frame. */
+    private fun touchDiscovered(name: String, busy: Boolean? = null) {
+        if (name.isEmpty()) return
+        val now = nowEpochSeconds()
+        var changed = false
+        val next = _discovered.value.map { d ->
+            if (d.name == name) {
+                changed = true
+                d.copy(lastActive = maxOf(d.lastActive, now), busy = busy ?: d.busy)
+            } else d
+        }
+        if (changed) _discovered.value = next
+    }
+
     // Voice pill: OFF until hands-free is on, then LISTENING/CAPTURING/SPEAKING driven by
     // the VAD + TTS (see the hands-free section); push-to-talk leaves it OFF.
     private val _voiceState = MutableStateFlow(VoiceState.OFF)
@@ -336,6 +354,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
                 _activity.value = ""
                 // Summary-only: beep through intermediate steps, speak only the final result.
                 val summaryOnly = prefs.summaryOnlySpeech
+                touchDiscovered(msg.name, busy = msg.chunk) // reorder + working cue live
                 if (msg.chunk) {
                     streamedSessions.add(msg.name)
                     session.noteChunk(msg.name, msg.turn)
@@ -413,7 +432,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
                     client?.send(Outbound.history(msg.name, null))
                 }
             }
-            is ServerMsg.Activity -> _activity.value = msg.text
+            is ServerMsg.Activity -> { _activity.value = msg.text; touchDiscovered(currentKey, busy = true) }
             is ServerMsg.Transcribing -> _micText.value = "transcribing…" // committed clip being re-transcribed
             is ServerMsg.Files -> if (msg.files.isNotEmpty()) {
                 addChat(Role.SYSTEM, "📝 changed: " + msg.files.joinToString(", "))
@@ -427,6 +446,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
             is ServerMsg.Usage -> { _usageLoading.value = false; _usageReport.value = msg.report }
             is ServerMsg.Ask -> {
                 _activity.value = ""; streamedSessions.remove(msg.name); spokenReplyCounts.remove(msg.name)
+                touchDiscovered(msg.name, busy = false) // turn-terminal → clear the working cue
                 // An ask is a turn-terminal and can be redelivered buffered on reconnect
                 // — keyed by its turn id; drop a repeat instead of re-presenting it.
                 if (!session.terminalSeen(msg.name, msg.turn)) {
@@ -441,6 +461,7 @@ class WebAppController(private val prefs: Prefs) : AppController {
                 // so the utterance isn't shown as both a draft and a committed bubble.
                 _pending.value = ""
                 addChat(Role.USER, msg.text)
+                touchDiscovered(currentKey, busy = true) // dictation submitted → session is now working
             }
             is ServerMsg.Attached -> {
                 session.rememberPreviousOnAttach(msg.name, msg.sessionId)
