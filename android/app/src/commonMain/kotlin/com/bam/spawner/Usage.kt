@@ -12,10 +12,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.BarChart
-import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.HourglassEmpty
-import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -31,27 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.bam.spawner.net.RateLimitInfo
-import com.bam.spawner.net.UsageEstimateInfo
 import com.bam.spawner.net.UsageReport
-import kotlin.math.roundToInt
-
-/** Percent as "47%", or "—" when unknown (−1). */
-fun pctStr(p: Double): String = if (p < 0) "—" else "${p.roundToInt()}%"
-
-/** Compact token count for large sums: 800, 1.2k, 24k, 3.4M. */
-fun fmtTokL(n: Long): String = when {
-    n >= 10_000_000 -> "${(n + 500_000) / 1_000_000}M"
-    n >= 1_000_000 -> oneDecimal(n, 1_000_000) + "M"
-    n >= 10_000 -> "${(n + 500) / 1000}k"
-    n >= 1_000 -> oneDecimal(n, 1000) + "k"
-    else -> n.toString()
-}
-
-/** n/div to one rounded decimal place, without JVM String.format (e.g. 1_500_000,1_000_000 → "1.5"). */
-private fun oneDecimal(n: Long, div: Long): String {
-    val tenths = (n * 10 + div / 2) / div
-    return "${tenths / 10}.${tenths % 10}"
-}
 
 /** "· in 2h 13m" until a future unix-seconds reset (empty if past/now). */
 fun relResetSuffix(unixSeconds: Long): String {
@@ -75,23 +52,6 @@ fun relativeTime(unixSeconds: Long): String {
         secs < 86400 -> "${secs / 3600}h ago"
         secs < 86400 * 30 -> "${secs / 86400}d ago"
         else -> "${secs / (86400 * 30)}mo ago"
-    }
-}
-
-/** The drift-live usage estimate line (session / week percentages). */
-@Composable
-fun UsageEstimateLine(e: UsageEstimateInfo) {
-    Row(Modifier.padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(
-            Icons.Filled.BarChart, contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp),
-        )
-        Spacer(Modifier.width(4.dp))
-        Text(
-            "Session ~${pctStr(e.sessionEstPct)} · Week ~${pctStr(e.weekEstPct)} (est)",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
-        )
     }
 }
 
@@ -150,11 +110,10 @@ fun UsageBar(label: String, pct: Int, reset: String) {
     }
 }
 
-/** The full `/usage` sheet: session/week bars, live estimate, two-point calibration, raw breakdown. */
+/** The full `/usage` sheet: session/week bars and the raw breakdown. */
 @Composable
 fun UsageSheet(
-    loading: Boolean, report: UsageReport?, estimate: UsageEstimateInfo?,
-    onSet: () -> Unit, onCalc: () -> Unit, onDismiss: () -> Unit,
+    loading: Boolean, report: UsageReport?, onDismiss: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -174,40 +133,6 @@ fun UsageSheet(
                         UsageBar("Session", report.sessionPct, report.sessionReset)
                         Spacer(Modifier.height(12.dp))
                         UsageBar("This week", report.weekPct, report.weekReset)
-                        // The running server-wide estimate: what it had drifted to (all
-                        // sessions/clients) just before this check snapped it back.
-                        estimate?.takeIf { it.calibrated }?.let { e ->
-                            Spacer(Modifier.height(12.dp)); HorizontalDivider(); Spacer(Modifier.height(8.dp))
-                            Text("Live estimate (all sessions/clients, drifts each turn)",
-                                style = MaterialTheme.typography.labelMedium)
-                            Text("Session ~${pctStr(e.sessionEstPct)} · Week ~${pctStr(e.weekEstPct)}",
-                                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
-                            Text("odometer: ${fmtTokL(e.cumTokens)} tokens · +${e.turnsSinceCheck} turns since last check",
-                                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
-                        }
-                        // Manual two-point rate calibration. "Set" marks the current
-                        // odometer/percentages; after burning enough tokens to move a few
-                        // whole percent, "Calc" sets tokens-per-percent directly from that
-                        // interval — no EMA, so it beats the passive check's rounding bias.
-                        Spacer(Modifier.height(12.dp)); HorizontalDivider(); Spacer(Modifier.height(8.dp))
-                        Text("Calibrate max (two-point)", style = MaterialTheme.typography.labelMedium)
-                        estimate?.takeIf { it.benchSet }?.let { e ->
-                            Text("benchmark: ${pctStr(e.benchSessPct)} session · ${pctStr(e.benchWeekPct)} week · +${fmtTokL(e.tokensSinceSet)} tokens since",
-                                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
-                        } ?: Text("no benchmark set — tap Set, burn a few % of tokens, then Calc",
-                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
-                        Row {
-                            TextButton(onClick = onSet) {
-                                Icon(Icons.Filled.Place, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("Set")
-                            }
-                            TextButton(onClick = onCalc) {
-                                Icon(Icons.Filled.Calculate, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("Calc max")
-                            }
-                        }
                         val idx = report.text.indexOf("What's contributing")
                         if (idx >= 0) {
                             Spacer(Modifier.height(12.dp)); HorizontalDivider(); Spacer(Modifier.height(8.dp))

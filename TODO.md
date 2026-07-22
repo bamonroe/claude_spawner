@@ -12,6 +12,14 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-22 — **Removed the drift-live token/usage estimate.** Dropped the server-global
+      calibrated usage odometer (the `~68% (est)` drawer line + the two-point "Set/Calc" benchmark in
+      the usage sheet). Deleted `server/internal/usage` (the `Estimator`) and its `usage_estimate.json`
+      state, the `tokenCost` weighting + its test, and the `usage_set`/`usage_calc` inbound +
+      `usage_estimate` outbound wire messages (Go gateway, `Protocol.kt`, `docs/protocol.md`). The
+      plain **`/usage` report** and the **rate-limit footer** stay — only the *estimate* is gone; the
+      "hey buddy, usage" / Check-usage path is unchanged. Reason: the estimate was noisy and not worth
+      the calibration machinery.
 - [x] 2026-07-19 — **Spoken tokens: fully configurable wake/end/speech-gate phrases.** Replaced the
       hardcoded `command.wakePhrases` "hey buddy" family with a general **spoken-token** model: a new
       leaf package `server/internal/spoken` owns a closed, extensible **action registry** (wake, end,

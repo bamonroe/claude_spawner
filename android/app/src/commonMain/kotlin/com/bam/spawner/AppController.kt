@@ -6,7 +6,6 @@ import com.bam.spawner.net.DiscoveredInfo
 import com.bam.spawner.net.RateLimitInfo
 import com.bam.spawner.net.ServerMsg
 import com.bam.spawner.net.TokenUsage
-import com.bam.spawner.net.UsageEstimateInfo
 import com.bam.spawner.net.UsageReport
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -68,7 +67,6 @@ interface AppController : HostsIdentitiesController, ProfilesController, Provide
     // --- Usage / rate limits -------------------------------------------------
     val lastTurnUsage: StateFlow<TurnUsageInfo?>
     val rateLimit: StateFlow<RateLimitInfo?>
-    val usageEstimate: StateFlow<UsageEstimateInfo?>
     val usageReport: StateFlow<UsageReport?>
     val usageLoading: StateFlow<Boolean>
 
@@ -133,8 +131,6 @@ interface AppController : HostsIdentitiesController, ProfilesController, Provide
 
     // --- Usage ---------------------------------------------------------------
     fun requestUsage()
-    fun setUsageBenchmark()
-    fun calcUsageMax()
     fun dismissUsage()
 
     // --- Server controls -----------------------------------------------------

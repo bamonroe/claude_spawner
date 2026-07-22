@@ -61,7 +61,6 @@ sealed interface ServerMsg {
     data class Discovered(val sessions: List<DiscoveredInfo>) : ServerMsg
     data class RateLimit(val info: RateLimitInfo) : ServerMsg // Claude plan's usage-window state
     data class Usage(val report: UsageReport) : ServerMsg // `/usage` report (session/weekly % used)
-    data class UsageEstimate(val est: UsageEstimateInfo) : ServerMsg // drift-live server-global estimate
     // turn (turn-terminal errors only — turn_failed / compress failures): the per-turn
     // dedup id, "" on live-only errors (bad_message, …) and pre-turn-id servers.
     data class Err(val code: String, val message: String, val turn: String = "") : ServerMsg
@@ -129,16 +128,6 @@ sealed interface ServerMsg {
                 "usage" -> Usage(UsageReport(
                     o.int("session_pct", -1), o.str("session_reset"),
                     o.int("week_pct", -1), o.str("week_reset"), o.str("text"),
-                ))
-                "usage_estimate" -> UsageEstimate(UsageEstimateInfo(
-                    o.bool("calibrated"),
-                    o.dbl("session_est_pct", -1.0), o.dbl("week_est_pct", -1.0),
-                    o.dbl("session_real_pct", -1.0), o.dbl("week_real_pct", -1.0),
-                    o.long("cum_tokens"), o.long("tokens_since_check"),
-                    o.long("turns_since_check"), o.long("last_check_at"),
-                    o.bool("bench_set"),
-                    o.dbl("bench_sess_pct", -1.0), o.dbl("bench_week_pct", -1.0),
-                    o.long("bench_tokens"), o.long("tokens_since_set"),
                 ))
                 "error" -> Err(o.str("code"), o.str("message"), o.str("turn"))
                 "turn_interrupted" -> TurnInterrupted(o.str("name"), o.str("reason"))
@@ -386,25 +375,6 @@ data class UsageReport(
     val weekPct: Int, val weekReset: String, val text: String,
 )
 
-/**
- * Server-global drift-live usage estimate (see docs/protocol.md `usage_estimate`),
- * aggregated across all sessions/clients. The `*EstPct` fields drift up each turn;
- * `*RealPct` are the last /usage calibration's true numbers. Percents are −1 (and
- * `calibrated` false) until the first /usage anchors the estimate.
- */
-data class UsageEstimateInfo(
-    val calibrated: Boolean,
-    val sessionEstPct: Double, val weekEstPct: Double,
-    val sessionRealPct: Double, val weekRealPct: Double,
-    val cumTokens: Long, val tokensSinceCheck: Long,
-    val turnsSinceCheck: Long, val lastCheckAt: Long,
-    // Manual benchmark ("set" button): whether one is armed, the percentages/
-    // odometer it was stamped at, and the tokens burned since (what "calc" divides).
-    val benchSet: Boolean = false,
-    val benchSessPct: Double = -1.0, val benchWeekPct: Double = -1.0,
-    val benchTokens: Long = 0, val tokensSinceSet: Long = 0,
-)
-
 /** One past message from a session's server-served history. */
 data class HistMsg(val index: Int, val role: String, val text: String, val ts: Long = 0L, val usage: TokenUsage? = null)
 
@@ -539,8 +509,6 @@ object Outbound {
         if (sessionId.isNotEmpty()) put("session_id", sessionId)
     }.toString()
     fun usage() = buildJsonObject { put("type", "usage") }.toString() // fetch the plan's /usage report
-    fun usageSet() = buildJsonObject { put("type", "usage_set") }.toString() // arm the two-point rate benchmark
-    fun usageCalc() = buildJsonObject { put("type", "usage_calc") }.toString() // derive the rate from the benchmark
     fun abort() = buildJsonObject { put("type", "abort") }.toString() // cancel the running turn
     // fast targets the draft/detection ("quick" transcribe) server; default is the
     // accurate ("full" transcribe) one.

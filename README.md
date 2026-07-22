@@ -481,8 +481,7 @@ from the headless `result` usage — no estimation. See [`docs/protocol.md`](./d
   or weekly) is binding and when it resets, from the CLI's `rate_limit_event` (refreshes each turn).
 - **📊 Check usage** (drawer button, or "hey buddy, usage") runs `claude -p "/usage"` for the exact
   session/weekly percentages the desktop TUI's `/usage` shows; the voice form also speaks a one-line
-  summary. Between checks, a free **drift estimate** (`~68%`, marked `(est)`) keeps a current-ish
-  figure and snaps back to the real numbers each time you check.
+  summary.
 
 Each live message also carries a small date/time badge.
 

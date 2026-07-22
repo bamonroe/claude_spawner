@@ -121,7 +121,6 @@ import com.bam.spawner.net.RateLimitInfo
 import com.bam.spawner.net.ServerMsg
 import com.bam.spawner.net.TokenUsage
 import com.bam.spawner.net.UsageReport
-import com.bam.spawner.net.UsageEstimateInfo
 import kotlin.math.roundToInt
 import com.bam.spawner.ui.MarkdownText
 import com.bam.spawner.ui.SpawnerTheme

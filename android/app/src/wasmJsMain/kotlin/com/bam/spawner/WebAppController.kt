@@ -13,7 +13,6 @@ import com.bam.spawner.net.RateLimitInfo
 import com.bam.spawner.net.ServerMsg
 import com.bam.spawner.net.SessionSync
 import com.bam.spawner.net.SpawnerClient
-import com.bam.spawner.net.UsageEstimateInfo
 import com.bam.spawner.net.UsageReport
 import com.bam.spawner.tts.Markdown
 import kotlinx.coroutines.CoroutineScope
@@ -161,8 +160,6 @@ class WebAppController(private val prefs: Prefs) : AppController {
     override val lastTurnUsage: StateFlow<TurnUsageInfo?> = _lastTurnUsage.asStateFlow()
     private val _rateLimit = MutableStateFlow<RateLimitInfo?>(null)
     override val rateLimit: StateFlow<RateLimitInfo?> = _rateLimit.asStateFlow()
-    private val _usageEstimate = MutableStateFlow<UsageEstimateInfo?>(null)
-    override val usageEstimate: StateFlow<UsageEstimateInfo?> = _usageEstimate.asStateFlow()
     private val _usageReport = MutableStateFlow<UsageReport?>(null)
     override val usageReport: StateFlow<UsageReport?> = _usageReport.asStateFlow()
     private val _usageLoading = MutableStateFlow(false)
@@ -428,7 +425,6 @@ class WebAppController(private val prefs: Prefs) : AppController {
             }
             is ServerMsg.RateLimit -> _rateLimit.value = msg.info
             is ServerMsg.Usage -> { _usageLoading.value = false; _usageReport.value = msg.report }
-            is ServerMsg.UsageEstimate -> _usageEstimate.value = msg.est
             is ServerMsg.Ask -> {
                 _activity.value = ""; streamedSessions.remove(msg.name); spokenReplyCounts.remove(msg.name)
                 // An ask is a turn-terminal and can be redelivered buffered on reconnect
@@ -714,8 +710,6 @@ class WebAppController(private val prefs: Prefs) : AppController {
         catalogues.putProvider(agent, defaultModel, voiceModels)
 
     override fun requestUsage() { _usageLoading.value = true; _usageReport.value = null; client?.send(Outbound.usage()) }
-    override fun setUsageBenchmark() { client?.send(Outbound.usageSet()) }
-    override fun calcUsageMax() { client?.send(Outbound.usageCalc()) }
     override fun dismissUsage() { _usageLoading.value = false; _usageReport.value = null }
 
     // Whisper model keeps its dedicated message: set_whisper_model is what triggers the

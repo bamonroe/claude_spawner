@@ -47,7 +47,6 @@ import androidx.compose.ui.unit.dp
 import com.bam.spawner.net.AgentInfo
 import com.bam.spawner.net.DiscoveredInfo
 import com.bam.spawner.net.RateLimitInfo
-import com.bam.spawner.net.UsageEstimateInfo
 
 // The loopback host name. To the server, localhost is just another SSH host —
 // dialed over loopback SSH using the server's SSH defaults — not a special implicit
@@ -90,7 +89,6 @@ fun Sidebar(
     onDelete: (DiscoveredInfo) -> Unit,
     onDetach: () -> Unit,
     rateLimit: RateLimitInfo?,
-    usageEstimate: UsageEstimateInfo?,
     onCheckUsage: () -> Unit,
 ) {
     // Which card is expanded in place (keyed by a stable id, falling back to the dir
@@ -265,11 +263,9 @@ fun Sidebar(
             HorizontalDivider()
             TextButton(onClick = onDetach) { Text("Detach from $attached") }
         }
-        // Usage readouts pinned to the bottom of the drawer: the drift-live estimate
-        // (nudges each turn, snaps on /usage), the coarse session-limit reset, and
-        // "Check usage" to run `/usage` on demand for the exact numbers.
+        // Usage readouts pinned to the bottom of the drawer: the coarse session-limit
+        // reset, and "Check usage" to run `/usage` on demand for the exact numbers.
         HorizontalDivider()
-        usageEstimate?.takeIf { it.calibrated }?.let { UsageEstimateLine(it) }
         rateLimit?.let { SessionLimitFooter(it) }
         TextButton(onClick = onCheckUsage) {
             Icon(Icons.Filled.BarChart, contentDescription = null, modifier = Modifier.size(16.dp))

@@ -285,14 +285,9 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk, primeJo
 			j.emit(msgOutput(sess.Name, prose, turnID, true, nil))
 		}
 		// The rate_limit_event lands early in the stream; broadcast the plan's
-		// session-limit state to every attached device as soon as it arrives, and
-		// feed the 5-hour reset time to the usage estimator (so it can detect a
-		// window rollover and restart the drift from zero).
+		// session-limit state to every attached device as soon as it arrives.
 		onRateLimit := func(rl session.RateLimit) {
 			s.setRateLimit(rl)
-			if rl.Type == "five_hour" {
-				s.usage.NoteSessionResetsAt(rl.ResetsAt)
-			}
 			j.emit(msgRateLimit(rl))
 		}
 		wasStarted := sess.Started // Turn flips Started true on the first success
@@ -327,9 +322,6 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk, primeJo
 			return
 		}
 		log.Printf("turn[%s] reply: %q", sess.Name, logField(reply))
-		// Feed this turn's token cost into the server-global usage estimate (all
-		// sessions/clients) and push the drifted estimate to every connected app.
-		s.broadcastUsageEstimate(s.usage.AddTurn(tokenCost(turnUsage)))
 		// The first turn flips Started false->true (for --resume); the first
 		// interactive turn primes AskPrimed so the instruction isn't re-sent. Either
 		// change means we persist; an unchanged record skips the disk rewrite.
@@ -371,8 +363,6 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk, primeJo
 		// turn (each re-reads the whole context), so turnUsage can be many times the real
 		// context and bounces with tool-use count. Read the true size the way attach does
 		// — the transcript's last assistant message — so live matches on-attach.
-		// (turnUsage still feeds the cumulative spend estimate above, where summing is
-		// what we want.)
 		badge := turnUsage
 		if cx := s.driver.LastContextUsage(sess.Agent, sess.Host, sess.TranscriptIDs()); cx != nil {
 			badge = cx.Usage
@@ -422,12 +412,9 @@ func (s *Server) startCompress(sess *session.Session) bool {
 		j.emit(msgActivity("🗜️ compressing context…"))
 		onRateLimit := func(rl session.RateLimit) {
 			s.setRateLimit(rl)
-			if rl.Type == "five_hour" {
-				s.usage.NoteSessionResetsAt(rl.ResetsAt)
-			}
 			j.emit(msgRateLimit(rl))
 		}
-		summary, cUsage, err := s.driver.Turn(ctx, sess, compressPrompt, nil, nil, onRateLimit)
+		summary, _, err := s.driver.Turn(ctx, sess, compressPrompt, nil, nil, onRateLimit)
 		if err != nil {
 			j.mu.Lock()
 			aborted := j.aborted
@@ -444,8 +431,6 @@ func (s *Server) startCompress(sess *session.Session) bool {
 			j.finish(stampTurn(msgError("compress_failed", err.Error()), turnID))
 			return
 		}
-		// The summary turn consumed usage too — count it toward the estimate.
-		s.broadcastUsageEstimate(s.usage.AddTurn(tokenCost(cUsage)))
 		// Rotate: retire the just-summarized session_id (kept on disk for history)
 		// and start fresh, carrying the summary forward as PendingSeed for the next
 		// dictation. driver.Turn flipped Started true for the summary turn; the
@@ -479,30 +464,6 @@ func (s *Server) startCompress(sess *session.Session) bool {
 		j.finish(stampTurn(msgSay("compressed. carried a summary forward — your history is still here."), turnID))
 	}()
 	return true
-}
-
-// Per-token weights approximating how Anthropic meters plan usage (cost-relative
-// to a plain input token). A cache READ is billed at ~0.1× input, so counting it
-// at full weight — as this used to — made the (huge) cached-context re-read every
-// turn dominate the measure and drift the estimate up ~10× too fast: on a big
-// (~1M-token) context a single turn's ~1M cache-read tokens would eat a quarter of
-// the seeded session budget, so a couple of turns pegged the estimate at 100%.
-// A cache WRITE is ~1.25× input. The estimator calibrates against real /usage, so
-// these need only be roughly right, but cache_read's ~10× overcount was not.
-const (
-	weightCacheWrite = 1.25
-	weightCacheRead  = 0.10
-)
-
-// tokenCost is the weighted per-turn token measure fed to the usage estimator:
-// every token the turn touched, with cache reads/writes weighted toward their real
-// metered cost (see the weights above) rather than counted flat. The dominant term
-// on a warm session is the cached context re-read, which we discount so it tracks
-// plan consumption instead of raw context size.
-func tokenCost(u session.Usage) int64 {
-	return int64(float64(u.Input+u.Output) +
-		weightCacheWrite*float64(u.CacheWrite) +
-		weightCacheRead*float64(u.CacheRead))
 }
 
 func isFileTool(name string) bool {

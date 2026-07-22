@@ -4,7 +4,6 @@ import android.content.Context
 import com.bam.spawner.net.TokenUsage
 import com.bam.spawner.net.RateLimitInfo
 import com.bam.spawner.net.UsageReport
-import com.bam.spawner.net.UsageEstimateInfo
 import com.bam.spawner.audio.AudioInput
 import com.bam.spawner.audio.AudioOutput
 import com.bam.spawner.audio.AudioRouter
@@ -282,11 +281,6 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
     private val _rateLimit = MutableStateFlow<RateLimitInfo?>(null)
     override val rateLimit: StateFlow<RateLimitInfo?> = _rateLimit.asStateFlow()
 
-    // Server-global drift-live usage estimate: nudges up each turn, snaps to real
-    // on /usage. Server-wide (all sessions/clients), so it does NOT reset on attach.
-    private val _usageEstimate = MutableStateFlow<UsageEstimateInfo?>(null)
-    override val usageEstimate: StateFlow<UsageEstimateInfo?> = _usageEstimate.asStateFlow()
-
     // On-demand `/usage` report (session/weekly % used). Loading is set while the
     // server runs /usage; report holds the result. A non-null report opens the
     // usage sheet — including from the "usage" voice command (no prior request).
@@ -300,20 +294,6 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
         _usageReport.value = null
         _usageLoading.value = true
         client?.send(Outbound.usage())
-    }
-
-    /** "set" button: stamp the current odometer + real percentages as the two-point benchmark start. */
-    override fun setUsageBenchmark() {
-        _usageReport.value = null
-        _usageLoading.value = true
-        client?.send(Outbound.usageSet())
-    }
-
-    /** "calc" button: derive the tokens-per-percent rate directly from the benchmark interval. */
-    override fun calcUsageMax() {
-        _usageReport.value = null
-        _usageLoading.value = true
-        client?.send(Outbound.usageCalc())
     }
 
     /** Dismiss the usage sheet and clear its state. */
@@ -1371,7 +1351,6 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
             }
             is ServerMsg.RateLimit -> _rateLimit.value = msg.info // plan session-limit readout (sidebar)
             is ServerMsg.Usage -> { _usageLoading.value = false; _usageReport.value = msg.report } // opens the usage sheet
-            is ServerMsg.UsageEstimate -> _usageEstimate.value = msg.est // drift-live footer/sheet estimate
             is ServerMsg.Ask -> {
                 clearTurnInFlight()
                 streamedSessions.remove(msg.name)

@@ -30,7 +30,6 @@ import (
 	"github.com/bam/claude_spawner/server/internal/tmux"
 	"github.com/bam/claude_spawner/server/internal/transcribe"
 	"github.com/bam/claude_spawner/server/internal/tts"
-	"github.com/bam/claude_spawner/server/internal/usage"
 )
 
 // Server holds the shared dependencies for all connections.
@@ -83,8 +82,6 @@ type Server struct {
 
 	rateLimitMu sync.Mutex        // guards the last-seen subscription rate-limit state
 	rateLimit   session.RateLimit // account-global; cached from turns, pushed to apps on connect
-
-	usage *usage.Estimator // server-global drift-live usage estimate (all sessions/clients)
 
 	autoCompressMu sync.Mutex
 	acCfg          autoCompressCfg  // global auto-compress preference (set by the app over the wire)
@@ -294,22 +291,6 @@ func (s *Server) broadcastWhisperModel() {
 	}
 }
 
-// broadcastUsageEstimate pushes the current server-global usage estimate to every
-// connected app (it aggregates all sessions/clients, so everyone sees the same
-// number). Sent after each turn's drift and after a /usage calibration.
-func (s *Server) broadcastUsageEstimate(v usage.View) {
-	s.connsMu.Lock()
-	cs := make([]*conn, 0, len(s.conns))
-	for c := range s.conns {
-		cs = append(cs, c)
-	}
-	s.connsMu.Unlock()
-	msg := msgUsageEstimate(v)
-	for _, c := range cs {
-		c.send(msg)
-	}
-}
-
 // validModelName guards the model path against injection (letters, digits, dot,
 // dash, underscore only).
 func validModelName(s string) bool {
@@ -345,10 +326,9 @@ func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, ids
 		detector = &detect.RemoteWakeword{URL: cfg.WakewordURL}
 		log.Printf("wakeword: detector enabled at %s (threshold %.3g)", cfg.WakewordURL, cfg.WakewordThreshold)
 	}
-	inflightPath, usagePath, settingsPath := "", "", ""
+	inflightPath, settingsPath := "", ""
 	if cfg.StatePath != "" {
 		inflightPath = filepath.Join(filepath.Dir(cfg.StatePath), "inflight.json")
-		usagePath = filepath.Join(filepath.Dir(cfg.StatePath), "usage_estimate.json")
 		settingsPath = filepath.Join(filepath.Dir(cfg.StatePath), "settings_kv.json")
 	}
 	inflight, interrupted := newInflightTracker(inflightPath)
@@ -391,7 +371,6 @@ func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, ids
 		inflight:      inflight,
 		interrupted:   interrupted,
 		acFired:       map[string]int64{},
-		usage:         usage.Open(usagePath),
 		settings:      settings,
 		currentModel:  bootModel, // persisted choice or env default; loaded below
 		currentFast:   bootFast,  // ditto, for the fast (draft/detection) server
@@ -819,10 +798,6 @@ func (c *conn) authenticate() bool {
 	if rl := c.srv.lastRateLimit(); rl.Type != "" {
 		c.send(msgRateLimit(rl))
 	}
-	// Same idea for the drift-live usage estimate — show it immediately on connect.
-	if v := c.srv.usage.View(); v.Calibrated {
-		c.send(msgUsageEstimate(v))
-	}
 	return true
 }
 
@@ -924,9 +899,7 @@ var wireHandlers = map[string]func(c *conn, in inbound){
 	"digest":        func(c *conn, in inbound) { c.serveDigests() },
 	"clear":         func(c *conn, in inbound) { c.doClear() },
 	"compress":      func(c *conn, in inbound) { c.doCompress() },
-	"usage":         func(c *conn, in inbound) { c.doUsage(false, usageCalibrate) }, // tap: show the report, don't speak it
-	"usage_set":     func(c *conn, in inbound) { c.doUsage(false, usageSetBench) },  // "set" button: arm the benchmark
-	"usage_calc":    func(c *conn, in inbound) { c.doUsage(false, usageCalcBench) }, // "calc" button: derive the rate
+	"usage":         func(c *conn, in inbound) { c.doUsage(false) }, // tap: show the report, don't speak it
 	"audio_end":     func(c *conn, in inbound) { c.endAudio() },
 	"hosts":         func(c *conn, in inbound) { c.sendHostList() },
 	"host_put":      func(c *conn, in inbound) { c.doHostPut(in.Host) },

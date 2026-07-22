@@ -161,7 +161,6 @@ fun MainScreen(
     val rateLimit by controller.rateLimit.collectAsState()
     val usageReport by controller.usageReport.collectAsState()
     val usageLoading by controller.usageLoading.collectAsState()
-    val usageEstimate by controller.usageEstimate.collectAsState()
     var handsFree by remember { mutableStateOf(handsFreeInitial) }
     // The command tray (swipe up on the message box). Hoisted here so a tap
     // anywhere outside it — the chat, the bars, the text field — can dismiss it.
@@ -185,7 +184,6 @@ fun MainScreen(
             onDelete = { deleteTarget = it },
             onDetach = { controller.detach() },
             rateLimit = rateLimit,
-            usageEstimate = usageEstimate,
             onCheckUsage = { controller.requestUsage(); onNavigated() },
         )
     }
@@ -444,9 +442,7 @@ fun MainScreen(
     // (report arrives unprompted). Shows while loading and once the report lands.
     if (usageLoading || usageReport != null) {
         UsageSheet(
-            usageLoading, usageReport, usageEstimate,
-            onSet = { controller.setUsageBenchmark() },
-            onCalc = { controller.calcUsageMax() },
+            usageLoading, usageReport,
             onDismiss = { controller.dismissUsage() },
         )
     }
