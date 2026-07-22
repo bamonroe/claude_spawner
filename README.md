@@ -332,12 +332,21 @@ stdout/stderr redirected to a log file — so nothing about the turn's teardown 
 is recorded in an on-target registry **keyed by the session's working directory** (so it survives a
 `clear`/`compress` that rotates the session id).
 
-At every turn boundary (and when a device attaches) the server reconciles that registry: when a job
+The server reconciles that registry on three triggers — at every turn boundary, when a device
+attaches, and on a **background ticker that runs even while you sit idle** (every ~12 s). When a job
 has finished it injects a short, length-capped completion note — the command and a tail of its
-output — ahead of Claude's next turn, so **Claude is told the job is done** and can react. Claude can
-also check progress itself at any time with `~/.spawner-jobs/spawner-job list` / `tail <id>`.
-Reconcile and staging failures are swallowed and never block a turn. One caveat: a **sandbox**
-session's jobs live only as long as its container — removing or recreating the container loses them.
+output — ahead of Claude's next turn, so **Claude is told the job is done** and can react. Crucially,
+if a job finishes while you're just waiting for it (not typing or speaking), the idle ticker catches
+it and, if a device is attached, **drives an autonomous turn so Claude tells you out loud right
+then** — you don't have to say something else first to unstick the notification. With nothing
+attached, the note simply waits and surfaces on your next message or reconnect, so a finish is never
+lost. Because the ticker re-polls on a schedule, a momentary SSH hiccup no longer silently swallows a
+completion — the next tick just tries again. Claude can also check progress itself at any time with
+`~/.spawner-jobs/spawner-job list` / `tail <id>`. Reconcile and staging failures are swallowed and
+never block a turn. Two caveats: a **sandbox** session's jobs live only as long as its container —
+removing or recreating the container loses them — and the registry is keyed by the exact working
+directory, so a job Claude launches from a *subdirectory* of the session's dir won't be picked up by
+the per-dir reconcile.
 
 You can also inspect and control these jobs by voice: **"hey buddy, list jobs"** speaks the attached
 session's jobs (numbered, each marked running or finished), **"job status"** gives the quick

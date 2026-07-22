@@ -113,6 +113,16 @@ func (j *sessionJob) isRunning() bool {
 	return j.running
 }
 
+// hasSink reports whether at least one connection is currently attached to the
+// hub. The idle job-notify ticker checks this before driving an autonomous "your
+// job finished" turn — with nobody listening there's no one to tell out loud, so
+// the completion just stays in PendingNotes for the next dictation/attach.
+func (j *sessionJob) hasSink() bool {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return len(j.sinks) > 0
+}
+
 // broadcast sends msg to every attached sink, returning true if at least one
 // reached a live client. Call with j.mu held.
 func (j *sessionJob) broadcast(msg any) bool {
@@ -543,7 +553,7 @@ func (s *Server) bindJob(c *conn, sess *session.Session, silent bool) {
 	// the next dictation. Skip while a turn is running — the reconciler must not race
 	// the running turn's store.Put (one-writer); dictate reconciles at the next turn.
 	if !j.isRunning() {
-		s.reconcileJobs(sess)
+		s.reconcileJobs(sess, true)
 	}
 	sink := c.jobSink()
 	// A turn that was running when the server last restarted is dead; tell the app

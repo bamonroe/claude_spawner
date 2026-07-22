@@ -65,3 +65,37 @@ func TestDropJobByID(t *testing.T) {
 		t.Errorf("dropJobByID: %+v", got)
 	}
 }
+
+func TestDropNotes(t *testing.T) {
+	// Clears only the announced notes, leaving ones that arrived mid-turn intact —
+	// so a notify turn never drops a completion it didn't actually announce.
+	notes := []string{"a", "b", "c"}
+	got := dropNotes(notes, []string{"a", "c"})
+	if len(got) != 1 || got[0] != "b" {
+		t.Errorf("dropNotes kept wrong set: %+v", got)
+	}
+	// Removing everything yields nil (empty PendingNotes), not an empty non-nil slice.
+	if got := dropNotes([]string{"a", "b"}, []string{"a", "b"}); got != nil {
+		t.Errorf("dropNotes(all) = %+v, want nil", got)
+	}
+	// Duplicate values: each announced copy removes exactly one, not all matches.
+	got = dropNotes([]string{"x", "x", "x"}, []string{"x", "x"})
+	if len(got) != 1 || got[0] != "x" {
+		t.Errorf("dropNotes(dupes): %+v", got)
+	}
+	// Empty remove is a no-op passthrough.
+	if got := dropNotes([]string{"a"}, nil); len(got) != 1 || got[0] != "a" {
+		t.Errorf("dropNotes(nil remove): %+v", got)
+	}
+}
+
+func TestJobNotifyPrompt(t *testing.T) {
+	p := jobNotifyPrompt([]string{"• `go build` finished."})
+	// It must frame the turn as server-originated (not a user message) and carry the
+	// note, so Claude reports rather than treating it as a new instruction.
+	for _, want := range []string{"Autonomous update", "did NOT send", "go build", "spoken heads-up"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("jobNotifyPrompt missing %q: %q", want, p)
+		}
+	}
+}

@@ -432,6 +432,9 @@ func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, ids
 	s.applyAutoCompressFromStore()
 	// Server-owned watcher that fires auto-compress near the warm-cache edge.
 	go s.autoCompressLoop()
+	// Server-owned watcher that notifies out loud when a detached background job
+	// finishes, instead of waiting for the user's next dictation to discover it.
+	go s.jobReconcileLoop()
 	return s
 }
 

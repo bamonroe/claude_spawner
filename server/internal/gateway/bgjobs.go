@@ -25,33 +25,44 @@ const (
 // next turn so Claude learns the job it started earlier is done), marks it Notified,
 // reaps it on the target, and persists. A live device gets a breadcrumb.
 //
-// Concurrency: this MUST be called only from the turn goroutine's flow, never
-// alongside an in-flight turn's own store.Put — the one-writer invariant. Safe call
-// sites are the top of dictate (before the prompt is built) and bindJob (attach).
-// Every error is swallowed: reconcile can NEVER block or fail a turn.
-func (s *Server) reconcileJobs(sess *session.Session) {
+// Concurrency: this MUST be called only when no turn is in flight for the session,
+// never alongside an in-flight turn's own store.Put — the one-writer invariant. Safe
+// call sites are the top of dictate (before the prompt is built), bindJob (attach),
+// and the idle jobReconcileLoop ticker (which checks !isBusy first). Every error is
+// swallowed: reconcile can NEVER block or fail a turn. Returns true if it staged a
+// completion note for a job that finished since the last look — the ticker uses this
+// to decide whether to drive an autonomous "your job finished" notify turn.
+//
+// stage controls whether the wrapper script is (re)written onto the target first.
+// The turn-boundary callers pass true (stage lazily so it's present before Claude
+// needs it); the idle ticker passes false — it polls every few seconds and must not
+// re-write the script over SSH on every tick (the last turn already staged it; if it
+// truly isn't there, list just comes back empty and the next real turn re-stages).
+func (s *Server) reconcileJobs(sess *session.Session, stage bool) bool {
 	if sess == nil {
-		return
+		return false
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 
 	home := session.HostHome()
 	script := session.JobScriptPath(home)
-	// Stage lazily so the script is present before Claude (or this list) needs it. A
-	// staging failure is logged and ignored — it must not block the turn.
-	if err := s.srvStageJobScript(ctx, sess, home); err != nil {
-		log.Printf("bgjobs[%s]: stage: %v", sess.Name, err)
-		// keep going: list will just come back empty if the script truly isn't there
+	if stage {
+		// Stage lazily so the script is present before Claude (or this list) needs it. A
+		// staging failure is logged and ignored — it must not block the turn.
+		if err := s.srvStageJobScript(ctx, sess, home); err != nil {
+			log.Printf("bgjobs[%s]: stage: %v", sess.Name, err)
+			// keep going: list will just come back empty if the script truly isn't there
+		}
 	}
 
 	out, err := s.driver.RunOnTarget(ctx, sess, shellQuoteArg(script)+" list --json")
 	if err != nil {
-		return // swallow — target unreachable / no jobs
+		return false // swallow — target unreachable / no jobs; the ticker retries next tick
 	}
 	recs, err := bgjob.ParseList(trimToJSONArray(out))
 	if err != nil {
-		return // swallow — malformed output
+		return false // swallow — malformed output
 	}
 
 	// Index the server's current view BY POSITION so we can tell newly-finished
@@ -115,6 +126,7 @@ func (s *Server) reconcileJobs(sess *session.Session) {
 			j.emit(msgActivity("✅ background job finished: " + logField(cmd)))
 		}
 	}
+	return len(breadcrumbs) > 0
 }
 
 // srvStageJobScript stages the wrapper onto the session's target. Split out so the

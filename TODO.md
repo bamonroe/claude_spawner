@@ -1037,6 +1037,26 @@ Dates are `YYYY-MM-DD`.
   `spawner-job list`/`kill` (added a `kill` subcommand that group-SIGTERMs a running job). `kill job`
   requires a number so it can't collide with kill-session or abort-turn. Parse-disambiguation tests
   guard the collisions.
+- [x] 2026-07-22 — **Background jobs actually notify when they finish (idle notifier)** — the
+  "I'll tell you when it finishes" promise was unkeepable: detached jobs are fire-and-forget on the
+  target and completion was discovered ONLY lazily, at the start of the user's next dictation or on a
+  device re-attach. A user who started a job and waited to be told was never told, because the only
+  trigger was speaking again — compounded by silent SSH failures (a poll over a keepalive-dropped
+  pooled connection was swallowed) and the live breadcrumb being dropped when no sink was attached.
+  Fix: a server-owned `jobReconcileLoop` ticker (`bgnotify.go`, 12s) reconciles every started, idle
+  session independent of turns — so a dropped SSH connection just self-heals on the next tick — and
+  when a job has finished AND a device is attached, drives an **autonomous notify turn**
+  (`startJobNotify`) so the user hears the result out loud; with nobody attached it leaves the note in
+  `PendingNotes` as the durable fallback (next dictation/attach surfaces it). `reconcileJobs` gained a
+  `stage` flag (ticker polls without re-writing the wrapper every tick) and now returns whether it
+  staged a new completion. `PendingNotes` are cleared only on notify success (the job is already
+  reaped, so they're the only durable record — never dropped on a transient turn failure);
+  `dropNotes` clears just the announced notes so one that lands mid-turn survives. Single-writer
+  preserved: the ticker skips busy sessions and `startJobNotify` re-checks the running flag under the
+  lock, so a raced dictation carries the notes itself. Known secondary edge left as-is: the registry
+  is pwd-keyed, so a job Claude launches from a subdir of the session dir isn't seen by a `list` run
+  in the session dir (per-dir scoping is intentional — broadening it would cross-announce other
+  sessions' jobs on the same host).
 
 - [x] 2026-07-11 — **Curatable command tray: pick which commands the swipe-up shows** — the tray was
       hard-wired to every argument-free command. Now it's user-curated. In **Settings › Commands**

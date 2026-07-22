@@ -1134,7 +1134,7 @@ func (c *conn) dictate(text string) {
 	// built) so a job that finished since the last turn gets its completion note
 	// staged into PendingNotes now. Safe here: no turn is in flight yet, so this
 	// doesn't race the running turn's own store.Put (the one-writer invariant).
-	c.srv.reconcileJobs(c.attached)
+	c.srv.reconcileJobs(c.attached, true)
 	prompt := text
 	// A prior "compress" left a compacted summary of the old context to carry into
 	// this fresh session_id; prepend it to the FIRST dictation so Claude continues
