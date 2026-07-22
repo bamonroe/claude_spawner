@@ -54,7 +54,21 @@ json_escape() {
 }
 
 cmd_start() {
-	cmd="$1"
+	# owner is the session_id that launched this job, stamped into the record so a
+	# later `list` can attribute the job to the session that started it even when
+	# several sessions share this directory's registry. It arrives via the hook's
+	# `--owner` flag (the enforced background-bash path) or the SPAWNER_SESSION env;
+	# a job started with neither leaves it empty and stays dir-attributed (the old
+	# behaviour, so pre-existing job files keep working).
+	owner="${SPAWNER_SESSION:-}"
+	while [ $# -gt 1 ]; do
+		case "$1" in
+			--owner) owner="$2"; shift 2 ;;
+			*) break ;;
+		esac
+	done
+	cmd="${1:-}"
+	[ -n "$cmd" ] || { echo "usage: spawner-job start [--owner <id>] '<cmd>'" >&2; exit 2; }
 	dir="$(regdir)"
 	mkdir -p "$dir"
 	# Launch fully detached: nested setsid gives the job a NEW session/pgid distinct
@@ -70,9 +84,10 @@ cmd_start() {
 	# The backgrounded setsid becomes the job leader; $! is its pid.
 	started="$(date +%s)"
 	cmd_esc="$(json_escape "$cmd")"
+	owner_esc="$(json_escape "$owner")"
 	# One file per job (never a shared appended file) so concurrent starts in a single
 	# turn are lock-free.
-	printf '{"id":"%s","pid":%s,"cmd":"%s","started":%s}\n' "$id" "$pid" "$cmd_esc" "$started" >"$dir/$id.json"
+	printf '{"id":"%s","pid":%s,"cmd":"%s","started":%s,"session":"%s"}\n' "$id" "$pid" "$cmd_esc" "$started" "$owner_esc" >"$dir/$id.json"
 	printf '%s\n' "$id"
 }
 
@@ -102,14 +117,16 @@ cmd_list() {
 		pid="$(sed -n 's/.*"pid":\([0-9]*\).*/\1/p' "$f")"
 		cmd="$(sed -n 's/.*"cmd":"\(.*\)","started".*/\1/p' "$f")"
 		started="$(sed -n 's/.*"started":\([0-9]*\).*/\1/p' "$f")"
+		# session is the owning session_id ("" for legacy files written before the field).
+		session="$(sed -n 's/.*"session":"\([^"]*\)".*/\1/p' "$f")"
 		[ -n "$pid" ] || continue
 		st="$(job_status "$pid")"
 		if [ "$json" -eq 1 ]; then
 			[ "$first" -eq 1 ] || printf ','
 			first=0
 			done=false; [ "$st" = "done" ] && done=true
-			printf '{"id":"%s","pid":%s,"cmd":"%s","started":%s,"done":%s,"exit":0}' \
-				"$id" "$pid" "$cmd" "$started" "$done"
+			printf '{"id":"%s","pid":%s,"cmd":"%s","started":%s,"done":%s,"exit":0,"session":"%s"}' \
+				"$id" "$pid" "$cmd" "$started" "$done" "$session"
 		else
 			printf '%s\t%s\t%s\n' "$id" "$st" "$cmd"
 		fi
@@ -158,6 +175,16 @@ cmd_kill() {
 # JSON). If jq is absent we can't rebuild the tool input safely, so we fall back to
 # BLOCKING (exit 2) with a redirect message — enforcement holds either way.
 cmd_hook() {
+	# The server bakes the launching session_id into the staged hook command
+	# (`spawner-job hook --owner <id>`) so the rewritten `start` stamps the job with
+	# its owner. Absent for an older staged settings payload → owner stays empty.
+	owner=""
+	while [ $# -gt 0 ]; do
+		case "$1" in
+			--owner) owner="${2:-}"; shift 2 ;;
+			*) shift ;;
+		esac
+	done
 	payload="$(cat)"
 	bg="$(printf '%s' "$payload" | jq -r '.tool_input.run_in_background // false' 2>/dev/null || true)"
 	if [ -z "$bg" ]; then
@@ -169,13 +196,14 @@ cmd_hook() {
 		exit 0
 	fi
 	[ "$bg" = "true" ] || exit 0
-	printf '%s' "$payload" | jq -c --arg sj "$0" '
+	printf '%s' "$payload" | jq -c --arg sj "$0" --arg owner "$owner" '
 		.tool_input as $ti
 		| (($ti.command) // "") as $c
+		| (if $owner == "" then "" else " --owner " + ($owner | @sh) end) as $own
 		| {hookSpecificOutput: {
 			hookEventName: "PreToolUse",
 			permissionDecision: "allow",
-			updatedInput: ($ti | .run_in_background = false | .command = ($sj + " start " + ($c | @sh))),
+			updatedInput: ($ti | .run_in_background = false | .command = ($sj + " start" + $own + " " + ($c | @sh))),
 			additionalContext: ("This command was auto-detached via spawner-job so it survives the turn: it ran in the foreground and printed a job id — do not poll it with BashOutput. Check progress with " + $sj + " list (or " + $sj + " tail <id>).")
 		}}'
 }
@@ -183,11 +211,11 @@ cmd_hook() {
 sub="${1:-}"
 [ $# -gt 0 ] && shift || true
 case "$sub" in
-	start) [ $# -ge 1 ] || { echo "usage: spawner-job start '<cmd>'" >&2; exit 2; }; cmd_start "$1" ;;
+	start) cmd_start "$@" ;;
 	list)  cmd_list "${1:-}" ;;
 	tail)  [ $# -ge 1 ] || { echo "usage: spawner-job tail <id>" >&2; exit 2; }; cmd_tail "$1" ;;
 	reap)  [ $# -ge 1 ] || { echo "usage: spawner-job reap <id>" >&2; exit 2; }; cmd_reap "$1" ;;
 	kill)  [ $# -ge 1 ] || { echo "usage: spawner-job kill <id>" >&2; exit 2; }; cmd_kill "$1" ;;
-	hook)  cmd_hook ;;
+	hook)  cmd_hook "$@" ;;
 	*) echo "usage: spawner-job {start|list|tail|reap|kill|hook} ..." >&2; exit 2 ;;
 esac

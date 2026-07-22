@@ -53,9 +53,9 @@ func stagedScript(t *testing.T) string {
 // runHook runs the wrapper's `hook` subcommand with the given PreToolUse payload on
 // stdin and returns its stdout and exit code. extraPath, if non-empty, REPLACES the
 // child PATH (used to hide jq for the fallback test).
-func runHook(t *testing.T, path, payload, pathEnv string) (string, int) {
+func runHook(t *testing.T, path, payload, pathEnv string, hookArgs ...string) (string, int) {
 	t.Helper()
-	cmd := exec.Command("sh", path, "hook")
+	cmd := exec.Command("sh", append([]string{path, "hook"}, hookArgs...)...)
 	cmd.Stdin = strings.NewReader(payload)
 	if pathEnv != "" {
 		cmd.Env = append(os.Environ(), "PATH="+pathEnv)
@@ -112,6 +112,72 @@ func TestHookRewritesBackground(t *testing.T) {
 	}
 	if resp.HookSpecificOutput.AdditionalContext == "" {
 		t.Error("expected additionalContext explaining the detach")
+	}
+}
+
+// The hook's `--owner <id>` (baked in by the server) must be threaded into the
+// rewritten `start` command so the launched job is stamped with its session.
+func TestHookThreadsOwner(t *testing.T) {
+	path := stagedScript(t)
+	payload := `{"tool_name":"Bash","tool_input":{"command":` + jsonStr("sleep 5") + `,"run_in_background":true}}`
+	out, code := runHook(t, path, payload, "", "--owner", "sess-abc")
+	if code != 0 {
+		t.Fatalf("want exit 0, got %d (out=%s)", code, out)
+	}
+	var resp struct {
+		HookSpecificOutput struct {
+			UpdatedInput struct {
+				Command string `json:"command"`
+			} `json:"updatedInput"`
+		} `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal([]byte(out), &resp); err != nil {
+		t.Fatalf("hook output not JSON: %v\n%s", err, out)
+	}
+	if !strings.Contains(resp.HookSpecificOutput.UpdatedInput.Command, "start --owner ") ||
+		!strings.Contains(resp.HookSpecificOutput.UpdatedInput.Command, "sess-abc") {
+		t.Errorf("owner not threaded into start command: %q", resp.HookSpecificOutput.UpdatedInput.Command)
+	}
+}
+
+// start --owner stamps the session into the record, and list --json reports it so
+// the reconciler can attribute the job. A start without --owner leaves it empty.
+func TestStartStampsOwner(t *testing.T) {
+	path := stagedScript(t)
+	dir := t.TempDir()
+	run := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("sh", append([]string{path}, args...)...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), "SPAWNER_JOB_ROOT="+filepath.Join(dir, ".jobs"))
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("spawner-job %v: %v", args, err)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	run("start", "--owner", "sess-xyz", "true")
+	run("start", "true") // no owner
+	recs, err := ParseList([]byte(run("list", "--json")))
+	if err != nil {
+		t.Fatalf("parse list: %v", err)
+	}
+	if len(recs) != 2 {
+		t.Fatalf("want 2 jobs, got %d: %+v", len(recs), recs)
+	}
+	var owned, unowned int
+	for _, r := range recs {
+		switch r.Session {
+		case "sess-xyz":
+			owned++
+		case "":
+			unowned++
+		default:
+			t.Errorf("unexpected owner %q", r.Session)
+		}
+	}
+	if owned != 1 || unowned != 1 {
+		t.Errorf("want one owned + one unowned job, got owned=%d unowned=%d", owned, unowned)
 	}
 }
 

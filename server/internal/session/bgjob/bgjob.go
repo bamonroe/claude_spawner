@@ -39,6 +39,9 @@ type Record struct {
 	Started int64  `json:"started"`
 	Done    bool   `json:"done"`
 	Exit    int    `json:"exit"`
+	// Session is the session_id that launched the job (stamped by `start`). Empty
+	// for a job started before this field existed — such jobs stay dir-attributed.
+	Session string `json:"session"`
 }
 
 // ParseList unmarshals the JSON array printed by `spawner-job list --json`.

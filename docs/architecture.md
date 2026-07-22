@@ -380,12 +380,23 @@ the registry. A newly-finished job's bounded output becomes a framed `PendingNot
 context instruction telling Claude to use the wrapper. Reconcile/stage errors are swallowed so they
 never block a turn. Caveat: sandbox jobs live only as long as the container.
 
+**Per-session attribution.** Because the registry is dir-keyed, two sessions in the *same directory*
+(e.g. a host and a sandbox session, which share the bind-mounted home) see each other's jobs. To keep
+one session from adopting and announcing a job another started, each job is **stamped with the
+launching `session_id`**: the server bakes `--owner <id>` into the staged hook command, the hook
+threads it into the rewritten `start`, and `list --json` reports it. `reconcileJobs` then **skips any
+record whose owner this session doesn't own** (`Session.OwnsID` matches the current id, `PriorIDs`,
+and `History` ids, since the id rotates on `clear`/`compress`/backend-switch) — leaving it intact for
+its real owner. A job with **no** owner (started before stamping existed) falls back to the old
+dir-attributed behaviour.
+
 Enforcement (not just priming): the turn injects a Claude **PreToolUse hook** via `--settings`
 (`HookSettingsJSON` → `TurnSpec.SettingsJSON` → the Claude agent's argv) whose `Bash` matcher runs
-`spawner-job hook`. On a `run_in_background` launch that subcommand emits a PreToolUse `updatedInput`
-that **transparently rewrites** the call to `spawner-job start '<original cmd>'` (jq `@sh` quotes the
-command; `run_in_background` is cleared) — no cancellation, the same Bash tool just runs the wrapped
-command. Fallbacks preserve enforcement: no jq → exit 2 to block with a redirect; unstaged wrapper →
+`spawner-job hook --owner <session_id>`. On a `run_in_background` launch that subcommand emits a
+PreToolUse `updatedInput` that **transparently rewrites** the call to
+`spawner-job start --owner <id> '<original cmd>'` (jq `@sh` quotes the command; `run_in_background` is
+cleared; the owner stamps the job for per-session attribution above) — no cancellation, the same Bash
+tool just runs the wrapped command. Fallbacks preserve enforcement: no jq → exit 2 to block with a redirect; unstaged wrapper →
 the hook is a graceful no-op. Hooks fire under `--dangerously-skip-permissions`, so it's a hard gate.
 
 ## Transcription (internal/transcribe)

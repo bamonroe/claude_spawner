@@ -81,11 +81,19 @@ func (s *Server) reconcileJobs(sess *session.Session, stage bool) bool {
 	var breadcrumbs []string
 	var reaped []string
 	for _, r := range recs {
+		// The registry is dir-keyed, so a job another session in this same directory
+		// launched shows up here too. Skip it entirely — don't adopt, note, or reap —
+		// so it survives for its real owner to announce. A job stamped with an owner we
+		// don't own belongs to someone else; a job with no owner (legacy, pre-stamping)
+		// falls through and stays dir-attributed, preserving the old behaviour.
+		if r.Session != "" && !sess.OwnsID(r.Session) {
+			continue
+		}
 		i, ok := idx[r.ID]
 		if !ok {
 			// A job we hadn't recorded (Claude launched it this or a prior turn) — adopt it.
 			sess.Jobs = append(sess.Jobs, session.BackgroundJob{
-				ID: r.ID, Cmd: r.Cmd, Started: r.Started, Done: r.Done, ExitCode: r.Exit,
+				ID: r.ID, Cmd: r.Cmd, Started: r.Started, Done: r.Done, ExitCode: r.Exit, Session: r.Session,
 			})
 			i = len(sess.Jobs) - 1
 			idx[r.ID] = i

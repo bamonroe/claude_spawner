@@ -30,7 +30,12 @@ func JobScriptPath(home string) string {
 // tells Claude to use `spawner-job start` instead. home is the target's $HOME
 // (where the wrapper is staged). Injected per turn via TurnSpec.SettingsJSON so
 // enforcement doesn't depend on Claude remembering the priming instruction.
-func HookSettingsJSON(home string) string {
+//
+// sessionID is the launching session_id; it's baked into the hook command as
+// `--owner <id>` so the rewritten `start` stamps each job with its owner and the
+// reconciler can attribute it to the right session (dir-keyed registries are
+// shared by same-dir sessions). Empty omits the flag (jobs stay dir-attributed).
+func HookSettingsJSON(home, sessionID string) string {
 	type hookEntry struct {
 		Type    string `json:"type"`
 		Command string `json:"command"`
@@ -39,13 +44,17 @@ func HookSettingsJSON(home string) string {
 		Matcher string      `json:"matcher"`
 		Hooks   []hookEntry `json:"hooks"`
 	}
+	hookCmd := JobScriptPath(home) + " hook"
+	if sessionID != "" {
+		hookCmd += " --owner " + shellQuote(sessionID)
+	}
 	settings := struct {
 		Hooks map[string][]matcher `json:"hooks"`
 	}{
 		Hooks: map[string][]matcher{
 			"PreToolUse": {{
 				Matcher: "Bash",
-				Hooks:   []hookEntry{{Type: "command", Command: JobScriptPath(home) + " hook"}},
+				Hooks:   []hookEntry{{Type: "command", Command: hookCmd}},
 			}},
 		},
 	}

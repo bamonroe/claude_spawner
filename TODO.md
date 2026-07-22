@@ -12,6 +12,20 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-22 — **Attribute detached background jobs to the session that launched them (not the
+      dir).** The `spawner-job` registry is keyed by working directory, so two sessions in the same
+      dir (a host + a sandbox session share the bind-mounted home) see each other's jobs; whichever
+      reconciled the dir first adopted, announced, and *reaped* a finished job — so a job started under
+      session A could be announced into session B just because B attached/dictated first. Fix: stamp
+      each job with the launching `session_id`. The server bakes `--owner <id>` into the staged hook
+      command (`HookSettingsJSON`), the hook threads it into the rewritten `start`, `start` records it
+      and `list --json` reports it (`bgjob.Record.Session`, `BackgroundJob.Session`); `reconcileJobs`
+      now skips any record whose owner this session doesn't own (`Session.OwnsID` matches current +
+      `PriorIDs` + `History` ids, since the id rotates on clear/compress/backend-switch). A job with no
+      owner (pre-stamping) keeps the old dir-attributed behaviour. Tests: owner stamping through the
+      hook and start→list round-trip (`bgjob`), `OwnsID`, and the hook-settings `--owner` bake. Docs:
+      `docs/architecture.md` background-jobs section.
+
 - [x] 2026-07-22 — **Replay a turn's streamed output to a mid-turn (re)attach — stop losing the
       middle of a long turn.** A device that attached or reconnected *while* a turn was running got
       only a "still working" nudge from `bindJob`; the already-streamed prose was never resent, and an

@@ -224,9 +224,9 @@ func TestDedupeBySessionIDOnLoad(t *testing.T) {
 	// survive — folders are no longer session identities.
 	list := []*Session{
 		{Name: "claude_spawner", Dir: "/data/claude_spawner", SessionID: "real", Host: LocalHost, Target: TargetHost, Started: true},
-		{Name: "claude_spawner-2", Dir: "/data/claude_spawner", SessionID: "real", Host: LocalHost, Started: true}, // same id → dup
+		{Name: "claude_spawner-2", Dir: "/data/claude_spawner", SessionID: "real", Host: LocalHost, Started: true},                      // same id → dup
 		{Name: "claude_spawner-3", Dir: "/data/claude_spawner", SessionID: "other", Host: LocalHost, Target: TargetHost, Started: true}, // distinct → kept
-		{Name: "email", Dir: "/home/bam/email", SessionID: "sb", Target: TargetSandbox}, // untouched
+		{Name: "email", Dir: "/home/bam/email", SessionID: "sb", Target: TargetSandbox},                                                 // untouched
 	}
 	data, _ := json.Marshal(list)
 	if err := os.WriteFile(path, data, 0o600); err != nil {
@@ -257,5 +257,27 @@ func TestDedupeBySessionIDOnLoad(t *testing.T) {
 	// The heal is persisted, so a second open sees the same clean state.
 	if s2, _ := OpenStore(path); len(s2.List()) != 3 {
 		t.Error("dedupe should persist across reopen")
+	}
+}
+
+func TestOwnsID(t *testing.T) {
+	s := &Session{
+		SessionID: "cur",
+		PriorIDs:  []string{"old1", "old2"},
+		History: []HistorySegment{
+			{Agent: "claude", IDs: []string{"h1", "h2"}},
+			{Agent: "codex", IDs: []string{"h3"}},
+		},
+	}
+	owned := []string{"cur", "old1", "old2", "h1", "h2", "h3"}
+	for _, id := range owned {
+		if !s.OwnsID(id) {
+			t.Errorf("OwnsID(%q) = false, want true", id)
+		}
+	}
+	for _, id := range []string{"", "other", "cur2"} {
+		if s.OwnsID(id) {
+			t.Errorf("OwnsID(%q) = true, want false", id)
+		}
 	}
 }

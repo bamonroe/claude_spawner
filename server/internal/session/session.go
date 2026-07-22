@@ -139,6 +139,40 @@ type BackgroundJob struct {
 	Done     bool   `json:"done"`                // observed finished by the reconciler
 	ExitCode int    `json:"exit_code,omitempty"` // best-effort (detached jobs report 0)
 	Notified bool   `json:"notified"`            // its completion note was injected already
+	// Session is the session_id that launched the job. The on-target registry is
+	// dir-keyed, so several sessions in one directory see each other's jobs; the
+	// reconciler uses this to adopt/announce only jobs THIS session owns (matched
+	// via OwnsID against the session_id chain, since the id may have rotated). Empty
+	// for a legacy job started before jobs were stamped — those stay dir-attributed.
+	Session string `json:"session,omitempty"`
+}
+
+// OwnsID reports whether id is a transcript session_id this session has ever run
+// under: its current SessionID, an id retired by clear/compress (PriorIDs), or an
+// id archived by a backend switch (History). Used to attribute a dir-keyed
+// background job to the session that launched it — the job stamps the session_id
+// current at launch, which may since have rotated, so a single-id check isn't
+// enough.
+func (s *Session) OwnsID(id string) bool {
+	if id == "" {
+		return false
+	}
+	if id == s.SessionID {
+		return true
+	}
+	for _, p := range s.PriorIDs {
+		if p == id {
+			return true
+		}
+	}
+	for _, seg := range s.History {
+		for _, hid := range seg.IDs {
+			if hid == id {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // TranscriptIDs returns every session_id whose transcript belongs to this
@@ -671,7 +705,7 @@ func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool fun
 		// this same home before the turn (reconcileJobs → StageJobScript); if staging
 		// failed the hook path is simply absent and Claude Code treats it as a
 		// non-blocking miss, degrading to the priming-instruction behaviour.
-		SettingsJSON: HookSettingsJSON(HostHome()),
+		SettingsJSON: HookSettingsJSON(HostHome(), s.SessionID),
 	})
 
 	// Launch via the session's execution target (host by default). The executor

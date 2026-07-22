@@ -14,7 +14,7 @@ import (
 // background-job enforcement independent of Claude's cooperation.
 func TestHookSettingsJSON(t *testing.T) {
 	home := "/home/tester"
-	raw := HookSettingsJSON(home)
+	raw := HookSettingsJSON(home, "sess-123")
 	var parsed struct {
 		Hooks map[string][]struct {
 			Matcher string `json:"matcher"`
@@ -34,9 +34,18 @@ func TestHookSettingsJSON(t *testing.T) {
 	if len(pre[0].Hooks) != 1 || pre[0].Hooks[0].Type != "command" {
 		t.Fatalf("want one command hook, got %+v", pre[0].Hooks)
 	}
-	want := JobScriptPath(home) + " hook"
+	want := JobScriptPath(home) + " hook --owner " + shellQuote("sess-123")
 	if got := pre[0].Hooks[0].Command; got != want {
 		t.Errorf("hook command = %q, want %q", got, want)
+	}
+
+	// With no session id the owner flag is omitted (jobs stay dir-attributed).
+	rawNoOwner := HookSettingsJSON(home, "")
+	if err := json.Unmarshal([]byte(rawNoOwner), &parsed); err != nil {
+		t.Fatalf("settings not valid JSON: %v\n%s", err, rawNoOwner)
+	}
+	if got, want := parsed.Hooks["PreToolUse"][0].Hooks[0].Command, JobScriptPath(home)+" hook"; got != want {
+		t.Errorf("hook command (no owner) = %q, want %q", got, want)
 	}
 }
 
