@@ -13,9 +13,9 @@ import com.bam.spawner.ChatMessage
  *  - **which session am I focused on** ([currentFocusedSession]) and the previous-session
  *    bookkeeping the swap gesture reads ([rememberPrevious], [rememberPreviousIfSwitching],
  *    [rememberPreviousOnAttach], [swapTarget]);
- *  - **is a transcript current vs. the held digest** — the connect-time `digests` sweep and
- *    every `history` reply feed [noteServerTruth]/[recordSynced], and [requestFreshHistory]
- *    is the one decision that skips a refetch when the held digest still equals the server's;
+ *  - **is a transcript current** — every `history` reply feeds [recordSynced], and
+ *    [requestFreshHistory] sends that held digest as `have_hash` so the server answers
+ *    `unchanged` (no bodies) when nothing moved;
  *  - **index-aware chat de-dup** ([dedupe]) — the *one true* de-dup, keyed on the stable
  *    server `index` (live rows carry `index == -1`; server history rows carry a real index),
  *    falling back to text only for the still-live rows;
@@ -53,11 +53,9 @@ class SessionSync(private val host: Host) {
         fun dropRows(name: String)
     }
 
-    // The digest caches, per session name. `serverDigest` is the latest truth the server
-    // reported (connect-time `digests` sweep + every `history` reply); `digestHeld` is the
-    // digest our stored transcript corresponds to. When the two match and we hold content,
-    // an (re)attach skips the history fetch entirely.
-    private val serverDigest = mutableMapOf<String, Pair<Int, String>>()
+    // The digest of the transcript we currently hold, per session name. Sent as `have_hash`
+    // on a (re)attach's history request so the server can answer `unchanged` (no bodies)
+    // when nothing moved — the authoritative, bodies-free freshness check.
     private val digestHeld = mutableMapOf<String, Pair<Int, String>>()
 
     // The session we were focused on before the current one — the swap gesture's target.
@@ -136,45 +134,38 @@ class SessionSync(private val host: Host) {
     /** Seed the held digest alone (faulting a cached transcript in from disk). */
     fun recordHeld(name: String, count: Int, hash: String) { digestHeld[name] = count to hash }
 
-    /** A history page/`unchanged` confirms the stored transcript now equals the server's:
-     *  record it as both held and server truth so future freshness checks stand. */
+    /** A history page/`unchanged` reply confirms the stored transcript now equals the
+     *  server's: record its digest so the next attach's `have_hash` check stands. */
     fun recordSynced(name: String, count: Int, hash: String) {
         digestHeld[name] = count to hash
-        serverDigest[name] = count to hash
     }
 
-    /** The connect-time `digests` sweep: the latest server truth per session (bodies-free). */
-    fun noteServerTruth(items: List<SessionDigest>) {
-        for (d in items) serverDigest[d.name] = d.count to d.hash
-    }
-
-    /** A fresh live user/claude line grew this session past our stored digest — forget the
-     *  server truth so the next reattach refetches instead of trusting a stale match. */
-    fun forgetServerTruth(name: String) { serverDigest.remove(name) }
-
-    /** Drop both digests for a session (context-reset rotation / cache wipe). */
+    /** Drop the held digest for a session (context-reset rotation / cache wipe). */
     fun drop(name: String) {
         digestHeld.remove(name)
-        serverDigest.remove(name)
     }
 
-    /** Re-key both digests when a session is renamed. */
+    /** Re-key the held digest when a session is renamed. */
     fun migrate(old: String, new: String) {
         digestHeld.remove(old)?.let { digestHeld[new] = it }
-        serverDigest.remove(old)?.let { serverDigest[new] = it }
     }
 
     /**
-     * (Re)attach freshness decision: refetch the recent history page so a session that
-     * advanced while we viewed another isn't left stale — but skip the round trip when the
-     * connect-time digest sweep says the server hash still equals what we hold (and we hold
-     * content). Otherwise ask for the page, passing the held hash so the server can still
-     * answer `unchanged` (no bodies) if nothing moved.
+     * (Re)attach freshness: always refetch the recent history page so a session that
+     * advanced while we viewed another — or while we were detached from it entirely and
+     * so never received its live output — isn't left stale. The held hash rides along, so
+     * when nothing actually moved the server answers `unchanged` (no bodies): a cheap round
+     * trip, not a full transfer, and the authoritative freshness check.
+     *
+     * We deliberately do NOT short-circuit locally on a cached digest match. `serverDigest`
+     * is only a connect-time snapshot; for any session we're detached from we get no live
+     * output to invalidate it, so a stale entry can spuriously equal what we hold and make
+     * us skip the refetch — silently dropping every message that landed while we were away
+     * (the "messages vanish until a hard refresh" bug). The server's `unchanged` reply is
+     * the same optimization done correctly, so we defer to it instead.
      */
     fun requestFreshHistory(name: String) {
         val held = digestHeld[name]
-        val server = serverDigest[name]
-        if (held != null && held == server && host.heldContent(name)) return
         host.send(Outbound.history(name, null, haveHash = held?.second ?: ""))
     }
 

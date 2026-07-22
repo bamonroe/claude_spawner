@@ -541,10 +541,10 @@ class WebAppController(private val prefs: Prefs) : AppController {
             is ServerMsg.Actions -> _spokenActions.value = msg.actions
             is ServerMsg.Settings -> { catalogues.apply(msg); mirrorSettingsToPrefs() }
             is ServerMsg.Digests -> {
-                // Latest server truth per session (bodies-free), from the connect-time
-                // sweep. Stored so a (re)attach to a session whose hash still equals what
-                // our in-memory log holds skips the fetch (see requestFreshHistory).
-                session.noteServerTruth(msg.items)
+                // Connect-time server-truth sweep. No longer consulted: transcript freshness
+                // is checked per-attach via `have_hash` → `unchanged` (see requestFreshHistory),
+                // which — unlike a cached connect snapshot — can't go stale for a session we're
+                // detached from and so silently drop its messages. Kept as a protocol no-op.
             }
             is ServerMsg.ReadLast -> onReadLast(msg.count)
             is ServerMsg.Pending -> _pending.value = msg.text // live hands-free draft (the web has VAD hands-free too)

@@ -1520,9 +1520,10 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
             is ServerMsg.FileSaved -> _fileSaved.tryEmit(msg.path)
             is ServerMsg.FileData -> _fileData.tryEmit(msg)
             is ServerMsg.Digests -> {
-                // Latest server truth per session (bodies-free). Stored so an (re)attach
-                // to a session whose hash still equals our cached digest skips the fetch.
-                session.noteServerTruth(msg.items)
+                // Connect-time server-truth sweep. No longer consulted: transcript freshness
+                // is checked per-attach via `have_hash` → `unchanged` (see requestFreshHistory),
+                // which — unlike a cached connect snapshot — can't go stale for a session we're
+                // detached from and so silently drop its messages. Kept as a protocol no-op.
             }
             is ServerMsg.HostList, is ServerMsg.IdentityList,
             is ServerMsg.Agents, is ServerMsg.Profiles,
@@ -1593,11 +1594,6 @@ class VoiceController(context: Context, private val settings: SettingsStore) : A
         ).takeLast(2000)
         logs[key] = updated
         if (key == currentKey) _chat.value = updated
-        // A user/claude line grows this session's server transcript, so our stored
-        // digest no longer matches — forget the server digest so the next reattach
-        // refetches instead of wrongly deciding the cache is current. (SYSTEM notes
-        // are live-only and never persisted server-side, so they don't invalidate.)
-        if (role == Role.USER || role == Role.CLAUDE) session.forgetServerTruth(key)
     }
 
     // attachUsageToLastClaude badges the most recent Claude bubble in the named
