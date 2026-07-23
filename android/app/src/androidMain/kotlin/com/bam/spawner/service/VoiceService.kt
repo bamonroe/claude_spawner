@@ -9,6 +9,8 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import com.bam.spawner.Spawner
+import com.bam.spawner.startHandsFree
+import com.bam.spawner.stopHandsFree
 
 /**
  * Foreground service for hands-free listening. Its microphone foreground type is
