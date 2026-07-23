@@ -93,6 +93,23 @@ class SessionSyncSpeakTest {
         assertTrue(sync.shouldSpeakClose(s, "step one and the rest", summaryOnly = true))
     }
 
+    // Summary-only + speakInitialReplies >= 1, single-message turn: the one reply is voiced
+    // as the first streamed step AND is the terminal result — it must NOT be spoken twice.
+    @Test
+    fun summaryOnlySingleMessageTurnIsNotRespoken() {
+        val sync = sync()
+        sync.noteSpokenChunk(s, "the only reply")
+        assertFalse(sync.shouldSpeakClose(s, "the only reply", summaryOnly = true))
+    }
+
+    // Same single-message double-speak guard on the turn-id path.
+    @Test
+    fun idSummaryOnlySingleMessageTurnIsNotRespoken() {
+        val sync = sync()
+        sync.noteSpokenChunk(s, "the only reply", turn = "t1")
+        assertFalse(sync.shouldSpeakClose(s, "the only reply", summaryOnly = true, turn = "t1"))
+    }
+
     // Whitespace differences between the concatenated chunks and the closing frame don't
     // defeat the match — the reply is still recognized as already-voiced.
     @Test

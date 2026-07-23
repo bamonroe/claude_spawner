@@ -320,7 +320,9 @@ class SessionSync(private val host: Host) {
      * decides, whatever the close's text looks like), or when this close's id was already
      * decided on (a buffered-final redelivery / doubled close). Returns true for a
      * buffered reply delivered whole (reconnect) and for the final result in [summaryOnly]
-     * mode (there only the first N steps streamed aloud, so the full result is still spoken).
+     * mode (there only the first N steps streamed aloud, so the full result is still spoken —
+     * unless that result is byte-identical to what already streamed aloud, i.e. a
+     * single-message turn, which would otherwise be voiced twice).
      * With no id (pre-turn-id server) falls back to whitespace-insensitive text equality.
      * Finalizes the turn's voiced state either way, so call it exactly once per closing frame.
      */
@@ -331,6 +333,10 @@ class SessionSync(private val host: Host) {
             val doubled = lastCloseTurn[name] == turn
             lastCloseTurn[name] = turn
             if (doubled) return false
+            // Even in summary-only mode, a single-message turn whose one reply is both the
+            // first streamed step (voiced by speakInitialReplies) and the terminal result
+            // must not be spoken twice: suppress when the close text is what was voiced.
+            if (voicedThisTurn && voiced.isNotEmpty() && voiced == collapseSpace(text)) return false
             if (!summaryOnly && voicedThisTurn) return false
             return true
         }
@@ -338,7 +344,7 @@ class SessionSync(private val host: Host) {
         val doubled = lastCloseVoiced[name] == norm
         lastCloseVoiced[name] = norm
         if (doubled) return false
-        if (!summaryOnly && voiced.isNotEmpty() && voiced == norm) return false
+        if (voiced.isNotEmpty() && voiced == norm) return false
         return true
     }
 
