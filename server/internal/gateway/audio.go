@@ -101,7 +101,7 @@ func (c *conn) endAudio() {
 	// what it heard — this measures exactly what end-token detection sees.
 	if c.calibrate {
 		text, _ := c.fastTranscriber().Transcribe(c.ctx, transcribe.PCM16WAV(pcm, audioSampleRate, audioChannels),
-			transcribe.Options{Mode: "fixed", Model: "tiny"})
+			transcribe.Options{Mode: "fixed", Model: "tiny", Prompt: c.detectBias()})
 		c.send(msgCalibration(text))
 		return
 	}

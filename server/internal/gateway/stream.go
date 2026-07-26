@@ -32,7 +32,7 @@ func (c *conn) gatedChunk(pcm []byte) {
 	detFired, detOK := c.endTokenFired(pcm)
 
 	chunk, err := c.fastTranscriber().Transcribe(c.ctx, transcribe.PCM16WAV(pcm, audioSampleRate, audioChannels),
-		transcribe.Options{Mode: "fixed", Model: "tiny"})
+		transcribe.Options{Mode: "fixed", Model: "tiny", Prompt: c.detectBias()})
 	if err == nil && strings.TrimSpace(chunk) != "" {
 		c.buffer = append(c.buffer, chunk)
 	}
@@ -218,6 +218,26 @@ func applyCancel(intents []command.Intent) (kept []command.Intent, hadCancel boo
 	return intents[last+1:], true
 }
 
+// detectBias returns a whisper initial-prompt for the live detection pass that
+// primes the tiny fast model toward the spoken tokens it must actually catch —
+// the wake, end, and speak-gate phrases. On the live clip the fast model would
+// otherwise decode blind and mangle these short phrases, so the wake word / end
+// token miss even before the detector-or-string-match gate runs. Kept focused
+// (no command vocabulary or session names) to hold the prompt short for the tiny
+// model. Empty when no phrases are configured.
+func (c *conn) detectBias() string {
+	var phrases []string
+	for _, set := range [][][]string{c.wakePhrases(), c.endPhrases(), c.speakPhrases()} {
+		for _, phrase := range set {
+			phrases = append(phrases, strings.Join(phrase, " "))
+		}
+	}
+	if len(phrases) == 0 {
+		return ""
+	}
+	return "Spoken tokens: " + strings.Join(phrases, ", ") + "."
+}
+
 // vocabBias returns a whisper initial-prompt that biases decoding toward the
 // control vocabulary and this machine's session names, both of which STT
 // otherwise mangles (so "hey buddy, attach to sfit" resolves). The command
@@ -231,6 +251,9 @@ func (c *conn) vocabBias() string {
 		vocab = append(vocab, strings.Join(phrase, " "))
 	}
 	for _, phrase := range c.speakPhrases() {
+		vocab = append(vocab, strings.Join(phrase, " "))
+	}
+	for _, phrase := range c.endPhrases() {
 		vocab = append(vocab, strings.Join(phrase, " "))
 	}
 	parts := []string{"Commands: " + strings.Join(vocab, ", ") + "."}
