@@ -181,6 +181,77 @@ func TestStartStampsOwner(t *testing.T) {
 	}
 }
 
+// scriptRunner returns a helper that runs the staged wrapper in a fixed working
+// directory (the registry is keyed by cwd) with an isolated SPAWNER_JOB_ROOT and
+// any extra env, returning trimmed stdout.
+func scriptRunner(t *testing.T, extraEnv ...string) func(args ...string) string {
+	t.Helper()
+	path := stagedScript(t)
+	dir := t.TempDir()
+	env := append(os.Environ(), "SPAWNER_JOB_ROOT="+filepath.Join(dir, ".jobs"))
+	env = append(env, extraEnv...)
+	return func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("sh", append([]string{path}, args...)...)
+		cmd.Dir = dir
+		cmd.Env = env
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("spawner-job %v: %v", args, err)
+		}
+		return strings.TrimSpace(string(out))
+	}
+}
+
+// wait must block on the job's process and return once it exits — the correct
+// waiter primitive that replaces the leak-prone `until ! list | grep <id>` loop.
+func TestWaitBlocksUntilJobExits(t *testing.T) {
+	run := scriptRunner(t)
+	id := run("start", "sleep 1")
+	// wait returns only after the process is gone; its report names the job.
+	if out := run("wait", id); !strings.Contains(out, id) {
+		t.Errorf("wait output %q does not name job %s", out, id)
+	}
+	// After wait returns, a fresh list must see the job as done, not running.
+	recs, err := ParseList([]byte(run("list", "--json")))
+	if err != nil {
+		t.Fatalf("parse list: %v", err)
+	}
+	if len(recs) != 1 || !recs[0].Done {
+		t.Errorf("after wait, expected one done job, got %+v", recs)
+	}
+	// wait on a nonexistent id returns promptly without error.
+	if out := run("wait", "no_such_id"); !strings.Contains(out, "no such job") {
+		t.Errorf("wait on missing job: unexpected output %q", out)
+	}
+}
+
+// A finished job must auto-expire from the registry so records can't accumulate and
+// no `until ! list | grep <id>` waiter loops forever. With grace=0 a done job is
+// listed once (stamping done_at) then reaped on the next list.
+func TestListAutoExpiresDoneJobs(t *testing.T) {
+	run := scriptRunner(t, "SPAWNER_JOB_DONE_GRACE=0")
+	id := run("start", "true")
+	// Give the trivial job a moment to exit so list sees it done, not running.
+	run("wait", id)
+	// First list observes it done and stamps done_at — still reported.
+	first, err := ParseList([]byte(run("list", "--json")))
+	if err != nil {
+		t.Fatalf("parse first list: %v", err)
+	}
+	if len(first) != 1 || !first[0].Done {
+		t.Fatalf("first list: want one done job, got %+v", first)
+	}
+	// Second list is past the (zero) grace window, so the record is reaped and gone.
+	second, err := ParseList([]byte(run("list", "--json")))
+	if err != nil {
+		t.Fatalf("parse second list: %v", err)
+	}
+	if len(second) != 0 {
+		t.Errorf("second list: want empty after auto-expiry, got %+v", second)
+	}
+}
+
 func TestHookAllowsForeground(t *testing.T) {
 	path := stagedScript(t)
 	fg := `{"tool_name":"Bash","tool_input":{"command":"ls","run_in_background":false}}`

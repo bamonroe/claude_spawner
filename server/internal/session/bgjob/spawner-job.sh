@@ -13,6 +13,7 @@
 # Usage:
 #   spawner-job start '<shell command>'   launch detached; prints the job id
 #   spawner-job list [--json]             list this dir's jobs + status
+#   spawner-job wait <id>                 block until a job's process exits
 #   spawner-job tail <id>                 print a bounded tail of a job's log
 #   spawner-job reap <id>                 delete a finished job's files
 #   spawner-job kill <id>                 terminate a running job (group SIGTERM) + remove it
@@ -34,6 +35,14 @@ ROOT="${SPAWNER_JOB_ROOT:-$HOME/.spawner-jobs}"
 # TAIL_BYTES bounds every log read (tail/list snippet) so a runaway job can't
 # blow the token budget when the server injects its completion note.
 TAIL_BYTES=4000
+
+# JOB_DONE_GRACE is the auto-expiry backstop window: a finished job is kept in the
+# registry for this many seconds after `list` first observes it done, then reaped
+# automatically (see cmd_list). The grace window guarantees every completion is
+# listed — and thus reportable by the server — at least once before its record
+# disappears, while still stopping week-old debris from piling up and pinning swap.
+# Override with SPAWNER_JOB_DONE_GRACE (0 = reap as soon as a done job is listed once).
+JOB_DONE_GRACE="${SPAWNER_JOB_DONE_GRACE:-1800}"
 
 # encode_dir maps an absolute path to a single filesystem-safe, injective token:
 # each '_' becomes '_5f' and each '/' becomes '_2f', so distinct paths never
@@ -121,6 +130,24 @@ cmd_list() {
 		session="$(sed -n 's/.*"session":"\([^"]*\)".*/\1/p' "$f")"
 		[ -n "$pid" ] || continue
 		st="$(job_status "$pid")"
+		# Auto-expiry backstop. A finished job otherwise lingers until an explicit
+		# `reap`, which both accumulates records and traps any `until ! list | grep
+		# <id>` waiter forever (the id never leaves the list on its own). So the first
+		# list that observes a job done stamps done_at; once it has been done — and
+		# therefore listed at least once — for JOB_DONE_GRACE seconds, the server has
+		# had ample chances to report it, so we reap it and drop it from the output.
+		if [ "$st" = "done" ]; then
+			now="$(date +%s)"
+			done_at="$(sed -n 's/.*"done_at":\([0-9]*\).*/\1/p' "$f")"
+			if [ -z "$done_at" ]; then
+				tmp="$f.t$$"
+				sed 's/}[[:space:]]*$/,"done_at":'"$now"'}/' "$f" > "$tmp" && mv "$tmp" "$f"
+				done_at="$now"
+			elif [ "$((now - done_at))" -ge "$JOB_DONE_GRACE" ]; then
+				rm -f "$dir/$id.json" "$dir/$id.log"
+				continue
+			fi
+		fi
 		if [ "$json" -eq 1 ]; then
 			[ "$first" -eq 1 ] || printf ','
 			first=0
@@ -132,6 +159,26 @@ cmd_list() {
 		fi
 	done
 	[ "$json" -eq 1 ] && printf ']\n' || true
+}
+
+# cmd_wait blocks until a job's process exits, then returns. This is the CORRECT
+# waiter primitive: it polls the job leader's pid (kill -0), not the list text, so
+# it exits the instant the process dies — unlike a hand-rolled `until ! list | grep
+# <id>` loop, whose exit condition (the id leaving the list) never fires on its own
+# and so loops forever after the job finishes. It also breaks if the record is
+# reaped out from under it, so it can't outlive its own job. An already-finished job
+# returns immediately.
+cmd_wait() {
+	id="$1"
+	dir="$(regdir)"
+	f="$dir/$id.json"
+	[ -f "$f" ] || { printf '(no such job %s)\n' "$id"; return 0; }
+	pid="$(sed -n 's/.*"pid":\([0-9]*\).*/\1/p' "$f")"
+	[ -n "$pid" ] || { printf '(job %s has no pid)\n' "$id"; return 0; }
+	while kill -0 "$pid" 2>/dev/null && [ -f "$f" ]; do
+		sleep 2
+	done
+	printf 'done %s\n' "$id"
 }
 
 cmd_tail() {
@@ -213,9 +260,10 @@ sub="${1:-}"
 case "$sub" in
 	start) cmd_start "$@" ;;
 	list)  cmd_list "${1:-}" ;;
+	wait)  [ $# -ge 1 ] || { echo "usage: spawner-job wait <id>" >&2; exit 2; }; cmd_wait "$1" ;;
 	tail)  [ $# -ge 1 ] || { echo "usage: spawner-job tail <id>" >&2; exit 2; }; cmd_tail "$1" ;;
 	reap)  [ $# -ge 1 ] || { echo "usage: spawner-job reap <id>" >&2; exit 2; }; cmd_reap "$1" ;;
 	kill)  [ $# -ge 1 ] || { echo "usage: spawner-job kill <id>" >&2; exit 2; }; cmd_kill "$1" ;;
 	hook)  cmd_hook "$@" ;;
-	*) echo "usage: spawner-job {start|list|tail|reap|kill|hook} ..." >&2; exit 2 ;;
+	*) echo "usage: spawner-job {start|list|wait|tail|reap|kill|hook} ..." >&2; exit 2 ;;
 esac
