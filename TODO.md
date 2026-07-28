@@ -1766,6 +1766,63 @@ label. (Full code map established 2026-07-05 via two Explore passes — server +
       `session_id` identity still lets the app re-attach to the same session across any two servers
       that name it differently.
 
+**Finishing the epic — full server↔app accountability (planned 2026-07-28).** Phases 1–4 made the
+*server* key its identity by `session_id`, but the deferred tail ("chat-log map is still name-keyed
+… self-corrects via history refetch") is the source of a live bug class: a handful of session-scoped
+server→client frames carry no session identity, so both clients fall back to `currentKey` (the
+current view) and **misfile a background session's content under whatever you're looking at**. Proven
+twice: the `transcript` fix (2026-07-28) and the audit below. The five offenders — `say` (compress
+done / background-turn confirmations, also spoken), turn-terminal `error` (`turn_failed`/
+`compress_failed`), `files`, `diff`, `activity` — plus the transient flows (`_activity`, the `_ask`
+popup+TTS, `_lastTurnUsage`) all key to the wrong session when a background session is active.
+
+Root cause is structural, not per-message: the per-session **fan-out hub** (`gateway.sessionJob` —
+`emit`/`finish`/`broadcast`/`deliver`/`sink`, the interface EVERY session-scoped frame goes through)
+is a bare struct that doesn't even hold its own `session_id` (it's only the `jobs` map key), so each
+call site has to *remember* to pass `sess.Name`, and the five that don't are the bugs. Attribution is
+a per-call-site convention instead of an invariant of the interface. Fix it at the hub, not the
+leaves.
+
+**Decision: `session_id` (stable) becomes the wire identity carried on every session-scoped
+server→client frame; `name` stays for display only.** Names are mutable and diverge across servers —
+that's *why* they can be confused; ids can't. The client already tracks `_attachedId` and the
+`discovered` list is a de-facto id↔name table; the only thing missing is the id on the per-session
+*frames* (`output`/`transcript`/`ask`/`history`/`turn_stopped`/… carry only `name` today). Adding it
+is exactly what "the hub owns identity" produces, so the two halves compose.
+
+- [ ] **Phase A — server: the hub owns and stamps identity.** `jobFor(sessID)` stores `sessionID` on
+      the `sessionJob`; a single private `stamp(msg)` sets `session_id` (+ the current display `name`,
+      looked up fresh from the store so a rename can't stale it) on every outgoing frame, and ALL
+      fan-out (`emit`/`finish`/`broadcast`/`deliver` and the per-conn `sink` closures) routes through
+      it — so it becomes impossible to emit a session frame without its id. The per-call-site `name`
+      args to `msgOutput`/`msgAsk`/etc. stop being load-bearing. Add `session_id` to every
+      session-scoped frame: `output`, `transcript`, `ask`, `say`, `files`, `diff`, `activity`,
+      `turn_stopped`, `turn_interrupted`, turn-terminal `error`, and the `history` response (sent via
+      `c.send`, but the session is known). Update `docs/protocol.md` + the `docsync`/`clientsync`
+      drift tests. **Backward-compatible and fixes the bug class at the source** — every frame is
+      correctly tagged even before the client re-key; nothing breaks if the client ignores the field.
+      Low risk. Tests: a background-session turn's `say`/`error`/`files`/`diff`/`activity` all carry
+      the right `session_id`; the hub stamps a frame that omitted it.
+- [ ] **Phase B — client: key storage by id, delete the name dances.** Re-key `logs`/`oldest`/
+      `hasMore`/dedup/digest maps and `currentKey`→`currentId` by `sessionId` in both controllers +
+      `SessionSync`; every inbound guard becomes `msg.sessionId == currentId`. `migrateSessionKey`,
+      the inline web migration, and the `onRenamed`/`onDiscovered` re-derivations + attach-rotation
+      dances **delete** — `onRenamed` collapses to a title update, `onDiscovered` to a title lookup
+      (all their inputs already have the id). Android's on-disk `TranscriptCache` re-keys to id
+      (rebuilds from history if absent). A `""`/sentinel id stands for the general/unattached view.
+      Keep only a thin `name` fallback for the transition, deleted once both sides ship. Medium
+      effort, large payoff, mostly subtraction.
+- [ ] **Phase C — gate transient live-state to the attached session.** `_activity`, the `_ask`
+      popup + its TTS, and `_lastTurnUsage` (context meter) apply only when the frame's id is the
+      attached one, so a background session can't flicker "thinking…", pop a clarifying question, or
+      clobber the context meter over the session you're viewing. `touchDiscovered` uses the frame's
+      id, not `currentKey`.
+
+Net: after A the wire is complete and every frame correctly tagged (bug class closed, backward
+compatible); after B the client can't misattribute *by construction* and a pile of fragile
+name-migration code is gone; after C the transient UI is session-accurate too. Sequence A→B→C; each
+is one atomic, independently-shippable commit with builds/tests green.
+
 ### SSH-native unified execution (epic — proposed 2026-07-08; foundation landed 2026-07-08)
 
 **Why:** collapse the three execution paths (host fork, sandbox `podman exec`, would-be remote) into
