@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -87,8 +88,17 @@ func logField(s string) string {
 // j.mu -> conn.wmu, never the reverse. A sink must not call back into the job
 // (it would re-enter j.mu and deadlock); it only does a websocket write.
 type sessionJob struct {
-	mu      sync.Mutex
-	running bool
+	mu sync.Mutex
+	// sessionID is the stable id of the session this hub serves. Every frame the hub
+	// fans out to an attached client is stamped with it (by the connection sink, the
+	// single point every hub message reaches a device through), so a device viewing a
+	// DIFFERENT session can route the frame to the right chat log instead of misfiling
+	// it under whatever it happens to be showing. Held atomically because a compress
+	// ROTATES the id (rekeyJob restamps it while the hub — and its sinks — carry
+	// across) and one sink call in bindJob runs before j.mu is taken, so both the read
+	// (in the sink) and the rotation write must be lock-free-safe.
+	sessionID atomic.Value // string
+	running   bool
 	// pending holds, PER attached connection, a turn's result whose write to THAT
 	// connection failed (a briefly-unreachable phone) — so it is redelivered to
 	// exactly the connection(s) that missed it, independent of whether a co-attached
@@ -113,6 +123,15 @@ type sessionJob struct {
 // can't grow it without limit; older streamed frames beyond this fall out of the
 // live catch-up and are recovered from history once the turn completes.
 const maxTurnFrames = 400
+
+// sid returns the session id this hub currently serves (see sessionID); "" before
+// it is ever set (never, in practice — jobFor stamps it at creation).
+func (j *sessionJob) sid() string {
+	if v := j.sessionID.Load(); v != nil {
+		return v.(string)
+	}
+	return ""
+}
 
 func (j *sessionJob) isRunning() bool {
 	j.mu.Lock()

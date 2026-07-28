@@ -23,7 +23,7 @@ func (c *conn) serveHistory(name string, before *int, limit int, haveHash string
 	// hash the app already holds needs no message bodies — tell it the cache is
 	// current so clicking back into an unchanged session transfers nothing.
 	if before == nil && haveHash != "" && haveHash == hash {
-		c.send(msgHistory(name, nil, false, count, hash, true))
+		c.send(msgHistory(s.SessionID, name, nil, false, count, hash, true))
 		return
 	}
 	b := -1
@@ -38,7 +38,7 @@ func (c *conn) serveHistory(name string, before *int, limit int, haveHash string
 			page[i].Text = stripInjected(page[i].Text)
 		}
 	}
-	c.send(msgHistory(name, page, more, count, hash, false))
+	c.send(msgHistory(s.SessionID, name, page, more, count, hash, false))
 }
 
 // serveDigests reports every registered session's transcript digest (message

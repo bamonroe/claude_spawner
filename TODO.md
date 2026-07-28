@@ -1790,19 +1790,21 @@ that's *why* they can be confused; ids can't. The client already tracks `_attach
 *frames* (`output`/`transcript`/`ask`/`history`/`turn_stopped`/… carry only `name` today). Adding it
 is exactly what "the hub owns identity" produces, so the two halves compose.
 
-- [ ] **Phase A — server: the hub owns and stamps identity.** `jobFor(sessID)` stores `sessionID` on
-      the `sessionJob`; a single private `stamp(msg)` sets `session_id` (+ the current display `name`,
-      looked up fresh from the store so a rename can't stale it) on every outgoing frame, and ALL
-      fan-out (`emit`/`finish`/`broadcast`/`deliver` and the per-conn `sink` closures) routes through
-      it — so it becomes impossible to emit a session frame without its id. The per-call-site `name`
-      args to `msgOutput`/`msgAsk`/etc. stop being load-bearing. Add `session_id` to every
-      session-scoped frame: `output`, `transcript`, `ask`, `say`, `files`, `diff`, `activity`,
-      `turn_stopped`, `turn_interrupted`, turn-terminal `error`, and the `history` response (sent via
-      `c.send`, but the session is known). Update `docs/protocol.md` + the `docsync`/`clientsync`
-      drift tests. **Backward-compatible and fixes the bug class at the source** — every frame is
-      correctly tagged even before the client re-key; nothing breaks if the client ignores the field.
-      Low risk. Tests: a background-session turn's `say`/`error`/`files`/`diff`/`activity` all carry
-      the right `session_id`; the hub stamps a frame that omitted it.
+- [x] **Phase A — server: the hub owns and stamps identity.** *(done 2026-07-28)* `jobFor(sessID)`
+      stores `sessionID` on the `sessionJob` (an `atomic.Value`, since a compress rotation restamps it
+      via `rekeyJob` and one `bindJob` sink call reads it before `j.mu` is held). The stamp lives at the
+      **single choke point every hub frame reaches a device through — the per-connection `jobSink`**:
+      it writes `session_id = j.sid()` onto every outgoing `map[string]any`, so `emit`/`finish`/
+      `broadcast`/`broadcastExcept`/`deliver`/the direct `bindJob` sinks/`flushPending`/`replayInFlight`
+      are ALL covered by touching one function — impossible to fan out a session frame without its id,
+      and it tracks the rotated id automatically. The two direct-`c.send` session frames not on the hub
+      path (`transcript` to the capturing client, `history`) got an explicit `session_id` param. Display
+      `name` stays builder-set (it's display-only; a rename is reflected by the `renamed` frame and the
+      stable id, so no per-frame store lookup is needed — cheaper than the planned fresh-name resolve).
+      `docs/protocol.md` documents the new invariant + `session_id` on every session-scoped row; drift
+      tests green (the field name was already known, so `fieldsync` needed no message-type change).
+      **Backward-compatible** — every frame is correctly tagged even before the Phase B client re-key;
+      an old client ignoring the field is unaffected. All server tests + `docsync` pass.
 - [ ] **Phase B — client: key storage by id, delete the name dances.** Re-key `logs`/`oldest`/
       `hasMore`/dedup/digest maps and `currentKey`→`currentId` by `sessionId` in both controllers +
       `SessionSync`; every inbound guard becomes `msg.sessionId == currentId`. `migrateSessionKey`,
@@ -2266,6 +2268,16 @@ _2026-07-10 hardening pass (drift-proofing + error handling):_
 
 ## Done
 
+- [x] 2026-07-28 — **Session-identity epic Phase A: the server hub owns and stamps `session_id`.**
+      Every session-scoped server→app frame now carries the stable `session_id` so a client viewing a
+      different session routes it to the right chat log. The stamp lives at the one choke point every
+      hub frame reaches a device through — the per-connection `jobSink` — reading the id from the
+      `sessionJob` (an `atomic.Value` so a compress rotation via `rekeyJob` restamps it and the pre-lock
+      `bindJob` sink read is safe). That single function covers `emit`/`finish`/`broadcast`/`deliver`/
+      the direct `bindJob` sinks/`flushPending`/`replayInFlight` — impossible to fan out a session frame
+      without its id. The two direct-`c.send` frames off the hub path (`transcript`, `history`) got an
+      explicit param. `name` stays display-only. `docs/protocol.md` documents the invariant; all server
+      tests + `docsync` green. Unblocks Phase B (client keys storage by id). See the epic entry above.
 - [x] 2026-07-28 — **File the transcript echo under its capture session, not the attached one.** The
       `transcript` message carried no session id, so both clients appended the dictated user bubble
       under whatever session was attached when the async transcript landed — switching sessions

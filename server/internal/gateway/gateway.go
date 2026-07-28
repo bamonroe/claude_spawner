@@ -374,13 +374,19 @@ func (s *Server) sessionName(id string) string {
 // reached this client — true only if the connection is open AND the write
 // succeeded. A failed write (dropped socket) returns false so the job buffers the
 // result for delivery on reconnect instead of treating it as delivered and lost.
-
-// jobSink returns a sink for session-job events that reports whether it actually
-// reached this client — true only if the connection is open AND the write
-// succeeded. A failed write (dropped socket) returns false so the job buffers the
-// result for delivery on reconnect instead of treating it as delivered and lost.
-func (c *conn) jobSink() func(any) bool {
+//
+// Every session-scoped frame the hub fans out passes through here, so this is the
+// one place we stamp the session_id (from the hub, so it tracks a compress
+// rotation): a device viewing a different session then routes the frame to the
+// right chat log instead of misfiling it under whatever it currently shows. The
+// id is read lock-free (j.sid) because one bindJob sink call runs before j.mu is
+// held. We overwrite any session_id a builder may have set — the hub is
+// authoritative — but leave the display `name` the builder chose.
+func (c *conn) jobSink(j *sessionJob) func(any) bool {
 	return func(v any) bool {
+		if m, ok := v.(map[string]any); ok {
+			m["session_id"] = j.sid()
+		}
 		c.wmu.Lock()
 		closed := c.closed
 		c.wmu.Unlock()

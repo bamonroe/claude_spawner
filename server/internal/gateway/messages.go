@@ -256,12 +256,14 @@ func msgFiles(files []string) map[string]any {
 }
 
 // msgTranscript echoes a recognized utterance back as the user's chat bubble.
-// `name` is the session the clip was captured for — the app keys the bubble to
-// it rather than to whatever session happens to be attached when the (async)
+// `session_id` is the session the clip was captured for — the app keys the bubble
+// to it rather than to whatever session happens to be attached when the (async)
 // transcript lands, so switching sessions mid-transcription can't misfile it.
-// Empty name (detached / unknown session) → the app falls back to the current view.
-func msgTranscript(name, text string, final bool) map[string]any {
-	return map[string]any{"type": "transcript", "name": name, "text": text, "final": final}
+// `name` rides along for display. Empty ids (detached / unknown session) → the app
+// falls back to the current view. Sent direct on the capturing connection and
+// (via the hub, which re-stamps the id) fanned to co-attached devices.
+func msgTranscript(sessionID, name, text string, final bool) map[string]any {
+	return map[string]any{"type": "transcript", "session_id": sessionID, "name": name, "text": text, "final": final}
 }
 
 func msgDialog(state, prompt string) map[string]any {
@@ -482,12 +484,14 @@ func msgSettings(records []*session.SettingRecord) map[string]any {
 // `count`/`hash` are the whole chain's digest (the app stores them alongside the
 // cached transcript); `unchanged` is set on a top-page request whose `have_hash`
 // still matched, meaning the app's cache is current and `messages` is empty.
-func msgHistory(name string, messages []session.Message, more bool, count int, hash string, unchanged bool) map[string]any {
+// `session_id` is the stable key the app files the page under (a rename can't
+// diverge it), `name` rides along for display.
+func msgHistory(sessionID, name string, messages []session.Message, more bool, count int, hash string, unchanged bool) map[string]any {
 	if messages == nil {
 		messages = []session.Message{}
 	}
 	return map[string]any{
-		"type": "history", "name": name, "messages": messages, "more": more,
+		"type": "history", "session_id": sessionID, "name": name, "messages": messages, "more": more,
 		"count": count, "hash": hash, "unchanged": unchanged,
 	}
 }

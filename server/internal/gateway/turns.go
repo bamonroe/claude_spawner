@@ -19,6 +19,7 @@ func (s *Server) jobFor(sessID string) *sessionJob {
 	j := s.jobs[sessID]
 	if j == nil {
 		j = &sessionJob{}
+		j.sessionID.Store(sessID) // stamped on every frame the hub fans out
 		s.jobs[sessID] = j
 	}
 	return j
@@ -303,7 +304,7 @@ func (s *Server) bindJob(c *conn, sess *session.Session, silent bool) {
 	if !j.isRunning() {
 		s.reconcileJobs(sess, true)
 	}
-	sink := c.jobSink()
+	sink := c.jobSink(j)
 	// A turn that was running when the server last restarted is dead; tell the app
 	// once so it doesn't wait on it (its result, if any, is in the transcript the
 	// app reloads on attach).
@@ -382,7 +383,7 @@ func (s *Server) echoUserPrompt(sessID, text string, origin *conn) {
 	j := s.jobs[sessID]
 	s.jobsMu.Unlock()
 	if j != nil {
-		j.broadcastExcept(origin, msgTranscript(s.sessionName(sessID), text, true))
+		j.broadcastExcept(origin, msgTranscript(sessID, s.sessionName(sessID), text, true))
 	}
 }
 
@@ -438,5 +439,6 @@ func (s *Server) rekeyJob(oldID, newID string) {
 	if j := s.jobs[oldID]; j != nil {
 		delete(s.jobs, oldID)
 		s.jobs[newID] = j
+		j.sessionID.Store(newID) // frames now stamp the rotated id (see sessionID)
 	}
 }
