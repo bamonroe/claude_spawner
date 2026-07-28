@@ -138,7 +138,7 @@ func (c *conn) commitMessage() {
 	}
 	// Always echo the full recognized message as the user's bubble — so spoken
 	// commands (not just dictation) show up in the chat.
-	c.send(msgTranscript(msg, true))
+	c.send(msgTranscript(c.srv.sessionName(sessionID), msg, true))
 
 	if c.dlg != nil { // a spawn dialog is in progress — the message is its answer
 		c.handleDialog(msg)

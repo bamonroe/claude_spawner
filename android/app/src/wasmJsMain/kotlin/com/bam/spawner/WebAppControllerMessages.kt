@@ -118,6 +118,7 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
         }
         is ServerMsg.Say -> {
             _activity.value = ""
+            _micText.value = "" // a terminal `say` (e.g. "didn't catch that") ends the PTT clip; clear "transcribing…"
             // A turn-terminal say (compress done) can be redelivered buffered on
             // reconnect — its turn id drops the repeat. Breadcrumb says have no id.
             if (!session.terminalSeen(currentKey, msg.turn)) {
@@ -230,12 +231,18 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
         }
         is ServerMsg.Transcript -> {
             _ask.value = null
-            (_attachedName.value ?: currentKey).takeIf { it.isNotEmpty() }?.let { streamedSessions.remove(it); spokenReplyCounts.remove(it); session.noteTurnStart(it) }
+            // Key by the session the clip was captured for (msg.name), not the currently
+            // attached one — otherwise switching sessions before the async transcript lands
+            // files the user bubble under the wrong session. Older servers omit name → fall
+            // back to the current view.
+            val key = msg.name.ifEmpty { currentKey }
+            key.takeIf { it.isNotEmpty() }?.let { streamedSessions.remove(it); spokenReplyCounts.remove(it); session.noteTurnStart(it) }
             // The committed transcript supersedes the live hands-free draft — clear it
             // so the utterance isn't shown as both a draft and a committed bubble.
             _pending.value = ""
-            addChat(Role.USER, msg.text)
-            touchDiscovered(currentKey, busy = true) // dictation submitted → session is now working
+            _micText.value = "" // the committed transcript ends the PTT clip; clear "transcribing…"
+            addChat(Role.USER, msg.text, key = key)
+            touchDiscovered(key, busy = true) // dictation submitted → session is now working
         }
         is ServerMsg.Attached -> {
             session.rememberPreviousOnAttach(msg.name, msg.sessionId)
@@ -331,6 +338,7 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
             // stray close for the session isn't misread as "streamed" (Android parity).
             if (msg.code == "turn_failed") { streamedSessions.clear(); spokenReplyCounts.clear() }
             _activity.value = ""
+            _micText.value = "" // a transcribe_failed / not_implemented error ends the PTT clip; clear "transcribing…"
             if (_usageLoading.value) _usageLoading.value = false
             // Turn-terminal errors carry a turn id and can be redelivered buffered
             // on reconnect — drop the repeated row (state above is idempotent).

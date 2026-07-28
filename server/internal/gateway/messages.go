@@ -255,8 +255,13 @@ func msgFiles(files []string) map[string]any {
 	return map[string]any{"type": "files", "files": files}
 }
 
-func msgTranscript(text string, final bool) map[string]any {
-	return map[string]any{"type": "transcript", "text": text, "final": final}
+// msgTranscript echoes a recognized utterance back as the user's chat bubble.
+// `name` is the session the clip was captured for — the app keys the bubble to
+// it rather than to whatever session happens to be attached when the (async)
+// transcript lands, so switching sessions mid-transcription can't misfile it.
+// Empty name (detached / unknown session) → the app falls back to the current view.
+func msgTranscript(name, text string, final bool) map[string]any {
+	return map[string]any{"type": "transcript", "name": name, "text": text, "final": final}
 }
 
 func msgDialog(state, prompt string) map[string]any {

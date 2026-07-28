@@ -382,7 +382,7 @@ func (s *Server) echoUserPrompt(sessID, text string, origin *conn) {
 	j := s.jobs[sessID]
 	s.jobsMu.Unlock()
 	if j != nil {
-		j.broadcastExcept(origin, msgTranscript(text, true))
+		j.broadcastExcept(origin, msgTranscript(s.sessionName(sessID), text, true))
 	}
 }
 

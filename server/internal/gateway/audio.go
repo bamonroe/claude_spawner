@@ -124,6 +124,6 @@ func (c *conn) endAudio() {
 		c.send(msgSay("didn't catch that."))
 		return
 	}
-	c.send(msgTranscript(text, true))
+	c.send(msgTranscript(c.srv.sessionName(c.audioSessionID), text, true))
 	c.handleUtterance(text, c.audioSessionID)
 }

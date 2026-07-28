@@ -413,12 +413,16 @@ internal fun VoiceController.onAsk(msg: ServerMsg.Ask) {
 
 internal fun VoiceController.onTranscript(msg: ServerMsg.Transcript) {
     _ask.value = null // a spoken/typed reply answers any pending questions
-    (_attachedName.value ?: currentKey).takeIf { it.isNotEmpty() }?.let { streamedSessions.remove(it); spokenReplyCounts.remove(it); session.noteTurnStart(it) }
+    // Key by the session the clip was captured for (msg.name), not the currently
+    // attached one — switching sessions before the async transcript lands would
+    // otherwise misfile the user bubble. Older servers omit name → current view.
+    val key = msg.name.ifEmpty { _attachedName.value ?: currentKey }
+    key.takeIf { it.isNotEmpty() }?.let { streamedSessions.remove(it); spokenReplyCounts.remove(it); session.noteTurnStart(it) }
     // The committed transcript supersedes the live hands-free draft — drop the
     // greyed draft line so the utterance isn't shown as both a draft and a bubble.
     _pending.value = ""
-    addChat(Role.USER, msg.text); _mic.value = ""
-    touchDiscovered(_attachedName.value ?: currentKey, busy = true) // dictation submitted → session is now working
+    addChat(Role.USER, msg.text, key = key); _mic.value = ""
+    touchDiscovered(key, busy = true) // dictation submitted → session is now working
     // Chirp the "heard you" acknowledgment: the server has recognized the
     // utterance and is dispatching it to the session, so confirm receipt
     // now — before Claude replies (and distinct from its activity beep).

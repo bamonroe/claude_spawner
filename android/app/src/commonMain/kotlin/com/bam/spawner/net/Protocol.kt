@@ -34,7 +34,10 @@ sealed interface ServerMsg {
     data class WhisperDownload(val model: String, val fast: Boolean, val received: Long, val total: Long, val done: Boolean, val error: String) : ServerMsg
     // turn non-empty only on the redeliverable turn-terminal say (compress done).
     data class Say(val text: String, val turn: String = "") : ServerMsg
-    data class Transcript(val text: String, val final: Boolean) : ServerMsg
+    // name = the session the utterance was captured for (empty from older servers);
+    // the client files the user bubble under it so a mid-transcription session switch
+    // can't misattribute it to the newly-attached session.
+    data class Transcript(val text: String, val final: Boolean, val name: String = "") : ServerMsg
     data class Pending(val text: String) : ServerMsg // live hands-free draft buffer
     data class Calibration(val text: String) : ServerMsg // what the detection model heard for a sample
     data class Activity(val text: String) : ServerMsg // live "Claude is thinking / editing X" indicator
@@ -106,7 +109,7 @@ sealed interface ServerMsg {
                 "whisper_model" -> WhisperModel(o.str("model"), o.str("fast_model"), readStrings(o.arr("whisper_models")), readStrings(o.arr("whisper_models_local")))
                 "whisper_download" -> WhisperDownload(o.str("model"), o.bool("fast"), o.long("received"), o.long("total"), o.bool("done"), o.str("error"))
                 "say" -> Say(o.str("text"), o.str("turn"))
-                "transcript" -> Transcript(o.str("text"), o.bool("final", true))
+                "transcript" -> Transcript(o.str("text"), o.bool("final", true), o.str("name"))
                 "pending" -> Pending(o.str("text"))
                 "calibration" -> Calibration(o.str("text"))
                 "activity" -> Activity(o.str("text"))

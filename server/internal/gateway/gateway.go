@@ -357,6 +357,19 @@ func (s *Server) job(name string) *sessionJob {
 	return s.jobs[name]
 }
 
+// sessionName resolves a session id to its registered name, "" if the id is
+// empty or not registered. Used to stamp the transcript echo with the session
+// the utterance belongs to.
+func (s *Server) sessionName(id string) string {
+	if id == "" {
+		return ""
+	}
+	if rec := s.store.GetBySessionID(id); rec != nil {
+		return rec.Name
+	}
+	return ""
+}
+
 // jobSink returns a sink for session-job events that reports whether it actually
 // reached this client — true only if the connection is open AND the write
 // succeeded. A failed write (dropped socket) returns false so the job buffers the
