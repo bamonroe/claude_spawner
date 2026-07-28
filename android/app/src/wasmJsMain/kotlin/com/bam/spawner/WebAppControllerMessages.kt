@@ -117,11 +117,11 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
                 else WhisperDownloadInfo(msg.model, msg.fast, msg.received, msg.total, msg.done, msg.error)
         }
         is ServerMsg.Say -> {
-            _activity.value = ""
             _micText.value = "" // a terminal `say` (e.g. "didn't catch that") ends the PTT clip; clear "transcribing…"
             // Hub-fanned says (compress done, breadcrumbs) carry their session id;
             // conversational dialog says don't → fall back to the current view.
             val key = msg.sessionId.ifEmpty { currentId }
+            activityFor(key, "") // a background compress `say` must not clear the attached session's indicator
             // A turn-terminal say (compress done) can be redelivered buffered on
             // reconnect — its turn id drops the repeat. Breadcrumb says have no id.
             if (!session.terminalSeen(key, msg.turn)) {
@@ -129,10 +129,10 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
             }
         }
         is ServerMsg.Output -> {
-            _activity.value = ""
             // Summary-only: beep through intermediate steps, speak only the final result.
             val summaryOnly = prefs.summaryOnlySpeech
             val sid = msg.sessionId.ifEmpty { currentId } // stable id; the turn's session
+            activityFor(sid, "") // prose/close is arriving — drop the indicator (attached session only)
             touchDiscovered(sid, busy = msg.chunk) // reorder + working cue live
             if (msg.chunk) {
                 streamedSessions.add(sid)
@@ -183,7 +183,7 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
                 // time (usage_at), not to when a buffered reply reached us.
                 msg.usage?.let { u ->
                     val ageMs = if (msg.usageAt > 0) (nowEpochSeconds() - msg.usageAt) * 1000 else 0L
-                    _lastTurnUsage.value = TurnUsageInfo(u, nowMonotonicMs() - ageMs.coerceIn(0, 6 * 60 * 1000L))
+                    usageFor(sid, TurnUsageInfo(u, nowMonotonicMs() - ageMs.coerceIn(0, 6 * 60 * 1000L))) // meter tracks the attached session only
                 }
             }
         }
@@ -196,7 +196,7 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
         }
         is ServerMsg.SpeechMode -> prefs.summaryOnlySpeech = msg.summaryOnly // voice toggle mirrors the audio-settings switch
         is ServerMsg.ContextReset -> {
-            _lastTurnUsage.value = null
+            usageFor(msg.sessionId.ifEmpty { currentId }, null) // context cleared → the attached session's status bar returns to 0
             // A clear/compress rotates the session_id server-side and wipes/summarizes the
             // transcript. The rotation bridges OLD id → NEW id by name (the reset is for the
             // attached session): drop the retired old id's rows, re-key the view + attached id
@@ -212,7 +212,7 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
                 session.requestFreshHistory(msg.sessionId, msg.name)
             }
         }
-        is ServerMsg.Activity -> { _activity.value = msg.text; touchDiscovered(msg.sessionId.ifEmpty { currentId }, busy = true) }
+        is ServerMsg.Activity -> { val id = msg.sessionId.ifEmpty { currentId }; activityFor(id, msg.text); touchDiscovered(id, busy = true) }
         is ServerMsg.Transcribing -> _micText.value = "transcribing…" // committed clip being re-transcribed
         is ServerMsg.Files -> if (msg.files.isNotEmpty()) {
             addChat(Role.SYSTEM, "📝 changed: " + msg.files.joinToString(", "), key = msg.sessionId.ifEmpty { currentId })
@@ -226,22 +226,22 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
         is ServerMsg.Usage -> { _usageLoading.value = false; _usageReport.value = msg.report }
         is ServerMsg.Ask -> {
             val key = msg.sessionId.ifEmpty { currentId }
-            _activity.value = ""; streamedSessions.remove(key); spokenReplyCounts.remove(key)
+            activityFor(key, ""); streamedSessions.remove(key); spokenReplyCounts.remove(key)
             touchDiscovered(key, busy = false) // turn-terminal → clear the working cue
             // An ask is a turn-terminal and can be redelivered buffered on reconnect
             // — keyed by its turn id; drop a repeat instead of re-presenting it.
             if (!session.terminalSeen(key, msg.turn)) {
-                _ask.value = msg.questions
+                askFor(key, msg.questions) // only the attached session pops the question dialog
                 addChat(Role.SYSTEM, "❓ " + msg.questions.joinToString("  ") { it.q }, key = key)
             }
         }
         is ServerMsg.Transcript -> {
-            _ask.value = null
             // Key by the session the clip was captured for (msg.sessionId), not the currently
             // attached one — otherwise switching sessions before the async transcript lands
             // files the user bubble under the wrong session. Older servers omit it → fall
             // back to the current view.
             val key = msg.sessionId.ifEmpty { currentId }
+            askFor(key, null) // a spoken/typed reply answers the attached session's pending questions
             key.takeIf { it.isNotEmpty() }?.let { streamedSessions.remove(it); spokenReplyCounts.remove(it); session.noteTurnStart(it) }
             // The committed transcript supersedes the live hands-free draft — clear it
             // so the utterance isn't shown as both a draft and a committed bubble.
@@ -327,12 +327,12 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
             // A failed turn ends it: clear the streamed/spoken turn state so a later
             // stray close for the session isn't misread as "streamed" (Android parity).
             if (msg.code == "turn_failed") { streamedSessions.clear(); spokenReplyCounts.clear() }
-            _activity.value = ""
             _micText.value = "" // a transcribe_failed / not_implemented error ends the PTT clip; clear "transcribing…"
             if (_usageLoading.value) _usageLoading.value = false
             // Turn-terminal errors carry a session_id + turn id and can be redelivered
-            // buffered on reconnect — drop the repeated row (state above is idempotent).
+            // buffered on reconnect — drop the repeated row (state here is idempotent).
             val key = msg.sessionId.ifEmpty { currentId }
+            activityFor(key, "") // only clear the indicator if the erroring turn is the attached session's
             if (session.terminalSeen(key, msg.turn)) return
             if (msg.code in setOf("session_active", "not_found", "bad_delete", "bad_adopt", "discover_failed")) {
                 _discoverError.value = msg.message
@@ -340,12 +340,12 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
         }
         is ServerMsg.TurnInterrupted -> {
             val key = msg.sessionId.ifEmpty { currentId }
-            _activity.value = ""; streamedSessions.remove(key); spokenReplyCounts.remove(key)
+            activityFor(key, ""); streamedSessions.remove(key); spokenReplyCounts.remove(key)
             addChat(Role.SYSTEM, "⚠️ turn interrupted (${msg.reason}) — say it again.", key = key)
         }
         is ServerMsg.TurnStopped -> {
             val key = msg.sessionId.ifEmpty { currentId }
-            _activity.value = ""; streamedSessions.remove(key); spokenReplyCounts.remove(key)
+            activityFor(key, ""); streamedSessions.remove(key); spokenReplyCounts.remove(key)
             // A redelivered stop (buffered terminal, keyed by turn id) — drop the row.
             if (!session.terminalSeen(key, msg.turn)) {
                 addChat(Role.SYSTEM, "⏹ stopped that turn.", key = key)

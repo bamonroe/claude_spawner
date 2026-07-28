@@ -167,6 +167,23 @@ class WebAppController(internal val prefs: Prefs) : AppController {
     internal val _ask = MutableStateFlow<List<AskQuestion>?>(null)
     override val ask: StateFlow<List<AskQuestion>?> = _ask.asStateFlow()
 
+    // Phase C — these three flows describe the live status of the ATTACHED
+    // session: the "thinking/editing" breadcrumb, the pending-question popup,
+    // and the context-meter usage. An incoming session-scoped frame may only
+    // touch them when it is for the attached session, so a background turn
+    // can't flicker the indicator, pop a question, or clobber the meter.
+    // Deliberate local transitions (attach/detach/dismiss/showLog) still write
+    // the backing flows directly; only frames off the wire route through these.
+    internal fun activityFor(id: String, text: String) {
+        if (id == _attachedId.value) _activity.value = text
+    }
+    internal fun usageFor(id: String, usage: TurnUsageInfo?) {
+        if (id == _attachedId.value) _lastTurnUsage.value = usage
+    }
+    internal fun askFor(id: String, questions: List<AskQuestion>?) {
+        if (id == _attachedId.value) _ask.value = questions
+    }
+
     // The four app-managed catalogues (hosts, identities, profiles, providers) are
     // reconciled through one shared commonMain point so this controller and the Android
     // controller can't drift; it owns the StateFlows the UI reads and the outbound

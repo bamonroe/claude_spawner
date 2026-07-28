@@ -267,6 +267,23 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
     internal val _ask = MutableStateFlow<List<com.bam.spawner.net.AskQuestion>?>(null)
     override val ask: StateFlow<List<com.bam.spawner.net.AskQuestion>?> = _ask.asStateFlow()
 
+    // Phase C — these three flows describe the live status of the ATTACHED
+    // session: the "thinking/editing" breadcrumb, the pending-question popup,
+    // and the context-meter usage. An incoming session-scoped frame may only
+    // touch them when it is for the attached session, so a background turn
+    // can't flicker the indicator, pop a question, or clobber the meter.
+    // Deliberate local transitions (attach/detach/dismiss/showLog) still write
+    // the backing flows directly; only frames off the wire route through these.
+    internal fun activityFor(id: String, text: String) {
+        if (id == _attachedId.value) _activity.value = text
+    }
+    internal fun usageFor(id: String, usage: TurnUsageInfo?) {
+        if (id == _attachedId.value) _lastTurnUsage.value = usage
+    }
+    internal fun askFor(id: String, questions: List<com.bam.spawner.net.AskQuestion>?) {
+        if (id == _attachedId.value) _ask.value = questions
+    }
+
     // AI backend registry (`agents`) and execution profiles (`profiles`) — both are
     // app-managed catalogues, reconciled through the shared `catalogues` above.
     override val agents: StateFlow<List<com.bam.spawner.net.AgentInfo>> = catalogues.agents

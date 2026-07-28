@@ -245,11 +245,11 @@ internal fun VoiceController.onSay(msg: ServerMsg.Say) {
     // state so the "…compressing… ⏹ stop" bar dismisses; otherwise it lingers
     // and tapping stop aborts an already-finished turn ("nothing running to stop").
     clearTurnInFlight()
-    _activity.value = ""
     _mic.value = "" // a terminal `say` (e.g. "didn't catch that") ends the PTT clip; clear "transcribing…"
     // Hub-fanned says (compress done, breadcrumbs) carry their session id;
     // conversational dialog says don't → fall back to the current view.
     val key = msg.sessionId.ifEmpty { currentId }
+    activityFor(key, "") // a background compress `say` must not clear the attached session's indicator
     // A turn-terminal say (compress done) can be redelivered buffered on
     // reconnect — its turn id drops the repeat. Breadcrumb says have no id.
     if (!session.terminalSeen(key, msg.turn)) {
@@ -272,7 +272,7 @@ internal fun VoiceController.onOutput(msg: ServerMsg.Output) {
         lostTurnWatchdog?.cancel(); lostTurnWatchdog = null
         streamedSessions.add(sid)
         session.noteChunk(sid, msg.turn)
-        _activity.value = "" // prose is arriving — drop the "thinking" breadcrumb
+        activityFor(sid, "") // prose is arriving — drop the "thinking" breadcrumb (attached session only)
         addChat(Role.CLAUDE, msg.text, key = sid)
         if (sid == currentId) {
             if (summaryOnly) {
@@ -292,7 +292,7 @@ internal fun VoiceController.onOutput(msg: ServerMsg.Output) {
         }
     } else {
         clearTurnInFlight()
-        _activity.value = "" // turn done — stop the thinking indicator
+        activityFor(sid, "") // turn done — stop the thinking indicator (attached session only)
         // The close's `turn` id is the authoritative link to its chunks (query
         // the reconciler BEFORE shouldSpeakClose — that call records the id):
         // redelivered = a close for a turn already closed (buffered-final
@@ -330,14 +330,14 @@ internal fun VoiceController.onOutput(msg: ServerMsg.Output) {
         // counts down from its true age, not from when it arrived.
         msg.usage?.let { u ->
             val ageMs = if (msg.usageAt > 0) System.currentTimeMillis() - msg.usageAt * 1000 else 0L
-            _lastTurnUsage.value = TurnUsageInfo(u, nowMonotonicMs() - ageMs.coerceIn(0, 6 * 60 * 1000L))
+            usageFor(sid, TurnUsageInfo(u, nowMonotonicMs() - ageMs.coerceIn(0, 6 * 60 * 1000L))) // meter tracks the attached session only
         }
         if (!appForeground) notifier.turnDone(msg.name, msg.text) // surface it from the pocket
     }
 }
 
 internal fun VoiceController.onContextReset(msg: ServerMsg.ContextReset) {
-    _lastTurnUsage.value = null // context cleared → status bar returns to 0
+    usageFor(msg.sessionId.ifEmpty { currentId }, null) // context cleared → the attached session's status bar returns to 0
     // A clear/compress rotates the session_id server-side and wipes/summarizes the
     // transcript. The rotation bridges OLD id → NEW id by name (the reset is for the
     // attached session): drop the retired old id's rows, re-key the view + attached id
@@ -358,8 +358,9 @@ internal fun VoiceController.onActivity(msg: ServerMsg.Activity) {
     // flight and disarm any interruption watchdog (it survived a reconnect).
     turnInFlight = true
     lostTurnWatchdog?.cancel(); lostTurnWatchdog = null
-    _activity.value = msg.text
-    touchDiscovered(msg.sessionId.ifEmpty { currentId }, busy = true)
+    val id = msg.sessionId.ifEmpty { currentId }
+    activityFor(id, msg.text) // a background session's breadcrumb must not flicker the attached indicator
+    touchDiscovered(id, busy = true)
 }
 
 internal fun VoiceController.onTranscribing(msg: ServerMsg.Transcribing) {
@@ -388,26 +389,27 @@ internal fun VoiceController.onAsk(msg: ServerMsg.Ask) {
     clearTurnInFlight()
     streamedSessions.remove(key)
     spokenReplyCounts.remove(key)
-    _activity.value = ""
+    activityFor(key, "")
     touchDiscovered(key, busy = false) // turn-terminal → clear the working cue
-    if (hfOn) _voiceState.value = VoiceState.LISTENING
+    val attached = key == _attachedId.value
+    if (attached && hfOn) _voiceState.value = VoiceState.LISTENING
     // An ask is a turn-terminal (it ends the turn in place of the closing
     // output) and can be redelivered buffered on reconnect — keyed by its
     // turn id. Re-presenting is harmless for the chat row (dedupe folds it)
     // but re-SPEAKING the questions is not; drop a seen terminal outright.
     if (!session.terminalSeen(key, msg.turn)) {
-        _ask.value = msg.questions
+        askFor(key, msg.questions) // only the attached session pops the question dialog…
         addChat(Role.SYSTEM, "❓ " + msg.questions.joinToString("  ") { it.q }, key = key)
-        speakText(spokenQuestions(msg.questions)) // read aloud so you can answer by voice
+        if (attached) speakText(spokenQuestions(msg.questions)) // …and only it is read aloud so you can answer by voice
     }
 }
 
 internal fun VoiceController.onTranscript(msg: ServerMsg.Transcript) {
-    _ask.value = null // a spoken/typed reply answers any pending questions
     // Key by the session the clip was captured for (msg.sessionId), not the currently
     // attached one — switching sessions before the async transcript lands would
     // otherwise misfile the user bubble. Older servers omit it → current view.
     val key = msg.sessionId.ifEmpty { currentId }
+    askFor(key, null) // a spoken/typed reply answers the attached session's pending questions
     key.takeIf { it.isNotEmpty() }?.let { streamedSessions.remove(it); spokenReplyCounts.remove(it); session.noteTurnStart(it) }
     // The committed transcript supersedes the live hands-free draft — drop the
     // greyed draft line so the utterance isn't shown as both a draft and a bubble.
@@ -526,12 +528,12 @@ internal fun VoiceController.onErr(msg: ServerMsg.Err) {
     if (msg.code == "bad_message" && msg.message.contains("digest")) return
     if (msg.code == "turn_failed") { clearTurnInFlight(); streamedSessions.clear(); spokenReplyCounts.clear() }
     if (_usageLoading.value) _usageLoading.value = false // any error unsticks a pending usage fetch
-    _activity.value = ""
     _mic.value = "" // a transcribe_failed / not_implemented error ends the PTT clip; clear "transcribing…"
     // Turn-terminal errors (turn_failed / compress failures) carry a session_id +
     // turn id and can be redelivered buffered on reconnect — drop the repeated row.
-    // The state clearing above is idempotent and safe to re-run either way.
+    // The state clearing here is idempotent and safe to re-run either way.
     val key = msg.sessionId.ifEmpty { currentId }
+    activityFor(key, "") // only clear the indicator if the erroring turn is the attached session's
     if (session.terminalSeen(key, msg.turn)) return
     // Discover/adopt/delete errors surface on the Discover screen; the
     // rest go to the chat log.
@@ -547,10 +549,12 @@ internal fun VoiceController.onTurnInterrupted(msg: ServerMsg.TurnInterrupted) {
     clearTurnInFlight()
     streamedSessions.remove(key)
     spokenReplyCounts.remove(key)
-    _activity.value = ""
-    if (hfOn) _voiceState.value = VoiceState.LISTENING
+    activityFor(key, "")
+    if (key == _attachedId.value) {
+        if (hfOn) _voiceState.value = VoiceState.LISTENING
+        speakText("that turn got interrupted — the server restarted. say it again.")
+    }
     addChat(Role.SYSTEM, "⚠️ turn interrupted (${msg.reason}) — say it again.", key = key)
-    speakText("that turn got interrupted — the server restarted. say it again.")
 }
 
 internal fun VoiceController.onTurnStopped(msg: ServerMsg.TurnStopped) {
@@ -558,13 +562,16 @@ internal fun VoiceController.onTurnStopped(msg: ServerMsg.TurnStopped) {
     clearTurnInFlight()
     streamedSessions.remove(key)
     spokenReplyCounts.remove(key)
-    _activity.value = ""
-    if (hfOn) _voiceState.value = VoiceState.LISTENING
+    activityFor(key, "")
+    val attached = key == _attachedId.value
+    if (attached && hfOn) _voiceState.value = VoiceState.LISTENING
     // A redelivered stop (buffered terminal, keyed by turn id) must not
     // silence whatever is being read NOW or re-add its row.
     if (!session.terminalSeen(key, msg.turn)) {
-        cancelServerSpeech()
-        speaker.stop() // also quiet any reply already being read
+        if (attached) { // a background stop must not cut off the reply you're listening to
+            cancelServerSpeech()
+            speaker.stop() // also quiet any reply already being read
+        }
         addChat(Role.SYSTEM, "⏹ stopped that turn.", key = key)
     }
 }

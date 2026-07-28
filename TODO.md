@@ -1821,11 +1821,19 @@ is exactly what "the hub owns identity" produces, so the two halves compose.
       `TranscriptCache` now keys files by id (an old name-keyed file misses → rebuilt from history). `""`
       = the general/unattached view; empty `session_id` (older server) falls back to the current view.
       Both Kotlin targets compile; SessionSync unit tests green. Mostly subtraction, as predicted.
-- [ ] **Phase C — gate transient live-state to the attached session.** `_activity`, the `_ask`
-      popup + its TTS, and `_lastTurnUsage` (context meter) apply only when the frame's id is the
-      attached one, so a background session can't flicker "thinking…", pop a clarifying question, or
-      clobber the context meter over the session you're viewing. `touchDiscovered` uses the frame's
-      id, not `currentKey`.
+- [x] **Phase C — gate transient live-state to the attached session.** *(done 2026-07-28)* Both
+      controllers gained three guarded writers — `activityFor(id, text)` / `usageFor(id, usage)` /
+      `askFor(id, questions)` — that write `_activity` / `_lastTurnUsage` / `_ask` **only when
+      `id == _attachedId`**. Every incoming session-scoped frame routes its transient-UI write
+      through them (activity breadcrumb, context meter, the question popup + its spoken read-aloud),
+      so a background session can't flicker "thinking…", pop a clarifying question, or clobber the
+      context meter over the attached session. Also gated to the attached session, same class:
+      the interrupt/stop **spoken** notices + hands-free `_voiceState` reset, and a background
+      `turn_stopped` no longer cuts off the reply you're listening to. Deliberate local transitions
+      (attach/detach/dismiss/`showLog`) still write the backing flows directly — the guard is only
+      for frames off the wire. Backward-compatible: an old server's frame with no `session_id`
+      falls back to `currentId` (== attached), so the guard always passes. `touchDiscovered` already
+      keyed by the frame's id. Both Kotlin targets compile clean.
 
 Net: after A the wire is complete and every frame correctly tagged (bug class closed, backward
 compatible); after B the client can't misattribute *by construction* and a pile of fragile
@@ -2275,6 +2283,16 @@ _2026-07-10 hardening pass (drift-proofing + error handling):_
 
 ## Done
 
+- [x] 2026-07-28 — **Session-identity epic Phase C: transient live-state gated to the attached
+      session.** Both controllers gained three guarded writers — `activityFor`/`usageFor`/`askFor` —
+      that only mutate `_activity`/`_lastTurnUsage`/`_ask` when the frame's id equals `_attachedId`;
+      every incoming session-scoped frame routes its transient-UI write through them. A background
+      session can no longer flicker "thinking…", pop a clarifying question, clobber the context
+      meter, speak an interrupt/stop notice, flip the hands-free state, or cut off the reply you're
+      listening to. Local transitions (attach/detach/dismiss/`showLog`) keep writing directly.
+      Backward-compatible (an id-less old-server frame falls back to `currentId` == attached).
+      **Completes the epic** — A stamped the wire, B keyed storage by id, C makes the live UI
+      session-accurate. See the epic entry above.
 - [x] 2026-07-28 — **Session-identity epic Phase B: the client keys chat storage by `session_id`.**
       Both controllers (Android + web) and `SessionSync` now key every per-session container by the
       stable `sessionId` instead of the display name (`currentKey`→`currentId`); each inbound handler
