@@ -8,17 +8,17 @@ import com.bam.spawner.net.ServerMsg
 // message/chat/session-state helpers in one focused file. Pure relocation — see
 // WebAppController.kt for the class fields these extensions read/mutate.
 
-// dropSessionCache forgets every name-keyed trace of a session's transcript (in-memory
-// log + paging cursors + held/server digests) so the next history fetch rebuilds it from
-// scratch. Used when a clear/compress OR a same-name session_id rotation wipes the
-// session server-side: the old rows carry stale indexes and merging a fresh page over
-// them would duplicate, so discard wholesale and refetch. Mirror of Android's method.
-internal fun WebAppController.dropSessionCache(name: String) {
-    logs.remove(name)
-    hasMore.remove(name)
-    oldest.remove(name)
-    session.drop(name) // held + server digests
-    if (name == currentKey) publish()
+// dropSessionCache forgets every trace of a session id's transcript (in-memory log +
+// paging cursors + held/server digests) so the next history fetch rebuilds it from
+// scratch. Used when a clear/compress retires a session_id server-side: the old rows
+// carry stale indexes and merging a fresh page over them would duplicate, so discard
+// wholesale and refetch. Mirror of Android's method.
+internal fun WebAppController.dropSessionCache(id: String) {
+    logs.remove(id)
+    hasMore.remove(id)
+    oldest.remove(id)
+    session.drop(id) // held + server digests
+    if (id == currentId) publish()
 }
 
 /** Locally bump a session's sidebar metadata (recency + busy cue) the instant a
@@ -26,12 +26,12 @@ internal fun WebAppController.dropSessionCache(name: String) {
  *  the next `discover` round trip. A no-op if the session isn't in the list yet
  *  (a later discover fills it in). Never persisted — the authoritative snapshot
  *  still comes from the server's `discovered` frame. */
-internal fun WebAppController.touchDiscovered(name: String, busy: Boolean? = null) {
-    if (name.isEmpty()) return
+internal fun WebAppController.touchDiscovered(id: String, busy: Boolean? = null) {
+    if (id.isEmpty()) return
     val now = nowEpochSeconds()
     var changed = false
     val next = _discovered.value.map { d ->
-        if (d.name == name) {
+        if (d.sessionId == id) {
             changed = true
             d.copy(lastActive = maxOf(d.lastActive, now), busy = busy ?: d.busy)
         } else d
@@ -41,8 +41,8 @@ internal fun WebAppController.touchDiscovered(name: String, busy: Boolean? = nul
 
 
 internal fun WebAppController.publish() {
-    _chat.value = logs[currentKey] ?: emptyList()
-    _hasMoreHistory.value = hasMore[currentKey] ?: false
+    _chat.value = logs[currentId] ?: emptyList()
+    _hasMoreHistory.value = hasMore[currentId] ?: false
 }
 
 internal fun WebAppController.focusKnownSession(target: DiscoveredInfo, syncServer: Boolean) {
@@ -61,14 +61,14 @@ internal fun WebAppController.focusKnownSession(target: DiscoveredInfo, syncServ
     prefs.lastSession = target.name
     prefs.lastSessionId = target.sessionId
     _status.value = "attached: ${target.name}"
-    currentKey = target.name
+    currentId = target.sessionId
     publish()
     _scrollTick.value = _scrollTick.value + 1
-    session.requestFreshHistory(target.name)
+    session.requestFreshHistory(target.sessionId, target.name)
     if (syncServer) client?.send(Outbound.attach(target.name, sessionId = target.sessionId, silent = true))
 }
 
-internal fun WebAppController.addChat(role: Role, text: String, usage: com.bam.spawner.net.TokenUsage? = null, key: String = currentKey) {
+internal fun WebAppController.addChat(role: Role, text: String, usage: com.bam.spawner.net.TokenUsage? = null, key: String = currentId) {
     val now = nowEpochSeconds()
     // Reconcile on the LIVE path (see SessionSync.dedupe): a hands-free utterance
     // streams a live draft/echo row and then lands the committed `transcript` as a
@@ -77,7 +77,7 @@ internal fun WebAppController.addChat(role: Role, text: String, usage: com.bam.s
     logs[key] = session.dedupe(
         (logs[key] ?: emptyList()) + ChatMessage(role, text, usage = usage, ts = now)
     ).takeLast(2000)
-    if (key == currentKey) {
+    if (key == currentId) {
         publish()
         _scrollTick.value = _scrollTick.value + 1
     }
@@ -119,35 +119,39 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
         is ServerMsg.Say -> {
             _activity.value = ""
             _micText.value = "" // a terminal `say` (e.g. "didn't catch that") ends the PTT clip; clear "transcribing…"
+            // Hub-fanned says (compress done, breadcrumbs) carry their session id;
+            // conversational dialog says don't → fall back to the current view.
+            val key = msg.sessionId.ifEmpty { currentId }
             // A turn-terminal say (compress done) can be redelivered buffered on
             // reconnect — its turn id drops the repeat. Breadcrumb says have no id.
-            if (!session.terminalSeen(currentKey, msg.turn)) {
-                addChat(Role.SYSTEM, msg.text); speak(msg.text)
+            if (!session.terminalSeen(key, msg.turn)) {
+                addChat(Role.SYSTEM, msg.text, key = key); speak(msg.text)
             }
         }
         is ServerMsg.Output -> {
             _activity.value = ""
             // Summary-only: beep through intermediate steps, speak only the final result.
             val summaryOnly = prefs.summaryOnlySpeech
-            touchDiscovered(msg.name, busy = msg.chunk) // reorder + working cue live
+            val sid = msg.sessionId.ifEmpty { currentId } // stable id; the turn's session
+            touchDiscovered(sid, busy = msg.chunk) // reorder + working cue live
             if (msg.chunk) {
-                streamedSessions.add(msg.name)
-                session.noteChunk(msg.name, msg.turn)
-                addChat(Role.CLAUDE, msg.text, key = msg.name)
-                if (msg.name == currentKey) {
+                streamedSessions.add(sid)
+                session.noteChunk(sid, msg.turn)
+                addChat(Role.CLAUDE, msg.text, key = sid)
+                if (sid == currentId) {
                     if (summaryOnly) {
                         // Speak the first N replies of the turn aloud; beep the rest.
-                        val spoken = spokenReplyCounts.getOrElse(msg.name) { 0 }
+                        val spoken = spokenReplyCounts.getOrElse(sid) { 0 }
                         if (spoken < prefs.speakInitialReplies) {
-                            spokenReplyCounts[msg.name] = spoken + 1
+                            spokenReplyCounts[sid] = spoken + 1
                             speak(msg.text)
-                            session.noteSpokenChunk(msg.name, msg.text, msg.turn)
+                            session.noteSpokenChunk(sid, msg.text, msg.turn)
                         } else {
                             webBeep()
                         }
                     } else {
                         speak(msg.text)
-                        session.noteSpokenChunk(msg.name, msg.text, msg.turn)
+                        session.noteSpokenChunk(sid, msg.text, msg.turn)
                     }
                 }
             } else {
@@ -156,25 +160,25 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
                 // resend / doubled close); streamed = its chunks reached us, by id
                 // even when the legacy flag was cleared mid-turn. Query the ids
                 // BEFORE shouldSpeakClose — that call records them.
-                val redelivered = session.closeSeen(msg.name, msg.turn)
-                val streamed = streamedSessions.remove(msg.name) ||
-                    session.closeStreamed(msg.name, msg.turn)
-                spokenReplyCounts.remove(msg.name) // new turn restarts the initial-reply count
-                val wantSpeak = session.shouldSpeakClose(msg.name, msg.text, summaryOnly, msg.turn)
+                val redelivered = session.closeSeen(sid, msg.turn)
+                val streamed = streamedSessions.remove(sid) ||
+                    session.closeStreamed(sid, msg.turn)
+                spokenReplyCounts.remove(sid) // new turn restarts the initial-reply count
+                val wantSpeak = session.shouldSpeakClose(sid, msg.text, summaryOnly, msg.turn)
                 // A live bubble for this reply already exists when the turn streamed, but
                 // also when a duplicate closing Output arrives for the same turn (backend
                 // double-emit, or streamedSessions cleared mid-turn) — that second close
                 // is what appended a second identical bubble. Reuse it in either case.
-                val lastClaude = logs[msg.name]?.lastOrNull { it.role == Role.CLAUDE }
+                val lastClaude = logs[sid]?.lastOrNull { it.role == Role.CLAUDE }
                 val haveLiveBubble = lastClaude != null && lastClaude.index < 0 &&
                     lastClaude.text.trim() == msg.text.trim()
                 if (!streamed && !haveLiveBubble && !redelivered) {
-                    addChat(Role.CLAUDE, msg.text, msg.usage, key = msg.name)
+                    addChat(Role.CLAUDE, msg.text, msg.usage, key = sid)
                 }
                 else {
-                    if (msg.usage != null) attachUsageToLastClaude(msg.name, msg.usage)
+                    if (msg.usage != null) attachUsageToLastClaude(sid, msg.usage)
                 }
-                if (wantSpeak && msg.name == currentKey) speak(msg.text)
+                if (wantSpeak && sid == currentId) speak(msg.text)
                 // Anchor the cache-warm countdown to the turn's real completion
                 // time (usage_at), not to when a buffered reply reached us.
                 msg.usage?.let { u ->
@@ -193,49 +197,51 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
         is ServerMsg.SpeechMode -> prefs.summaryOnlySpeech = msg.summaryOnly // voice toggle mirrors the audio-settings switch
         is ServerMsg.ContextReset -> {
             _lastTurnUsage.value = null
-            // A clear/compress rotates the session_id server-side and wipes/
-            // summarizes the transcript. The rotated id now rides only on this
-            // message (the server no longer re-emits `attached`): re-key the
-            // attached id, drop the now-stale cached rows for this session, and
-            // refetch fresh history. An old server omits session_id → meter reset only.
-            if (msg.sessionId.isNotEmpty()) {
-                if (_attachedName.value == msg.name) {
-                    _attachedId.value = msg.sessionId
-                    prefs.lastSessionId = msg.sessionId
-                }
-                dropSessionCache(msg.name) // rotated id's transcript wiped/summarized: forget rows + digests
-                client?.send(Outbound.history(msg.name, null))
+            // A clear/compress rotates the session_id server-side and wipes/summarizes the
+            // transcript. The rotation bridges OLD id → NEW id by name (the reset is for the
+            // attached session): drop the retired old id's rows, re-key the view + attached id
+            // to the fresh one, and refetch. An old server omits session_id → meter reset only.
+            if (msg.sessionId.isNotEmpty() && _attachedName.value == msg.name) {
+                val oldId = _attachedId.value
+                _attachedId.value = msg.sessionId
+                prefs.lastSessionId = msg.sessionId
+                val wasViewing = currentId == oldId
+                if (wasViewing) currentId = msg.sessionId
+                dropSessionCache(oldId) // retired id's transcript wiped/summarized: forget rows + digests
+                if (wasViewing) publish() // reflect the fresh (empty) new-id view
+                session.requestFreshHistory(msg.sessionId, msg.name)
             }
         }
-        is ServerMsg.Activity -> { _activity.value = msg.text; touchDiscovered(currentKey, busy = true) }
+        is ServerMsg.Activity -> { _activity.value = msg.text; touchDiscovered(msg.sessionId.ifEmpty { currentId }, busy = true) }
         is ServerMsg.Transcribing -> _micText.value = "transcribing…" // committed clip being re-transcribed
         is ServerMsg.Files -> if (msg.files.isNotEmpty()) {
-            addChat(Role.SYSTEM, "📝 changed: " + msg.files.joinToString(", "))
+            addChat(Role.SYSTEM, "📝 changed: " + msg.files.joinToString(", "), key = msg.sessionId.ifEmpty { currentId })
             if (prefs.summaryOnlySpeech) webBeep() // intermediate step → beep like the rest
         }
         is ServerMsg.Diff -> {
-            addChat(Role.SYSTEM, "📊 diff:\n${msg.text}")
+            addChat(Role.SYSTEM, "📊 diff:\n${msg.text}", key = msg.sessionId.ifEmpty { currentId })
             if (prefs.summaryOnlySpeech) webBeep()
         }
         is ServerMsg.RateLimit -> _rateLimit.value = msg.info
         is ServerMsg.Usage -> { _usageLoading.value = false; _usageReport.value = msg.report }
         is ServerMsg.Ask -> {
-            _activity.value = ""; streamedSessions.remove(msg.name); spokenReplyCounts.remove(msg.name)
-            touchDiscovered(msg.name, busy = false) // turn-terminal → clear the working cue
+            val key = msg.sessionId.ifEmpty { currentId }
+            _activity.value = ""; streamedSessions.remove(key); spokenReplyCounts.remove(key)
+            touchDiscovered(key, busy = false) // turn-terminal → clear the working cue
             // An ask is a turn-terminal and can be redelivered buffered on reconnect
             // — keyed by its turn id; drop a repeat instead of re-presenting it.
-            if (!session.terminalSeen(msg.name, msg.turn)) {
+            if (!session.terminalSeen(key, msg.turn)) {
                 _ask.value = msg.questions
-                addChat(Role.SYSTEM, "❓ " + msg.questions.joinToString("  ") { it.q }, key = msg.name)
+                addChat(Role.SYSTEM, "❓ " + msg.questions.joinToString("  ") { it.q }, key = key)
             }
         }
         is ServerMsg.Transcript -> {
             _ask.value = null
-            // Key by the session the clip was captured for (msg.name), not the currently
+            // Key by the session the clip was captured for (msg.sessionId), not the currently
             // attached one — otherwise switching sessions before the async transcript lands
-            // files the user bubble under the wrong session. Older servers omit name → fall
+            // files the user bubble under the wrong session. Older servers omit it → fall
             // back to the current view.
-            val key = msg.name.ifEmpty { currentKey }
+            val key = msg.sessionId.ifEmpty { currentId }
             key.takeIf { it.isNotEmpty() }?.let { streamedSessions.remove(it); spokenReplyCounts.remove(it); session.noteTurnStart(it) }
             // The committed transcript supersedes the live hands-free draft — clear it
             // so the utterance isn't shown as both a draft and a committed bubble.
@@ -246,13 +252,9 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
         }
         is ServerMsg.Attached -> {
             session.rememberPreviousOnAttach(msg.name, msg.sessionId)
-            // A backend switch (set_agent) rotates the session_id but keeps the name and
-            // re-emits `attached` (not context_reset). If this is that rotation of the
-            // session we're already on — same name, different id — the rows we hold are
-            // the wiped old backend's, so drop them (+ digests) before requesting history
-            // below, like context_reset. Reads the still-held id/name, so run before we
-            // overwrite them. A same-id re-attach drops nothing.
-            session.onAttachRotation(msg.name, msg.sessionId)
+            // Storage is keyed by the stable session_id, so a backend switch (set_agent)
+            // that rotates the id and re-emits `attached` just lands on a fresh, empty id
+            // and refetches — no stale-row drop dance needed (the old id orphans harmlessly).
             _activity.value = ""
             _attachedId.value = msg.sessionId
             _attachedName.value = msg.name
@@ -266,50 +268,38 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
                 val ageMs = if (msg.usageAt > 0) (nowEpochSeconds() - msg.usageAt) * 1000 else Long.MAX_VALUE
                 _lastTurnUsage.value = TurnUsageInfo(msg.usage, nowMonotonicMs() - ageMs.coerceIn(0, 6 * 60 * 1000L))
             }
-            currentKey = msg.name
+            currentId = msg.sessionId
             publish()
             loadingOlder = false
-            session.requestFreshHistory(msg.name)
+            session.requestFreshHistory(msg.sessionId, msg.name)
         }
         is ServerMsg.Detached -> {
             session.rememberPrevious()
             _attachedId.value = ""; _attachedName.value = null
             _attachedAgent.value = ""; _attachedModel.value = ""
             prefs.lastSession = ""; prefs.lastSessionId = ""
-            _status.value = "connected"; currentKey = ""; publish()
+            _status.value = "connected"; currentId = ""; publish()
         }
         is ServerMsg.Renamed -> {
+            // Storage is id-keyed, so a rename is purely a title change — no map re-keying.
             if (msg.old == _attachedName.value || (msg.sessionId.isNotBlank() && msg.sessionId == _attachedId.value)) {
-                logs[msg.name] = logs.remove(msg.old) ?: emptyList()
-                session.migrate(msg.old, msg.name) // held + server digests follow the rename
-                if (currentKey == msg.old) currentKey = msg.name
                 _attachedName.value = msg.name; prefs.lastSession = msg.name
                 _status.value = "attached: ${msg.name}"
-                publish()
             }
         }
         is ServerMsg.History -> onHistory(msg)
         is ServerMsg.Discovered -> {
             _discovered.value = msg.sessions
             _discoverError.value = ""
-            // Re-derive the attached title from the fresh list by stable id. After a
-            // server switch the same session can carry a different name here, leaving the
-            // title stale; if the current server calls our attached id something else,
-            // migrate the name-keyed state (logs/oldest/hasMore + digests) and title.
+            // Re-derive the attached TITLE from the fresh list by stable id. After a server
+            // switch the same session can carry a different name here, leaving the title
+            // stale; storage is id-keyed, so this is a title-only update (no map migration).
             if (_attachedId.value.isNotEmpty()) {
                 val cur = msg.sessions.find { it.sessionId == _attachedId.value }?.name
                 if (cur != null && cur != _attachedName.value) {
-                    _attachedName.value?.let { from ->
-                        logs.remove(from)?.let { logs[cur] = it }
-                        oldest.remove(from)?.let { oldest[cur] = it }
-                        hasMore.remove(from)?.let { hasMore[cur] = it }
-                        session.migrate(from, cur) // held + server digests
-                        if (currentKey == from) currentKey = cur
-                    }
                     _attachedName.value = cur
                     prefs.lastSession = cur
                     _status.value = "attached: $cur"
-                    publish()
                 }
             }
         }
@@ -340,22 +330,25 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
             _activity.value = ""
             _micText.value = "" // a transcribe_failed / not_implemented error ends the PTT clip; clear "transcribing…"
             if (_usageLoading.value) _usageLoading.value = false
-            // Turn-terminal errors carry a turn id and can be redelivered buffered
-            // on reconnect — drop the repeated row (state above is idempotent).
-            if (session.terminalSeen(currentKey, msg.turn)) return
+            // Turn-terminal errors carry a session_id + turn id and can be redelivered
+            // buffered on reconnect — drop the repeated row (state above is idempotent).
+            val key = msg.sessionId.ifEmpty { currentId }
+            if (session.terminalSeen(key, msg.turn)) return
             if (msg.code in setOf("session_active", "not_found", "bad_delete", "bad_adopt", "discover_failed")) {
                 _discoverError.value = msg.message
-            } else addChat(Role.SYSTEM, "⚠️ ${msg.code}: ${msg.message}")
+            } else addChat(Role.SYSTEM, "⚠️ ${msg.code}: ${msg.message}", key = key)
         }
         is ServerMsg.TurnInterrupted -> {
-            _activity.value = ""; streamedSessions.remove(msg.name); spokenReplyCounts.remove(msg.name)
-            addChat(Role.SYSTEM, "⚠️ turn interrupted (${msg.reason}) — say it again.", key = msg.name)
+            val key = msg.sessionId.ifEmpty { currentId }
+            _activity.value = ""; streamedSessions.remove(key); spokenReplyCounts.remove(key)
+            addChat(Role.SYSTEM, "⚠️ turn interrupted (${msg.reason}) — say it again.", key = key)
         }
         is ServerMsg.TurnStopped -> {
-            _activity.value = ""; streamedSessions.remove(msg.name); spokenReplyCounts.remove(msg.name)
+            val key = msg.sessionId.ifEmpty { currentId }
+            _activity.value = ""; streamedSessions.remove(key); spokenReplyCounts.remove(key)
             // A redelivered stop (buffered terminal, keyed by turn id) — drop the row.
-            if (!session.terminalSeen(msg.name, msg.turn)) {
-                addChat(Role.SYSTEM, "⏹ stopped that turn.", key = msg.name)
+            if (!session.terminalSeen(key, msg.turn)) {
+                addChat(Role.SYSTEM, "⏹ stopped that turn.", key = key)
             }
         }
         // Phone-only voice surfaces with no web analogue — explicit, documented
@@ -380,21 +373,22 @@ internal fun WebAppController.attachUsageToLastClaude(key: String, usage: com.ba
     val idx = log.indexOfLast { it.role == Role.CLAUDE }
     if (idx < 0) return
     logs[key] = log.toMutableList().also { it[idx] = it[idx].copy(usage = usage) }
-    if (key == currentKey) publish()
+    if (key == currentId) publish()
 }
 
 internal fun WebAppController.onHistory(msg: ServerMsg.History) {
+    val key = msg.sessionId.ifEmpty { currentId } // file the page under the stable id
     // `unchanged` answers a top-page freshness check whose have_hash still matched:
     // our in-memory transcript is current, so keep it untouched and just refresh the
     // stored digest so future freshness checks stand.
     if (msg.unchanged) {
-        if (msg.hash.isNotEmpty()) session.recordSynced(msg.name, msg.count, msg.hash)
+        if (msg.hash.isNotEmpty()) session.recordSynced(key, msg.count, msg.hash)
         loadingOlder = false
         return
     }
     val hist = msg.messages.map { ChatMessage(roleOf(it.role), it.text, it.index, usage = it.usage, ts = it.ts) }
-    val existing = logs[msg.name] ?: emptyList()
-    logs[msg.name] = if (loadingOlder) {
+    val existing = logs[key] ?: emptyList()
+    logs[key] = if (loadingOlder) {
         // Prepend older page, keeping the live tail; the shared index-aware de-dup
         // collapses any live chunk already landed as an indexed history row.
         session.dedupe(hist + existing.filter { it.index < 0 || it.index > (hist.lastOrNull()?.index ?: -1) })
@@ -415,12 +409,12 @@ internal fun WebAppController.onHistory(msg: ServerMsg.History) {
         session.dedupe((hist + kept).sortedBy { if (it.index >= 0) it.index else Int.MAX_VALUE })
     }
     loadingOlder = false
-    oldest[msg.name] = hist.firstOrNull()?.index ?: (oldest[msg.name] ?: 0)
-    hasMore[msg.name] = msg.more
+    oldest[key] = hist.firstOrNull()?.index ?: (oldest[key] ?: 0)
+    hasMore[key] = msg.more
     // Record the chain digest this page belongs to so a later reattach can
     // short-circuit the fetch when the server hash still matches what we hold.
-    if (msg.hash.isNotEmpty()) session.recordSynced(msg.name, msg.count, msg.hash)
-    if (msg.name == currentKey) { publish(); _scrollTick.value = _scrollTick.value + 1 }
+    if (msg.hash.isNotEmpty()) session.recordSynced(key, msg.count, msg.hash)
+    if (key == currentId) { publish(); _scrollTick.value = _scrollTick.value + 1 }
 }
 
 // mirrorSettingsToPrefs folds the inbound shared-settings catalogue into the

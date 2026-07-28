@@ -23,8 +23,6 @@ class SessionSyncSpeakTest {
         override fun attachedName(): String? = null
         override fun attachedAgent(): String = ""
         override fun attachedModel(): String = ""
-        override fun heldContent(name: String): Boolean = false
-        override fun dropRows(name: String) {}
     })
 
     private val s = "sess"

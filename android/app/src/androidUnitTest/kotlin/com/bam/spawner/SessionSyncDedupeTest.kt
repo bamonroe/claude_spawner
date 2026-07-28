@@ -22,8 +22,6 @@ class SessionSyncDedupeTest {
         override fun attachedName(): String? = null
         override fun attachedAgent(): String = ""
         override fun attachedModel(): String = ""
-        override fun heldContent(name: String): Boolean = false
-        override fun dropRows(name: String) {}
     })
 
     private fun user(text: String, index: Int = -1) = ChatMessage(Role.USER, text, index = index)

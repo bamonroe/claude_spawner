@@ -1805,15 +1805,22 @@ is exactly what "the hub owns identity" produces, so the two halves compose.
       tests green (the field name was already known, so `fieldsync` needed no message-type change).
       **Backward-compatible** — every frame is correctly tagged even before the Phase B client re-key;
       an old client ignoring the field is unaffected. All server tests + `docsync` pass.
-- [ ] **Phase B — client: key storage by id, delete the name dances.** Re-key `logs`/`oldest`/
-      `hasMore`/dedup/digest maps and `currentKey`→`currentId` by `sessionId` in both controllers +
-      `SessionSync`; every inbound guard becomes `msg.sessionId == currentId`. `migrateSessionKey`,
-      the inline web migration, and the `onRenamed`/`onDiscovered` re-derivations + attach-rotation
-      dances **delete** — `onRenamed` collapses to a title update, `onDiscovered` to a title lookup
-      (all their inputs already have the id). Android's on-disk `TranscriptCache` re-keys to id
-      (rebuilds from history if absent). A `""`/sentinel id stands for the general/unattached view.
-      Keep only a thin `name` fallback for the transition, deleted once both sides ship. Medium
-      effort, large payoff, mostly subtraction.
+- [x] **Phase B — client: key storage by id, delete the name dances.** *(done 2026-07-28)* Re-keyed
+      every per-session container (`logs`/`oldest`(`oldestIndex`)/`hasMore`/`loadingOlder`/`bridgeTo`/
+      `loadedFromCache`/`streamedSessions`/`spokenReplyCounts`) and `currentKey`→`currentId` by
+      `sessionId` in both controllers, and `SessionSync`'s digest + speech-dedup maps too (its key
+      param renamed `name`→`id`). Every inbound handler files under `msg.sessionId.ifEmpty { currentId }`.
+      `Protocol.kt` parses `session_id` on `output`/`transcript`/`history`/`say`/`activity`/`files`/
+      `diff`/`ask`/`turn_stopped`/`turn_interrupted`/`error`. **Deleted the dances**: `migrateSessionKey`,
+      `SessionSync.migrate`, `onAttachRotation` (+ `Host.dropRows`/`heldContent`), and the inline
+      `onRenamed`/`onDiscovered` re-derivations — all moot under stable-id keying (`onRenamed`/
+      `onDiscovered` collapse to a title update; a rotated/renamed session's new id gets fresh storage,
+      the old id orphans harmlessly). The server's `history`/`attach` **requests** stay addressed by
+      name (the app always knows the attached name; nothing is *stored* by name, so a rename can't
+      misfile) — `requestFreshHistory(id, name)`/`fetchOlder(id, name)` take both. Android's
+      `TranscriptCache` now keys files by id (an old name-keyed file misses → rebuilt from history). `""`
+      = the general/unattached view; empty `session_id` (older server) falls back to the current view.
+      Both Kotlin targets compile; SessionSync unit tests green. Mostly subtraction, as predicted.
 - [ ] **Phase C — gate transient live-state to the attached session.** `_activity`, the `_ask`
       popup + its TTS, and `_lastTurnUsage` (context meter) apply only when the frame's id is the
       attached one, so a background session can't flicker "thinking…", pop a clarifying question, or
@@ -2268,6 +2275,18 @@ _2026-07-10 hardening pass (drift-proofing + error handling):_
 
 ## Done
 
+- [x] 2026-07-28 — **Session-identity epic Phase B: the client keys chat storage by `session_id`.**
+      Both controllers (Android + web) and `SessionSync` now key every per-session container by the
+      stable `sessionId` instead of the display name (`currentKey`→`currentId`); each inbound handler
+      files under `msg.sessionId.ifEmpty { currentId }`. `Protocol.kt` parses `session_id` on every
+      session-scoped frame. The name-migration machinery — `migrateSessionKey`, `SessionSync.migrate`,
+      `onAttachRotation`/`Host.dropRows`/`heldContent`, and the `onRenamed`/`onDiscovered` re-key
+      dances — is **deleted** (a rename is now a pure title update; a rotated id gets fresh storage).
+      The server's `history`/`attach` requests stay addressed by name (nothing is stored by name, so a
+      rename can't misfile). Android disk cache re-keys files to id (rebuild-on-miss). Both Kotlin
+      targets compile; SessionSync unit tests green. Client can no longer misattribute *by
+      construction*. Only Phase C (gate transient live-state to the attached session) remains. See the
+      epic entry above.
 - [x] 2026-07-28 — **Session-identity epic Phase A: the server hub owns and stamps `session_id`.**
       Every session-scoped server→app frame now carries the stable `session_id` so a client viewing a
       different session routes it to the right chat log. The stamp lives at the one choke point every

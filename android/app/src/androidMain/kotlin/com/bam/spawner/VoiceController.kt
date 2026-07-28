@@ -77,14 +77,15 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
     internal val _status = MutableStateFlow("disconnected")
     override val status: StateFlow<String> = _status.asStateFlow()
 
-    // Per-session chat logs, keyed by session name ("" = the general/unattached
-    // view for dialog + system messages). `_chat` mirrors the current key's log.
+    // Per-session chat logs, keyed by the stable session id ("" = the general/unattached
+    // view for dialog + system messages). `_chat` mirrors the current id's log. Keying by
+    // the invariant id (never the display name) means a rename/rotation never re-keys these.
     internal val logs = mutableMapOf<String, List<ChatMessage>>()
-    internal val oldestIndex = mutableMapOf<String, Int>() // lowest history index held, per session
-    internal val hasMore = mutableMapOf<String, Boolean>() // older history remains to page, per session
-    internal val loadingOlder = mutableSetOf<String>()      // a page request is in flight, per session
+    internal val oldestIndex = mutableMapOf<String, Int>() // lowest history index held, per session id
+    internal val hasMore = mutableMapOf<String, Boolean>() // older history remains to page, per session id
+    internal val loadingOlder = mutableSetOf<String>()      // a page request is in flight, per session id
     internal val bridgeTo = mutableMapOf<String, Int>()      // reconnect gap-fill: page older until this index is reached
-    internal var currentKey = ""
+    internal var currentId = ""
 
     // Offline transcript cache. `loadedFromCache` tracks which sessions we've pulled from
     // disk into memory. The digest caches (which the on-disk cache is validated against)
@@ -105,8 +106,6 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
         override fun attachedName() = _attachedName.value
         override fun attachedAgent() = _attachedAgent.value
         override fun attachedModel() = _attachedModel.value
-        override fun heldContent(name: String) = logs[name]?.any { it.index >= 0 } == true
-        override fun dropRows(name: String) = dropSessionCache(name)
     })
 
     internal val _chat = MutableStateFlow<List<ChatMessage>>(emptyList())
@@ -435,13 +434,15 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
             focusKnownSession(it, syncServer = true)
             return
         }
-        showLog(name) // switch to that session's log immediately (cached if we have it)
+        // No local discovery entry (no stable id yet) — attach by name; onAttached
+        // switches the view to the session's id when the server responds.
         client?.send(Outbound.attach(name))
     }
 
     /** Load the previous page of older history for the current session. */
     override fun loadOlder() {
-        if (currentKey.isNotEmpty()) fetchOlder(currentKey)
+        val name = _attachedName.value ?: return // the history request is addressed by name
+        if (currentId.isNotEmpty()) fetchOlder(currentId, name)
     }
 
     override fun detach() {
@@ -604,7 +605,7 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
         _connected.value = up
         _status.value = if (up) "connected" else "reconnecting…"
         if (!up) cancelServerSpeech() // a dropped socket orphans any in-flight speak streams
-        if (!up) persist(currentKey) // flush the visible session to disk so it's available offline
+        if (!up) persist(currentId) // flush the visible session to disk so it's available offline
         // Dropped mid-turn: arm the watchdog. If the server is alive it'll re-deliver
         // the reply (or a "still working" breadcrumb) on reconnect and disarm this;
         // if it crashed/restarted, nothing comes and we warn when the grace elapses.

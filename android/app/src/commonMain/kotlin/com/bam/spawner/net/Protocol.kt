@@ -33,16 +33,18 @@ sealed interface ServerMsg {
     // picks a catalogue model that isn't on disk yet. total 0 = unknown size.
     data class WhisperDownload(val model: String, val fast: Boolean, val received: Long, val total: Long, val done: Boolean, val error: String) : ServerMsg
     // turn non-empty only on the redeliverable turn-terminal say (compress done).
-    data class Say(val text: String, val turn: String = "") : ServerMsg
-    // name = the session the utterance was captured for (empty from older servers);
+    // sessionId = the session this say belongs to (hub-fanned says: turn breadcrumbs +
+    // the compress confirmation); empty on conversational dialog says (current view).
+    data class Say(val text: String, val turn: String = "", val sessionId: String = "") : ServerMsg
+    // sessionId = the session the utterance was captured for (empty from older servers);
     // the client files the user bubble under it so a mid-transcription session switch
-    // can't misattribute it to the newly-attached session.
-    data class Transcript(val text: String, val final: Boolean, val name: String = "") : ServerMsg
+    // can't misattribute it to the newly-attached session. name is display-only.
+    data class Transcript(val text: String, val final: Boolean, val name: String = "", val sessionId: String = "") : ServerMsg
     data class Pending(val text: String) : ServerMsg // live hands-free draft buffer
     data class Calibration(val text: String) : ServerMsg // what the detection model heard for a sample
-    data class Activity(val text: String) : ServerMsg // live "Claude is thinking / editing X" indicator
+    data class Activity(val text: String, val sessionId: String = "") : ServerMsg // live "Claude is thinking / editing X" indicator (sessionId = the turn's session)
     data object Transcribing : ServerMsg // committed hands-free clip is being re-transcribed accurately
-    data class Files(val files: List<String>) : ServerMsg // files changed this turn
+    data class Files(val files: List<String>, val sessionId: String = "") : ServerMsg // files changed this turn (sessionId = the turn's session)
     data class Dialog(val state: String, val prompt: String) : ServerMsg
     // usage/usageAt seed the context meter from the transcript's last turn on
     // attach (usageAt = that turn's unix seconds, for the cache-warm countdown).
@@ -58,19 +60,19 @@ sealed interface ServerMsg {
     // turn is the opaque per-turn id shared by every frame of one turn (chunks +
     // close) — the dedup key; text equality between chunk and close is not
     // guaranteed ("" from a pre-turn-id server).
-    data class Output(val name: String, val text: String, val chunk: Boolean, val usage: TokenUsage? = null, val usageAt: Long = 0, val turn: String = "") : ServerMsg
-    data class History(val name: String, val messages: List<HistMsg>, val more: Boolean, val count: Int = 0, val hash: String = "", val unchanged: Boolean = false) : ServerMsg
+    data class Output(val name: String, val text: String, val chunk: Boolean, val usage: TokenUsage? = null, val usageAt: Long = 0, val turn: String = "", val sessionId: String = "") : ServerMsg
+    data class History(val name: String, val messages: List<HistMsg>, val more: Boolean, val count: Int = 0, val hash: String = "", val unchanged: Boolean = false, val sessionId: String = "") : ServerMsg
     data class ReadLast(val count: Int) : ServerMsg
     data class Discovered(val sessions: List<DiscoveredInfo>) : ServerMsg
     data class RateLimit(val info: RateLimitInfo) : ServerMsg // Claude plan's usage-window state
     data class Usage(val report: UsageReport) : ServerMsg // `/usage` report (session/weekly % used)
     // turn (turn-terminal errors only — turn_failed / compress failures): the per-turn
     // dedup id, "" on live-only errors (bad_message, …) and pre-turn-id servers.
-    data class Err(val code: String, val message: String, val turn: String = "") : ServerMsg
-    data class TurnInterrupted(val name: String, val reason: String) : ServerMsg
-    data class TurnStopped(val name: String, val turn: String = "") : ServerMsg // a turn was deliberately aborted
-    data class Diff(val text: String) : ServerMsg // post-turn `git diff --stat` review
-    data class Ask(val name: String, val questions: List<AskQuestion>, val turn: String = "") : ServerMsg // interactive clarification
+    data class Err(val code: String, val message: String, val turn: String = "", val sessionId: String = "") : ServerMsg
+    data class TurnInterrupted(val name: String, val reason: String, val sessionId: String = "") : ServerMsg
+    data class TurnStopped(val name: String, val turn: String = "", val sessionId: String = "") : ServerMsg // a turn was deliberately aborted
+    data class Diff(val text: String, val sessionId: String = "") : ServerMsg // post-turn `git diff --stat` review (sessionId = the turn's session)
+    data class Ask(val name: String, val questions: List<AskQuestion>, val turn: String = "", val sessionId: String = "") : ServerMsg // interactive clarification
     data object StopSpeaking : ServerMsg
     // Server-side TTS (the Kokoro epic): heads one synthesized utterance — the
     // binary frames that follow, up to the matching SpeakEnd, are its audio in
@@ -108,20 +110,20 @@ sealed interface ServerMsg {
                 "hello_ok" -> HelloOk(o.str("server_version"), o.str("whisper_model"), o.str("whisper_model_fast"), readStrings(o.arr("whisper_models")), readStrings(o.arr("whisper_models_local")), o.bool("tts"))
                 "whisper_model" -> WhisperModel(o.str("model"), o.str("fast_model"), readStrings(o.arr("whisper_models")), readStrings(o.arr("whisper_models_local")))
                 "whisper_download" -> WhisperDownload(o.str("model"), o.bool("fast"), o.long("received"), o.long("total"), o.bool("done"), o.str("error"))
-                "say" -> Say(o.str("text"), o.str("turn"))
-                "transcript" -> Transcript(o.str("text"), o.bool("final", true), o.str("name"))
+                "say" -> Say(o.str("text"), o.str("turn"), o.str("session_id"))
+                "transcript" -> Transcript(o.str("text"), o.bool("final", true), o.str("name"), o.str("session_id"))
                 "pending" -> Pending(o.str("text"))
                 "calibration" -> Calibration(o.str("text"))
-                "activity" -> Activity(o.str("text"))
+                "activity" -> Activity(o.str("text"), o.str("session_id"))
                 "transcribing" -> Transcribing
-                "files" -> Files(readStrings(o.arr("files")))
+                "files" -> Files(readStrings(o.arr("files")), o.str("session_id"))
                 "dialog" -> Dialog(o.str("state"), o.str("prompt"))
                 "attached" -> Attached(o.str("name"), o.str("session_id"), readUsage(o.obj("usage")), o.long("usage_at"), o.str("agent"), o.str("model"), o.str("profile"))
                 "detached" -> Detached
                 "context_reset" -> ContextReset(o.str("name"), o.str("session_id"))
                 "renamed" -> Renamed(o.str("old"), o.str("name"), o.str("session_id"))
-                "output" -> Output(o.str("name"), o.str("text"), o.bool("chunk", false), readUsage(o.obj("usage")), o.long("usage_at"), o.str("turn"))
-                "history" -> History(o.str("name"), readHist(o.arr("messages")), o.bool("more"), o.int("count", 0), o.str("hash"), o.bool("unchanged", false))
+                "output" -> Output(o.str("name"), o.str("text"), o.bool("chunk", false), readUsage(o.obj("usage")), o.long("usage_at"), o.str("turn"), o.str("session_id"))
+                "history" -> History(o.str("name"), readHist(o.arr("messages")), o.bool("more"), o.int("count", 0), o.str("hash"), o.bool("unchanged", false), o.str("session_id"))
                 "read_last" -> ReadLast(o.int("count", 1))
                 "discovered" -> Discovered(readDiscovered(o.arr("sessions")))
                 "rate_limit" -> RateLimit(RateLimitInfo(
@@ -132,11 +134,11 @@ sealed interface ServerMsg {
                     o.int("session_pct", -1), o.str("session_reset"),
                     o.int("week_pct", -1), o.str("week_reset"), o.str("text"),
                 ))
-                "error" -> Err(o.str("code"), o.str("message"), o.str("turn"))
-                "turn_interrupted" -> TurnInterrupted(o.str("name"), o.str("reason"))
-                "turn_stopped" -> TurnStopped(o.str("name"), o.str("turn"))
-                "diff" -> Diff(o.str("text"))
-                "ask" -> Ask(o.str("name"), readAsk(o.arr("questions")), o.str("turn"))
+                "error" -> Err(o.str("code"), o.str("message"), o.str("turn"), o.str("session_id"))
+                "turn_interrupted" -> TurnInterrupted(o.str("name"), o.str("reason"), o.str("session_id"))
+                "turn_stopped" -> TurnStopped(o.str("name"), o.str("turn"), o.str("session_id"))
+                "diff" -> Diff(o.str("text"), o.str("session_id"))
+                "ask" -> Ask(o.str("name"), readAsk(o.arr("questions")), o.str("turn"), o.str("session_id"))
                 "stop_speaking" -> StopSpeaking
                 "speak_audio" -> SpeakAudio(o.str("id"), o.str("codec"))
                 "speak_end" -> SpeakEnd(o.str("id"), o.str("error"))

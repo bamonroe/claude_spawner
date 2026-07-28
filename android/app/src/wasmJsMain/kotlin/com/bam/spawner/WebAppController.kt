@@ -46,11 +46,12 @@ class WebAppController(internal val prefs: Prefs) : AppController {
     internal val _status = MutableStateFlow("disconnected")
     override val status: StateFlow<String> = _status.asStateFlow()
 
-    // Per-session chat logs, keyed by session name; currentKey is the visible one.
+    // Per-session chat logs, keyed by the stable session id; currentId is the visible one
+    // (a rename never re-keys these — the id is invariant). "" = the general/unattached view.
     internal val logs = mutableMapOf<String, List<ChatMessage>>()
     internal val oldest = mutableMapOf<String, Int>()
     internal val hasMore = mutableMapOf<String, Boolean>()
-    internal var currentKey = ""
+    internal var currentId = ""
     internal var loadingOlder = false
     internal val streamedSessions = mutableSetOf<String>()
     // Per-session count of streamed replies already spoken this turn, for the
@@ -71,8 +72,6 @@ class WebAppController(internal val prefs: Prefs) : AppController {
         override fun attachedName() = _attachedName.value
         override fun attachedAgent() = _attachedAgent.value
         override fun attachedModel() = _attachedModel.value
-        override fun heldContent(name: String) = logs[name]?.any { it.index >= 0 } == true
-        override fun dropRows(name: String) = dropSessionCache(name)
     })
 
     internal val _chat = MutableStateFlow<List<ChatMessage>>(emptyList())
@@ -244,7 +243,7 @@ class WebAppController(internal val prefs: Prefs) : AppController {
         prefs.lastSession = ""
         prefs.lastSessionId = ""
         _status.value = "connected"
-        currentKey = ""
+        currentId = ""
         publish()
         client?.send(Outbound.detach())
     }
@@ -257,10 +256,11 @@ class WebAppController(internal val prefs: Prefs) : AppController {
     }
     override fun abortTurn() { client?.send(Outbound.abort()) }
     override fun loadOlder() {
-        val before = oldest[currentKey] ?: return
+        val before = oldest[currentId] ?: return // cursor keyed by the stable id
         if (before <= 0 || loadingOlder) return
+        val name = _attachedName.value ?: return // the history request is addressed by name
         loadingOlder = true
-        client?.send(Outbound.history(currentKey, before))
+        client?.send(Outbound.history(name, before))
     }
     override fun submitAnswers(text: String) { _ask.value = null; sendText(text) }
     override fun dismissAsk() { _ask.value = null }

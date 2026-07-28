@@ -19,7 +19,12 @@ import com.bam.spawner.ChatMessage
  *  - **index-aware chat de-dup** ([dedupe]) — the *one true* de-dup, keyed on the stable
  *    server `index` (live rows carry `index == -1`; server history rows carry a real index),
  *    falling back to text only for the still-live rows;
- *  - **digest key migration/drop on rename & context-reset** ([migrate], [drop]).
+ *  - **digest drop on context-reset** ([drop]).
+ *
+ * All per-session state here is keyed by the stable **session id** (not the display name),
+ * so a rename never re-keys anything and a context/backend rotation simply starts fresh under
+ * the new id — the old id's entries orphan harmlessly. (This is why there is no `migrate` or
+ * attach-rotation guard: those existed only to chase a name-keyed store, which is gone.)
  *
  * What deliberately stays in each controller (behind [Host]) is the platform-specific side
  * effect: the StateFlow/settings wiring and the chat-log *storage* + *merge* strategy, which
@@ -45,15 +50,9 @@ class SessionSync(private val host: Host) {
         fun attachedAgent(): String
         /** The attached session's model alias (for the focus snapshot fallback). */
         fun attachedModel(): String
-        /** Whether we hold any real (indexed) transcript content for [name]. */
-        fun heldContent(name: String): Boolean
-        /** Drop a session's platform-held transcript rows + paging cursors (and digests) —
-         *  the same wipe `context_reset` performs — when a same-name `session_id` rotation
-         *  delivered via `attached` has invalidated the rows we hold under that name. */
-        fun dropRows(name: String)
     }
 
-    // The digest of the transcript we currently hold, per session name. Sent as `have_hash`
+    // The digest of the transcript we currently hold, per session id. Sent as `have_hash`
     // on a (re)attach's history request so the server can answer `unchanged` (no bodies)
     // when nothing moved — the authoritative, bodies-free freshness check.
     private val digestHeld = mutableMapOf<String, Pair<Int, String>>()
@@ -129,25 +128,20 @@ class SessionSync(private val host: Host) {
     // --- Digest cache + history-freshness decision ---------------------------
 
     /** The digest our stored transcript corresponds to (for persistence). */
-    fun heldDigest(name: String): Pair<Int, String>? = digestHeld[name]
+    fun heldDigest(id: String): Pair<Int, String>? = digestHeld[id]
 
     /** Seed the held digest alone (faulting a cached transcript in from disk). */
-    fun recordHeld(name: String, count: Int, hash: String) { digestHeld[name] = count to hash }
+    fun recordHeld(id: String, count: Int, hash: String) { digestHeld[id] = count to hash }
 
     /** A history page/`unchanged` reply confirms the stored transcript now equals the
      *  server's: record its digest so the next attach's `have_hash` check stands. */
-    fun recordSynced(name: String, count: Int, hash: String) {
-        digestHeld[name] = count to hash
+    fun recordSynced(id: String, count: Int, hash: String) {
+        digestHeld[id] = count to hash
     }
 
     /** Drop the held digest for a session (context-reset rotation / cache wipe). */
-    fun drop(name: String) {
-        digestHeld.remove(name)
-    }
-
-    /** Re-key the held digest when a session is renamed. */
-    fun migrate(old: String, new: String) {
-        digestHeld.remove(old)?.let { digestHeld[new] = it }
+    fun drop(id: String) {
+        digestHeld.remove(id)
     }
 
     /**
@@ -164,31 +158,9 @@ class SessionSync(private val host: Host) {
      * (the "messages vanish until a hard refresh" bug). The server's `unchanged` reply is
      * the same optimization done correctly, so we defer to it instead.
      */
-    fun requestFreshHistory(name: String) {
-        val held = digestHeld[name]
+    fun requestFreshHistory(id: String, name: String) {
+        val held = digestHeld[id]
         host.send(Outbound.history(name, null, haveHash = held?.second ?: ""))
-    }
-
-    /**
-     * `attached`-path rotation guard. A backend switch (`set_agent`) rotates a session's
-     * `session_id` while KEEPING its name and re-emits `attached` (not `context_reset`) — so
-     * the rows we still hold under that name are the wiped OLD backend's transcript, and a
-     * name-keyed digest match could even make [requestFreshHistory] skip the refetch. Detect
-     * exactly that: the incoming attach is for the session we're already attached to (same
-     * name) but carries a DIFFERENT, non-empty id than the one we currently hold. When it is,
-     * drop the stale rows + digests through [Host.dropRows] so the caller's following
-     * [requestFreshHistory] refetches from scratch, mirroring `context_reset`. A normal
-     * re-attach — or a swap to a session with the SAME id — drops nothing. Call this BEFORE
-     * updating the attached id/name state (it reads the id/name still held). Returns true when
-     * a rotation was detected and dropped.
-     */
-    fun onAttachRotation(name: String, sessionId: String): Boolean {
-        if (sessionId.isEmpty()) return false
-        if (host.attachedName() != name) return false
-        val held = host.attachedId()
-        if (held.isEmpty() || held == sessionId) return false
-        host.dropRows(name)
-        return true
     }
 
     // --- Chat de-dup ---------------------------------------------------------
@@ -257,32 +229,32 @@ class SessionSync(private val host: Host) {
 
     private fun collapseSpace(s: String) = s.trim().replace(whitespace, "")
 
-    /** A fresh user turn began for [name] (dictation committed / new prompt): reset the
+    /** A fresh user turn began for session [id] (dictation committed / new prompt): reset the
      *  spoken-reply tracking so the next reply — even byte-identical text — is voiced. */
-    fun noteTurnStart(name: String) {
-        turnVoiced.remove(name)
-        lastCloseVoiced.remove(name)
-        chunkTurn.remove(name)
-        voicedTurn.remove(name)
-        lastCloseTurn.remove(name)
+    fun noteTurnStart(id: String) {
+        turnVoiced.remove(id)
+        lastCloseVoiced.remove(id)
+        chunkTurn.remove(id)
+        voicedTurn.remove(id)
+        lastCloseTurn.remove(id)
     }
 
-    /** A streamed chunk for [name] was SHOWN (spoken or not — beeped summary chunks and
+    /** A streamed chunk for session [id] was SHOWN (spoken or not — beeped summary chunks and
      *  chunks of a non-current session count too). Lets [closeStreamed] answer "did this
      *  close's turn already stream to us?" for the display's bubble-vs-badge decision. */
-    fun noteChunk(name: String, turn: String) {
-        if (turn.isNotEmpty()) chunkTurn[name] = turn
+    fun noteChunk(id: String, turn: String) {
+        if (turn.isNotEmpty()) chunkTurn[id] = turn
     }
 
     /** Did the closing frame's [turn] already stream chunks to this client? True means
      *  the reply's bubble was built from chunks and the close is just an end marker. */
-    fun closeStreamed(name: String, turn: String): Boolean =
-        turn.isNotEmpty() && chunkTurn[name] == turn
+    fun closeStreamed(id: String, turn: String): Boolean =
+        turn.isNotEmpty() && chunkTurn[id] == turn
 
     /** Is this closing frame a redelivery of a close already handled (buffered-final
      *  resend, doubled close)? Query BEFORE [shouldSpeakClose] — that call records the id. */
-    fun closeSeen(name: String, turn: String): Boolean =
-        turn.isNotEmpty() && lastCloseTurn[name] == turn
+    fun closeSeen(id: String, turn: String): Boolean =
+        turn.isNotEmpty() && lastCloseTurn[id] == turn
 
     /** Check-and-record any turn-terminal frame (`ask`, `turn_stopped`, a turn-failed
      *  `error`, the compress `say`) by its [turn] id: true means this terminal was already
@@ -290,32 +262,32 @@ class SessionSync(private val host: Host) {
      *  (don't re-render, don't re-speak). Shares the close registry with
      *  [shouldSpeakClose], since a turn ends in exactly one terminal. A missing id
      *  (pre-turn-id server) returns false so legacy handling decides. */
-    fun terminalSeen(name: String, turn: String): Boolean {
+    fun terminalSeen(id: String, turn: String): Boolean {
         if (turn.isEmpty()) return false
-        if (lastCloseTurn[name] == turn) return true
-        lastCloseTurn[name] = turn
+        if (lastCloseTurn[id] == turn) return true
+        lastCloseTurn[id] = turn
         return false
     }
 
-    /** A chunk of the streaming reply for [name] was actually SPOKEN aloud (not beeped).
+    /** A chunk of the streaming reply for session [id] was actually SPOKEN aloud (not beeped).
      *  Accumulates the voiced text so [shouldSpeakClose] can tell the closing frame just
      *  repeats what the chunks already said. The first chunk of a turn (fresh [turn] id,
      *  or accumulator absent when no id) also resets the doubled-close guard, so a new
      *  streamed turn starts clean without a [noteTurnStart]. */
-    fun noteSpokenChunk(name: String, text: String, turn: String = "") {
-        val newTurn = turn.isNotEmpty() && voicedTurn[name] != turn
-        if (turn.isNotEmpty()) voicedTurn[name] = turn
-        val sb = turnVoiced[name]
+    fun noteSpokenChunk(id: String, text: String, turn: String = "") {
+        val newTurn = turn.isNotEmpty() && voicedTurn[id] != turn
+        if (turn.isNotEmpty()) voicedTurn[id] = turn
+        val sb = turnVoiced[id]
         if (sb == null || newTurn) {
-            lastCloseVoiced.remove(name)
-            turnVoiced[name] = StringBuilder(text.trim())
+            lastCloseVoiced.remove(id)
+            turnVoiced[id] = StringBuilder(text.trim())
         } else {
             sb.append(text.trim())
         }
     }
 
     /**
-     * Should the turn-closing reply [text] for [name] be spoken aloud? Returns false when
+     * Should the turn-closing reply [text] for session [id] be spoken aloud? Returns false when
      * the chunks of the same [turn] were already voiced (a normal streamed turn — the id
      * decides, whatever the close's text looks like), or when this close's id was already
      * decided on (a buffered-final redelivery / doubled close). Returns true for a
@@ -326,12 +298,12 @@ class SessionSync(private val host: Host) {
      * With no id (pre-turn-id server) falls back to whitespace-insensitive text equality.
      * Finalizes the turn's voiced state either way, so call it exactly once per closing frame.
      */
-    fun shouldSpeakClose(name: String, text: String, summaryOnly: Boolean, turn: String = ""): Boolean {
-        val voiced = turnVoiced.remove(name)?.let { collapseSpace(it.toString()) }.orEmpty()
+    fun shouldSpeakClose(id: String, text: String, summaryOnly: Boolean, turn: String = ""): Boolean {
+        val voiced = turnVoiced.remove(id)?.let { collapseSpace(it.toString()) }.orEmpty()
         if (turn.isNotEmpty()) {
-            val voicedThisTurn = voicedTurn.remove(name) == turn
-            val doubled = lastCloseTurn[name] == turn
-            lastCloseTurn[name] = turn
+            val voicedThisTurn = voicedTurn.remove(id) == turn
+            val doubled = lastCloseTurn[id] == turn
+            lastCloseTurn[id] = turn
             if (doubled) return false
             // Even in summary-only mode, a single-message turn whose one reply is both the
             // first streamed step (voiced by speakInitialReplies) and the terminal result
@@ -341,8 +313,8 @@ class SessionSync(private val host: Host) {
             return true
         }
         val norm = collapseSpace(text)
-        val doubled = lastCloseVoiced[name] == norm
-        lastCloseVoiced[name] = norm
+        val doubled = lastCloseVoiced[id] == norm
+        lastCloseVoiced[id] = norm
         if (doubled) return false
         if (voiced.isNotEmpty() && voiced == norm) return false
         return true
