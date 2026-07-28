@@ -51,9 +51,12 @@ fun WebAppController.startTalking() {
 fun WebAppController.stopTalking() {
     if (!capturing) return
     capturing = false
-    _micText.value = ""
     val b64 = stopMic().toString()
-    if (b64.isEmpty()) return
+    if (b64.isEmpty()) { _micText.value = ""; return }
+    // Mirror Android: show local "transcribing…" the instant we ship the clip, so the
+    // user knows the server got the audio. Cleared when the transcript (or a terminal
+    // say/error) lands — see WebAppControllerMessages.onMessage.
+    _micText.value = "transcribing…"
     val pcm = Base64.decode(b64)
     client?.send(Outbound.wake(Codecs.PCM16, sessionId = _attachedId.value))
     client?.sendAudio(pcm)
