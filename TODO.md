@@ -2209,6 +2209,20 @@ _2026-07-10 hardening pass (drift-proofing + error handling):_
 
 ## Done
 
+- [x] 2026-07-28 — **File the transcript echo under its capture session, not the attached one.** The
+      `transcript` message carried no session id, so both clients appended the dictated user bubble
+      under whatever session was attached when the async transcript landed — switching sessions
+      mid-transcription (speak to A, tap play on B) misfiled it under B even though the turn ran on A.
+      Fix: `msgTranscript` now stamps the session name (resolved from the audio/target session id at
+      each send site), and the web + Android handlers key the bubble by `msg.name`, falling back to the
+      current view when empty (detached / older server). `docs/protocol.md` transcript row updated;
+      `docsync` field/client drift green.
+
+- [x] 2026-07-28 — **Web push-to-talk "transcribing…" feedback.** The web client showed "listening…"
+      while the mic was held but cleared the status on release, giving no cue that the server got the
+      clip. Now mirrors Android: sets a local "transcribing…" the instant the clip ships, cleared when
+      the transcript / terminal say / error lands.
+
 - [x] 2026-07-10 — **Offline transcript cache + digest-guarded history.** The app now persists each
       session's chat log to disk (`TranscriptCache`, one JSON file per session) so history is available
       offline and switching sessions doesn't re-download seen messages. New `digest` → `digests` wire
