@@ -98,6 +98,7 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
             _whisperModelsLocal.value = msg.whisperModelsLocal
             _serverTtsAvailable.value = msg.tts
             if (msg.tts) client?.send(Outbound.ttsVoices()) // fetch the voice-picker catalogue
+            _serverDenoiseAvailable.value = msg.denoise
             discover()
             client?.send(Outbound.digest()) // validate the in-memory transcript cache (bodies-free)
             if (prefs.lastSession.isNotBlank()) {

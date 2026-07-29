@@ -90,6 +90,18 @@ interface Prefs {
      *  as `wake_service`; the server treats anything but "detector" as Whisper. */
     var wakeService: String
 
+    /** Server-side denoising: scrub steady background noise (wind, road, engine,
+     *  fan) out of each clip with the server's DeepFilterNet sidecar before it's
+     *  transcribed. Rides the hello handshake as `denoise`. Only effective when the
+     *  server advertises it (hello_ok `denoise`, i.e. SPAWNER_DENOISE_URL is set);
+     *  adds some transcription latency, so it's off by default and toggleable. */
+    var denoiseEnabled: Boolean
+    /** Denoise attenuation cap in dB (DeepFilterNet atten_lim_db) sent as
+     *  `denoise_atten_db`. This is the maximum amount of noise the model may
+     *  subtract: lower is gentler and keeps more of the original (safer for the
+     *  voice), higher removes more steady noise. Only used when [denoiseEnabled]. */
+    var denoiseAttenDb: Float
+
     /** Debug: draw translucent overlays over normally-invisible hit zones (e.g. the
      *  push-to-talk cancel / hands-free swipe thresholds) and log gesture end reasons. */
     var debugOverlays: Boolean
@@ -212,5 +224,10 @@ interface Prefs {
         const val DEFAULT_VAD_NOISE_RATIO = 2.5f
         const val DEFAULT_VAD_MAX_SECONDS = 15f
         const val DEFAULT_HEADSET_NOISE_SUPPRESSION = false
+        const val DEFAULT_DENOISE_ENABLED = false
+        // 30 dB: removes essentially all steady noise while capping attenuation
+        // below "unlimited", which avoids the rare over-suppression artifacts on
+        // speech. Users who want it gentler drop it; unlimited-full is the top end.
+        const val DEFAULT_DENOISE_ATTEN_DB = 30f
     }
 }

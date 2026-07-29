@@ -12,6 +12,22 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-29 — **Server-side denoise (DeepFilterNet) — the second half of the noise story.**
+      The VAD dials only decide *when* a clip is captured; they can't clean audio that was already
+      noisy when the gate opened. Added an optional, per-client-toggleable server-side scrub: new
+      `SPAWNER_DENOISE_URL` points at the resident DeepFilterNet sidecar in `/data/speech_services`
+      (`POST /denoise`, multipart WAV in / 48 kHz WAV out); a new `internal/denoise.Remote` wraps the
+      clip PCM as WAV, POSTs it, and decodes the reply back to 16 kHz PCM16 (new
+      `transcribe.WAVToPCM16`, factored from `OggOpusToPCM` via a shared `decodeToPCM16`). Applied at
+      **one seam** in `endAudio` (right after the Opus/PCM decode), so it covers push-to-talk,
+      calibration, the hands-free draft, the end-token detector and the accurate commit re-transcribe;
+      any sidecar failure falls back to the original clip (never fails the turn). Wire: `hello`
+      `denoise` + `denoise_atten_db`, advertised availability via `hello_ok` `denoise` (mirrors the
+      `tts` pattern). App: `denoiseEnabled`/`denoiseAttenDb` prefs, a "Server-side denoise" toggle +
+      "Noise removed (dB)" slider in Settings → Audio (shown only when the server advertises it),
+      reconnect-on-change via `onSttChanged`. Also taught the DeepFilterNet service to accept
+      `atten_lim_db` (it only exposed `post_filter`/`compensate_delay` before — neither a useful
+      per-request knob). Docs: CLAUDE.md config var, docs/protocol.md hello/hello_ok, README Audio.
 - [x] 2026-07-28 — **Expose the last two hidden VAD dials + explain every hands-free knob in-app.**
       In loud environments (train, car, wind) the energy endpointer either never trips (its adaptive
       floor climbs so voice can't clear the fixed 2.5× margin) or false-trips on gusts and runs to the
@@ -21,9 +37,10 @@ Dates are `YYYY-MM-DD`.
       web `startHandsFreeMic` max param; new `VadFloatSlider` renders them, "Noise margin (×)" only when
       Adapt is on. Also rewrote every hands-free knob's in-app help (mic threshold, speech-to-start,
       silence-to-end, adapt, noise margin, max length) with plain-language descriptions. This is the
-      cheap-tuning half of the noise-in-transit investigation; server-side denoise (run the speech-
-      services denoiser at the `endAudio` decode seam) and an on-device RNNoise ahead of the endpointer
-      remain possible follow-ups if tuning proves insufficient. Docs: README Audio-settings paragraph.
+      cheap-tuning half of the noise-in-transit investigation; server-side denoise at the `endAudio`
+      decode seam is now done (the entry above), leaving on-device RNNoise ahead of the endpointer as
+      the remaining follow-up (only worth it if the never-trips case still bites, since that audio
+      never leaves the phone). Docs: README Audio-settings paragraph.
       dir).** The `spawner-job` registry is keyed by working directory, so two sessions in the same
       dir (a host + a sandbox session share the bind-mounted home) see each other's jobs; whichever
       reconciled the dir first adopted, announced, and *reaped* a finished job — so a job started under

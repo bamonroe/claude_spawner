@@ -213,6 +213,7 @@ internal fun VoiceController.onHelloOk(msg: ServerMsg.HelloOk) {
     _whisperModelsLocal.value = msg.whisperModelsLocal
     _serverTtsAvailable.value = msg.tts
     if (msg.tts) client?.send(Outbound.ttsVoices()) // fetch the voice-picker catalogue
+    _serverDenoiseAvailable.value = msg.denoise
     discover() // the drawer lists ALL machine sessions (discovery is the source)
     client?.send(Outbound.digest()) // validate the offline transcript cache (bodies-free)
     settings.lastSession.takeIf { it.isNotEmpty() }?.let {

@@ -146,6 +146,9 @@ class WebAppController(internal val prefs: Prefs) : AppController {
     // (see speak() below); browser SpeechSynthesis remains the fallback.
     internal val _serverTtsAvailable = MutableStateFlow(false)
     override val serverTtsAvailable: StateFlow<Boolean> = _serverTtsAvailable.asStateFlow()
+    // Whether the connected server offers server-side denoise (hello_ok `denoise`).
+    internal val _serverDenoiseAvailable = MutableStateFlow(false)
+    override val serverDenoiseAvailable: StateFlow<Boolean> = _serverDenoiseAvailable.asStateFlow()
     // Kokoro's voice catalogue + server default (tts_voices reply; feeds the picker).
     internal val _ttsVoices = MutableStateFlow<List<String>>(emptyList())
     override val ttsVoices: StateFlow<List<String>> = _ttsVoices.asStateFlow()
@@ -209,7 +212,9 @@ class WebAppController(internal val prefs: Prefs) : AppController {
         val hello = HelloConfig(
             prefs.endToken, prefs.wakeToken, prefs.speakToken, prefs.dictationGate,
             prefs.wakeService,
-            prefs.sttMode, prefs.sttModel, prefs.aliasMap(),
+            prefs.sttMode, prefs.sttModel,
+            prefs.denoiseEnabled, prefs.denoiseAttenDb,
+            prefs.aliasMap(),
             prefs.brief, prefs.interactive,
             prefs.warmCompress, prefs.autoCompress, prefs.autoCompressThreshold,
         )

@@ -243,6 +243,10 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
     internal val _serverTtsAvailable = MutableStateFlow(false)
     override val serverTtsAvailable: StateFlow<Boolean> = _serverTtsAvailable.asStateFlow()
 
+    // Whether the connected server offers server-side denoise (hello_ok `denoise`).
+    internal val _serverDenoiseAvailable = MutableStateFlow(false)
+    override val serverDenoiseAvailable: StateFlow<Boolean> = _serverDenoiseAvailable.asStateFlow()
+
     // Kokoro's voice catalogue + server default (tts_voices reply; feeds the picker).
     internal val _ttsVoices = MutableStateFlow<List<String>>(emptyList())
     override val ttsVoices: StateFlow<List<String>> = _ttsVoices.asStateFlow()
@@ -378,7 +382,9 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
         val hello = com.bam.spawner.net.HelloConfig(
             settings.endToken, settings.wakeToken, settings.speakToken, settings.dictationGate,
             settings.wakeService,
-            settings.sttMode, settings.sttModel, settings.aliasMap(),
+            settings.sttMode, settings.sttModel,
+            settings.denoiseEnabled, settings.denoiseAttenDb,
+            settings.aliasMap(),
             settings.brief, settings.interactive,
             settings.warmCompress, settings.autoCompress, settings.autoCompressThreshold,
         )

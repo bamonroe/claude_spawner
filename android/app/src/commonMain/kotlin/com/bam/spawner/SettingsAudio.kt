@@ -108,6 +108,41 @@ fun AudioSettings(
         // The hands-free mic source (device vs headset) now lives in the top-bar audio
         // picker's Input section, alongside the output route, so it isn't set here.
 
+        // Server-side denoise: the heavyweight DeepFilterNet scrub runs on the server
+        // (needs SPAWNER_DENOISE_URL); it only helps clips that already made it past
+        // the on-device gate above, so it's the second half of the noise story. Rides
+        // the hello handshake, so a change reconnects via onSttChanged.
+        val denoiseAvailable by controller.serverDenoiseAvailable.collectAsState()
+        var denoise by remember { mutableStateOf(settings.denoiseEnabled) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Server-side denoise", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    if (denoiseAvailable)
+                        "Run each captured clip through the server's DeepFilterNet noise remover "
+                            + "before it's transcribed — a much stronger scrub of steady wind, road, "
+                            + "engine and fan noise than the phone can do. It adds a little latency to "
+                            + "every phrase, so leave it off in quiet places."
+                    else
+                        "This server has no denoiser configured (SPAWNER_DENOISE_URL) — clips are "
+                            + "transcribed as-is.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
+                )
+            }
+            Switch(
+                checked = denoise, enabled = denoiseAvailable,
+                onCheckedChange = { denoise = it; settings.denoiseEnabled = it; onSttChanged() },
+            )
+        }
+        if (denoiseAvailable && denoise) {
+            VadFloatSlider("Noise removed (dB)", settings.denoiseAttenDb, 6f, 48f, 1f,
+                "How much steady noise the scrubber may subtract. Higher strips more (cleaner in "
+                    + "heavy wind or road noise); lower is gentler and keeps the voice more natural. "
+                    + "48 is effectively full strength.") {
+                settings.denoiseAttenDb = it; onSttChanged()
+            }
+        }
+
         HorizontalDivider()
         var summaryOnly by remember { mutableStateOf(settings.summaryOnlySpeech) }
         Row(verticalAlignment = Alignment.CenterVertically) {

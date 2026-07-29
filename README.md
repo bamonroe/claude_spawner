@@ -111,6 +111,22 @@ phone's built-in noise suppressor on the Bluetooth-headset capture path too (it'
 default because that filter is tuned for a near mic and can attenuate a voice picked up from across
 the room); switch it on if steady background noise on your headset is getting transcribed.
 
+**Server-side denoise (Settings → Audio).** The dials above decide *when* a clip is captured; they
+can't clean up a clip that was already noisy when the gate opened. For that there's **Server-side
+denoise**, which runs each captured clip through the server's DeepFilterNet noise remover before it's
+transcribed — a far stronger scrub of steady wind, road, engine and fan noise than the phone's own
+suppressor, because it's a full neural model running on the server's GPU. It only appears when the
+server has a denoiser configured (`SPAWNER_DENOISE_URL`, pointing at the `deepfilternet` service in
+`/data/speech_services`); otherwise the toggle explains that this server has none and clips go through
+unfiltered. It's off by default and a per-device choice, because denoising adds a little latency to
+every phrase — leave it off in a quiet place, switch it on for the train, the car, or a windy bike
+ride. When it's on, the **Noise removed (dB)** slider caps how much noise the model may subtract:
+higher strips more (cleanest in heavy noise), lower is gentler and keeps the voice more natural, and
+the top of the range is effectively full strength. The scrub happens at one seam on the server, so it
+covers push-to-talk, the hands-free draft, the end-token detector and the final accurate transcribe
+alike; if the denoiser ever errors the server quietly falls back to the original clip rather than
+dropping the turn.
+
 **When the end token misfires.** If "beep" isn't caught and the clip keeps growing, whatever you
 say next still lands in the same message — so you can just keep issuing commands: the server splits
 a committed message on **every** "hey buddy" and runs them in order ("hey buddy list, hey buddy

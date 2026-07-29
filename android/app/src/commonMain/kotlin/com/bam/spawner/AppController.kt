@@ -86,6 +86,10 @@ interface AppController : HostsIdentitiesController, ProfilesController, Provide
     // Whether the connected server offers Kokoro speech synthesis (hello_ok
     // `tts`) — the audio-settings "Server voice" toggle only takes effect then.
     val serverTtsAvailable: StateFlow<Boolean>
+    // Whether the connected server offers server-side denoise (hello_ok `denoise`,
+    // i.e. SPAWNER_DENOISE_URL is set) — the audio-settings denoise toggle only
+    // takes effect then.
+    val serverDenoiseAvailable: StateFlow<Boolean>
     // Kokoro's voice catalogue + the server-default voice (from the tts_voices
     // reply; both empty until the server offers TTS) — feeds the voice picker.
     val ttsVoices: StateFlow<List<String>>

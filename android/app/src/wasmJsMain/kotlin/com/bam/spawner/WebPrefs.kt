@@ -120,6 +120,13 @@ class WebPrefs : Prefs {
         get() = str("wake_service", Prefs.DEFAULT_WAKE_SERVICE)
         set(v) = putStr("wake_service", v)
 
+    override var denoiseEnabled: Boolean
+        get() = bool("denoise_enabled", Prefs.DEFAULT_DENOISE_ENABLED)
+        set(v) = putBool("denoise_enabled", v)
+    override var denoiseAttenDb: Float
+        get() = localStorage["denoise_atten_db"]?.toFloatOrNull() ?: Prefs.DEFAULT_DENOISE_ATTEN_DB
+        set(v) { localStorage["denoise_atten_db"] = v.toString() }
+
     override var sttMode: String
         get() = str("stt_mode", Prefs.DEFAULT_STT_MODE)
         set(v) = putStr("stt_mode", v)

@@ -141,6 +141,14 @@ class SettingsStore(context: Context) : Prefs {
         get() = prefs.getString("wake_service", Prefs.DEFAULT_WAKE_SERVICE) ?: Prefs.DEFAULT_WAKE_SERVICE
         set(v) = prefs.edit().putString("wake_service", v).apply()
 
+    override var denoiseEnabled: Boolean
+        get() = prefs.getBoolean("denoise_enabled", Prefs.DEFAULT_DENOISE_ENABLED)
+        set(v) = prefs.edit().putBoolean("denoise_enabled", v).apply()
+
+    override var denoiseAttenDb: Float
+        get() = prefs.getFloat("denoise_atten_db", Prefs.DEFAULT_DENOISE_ATTEN_DB)
+        set(v) = prefs.edit().putFloat("denoise_atten_db", v).apply()
+
     /** Whisper model selection: "dynamic" (by clip length) or "fixed". */
     override var sttMode: String
         get() = prefs.getString("stt_mode", Prefs.DEFAULT_STT_MODE) ?: Prefs.DEFAULT_STT_MODE
