@@ -196,6 +196,16 @@ class SettingsStore(context: Context) : Prefs {
         get() = prefs.getBoolean("vad_adaptive", Prefs.DEFAULT_VAD_ADAPTIVE)
         set(v) = prefs.edit().putBoolean("vad_adaptive", v).apply()
 
+    /** Multiple of the ambient noise floor a frame must clear to count as speech. */
+    override var vadNoiseRatio: Float
+        get() = prefs.getFloat("vad_noise_ratio", Prefs.DEFAULT_VAD_NOISE_RATIO)
+        set(v) = prefs.edit().putFloat("vad_noise_ratio", v).apply()
+
+    /** Hard cap (seconds) on one hands-free utterance regardless of trailing silence. */
+    override var vadMaxSeconds: Float
+        get() = prefs.getFloat("vad_max_seconds", Prefs.DEFAULT_VAD_MAX_SECONDS)
+        set(v) = prefs.edit().putFloat("vad_max_seconds", v).apply()
+
     /** Run the platform noise suppressor on the headset/media capture path too. */
     override var headsetNoiseSuppression: Boolean
         get() = prefs.getBoolean("headset_ns", Prefs.DEFAULT_HEADSET_NOISE_SUPPRESSION)

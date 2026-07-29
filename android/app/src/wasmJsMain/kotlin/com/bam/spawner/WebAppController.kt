@@ -25,11 +25,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-// Hard cap on one hands-free utterance (matches the phone's Endpointer 15 s cap): a clip
-// that never hits the silence gate is shipped anyway rather than growing without bound.
-// Referenced by WebAppControllerAudio.kt's startHandsFree.
-internal const val HANDS_FREE_MAX_MS = 15000
-
 /**
  * The browser's [AppController]: it wires the shared [SpawnerClient]'s parsed [ServerMsg]s to
  * state flows and maps the UI's method calls to `Outbound` sends. It replicates the Android

@@ -51,27 +51,49 @@ fun AudioSettings(
     var threshold by remember { mutableStateOf(settings.vadThreshold.toFloat()) }
 
     SettingsScaffold("Audio", onBack) {
+        Text("Hands-free listening", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "These dials decide when the phone thinks you're talking. Nothing is sent until a "
+                + "sound clears the mic threshold, holds for the start time, and is followed by "
+                + "silence — so tuning them is how you fight false triggers in a noisy place versus "
+                + "missed words. In steady background noise, turn on \"Adapt\" below.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
+        )
         micMeter(threshold.toDouble())
-        Text("Mic threshold (lower = more sensitive): ${threshold.toInt()}", style = MaterialTheme.typography.bodyMedium)
+        Text("Mic threshold: ${threshold.toInt()}", style = MaterialTheme.typography.bodyMedium)
+        Text("How loud a sound must be to count as speech. Lower catches quiet talk but triggers on more noise; higher needs you louder. With \"Adapt\" on, this is just the floor.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
         Slider(
             value = threshold, onValueChange = { threshold = it },
             valueRange = 200f..1500f, steps = 12,
             onValueChangeFinished = { settings.vadThreshold = threshold.toInt(); onVadChanged() },
         )
-        VadSlider("Sustained speech to start (ms)", settings.vadOnsetMs, 40, 400, 20) {
+        VadSlider("Speech to start (ms)", settings.vadOnsetMs, 40, 400, 20,
+            "How long a sound must stay above the bar before capture begins. Longer rejects brief clicks, taps and blips; too long clips your first word.") {
             settings.vadOnsetMs = it; onVadChanged()
         }
-        VadSlider("Silence to end / \"I'm done\" (ms)", settings.vadSilenceMs, 400, 2000, 100) {
+        VadSlider("Silence to end (ms)", settings.vadSilenceMs, 400, 2000, 100,
+            "How long you go quiet before the phrase is treated as finished and sent.") {
             settings.vadSilenceMs = it; onVadChanged()
+        }
+        VadFloatSlider("Max phrase length (s)", settings.vadMaxSeconds, 5f, 30f, 1f,
+            "Safety cap — capture ends this long after you start even if silence is never heard. In constant wind, road or engine noise that never dips, this is what stops one clip from running on forever.") {
+            settings.vadMaxSeconds = it; onVadChanged()
         }
         var adaptive by remember { mutableStateOf(settings.vadAdaptive) }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("Adapt to background noise", style = MaterialTheme.typography.titleMedium)
-                Text("Track the room's noise floor and lift the mic threshold above it automatically. The slider above then acts as a minimum.",
+                Text("Continuously measure the room's noise floor and lift the mic threshold above it, so steady noise (a train, a fan, road hum) doesn't keep tripping the mic. The threshold slider above then acts as a minimum. Android only.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
             }
             Switch(checked = adaptive, onCheckedChange = { adaptive = it; settings.vadAdaptive = it; onVadChanged() })
+        }
+        if (adaptive) {
+            VadFloatSlider("Noise margin (×)", settings.vadNoiseRatio, 1.5f, 5f, 0.1f,
+                "When adapting, how far above the measured noise floor your voice must rise. Higher rejects louder background noise but demands you speak up; lower is more sensitive but lets steady noise leak through.") {
+                settings.vadNoiseRatio = it; onVadChanged()
+            }
         }
         var headsetNs by remember { mutableStateOf(settings.headsetNoiseSuppression) }
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -280,13 +302,16 @@ private fun mbTenths(bytes: Long): String {
     return "${tenths / 10}.${tenths % 10}"
 }
 
-/** A labeled slider for an integer VAD dial; persists on release via [onChange]. */
+/** A labeled slider for an integer VAD dial, with an optional one-line explanation;
+ *  persists on release via [onChange]. */
 @Composable
-fun VadSlider(label: String, initial: Int, min: Int, max: Int, step: Int, onChange: (Int) -> Unit) {
+fun VadSlider(label: String, initial: Int, min: Int, max: Int, step: Int, help: String = "", onChange: (Int) -> Unit) {
     var v by remember { mutableStateOf(initial.toFloat()) }
     val steps = ((max - min) / step - 1).coerceAtLeast(0)
     Column {
         Text("$label: ${v.toInt()}", style = MaterialTheme.typography.bodyMedium)
+        if (help.isNotBlank())
+            Text(help, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
         Slider(
             value = v,
             onValueChange = { v = it },
@@ -295,4 +320,35 @@ fun VadSlider(label: String, initial: Int, min: Int, max: Int, step: Int, onChan
             onValueChangeFinished = { onChange(v.toInt()) },
         )
     }
+}
+
+/** A labeled slider for a one-decimal VAD dial (e.g. a ratio or a duration in seconds),
+ *  with an optional explanation; persists on release via [onChange]. */
+@Composable
+fun VadFloatSlider(label: String, initial: Float, min: Float, max: Float, step: Float, help: String = "", onChange: (Float) -> Unit) {
+    var v by remember { mutableStateOf(initial) }
+    val steps = (((max - min) / step).toInt() - 1).coerceAtLeast(0)
+    // Snap to the step grid and round to one decimal so persisted values stay clean.
+    fun snap(x: Float): Float {
+        val snapped = min + kotlin.math.round((x - min) / step) * step
+        return kotlin.math.round(snapped * 10f) / 10f
+    }
+    Column {
+        Text("$label: ${oneDecimal(v)}", style = MaterialTheme.typography.bodyMedium)
+        if (help.isNotBlank())
+            Text(help, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+        Slider(
+            value = v,
+            onValueChange = { v = it },
+            valueRange = min..max,
+            steps = steps,
+            onValueChangeFinished = { onChange(snap(v)) },
+        )
+    }
+}
+
+/** Formats a float with one decimal without String.format (KMP-safe). */
+private fun oneDecimal(v: Float): String {
+    val tenths = kotlin.math.round(v * 10f).toInt()
+    return "${tenths / 10}.${tenths % 10}"
 }

@@ -77,7 +77,7 @@ fun WebAppController.stopSpeaking() { cancelServerSpeech(); cancelSpeech(); _spe
 /** Toggle always-listening on: open the mic under the shared VAD dials, then loop. */
 fun WebAppController.startHandsFree() {
     if (handsFreeJob != null) return
-    startHandsFreeMic(prefs.vadThreshold, prefs.vadOnsetMs, prefs.vadSilenceMs, HANDS_FREE_MAX_MS)
+    startHandsFreeMic(prefs.vadThreshold, prefs.vadOnsetMs, prefs.vadSilenceMs, (prefs.vadMaxSeconds * 1000).toInt())
         .then<JsAny?> { res: JsString ->
             val s = res.toString()
             if (s.startsWith("err:")) {

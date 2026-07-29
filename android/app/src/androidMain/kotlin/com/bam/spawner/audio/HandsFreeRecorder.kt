@@ -34,6 +34,12 @@ data class VadConfig(
     // When true, the energy bar tracks the room's ambient noise floor instead of
     // sitting at a fixed [rmsThreshold]; see Endpointer.
     val adaptive: Boolean = true,
+    // How far above the tracked noise floor a frame must rise to count as speech
+    // (only meaningful when [adaptive]); see Endpointer.noiseRatio.
+    val noiseRatio: Double = 2.5,
+    // Hard cap on one utterance: capture ends this long after onset even without
+    // trailing silence, so continuous noise can't grow a clip without bound.
+    val maxMs: Int = 15000,
 )
 
 class HandsFreeRecorder(
@@ -131,9 +137,11 @@ class HandsFreeRecorder(
         var endReq = false
         val endpointer = Endpointer(
             silenceMs = vad.silenceMs,
+            maxMs = vad.maxMs,
             rmsThreshold = vad.rmsThreshold,
             onsetMs = vad.onsetMs,
             adaptive = vad.adaptive,
+            noiseRatio = vad.noiseRatio,
             onStart = { startReq = true },
             onEnd = { endReq = true },
         )

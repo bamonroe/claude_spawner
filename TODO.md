@@ -12,7 +12,18 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
-- [x] 2026-07-22 — **Attribute detached background jobs to the session that launched them (not the
+- [x] 2026-07-28 — **Expose the last two hidden VAD dials + explain every hands-free knob in-app.**
+      In loud environments (train, car, wind) the energy endpointer either never trips (its adaptive
+      floor climbs so voice can't clear the fixed 2.5× margin) or false-trips on gusts and runs to the
+      hard cap shipping a long noise clip — but the two dials that govern this, `noiseRatio` (2.5) and
+      `maxMs` (15 s), were Endpointer defaults with no settings surface. Added both as persisted prefs
+      (`vadNoiseRatio`, `vadMaxSeconds`) threaded through `VadConfig` → `Endpointer` (Android) and the
+      web `startHandsFreeMic` max param; new `VadFloatSlider` renders them, "Noise margin (×)" only when
+      Adapt is on. Also rewrote every hands-free knob's in-app help (mic threshold, speech-to-start,
+      silence-to-end, adapt, noise margin, max length) with plain-language descriptions. This is the
+      cheap-tuning half of the noise-in-transit investigation; server-side denoise (run the speech-
+      services denoiser at the `endAudio` decode seam) and an on-device RNNoise ahead of the endpointer
+      remain possible follow-ups if tuning proves insufficient. Docs: README Audio-settings paragraph.
       dir).** The `spawner-job` registry is keyed by working directory, so two sessions in the same
       dir (a host + a sandbox session share the bind-mounted home) see each other's jobs; whichever
       reconciled the dir first adopted, announced, and *reaped* a finished job — so a job started under

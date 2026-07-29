@@ -99,10 +99,17 @@ must be to count as speech. With **Adapt to background noise** on (the default),
 fixed gate: the app continuously measures the room's ambient noise floor during silence and lifts the
 speech bar to sit above it, so it self-calibrates as you move between a quiet room and a noisy one —
 the slider then acts as a *minimum* rather than an absolute cutoff. Turn it off to go back to a fixed
-threshold you set by hand. Separately, **Headset noise suppression** runs the phone's built-in noise
-suppressor on the Bluetooth-headset capture path too (it's off there by default because that filter
-is tuned for a near mic and can attenuate a voice picked up from across the room); switch it on if
-steady background noise on your headset is getting transcribed.
+threshold you set by hand. When adapting is on, the **Noise margin (×)** dial sets how far above the
+measured noise floor your voice has to rise to register (default 2.5×) — raise it in a loud
+environment (a train, wind, an engine) so the steady roar stops tripping the mic, lower it in a quiet
+room to catch softer speech. Two more dials shape when a phrase starts and ends: **Speech to start**
+is how long a sound must hold above the bar before capture begins (longer rejects brief clicks and
+blips), and **Max phrase length** is a hard safety cap that ends a clip that many seconds after it
+starts even if silence is never heard — the backstop for continuous wind or road noise that never
+dips low enough to close the phrase on its own. Separately, **Headset noise suppression** runs the
+phone's built-in noise suppressor on the Bluetooth-headset capture path too (it's off there by
+default because that filter is tuned for a near mic and can attenuate a voice picked up from across
+the room); switch it on if steady background noise on your headset is getting transcribed.
 
 **When the end token misfires.** If "beep" isn't caught and the clip keeps growing, whatever you
 say next still lands in the same message — so you can just keep issuing commands: the server splits

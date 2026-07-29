@@ -122,6 +122,17 @@ interface Prefs {
     /** Adapt the VAD energy bar to the room's ambient noise floor (default on).
      *  The [vadThreshold] then acts as a lower bound rather than a fixed gate. */
     var vadAdaptive: Boolean
+    /** How far above the measured ambient noise floor a frame must rise to count
+     *  as speech, when [vadAdaptive] is on (default 2.5×). Higher rejects more
+     *  background noise but demands louder speech; lower is more sensitive in
+     *  quiet rooms but lets steady noise leak through. No effect when adaptive is
+     *  off. Android only (the web VAD doesn't track a noise floor). */
+    var vadNoiseRatio: Float
+    /** Hard cap (seconds) on a single hands-free utterance: capture ends this long
+     *  after speech starts even if no trailing silence is detected (default 15s).
+     *  In gusty/continuous noise that never dips below the bar, this is what stops
+     *  one clip from growing without bound. */
+    var vadMaxSeconds: Float
     /** Run the platform noise suppressor on the headset/media capture path too
      *  (default off — it can attenuate far-field voice). */
     var headsetNoiseSuppression: Boolean
@@ -198,6 +209,8 @@ interface Prefs {
         const val DEFAULT_VAD_ONSET_MS = 120
         const val DEFAULT_VAD_SILENCE_MS = 800
         const val DEFAULT_VAD_ADAPTIVE = true
+        const val DEFAULT_VAD_NOISE_RATIO = 2.5f
+        const val DEFAULT_VAD_MAX_SECONDS = 15f
         const val DEFAULT_HEADSET_NOISE_SUPPRESSION = false
     }
 }

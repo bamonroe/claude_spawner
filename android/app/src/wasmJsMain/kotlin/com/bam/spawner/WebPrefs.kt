@@ -156,6 +156,12 @@ class WebPrefs : Prefs {
     override var vadAdaptive: Boolean
         get() = bool("vad_adaptive", Prefs.DEFAULT_VAD_ADAPTIVE)
         set(v) = putBool("vad_adaptive", v)
+    override var vadNoiseRatio: Float
+        get() = localStorage["vad_noise_ratio"]?.toFloatOrNull() ?: Prefs.DEFAULT_VAD_NOISE_RATIO
+        set(v) { localStorage["vad_noise_ratio"] = v.toString() }
+    override var vadMaxSeconds: Float
+        get() = localStorage["vad_max_seconds"]?.toFloatOrNull() ?: Prefs.DEFAULT_VAD_MAX_SECONDS
+        set(v) { localStorage["vad_max_seconds"] = v.toString() }
     override var headsetNoiseSuppression: Boolean
         get() = bool("headset_ns", Prefs.DEFAULT_HEADSET_NOISE_SUPPRESSION)
         set(v) = putBool("headset_ns", v)

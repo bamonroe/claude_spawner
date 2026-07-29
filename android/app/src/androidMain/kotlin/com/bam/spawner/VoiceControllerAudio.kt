@@ -120,6 +120,8 @@ internal fun VoiceController.vadConfig() = com.bam.spawner.audio.VadConfig(
     onsetMs = settings.vadOnsetMs,
     silenceMs = settings.vadSilenceMs,
     adaptive = settings.vadAdaptive,
+    noiseRatio = settings.vadNoiseRatio.toDouble(),
+    maxMs = (settings.vadMaxSeconds * 1000).toInt(),
 )
 
 /** Resolve how to capture + play for hands-free straight from the two explicit
