@@ -46,15 +46,15 @@ import kotlinx.coroutines.launch
 // over rows carrying the old indexes would leave duplicates — so we discard wholesale
 // and refetch instead.
 internal fun VoiceController.dropSessionCache(id: String) {
-    logs.remove(id)
-    oldestIndex.remove(id)
-    hasMore.remove(id)
+    router.logs.remove(id)
+    router.oldest.remove(id)
+    router.hasMore.remove(id)
     loadingOlder.remove(id)
     bridgeTo.remove(id)
     session.drop(id) // held + server digests
     loadedFromCache.remove(id)
     cache.remove(id)
-    if (id == currentId) _chat.value = emptyList()
+    if (id == router.currentId) _chat.value = emptyList()
 }
 
 // ensureLoaded pulls a session's persisted transcript from disk into the
@@ -65,11 +65,11 @@ internal fun VoiceController.dropSessionCache(id: String) {
 internal fun VoiceController.ensureLoaded(id: String) {
     if (id.isEmpty() || id in loadedFromCache) return
     loadedFromCache.add(id)
-    if (id in logs) return
+    if (id in router.logs) return
     val c = cache.load(id) ?: return
-    logs[id] = session.dedupe(c.messages.map { it.toChat() })
-    oldestIndex[id] = c.oldestIndex
-    hasMore[id] = c.hasMore
+    router.logs[id] = session.dedupe(c.messages.map { it.toChat() })
+    router.oldest[id] = c.oldestIndex
+    router.hasMore[id] = c.hasMore
     session.recordHeld(id, c.count, c.hash)
 }
 
@@ -79,14 +79,14 @@ internal fun VoiceController.ensureLoaded(id: String) {
 // be shown offline.
 internal fun VoiceController.persist(id: String) {
     if (id.isEmpty()) return
-    val msgs = session.dedupe(logs[id] ?: return)
-    logs[id] = msgs
+    val msgs = session.dedupe(router.logs[id] ?: return)
+    router.logs[id] = msgs
     val keep = msgs.filter { it.role != Role.SYSTEM }
     val d = session.heldDigest(id)
     cache.save(id, CachedSession(
         messages = keep.map { it.toCached() },
-        oldestIndex = oldestIndex[id] ?: (keep.firstOrNull { it.index >= 0 }?.index ?: 0),
-        hasMore = hasMore[id] ?: false,
+        oldestIndex = router.oldest[id] ?: (keep.firstOrNull { it.index >= 0 }?.index ?: 0),
+        hasMore = router.hasMore[id] ?: false,
         count = d?.first ?: 0,
         hash = d?.second ?: "",
     ))
@@ -136,8 +136,8 @@ internal fun VoiceController.touchDiscovered(id: String, busy: Boolean? = null) 
  *  by the user's scroll-back (loadOlder) and the reconnect gap-fill in onHistory. The
  *  cursors are id-keyed; the history request itself is addressed by [name]. */
 internal fun VoiceController.fetchOlder(id: String, name: String) {
-    if (id.isEmpty() || hasMore[id] != true || id in loadingOlder) return
-    val before = oldestIndex[id] ?: return
+    if (id.isEmpty() || router.hasMore[id] != true || id in loadingOlder) return
+    val before = router.oldest[id] ?: return
     loadingOlder.add(id)
     client?.send(Outbound.history(name, before))
 }
@@ -151,17 +151,18 @@ internal fun VoiceController.onMessage(msg: ServerMsg) {
         is ServerMsg.HelloOk -> onHelloOk(msg)
         is ServerMsg.WhisperModel -> onWhisperModel(msg)
         is ServerMsg.WhisperDownload -> onWhisperDownload(msg)
-        is ServerMsg.Say -> onSay(msg)
-        is ServerMsg.Output -> onOutput(msg)
+        // Session-scoped chat/log frames: filed by the shared commonMain router.
+        is ServerMsg.Say -> router.onSay(msg)
+        is ServerMsg.Output -> router.onOutput(msg)
         is ServerMsg.ContextReset -> onContextReset(msg)
-        is ServerMsg.Activity -> onActivity(msg)
+        is ServerMsg.Activity -> router.onActivity(msg)
         is ServerMsg.Transcribing -> onTranscribing(msg)
-        is ServerMsg.Files -> onFiles(msg)
-        is ServerMsg.Diff -> onDiff(msg)
+        is ServerMsg.Files -> router.onFiles(msg)
+        is ServerMsg.Diff -> router.onDiff(msg)
         is ServerMsg.RateLimit -> _rateLimit.value = msg.info // plan session-limit readout (sidebar)
         is ServerMsg.Usage -> { _usageLoading.value = false; _usageReport.value = msg.report } // opens the usage sheet
-        is ServerMsg.Ask -> onAsk(msg)
-        is ServerMsg.Transcript -> onTranscript(msg)
+        is ServerMsg.Ask -> router.onAsk(msg)
+        is ServerMsg.Transcript -> router.onTranscript(msg)
         is ServerMsg.Pending -> onPending(msg)
         is ServerMsg.Calibration -> onCalibrationSample(msg.text)
         is ServerMsg.StopSpeaking -> {
@@ -193,9 +194,9 @@ internal fun VoiceController.onMessage(msg: ServerMsg) {
         is ServerMsg.SpokenTokens -> catalogues.apply(msg)
         is ServerMsg.Actions -> _spokenActions.value = msg.actions
         is ServerMsg.Settings -> { catalogues.apply(msg); mirrorSettingsToPrefs() }
-        is ServerMsg.Err -> onErr(msg)
-        is ServerMsg.TurnInterrupted -> onTurnInterrupted(msg)
-        is ServerMsg.TurnStopped -> onTurnStopped(msg)
+        is ServerMsg.Err -> router.onErr(msg)
+        is ServerMsg.TurnInterrupted -> router.onTurnInterrupted(msg)
+        is ServerMsg.TurnStopped -> router.onTurnStopped(msg)
         is ServerMsg.Unknown -> {}
     }
 }
@@ -239,129 +240,22 @@ internal fun VoiceController.onWhisperDownload(msg: ServerMsg.WhisperDownload) {
         else WhisperDownloadInfo(msg.model, msg.fast, msg.received, msg.total, msg.done, msg.error)
 }
 
-internal fun VoiceController.onSay(msg: ServerMsg.Say) {
-    // A `say` is also the terminal event for a background turn that has no
-    // spoken Claude reply — notably `compress`, which finishes with a
-    // confirmation `say` rather than an `output`. Clear the in-flight/activity
-    // state so the "…compressing… ⏹ stop" bar dismisses; otherwise it lingers
-    // and tapping stop aborts an already-finished turn ("nothing running to stop").
-    clearTurnInFlight()
-    _mic.value = "" // a terminal `say` (e.g. "didn't catch that") ends the PTT clip; clear "transcribing…"
-    // Hub-fanned says (compress done, breadcrumbs) carry their session id;
-    // conversational dialog says don't → fall back to the current view.
-    val key = msg.sessionId.ifEmpty { currentId }
-    activityFor(key, "") // a background compress `say` must not clear the attached session's indicator
-    // A turn-terminal say (compress done) can be redelivered buffered on
-    // reconnect — its turn id drops the repeat. Breadcrumb says have no id.
-    if (!session.terminalSeen(key, msg.turn)) {
-        addChat(Role.SYSTEM, msg.text, key = key); speakText(Markdown.toSpeech(msg.text))
-    }
-}
-
-internal fun VoiceController.onOutput(msg: ServerMsg.Output) {
-    // Summary-only mode: don't read the intermediate streamed steps aloud —
-    // play a soft beep as a "still working…" cue and speak only the final
-    // result when the turn closes. Everything is still shown in the chat.
-    val summaryOnly = settings.summaryOnlySpeech
-    val sid = msg.sessionId.ifEmpty { currentId } // stable id; the turn's session
-    touchDiscovered(sid, busy = msg.chunk) // reorder + working cue live
-    if (msg.chunk) {
-        // A live segment of Claude's reply as it's produced. Show it now; a
-        // streamed chunk also proves the turn survived (like activity), so
-        // keep it in flight and disarm the interruption watchdog.
-        turnInFlight = true
-        lostTurnWatchdog?.cancel(); lostTurnWatchdog = null
-        streamedSessions.add(sid)
-        session.noteChunk(sid, msg.turn)
-        activityFor(sid, "") // prose is arriving — drop the "thinking" breadcrumb (attached session only)
-        addChat(Role.CLAUDE, msg.text, key = sid)
-        if (sid == currentId) {
-            if (summaryOnly) {
-                // Speak the first N replies of the turn aloud; beep the rest.
-                val spoken = spokenReplyCounts.getOrElse(sid) { 0 }
-                if (spoken < settings.speakInitialReplies) {
-                    spokenReplyCounts[sid] = spoken + 1
-                    speakText(Markdown.toSpeech(msg.text))
-                    session.noteSpokenChunk(sid, msg.text, msg.turn)
-                } else {
-                    speaker.beep()
-                }
-            } else {
-                speakText(Markdown.toSpeech(msg.text))
-                session.noteSpokenChunk(sid, msg.text, msg.turn)
-            }
-        }
-    } else {
-        clearTurnInFlight()
-        activityFor(sid, "") // turn done — stop the thinking indicator (attached session only)
-        // The close's `turn` id is the authoritative link to its chunks (query
-        // the reconciler BEFORE shouldSpeakClose — that call records the id):
-        // redelivered = a close for a turn already closed (buffered-final
-        // resend / doubled close) — never a new bubble; streamed = this turn's
-        // chunks reached us, by id or (pre-turn-id server) the legacy flag.
-        val redelivered = session.closeSeen(sid, msg.turn)
-        val streamed = streamedSessions.remove(sid) ||
-            session.closeStreamed(sid, msg.turn)
-        spokenReplyCounts.remove(sid) // new turn starts the initial-reply count over
-        // Does a live bubble for this exact reply already exist? It does when the
-        // turn streamed (built from chunks), but ALSO when a duplicate closing
-        // Output arrives for the same turn after streamedSessions was cleared
-        // mid-turn (an interleaved Ask/Transcript/error) or the backend emits the
-        // final message twice — that second close is what appended a second
-        // identical bubble. Reuse the existing bubble in either case.
-        // Whether to VOICE this close is decided by the shared reconciler
-        // (SessionSync), keyed on the turn id when the server sends one (text
-        // equality between chunks and close is not guaranteed) and falling back
-        // to the voiced-text comparison when it doesn't. Must be called exactly
-        // once per closing frame.
-        val wantSpeak = session.shouldSpeakClose(sid, msg.text, summaryOnly, msg.turn)
-        val lastClaude = logs[sid]?.lastOrNull { it.role == Role.CLAUDE }
-        val haveLiveBubble = lastClaude != null && lastClaude.index < 0 &&
-            lastClaude.text.trim() == msg.text.trim()
-        if (!streamed && !haveLiveBubble && !redelivered) { // genuinely no live stream reached us (buffered reply on reconnect)
-            addChat(Role.CLAUDE, msg.text, msg.usage, key = sid)
-        } else {
-            // Streamed (or already-shown) turn: the bubble exists, so badge it in
-            // place — the closing message isn't re-rendered as a new bubble.
-            if (msg.usage != null) attachUsageToLastClaude(sid, msg.usage)
-        }
-        if (wantSpeak && sid == currentId) speakText(Markdown.toSpeech(msg.text))
-        // Anchor the cache-warm countdown to the turn's real completion
-        // time (usage_at), so a reply delivered buffered on reconnect
-        // counts down from its true age, not from when it arrived.
-        msg.usage?.let { u ->
-            val ageMs = if (msg.usageAt > 0) System.currentTimeMillis() - msg.usageAt * 1000 else 0L
-            usageFor(sid, TurnUsageInfo(u, nowMonotonicMs() - ageMs.coerceIn(0, 6 * 60 * 1000L))) // meter tracks the attached session only
-        }
-        if (!appForeground) notifier.turnDone(msg.name, msg.text) // surface it from the pocket
-    }
-}
-
 internal fun VoiceController.onContextReset(msg: ServerMsg.ContextReset) {
-    usageFor(msg.sessionId.ifEmpty { currentId }, null) // context cleared → the attached session's status bar returns to 0
+    router.usageFor(msg.sessionId.ifEmpty { router.currentId }, null) // context cleared → the attached session's status bar returns to 0
     // A clear/compress rotates the session_id server-side and wipes/summarizes the
     // transcript. The rotation bridges OLD id → NEW id by name (the reset is for the
     // attached session): drop the retired old id's rows, re-key the view + attached id
     // to the fresh one, and refetch. An old server omits session_id → meter reset only.
+    // The attach-StateFlow/prefs choreography stays here; the router owns the log/keying.
     if (msg.sessionId.isNotEmpty() && _attachedName.value == msg.name) {
         val oldId = _attachedId.value
         _attachedId.value = msg.sessionId
         settings.lastSessionId = msg.sessionId
-        val wasViewing = currentId == oldId
+        val wasViewing = router.currentId == oldId
         dropSessionCache(oldId) // retired id's transcript wiped/summarized: forget rows + digests
         if (wasViewing) showLog(msg.sessionId) // switch the view to the fresh (empty) id
         session.requestFreshHistory(msg.sessionId, msg.name)
     }
-}
-
-internal fun VoiceController.onActivity(msg: ServerMsg.Activity) {
-    // A live breadcrumb means the turn is running server-side; mark it in
-    // flight and disarm any interruption watchdog (it survived a reconnect).
-    turnInFlight = true
-    lostTurnWatchdog?.cancel(); lostTurnWatchdog = null
-    val id = msg.sessionId.ifEmpty { currentId }
-    activityFor(id, msg.text) // a background session's breadcrumb must not flicker the attached indicator
-    touchDiscovered(id, busy = true)
 }
 
 internal fun VoiceController.onTranscribing(msg: ServerMsg.Transcribing) {
@@ -369,59 +263,6 @@ internal fun VoiceController.onTranscribing(msg: ServerMsg.Transcribing) {
     // Show "transcribing…" instead of flashing back to "listening" until
     // the transcript lands (which flips this to "thinking…").
     if (hfOn) _voiceState.value = VoiceState.TRANSCRIBING
-}
-
-internal fun VoiceController.onFiles(msg: ServerMsg.Files) {
-    if (msg.files.isNotEmpty()) {
-        // A changed-files note hits the chat like any intermediate step, so in
-        // summary-only mode it beeps too — otherwise these slip by silently.
-        addChat(Role.SYSTEM, "📝 changed: " + msg.files.joinToString(", "), key = msg.sessionId.ifEmpty { currentId })
-        if (settings.summaryOnlySpeech) speaker.beep()
-    }
-}
-
-internal fun VoiceController.onDiff(msg: ServerMsg.Diff) {
-    addChat(Role.SYSTEM, "📊 diff:\n${msg.text}", key = msg.sessionId.ifEmpty { currentId }) // review summary, not spoken
-    if (settings.summaryOnlySpeech) speaker.beep()
-}
-
-internal fun VoiceController.onAsk(msg: ServerMsg.Ask) {
-    val key = msg.sessionId.ifEmpty { currentId }
-    clearTurnInFlight()
-    streamedSessions.remove(key)
-    spokenReplyCounts.remove(key)
-    activityFor(key, "")
-    touchDiscovered(key, busy = false) // turn-terminal → clear the working cue
-    val attached = key == _attachedId.value
-    if (attached && hfOn) _voiceState.value = VoiceState.LISTENING
-    // An ask is a turn-terminal (it ends the turn in place of the closing
-    // output) and can be redelivered buffered on reconnect — keyed by its
-    // turn id. Re-presenting is harmless for the chat row (dedupe folds it)
-    // but re-SPEAKING the questions is not; drop a seen terminal outright.
-    if (!session.terminalSeen(key, msg.turn)) {
-        askFor(key, msg.questions) // only the attached session pops the question dialog…
-        addChat(Role.SYSTEM, "❓ " + msg.questions.joinToString("  ") { it.q }, key = key)
-        if (attached) speakText(spokenQuestions(msg.questions)) // …and only it is read aloud so you can answer by voice
-    }
-}
-
-internal fun VoiceController.onTranscript(msg: ServerMsg.Transcript) {
-    // Key by the session the clip was captured for (msg.sessionId), not the currently
-    // attached one — switching sessions before the async transcript lands would
-    // otherwise misfile the user bubble. Older servers omit it → current view.
-    val key = msg.sessionId.ifEmpty { currentId }
-    askFor(key, null) // a spoken/typed reply answers the attached session's pending questions
-    key.takeIf { it.isNotEmpty() }?.let { streamedSessions.remove(it); spokenReplyCounts.remove(it); session.noteTurnStart(it) }
-    // The committed transcript supersedes the live hands-free draft — drop the
-    // greyed draft line so the utterance isn't shown as both a draft and a bubble.
-    _pending.value = ""
-    addChat(Role.USER, msg.text, key = key); _mic.value = ""
-    touchDiscovered(key, busy = true) // dictation submitted → session is now working
-    // Chirp the "heard you" acknowledgment: the server has recognized the
-    // utterance and is dispatching it to the session, so confirm receipt
-    // now — before Claude replies (and distinct from its activity beep).
-    if (msg.final) speaker.chirp()
-    if (hfOn) _voiceState.value = VoiceState.THINKING
 }
 
 internal fun VoiceController.onPending(msg: ServerMsg.Pending) {
@@ -521,98 +362,12 @@ internal fun VoiceController.onDiscovered(msg: ServerMsg.Discovered) {
     }
 }
 
-internal fun VoiceController.onErr(msg: ServerMsg.Err) {
-    // Version skew: an older server that predates the transcript-cache feature
-    // rejects our connect-time `digest` probe with bad_message. That's harmless
-    // (we just get no digests and fall back to fetching history), so swallow it
-    // instead of spamming a scary note in the chat during a rollout.
-    if (msg.code == "bad_message" && msg.message.contains("digest")) return
-    if (msg.code == "turn_failed") { clearTurnInFlight(); streamedSessions.clear(); spokenReplyCounts.clear() }
-    if (_usageLoading.value) _usageLoading.value = false // any error unsticks a pending usage fetch
-    _mic.value = "" // a transcribe_failed / not_implemented error ends the PTT clip; clear "transcribing…"
-    // Turn-terminal errors (turn_failed / compress failures) carry a session_id +
-    // turn id and can be redelivered buffered on reconnect — drop the repeated row.
-    // The state clearing here is idempotent and safe to re-run either way.
-    val key = msg.sessionId.ifEmpty { currentId }
-    activityFor(key, "") // only clear the indicator if the erroring turn is the attached session's
-    if (session.terminalSeen(key, msg.turn)) return
-    // Discover/adopt/delete errors surface on the Discover screen; the
-    // rest go to the chat log.
-    if (msg.code in setOf("session_active", "not_found", "bad_adopt", "bad_delete", "discover_failed")) {
-        _discoverError.value = msg.message
-    } else {
-        addChat(Role.SYSTEM, "⚠️ ${msg.code}: ${msg.message}", key = key)
-    }
-}
-
-internal fun VoiceController.onTurnInterrupted(msg: ServerMsg.TurnInterrupted) {
-    val key = msg.sessionId.ifEmpty { currentId }
-    clearTurnInFlight()
-    streamedSessions.remove(key)
-    spokenReplyCounts.remove(key)
-    activityFor(key, "")
-    if (key == _attachedId.value) {
-        if (hfOn) _voiceState.value = VoiceState.LISTENING
-        speakText("that turn got interrupted — the server restarted. say it again.")
-    }
-    addChat(Role.SYSTEM, "⚠️ turn interrupted (${msg.reason}) — say it again.", key = key)
-}
-
-internal fun VoiceController.onTurnStopped(msg: ServerMsg.TurnStopped) {
-    val key = msg.sessionId.ifEmpty { currentId }
-    clearTurnInFlight()
-    streamedSessions.remove(key)
-    spokenReplyCounts.remove(key)
-    activityFor(key, "")
-    val attached = key == _attachedId.value
-    if (attached && hfOn) _voiceState.value = VoiceState.LISTENING
-    // A redelivered stop (buffered terminal, keyed by turn id) must not
-    // silence whatever is being read NOW or re-add its row.
-    if (!session.terminalSeen(key, msg.turn)) {
-        if (attached) { // a background stop must not cut off the reply you're listening to
-            cancelServerSpeech()
-            speaker.stop() // also quiet any reply already being read
-        }
-        addChat(Role.SYSTEM, "⏹ stopped that turn.", key = key)
-    }
-}
-
-// addChat appends a live message to the named session's log and reflects it
-// only when that session is the visible view. Historical messages come via
-// onHistory instead.
-internal fun VoiceController.addChat(role: Role, text: String, usage: TokenUsage? = null, key: String = currentId) {
-    if (text.isBlank()) return
-    // Run the shared reconciler on the LIVE path, not only on a history merge: a
-    // hands-free utterance streams a live draft/echo row and then lands the committed
-    // `transcript` as a second identical live row, and both are index==-1 — so nothing
-    // collapsed them until a full reattach. Deduping here drops that adjacent duplicate
-    // the moment it's appended (see SessionSync.dedupe).
-    val updated = session.dedupe(
-        (logs[key] ?: emptyList()) + ChatMessage(role, text, usage = usage, ts = System.currentTimeMillis() / 1000)
-    ).takeLast(2000)
-    logs[key] = updated
-    if (key == currentId) _chat.value = updated
-}
-
-// attachUsageToLastClaude badges the most recent Claude bubble in the given
-// session id's log with a completed turn's token usage. Used when the reply streamed
-// live (the bubble was built from chunks, so the closing message can't add a new one).
-internal fun VoiceController.attachUsageToLastClaude(key: String, usage: TokenUsage) {
-    val log = logs[key] ?: return
-    val idx = log.indexOfLast { it.role == Role.CLAUDE }
-    if (idx < 0) return
-    val updated = log.toMutableList().also { it[idx] = it[idx].copy(usage = usage) }
-    logs[key] = updated
-    if (key == currentId) _chat.value = updated
-}
-
 /** Switch the visible chat to session [key]'s log (stable id, or "" for general). */
 internal fun VoiceController.showLog(key: String) {
-    if (currentId != key) persist(currentId) // save what we were viewing (captures live-streamed tail)
-    currentId = key
+    if (router.currentId != key) persist(router.currentId) // save what we were viewing (captures live-streamed tail)
+    router.currentId = key
     ensureLoaded(key) // fault the cached transcript in from disk if we don't have it live
-    _chat.value = logs[key] ?: emptyList()
-    _hasMoreHistory.value = hasMore[key] ?: false
+    router.publish() // reflect the new view's chat + has-more into the StateFlows
     scrollToBottom() // attaching / switching → show the latest (history refresh re-scrolls)
 }
 
@@ -636,17 +391,17 @@ internal fun VoiceController.ordered(msgs: List<ChatMessage>): List<ChatMessage>
 // onHistory merges a server-served page of OLDER messages into the session's
 // log, ordered chronologically with any live messages, and updates the paging cursor.
 internal fun VoiceController.onHistory(msg: ServerMsg.History) {
-    val key = msg.sessionId.ifEmpty { currentId } // file the page under the stable id
+    val key = msg.sessionId.ifEmpty { router.currentId } // file the page under the stable id
     // `unchanged` answers a top-page request whose have_hash still matched: our
     // cached transcript is current, so keep it untouched and just refresh the
     // stored digest (both held and server) so future freshness checks stand.
     if (msg.unchanged) {
         if (msg.hash.isNotEmpty()) session.recordSynced(key, msg.count, msg.hash)
         loadingOlder.remove(key)
-        logs[key]?.let { cleaned ->
+        router.logs[key]?.let { cleaned ->
             val deduped = session.dedupe(cleaned)
-            logs[key] = deduped
-            if (key == currentId) _chat.value = deduped
+            router.logs[key] = deduped
+            if (key == router.currentId) _chat.value = deduped
         }
         persist(key)
         return
@@ -654,7 +409,7 @@ internal fun VoiceController.onHistory(msg: ServerMsg.History) {
     val wasLoadOlder = key in loadingOlder // else it's the top page (on (re)attach)
     // Highest transcript index we already held before applying this page — the
     // watermark a reconnect must page back down to so no middle stays missing.
-    val heldMax = (logs[key] ?: emptyList()).mapNotNull { it.index.takeIf { i -> i >= 0 } }.maxOrNull()
+    val heldMax = (router.logs[key] ?: emptyList()).mapNotNull { it.index.takeIf { i -> i >= 0 } }.maxOrNull()
     val hist = msg.messages.map { ChatMessage(roleOf(it.role), it.text, it.index, usage = it.usage, ts = it.ts) }
     val histIdx = hist.mapNotNull { if (it.index >= 0) it.index else null }.toSet()
     // On a top reload (an attach/reattach), the history page is the authoritative
@@ -663,16 +418,16 @@ internal fun VoiceController.onHistory(msg: ServerMsg.History) {
     // already streamed. Live messages absent from the page (a turn still streaming,
     // not yet persisted) are kept. A load-older page leaves live messages untouched.
     val histTexts = if (wasLoadOlder) emptySet() else hist.map { it.role to it.text }.toSet()
-    val existing = (logs[key] ?: emptyList()).filter {
+    val existing = (router.logs[key] ?: emptyList()).filter {
         (it.index < 0 && (it.role to it.text) !in histTexts) || (it.index >= 0 && it.index !in histIdx)
     }
     // Merge by timestamp, not by concatenation: a surviving live message (e.g. a
     // mid-turn breadcrumb not present in the fetched page) may be OLDER than the
     // history block, so `hist + existing` would strand it at the bottom, out of
     // order. Ordering by ts drops it back into its true chronological slot.
-    logs[key] = session.dedupe(ordered(hist + existing))
-    if (msg.messages.isNotEmpty()) oldestIndex[key] = msg.messages.first().index
-    hasMore[key] = msg.more
+    router.logs[key] = session.dedupe(ordered(hist + existing))
+    if (msg.messages.isNotEmpty()) router.oldest[key] = msg.messages.first().index
+    router.hasMore[key] = msg.more
     loadingOlder.remove(key)
     // Record the chain digest this page belongs to and persist the merged log, so
     // the cache is current on disk and a later reattach can short-circuit the fetch.
@@ -688,15 +443,15 @@ internal fun VoiceController.onHistory(msg: ServerMsg.History) {
         if (pageOldest != null && pageOldest > heldMax + 1) bridgeTo[key] = heldMax
     }
     bridgeTo[key]?.let { target ->
-        val oldest = oldestIndex[key]
-        if (oldest != null && oldest > target + 1 && hasMore[key] == true) {
+        val oldest = router.oldest[key]
+        if (oldest != null && oldest > target + 1 && router.hasMore[key] == true) {
             fetchOlder(key, msg.name) // still a hole above the watermark — keep paging
         } else {
             bridgeTo.remove(key) // reconnected with what we had (or reached the start)
         }
     }
-    if (key == currentId) {
-        _chat.value = logs[key] ?: emptyList()
+    if (key == router.currentId) {
+        _chat.value = router.logs[key] ?: emptyList()
         _hasMoreHistory.value = msg.more
         if (!wasLoadOlder) scrollToBottom() // initial load → newest in view; load-older stays put
     }

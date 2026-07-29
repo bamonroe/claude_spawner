@@ -24,9 +24,13 @@ Dates are `YYYY-MM-DD`.
         Say/Output/Activity/Files/Diff/Ask/Transcript/Err/TurnInterrupted/TurnStopped through it,
         with attach/detach/context-reset choreography + History merge staying in the controller.
         Behavior-preserving; wasmJs build green.
-  - [ ] **Step B (Android adoption):** wire `VoiceController` to the same router (add the
-        Android-only Host hooks — chirp/voiceState/watchdog/persistence — at their verified points),
-        so both platforms share one filing path. Emulator + phone verify.
+  - [x] 2026-07-29 — **Step B (Android adoption):** `VoiceController` wired to the same router;
+        the Android-only side effects (turnLive/turnCleared/turnDone/heardCommit/voiceIdle/speakAsk/
+        turnInterrupted/bargeIn) are default-no-op `Host` methods that Android overrides and web keeps
+        as defaults. Router now owns `logs`/`oldest`/`hasMore`/`currentId`/`streamedSessions`/
+        `spokenReplyCounts`; controller keeps disk-backed history merge + attach/detach choreography.
+        The shared `addChat` blank-text guard incidentally lands drift-fix #2. Behavior-preserving;
+        both wasmJs + Android compile green.
   - [ ] **Step C (fix the surfaced drifts):** land the ~8 latent drift bugs the map found, one
         small commit each, choosing the correct behavior deliberately (not silently).
 - [x] 2026-07-29 — **Eager background-job notify (`SPAWNER_EAGER_NOTIFY`).** The idle job-notifier

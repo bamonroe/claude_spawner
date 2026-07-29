@@ -14,8 +14,9 @@ import com.bam.spawner.nowMonotonicMs
  * touched) lives in `commonMain` exactly once and the web (wasmJs) and Android controllers
  * can't drift.
  *
- * This is **step A** of the extraction: the web controller wires to it. Android is unchanged
- * for now and will adopt it in a later pass.
+ * Both controllers wire to it: the web ([WebAppController]) and Android ([VoiceController]).
+ * The web keeps the [Host] defaults for the platform reactions it has no analogue for (the turn
+ * watchdog, the voice pill, pocket notifications, spoken notices); Android overrides them.
  *
  * What lives here is the neutral per-session bookkeeping and the filing bodies of the
  * session-scoped frames:
@@ -85,6 +86,34 @@ class InboundRouter(
         fun summaryOnly(): Boolean
         /** How many streamed replies of a turn to speak aloud before beeping the rest. */
         fun speakInitialReplies(): Int
+
+        // --- Platform reactions with no web analogue -----------------------------
+        // Android drives a lost-turn watchdog, a hands-free voice pill, pocket
+        // notifications, and spoken notices; the web has none of these, so each is a
+        // no-op default it simply doesn't override. Kept as explicit seams so the
+        // drift-fixing step can give the web real behavior by filling the last four in
+        // (speak the ask, speak an interruption, barge-in on stop) rather than
+        // re-forking the filing logic.
+        /** A turn is confirmed live (a chunk/activity arrived): mark it in-flight and
+         *  disarm the lost-turn watchdog. */
+        fun turnLive() {}
+        /** A turn reached a terminal (close/say/ask/error/interrupt/stop): clear the
+         *  in-flight flag and cancel the watchdog. */
+        fun turnCleared() {}
+        /** A turn's reply closed: surface it from the pocket when backgrounded. */
+        fun turnDone(name: String, text: String) {}
+        /** A committed transcript landed: chirp the "heard you" ack (when final) and
+         *  move the voice pill to "thinking". */
+        fun heardCommit(final: Boolean) {}
+        /** Return the voice pill to "listening" if [id] is the attached session. */
+        fun voiceIdleIfAttached(id: String) {}
+        /** Speak the pending questions aloud if [id] is the attached session. */
+        fun speakAskIfAttached(id: String, questions: List<AskQuestion>) {}
+        /** React to a turn-interrupted terminal for [id] (voice pill + spoken notice)
+         *  when it is the attached session. */
+        fun turnInterruptedAttached(id: String) {}
+        /** Barge-in: stop any reply being read aloud if [id] is the attached session. */
+        fun bargeInIfAttached(id: String) {}
     }
 
     // --- Neutral per-session state (hoisted from the web controller) ----------
@@ -121,6 +150,7 @@ class InboundRouter(
      * Publishes + bumps scroll when the row lands in the current view.
      */
     fun addChat(role: Role, text: String, usage: TokenUsage? = null, key: String = currentId) {
+        if (text.isBlank()) return // never file an empty bubble (a blank say/output/transcript)
         val now = nowEpochSeconds()
         logs[key] = session.dedupe(
             (logs[key] ?: emptyList()) + ChatMessage(role, text, usage = usage, ts = now)
@@ -168,6 +198,9 @@ class InboundRouter(
     // --- Session-scoped frame filing bodies ----------------------------------
 
     fun onSay(msg: ServerMsg.Say) {
+        // A `say` is also the terminal event for a background turn with no spoken Claude
+        // reply (notably `compress`, which finishes with a confirmation say): end the turn.
+        host.turnCleared()
         host.setMicStatus("") // a terminal `say` (e.g. "didn't catch that") ends the PTT clip; clear "transcribing…"
         // Hub-fanned says (compress done, breadcrumbs) carry their session id;
         // conversational dialog says don't → fall back to the current view.
@@ -187,6 +220,9 @@ class InboundRouter(
         activityFor(sid, "") // prose/close is arriving — drop the indicator (attached session only)
         host.touchDiscovered(sid, msg.chunk) // reorder + working cue live
         if (msg.chunk) {
+            // A streamed chunk proves the turn survived (like an activity breadcrumb) —
+            // keep it in flight and disarm the interruption watchdog.
+            host.turnLive()
             streamedSessions.add(sid)
             session.noteChunk(sid, msg.turn)
             addChat(Role.CLAUDE, msg.text, key = sid)
@@ -207,6 +243,7 @@ class InboundRouter(
                 }
             }
         } else {
+            host.turnCleared() // the closing frame ends the turn
             // Same id-keyed close reconciliation as the Android controller:
             // redelivered = this close's turn was already decided on (buffered
             // resend / doubled close); streamed = its chunks reached us, by id
@@ -236,10 +273,14 @@ class InboundRouter(
                 val ageMs = if (msg.usageAt > 0) (nowEpochSeconds() - msg.usageAt) * 1000 else 0L
                 usageFor(sid, TurnUsageInfo(u, nowMonotonicMs() - ageMs.coerceIn(0, 6 * 60 * 1000L))) // meter tracks the attached session only
             }
+            host.turnDone(msg.name, msg.text) // surface it from the pocket when backgrounded
         }
     }
 
     fun onActivity(msg: ServerMsg.Activity) {
+        // A live breadcrumb proves the turn is running server-side (it survived a
+        // reconnect): mark it in flight and disarm the interruption watchdog.
+        host.turnLive()
         val id = keyOf(msg.sessionId)
         activityFor(id, msg.text)
         host.touchDiscovered(id, true)
@@ -259,13 +300,16 @@ class InboundRouter(
 
     fun onAsk(msg: ServerMsg.Ask) {
         val key = keyOf(msg.sessionId)
+        host.turnCleared() // an ask ends the turn in place of a closing output
         activityFor(key, ""); streamedSessions.remove(key); spokenReplyCounts.remove(key)
         host.touchDiscovered(key, false) // turn-terminal → clear the working cue
+        host.voiceIdleIfAttached(key) // hands-free returns to listening (attached only)
         // An ask is a turn-terminal and can be redelivered buffered on reconnect
         // — keyed by its turn id; drop a repeat instead of re-presenting it.
         if (!session.terminalSeen(key, msg.turn)) {
             askFor(key, msg.questions) // only the attached session pops the question dialog
             addChat(Role.SYSTEM, "❓ " + msg.questions.joinToString("  ") { it.q }, key = key)
+            host.speakAskIfAttached(key, msg.questions) // …and only it is read aloud so you can answer by voice
         }
     }
 
@@ -283,6 +327,9 @@ class InboundRouter(
         host.setMicStatus("") // the committed transcript ends the PTT clip; clear "transcribing…"
         addChat(Role.USER, msg.text, key = key)
         host.touchDiscovered(key, true) // dictation submitted → session is now working
+        // Chirp the "heard you" ack (server recognized the utterance) and move the
+        // voice pill to "thinking" before Claude replies.
+        host.heardCommit(msg.final)
     }
 
     fun onErr(msg: ServerMsg.Err) {
@@ -292,7 +339,7 @@ class InboundRouter(
         if (msg.code == "bad_message" && msg.message.contains("digest")) return
         // A failed turn ends it: clear the streamed/spoken turn state so a later
         // stray close for the session isn't misread as "streamed" (Android parity).
-        if (msg.code == "turn_failed") { streamedSessions.clear(); spokenReplyCounts.clear() }
+        if (msg.code == "turn_failed") { host.turnCleared(); streamedSessions.clear(); spokenReplyCounts.clear() }
         host.setMicStatus("") // a transcribe_failed / not_implemented error ends the PTT clip; clear "transcribing…"
         host.stopUsageLoading()
         // Turn-terminal errors carry a session_id + turn id and can be redelivered
@@ -307,15 +354,20 @@ class InboundRouter(
 
     fun onTurnInterrupted(msg: ServerMsg.TurnInterrupted) {
         val key = keyOf(msg.sessionId)
+        host.turnCleared()
         activityFor(key, ""); streamedSessions.remove(key); spokenReplyCounts.remove(key)
+        host.turnInterruptedAttached(key) // voice pill + spoken "say it again" (attached only)
         addChat(Role.SYSTEM, "⚠️ turn interrupted (${msg.reason}) — say it again.", key = key)
     }
 
     fun onTurnStopped(msg: ServerMsg.TurnStopped) {
         val key = keyOf(msg.sessionId)
+        host.turnCleared()
         activityFor(key, ""); streamedSessions.remove(key); spokenReplyCounts.remove(key)
+        host.voiceIdleIfAttached(key) // hands-free returns to listening (attached only)
         // A redelivered stop (buffered terminal, keyed by turn id) — drop the row.
         if (!session.terminalSeen(key, msg.turn)) {
+            host.bargeInIfAttached(key) // a background stop must not cut off the reply you're hearing
             addChat(Role.SYSTEM, "⏹ stopped that turn.", key = key)
         }
     }

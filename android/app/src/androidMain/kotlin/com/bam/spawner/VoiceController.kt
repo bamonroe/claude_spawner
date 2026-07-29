@@ -77,15 +77,14 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
     internal val _status = MutableStateFlow("disconnected")
     override val status: StateFlow<String> = _status.asStateFlow()
 
-    // Per-session chat logs, keyed by the stable session id ("" = the general/unattached
-    // view for dialog + system messages). `_chat` mirrors the current id's log. Keying by
-    // the invariant id (never the display name) means a rename/rotation never re-keys these.
-    internal val logs = mutableMapOf<String, List<ChatMessage>>()
-    internal val oldestIndex = mutableMapOf<String, Int>() // lowest history index held, per session id
-    internal val hasMore = mutableMapOf<String, Boolean>() // older history remains to page, per session id
+    // The per-session chat logs (keyed by the stable session id), view cursor (currentId),
+    // paging maps (oldest/hasMore), and per-turn streamed/spoken tracking are hoisted into the
+    // shared commonMain [InboundRouter] (see `router` below), so `_chat` mirrors router.logs
+    // for the current id. These two paging aids stay controller-side: the disk-backed history
+    // merge is Android's own (the web's is in-memory), so its per-session in-flight set and
+    // reconnect gap-fill watermark live here alongside `cache`.
     internal val loadingOlder = mutableSetOf<String>()      // a page request is in flight, per session id
     internal val bridgeTo = mutableMapOf<String, Int>()      // reconnect gap-fill: page older until this index is reached
-    internal var currentId = ""
 
     // Offline transcript cache. `loadedFromCache` tracks which sessions we've pulled from
     // disk into memory. The digest caches (which the on-disk cache is validated against)
@@ -106,6 +105,59 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
         override fun attachedName() = _attachedName.value
         override fun attachedAgent() = _attachedAgent.value
         override fun attachedModel() = _attachedModel.value
+    })
+
+    // The shared commonMain inbound-message router (sibling to SessionSync/CatalogueSync): it
+    // owns the per-session chat logs, view cursor and per-turn streamed/spoken tracking, and
+    // files every session-scoped frame (Say/Output/Activity/Files/Diff/Ask/Transcript/Err/
+    // TurnInterrupted/TurnStopped) through one place both clients share. Platform side effects
+    // route through InboundRouter.Host below — including the Android-only reactions the web has
+    // no analogue for (the lost-turn watchdog, the hands-free voice pill, pocket notifications,
+    // and spoken notices), which the web leaves as no-op defaults. The attach/detach/
+    // context-reset choreography and the disk-backed, timestamp-ordered History merge stay in
+    // this controller (they're platform-specific) and reach the router via its state + primitives.
+    internal val router = com.bam.spawner.net.InboundRouter(session, object : com.bam.spawner.net.InboundRouter.Host {
+        override fun publishChat(chat: List<ChatMessage>) { _chat.value = chat }
+        override fun setHasMore(hasMore: Boolean) { _hasMoreHistory.value = hasMore }
+        // Android does not auto-scroll on a live incoming row (only on attach/switch/history/
+        // typed-send, which call scrollToBottom directly); leaving this a no-op preserves that.
+        override fun bumpScroll() {}
+        override fun attachedId() = _attachedId.value
+        override fun setActivity(text: String) { _activity.value = text }
+        override fun setUsage(usage: TurnUsageInfo?) { _lastTurnUsage.value = usage }
+        override fun setAsk(questions: List<AskQuestion>?) { _ask.value = questions }
+        override fun setPending(text: String) { _pending.value = text }
+        override fun setMicStatus(text: String) { _mic.value = text }
+        override fun setDiscoverError(text: String) { _discoverError.value = text }
+        override fun stopUsageLoading() { if (_usageLoading.value) _usageLoading.value = false }
+        override fun touchDiscovered(id: String, busy: Boolean?) { this@VoiceController.touchDiscovered(id, busy) }
+        override fun speak(text: String) { speakText(Markdown.toSpeech(text)) }
+        override fun beep() { speaker.beep() }
+        override fun summaryOnly() = settings.summaryOnlySpeech
+        override fun speakInitialReplies() = settings.speakInitialReplies
+        // Android-only platform reactions (the web keeps the no-op defaults):
+        override fun turnLive() { turnInFlight = true; lostTurnWatchdog?.cancel(); lostTurnWatchdog = null }
+        override fun turnCleared() { clearTurnInFlight() }
+        override fun turnDone(name: String, text: String) { if (!appForeground) notifier.turnDone(name, text) }
+        override fun heardCommit(final: Boolean) {
+            if (final) speaker.chirp() // "heard you" ack, distinct from the activity beep
+            if (hfOn) _voiceState.value = VoiceState.THINKING
+        }
+        override fun voiceIdleIfAttached(id: String) {
+            if (id == _attachedId.value && hfOn) _voiceState.value = VoiceState.LISTENING
+        }
+        override fun speakAskIfAttached(id: String, questions: List<AskQuestion>) {
+            if (id == _attachedId.value) speakText(spokenQuestions(questions))
+        }
+        override fun turnInterruptedAttached(id: String) {
+            if (id == _attachedId.value) {
+                if (hfOn) _voiceState.value = VoiceState.LISTENING
+                speakText("that turn got interrupted — the server restarted. say it again.")
+            }
+        }
+        override fun bargeInIfAttached(id: String) {
+            if (id == _attachedId.value) { cancelServerSpeech(); speaker.stop() }
+        }
     })
 
     internal val _chat = MutableStateFlow<List<ChatMessage>>(emptyList())
@@ -271,22 +323,13 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
     internal val _ask = MutableStateFlow<List<com.bam.spawner.net.AskQuestion>?>(null)
     override val ask: StateFlow<List<com.bam.spawner.net.AskQuestion>?> = _ask.asStateFlow()
 
-    // Phase C — these three flows describe the live status of the ATTACHED
-    // session: the "thinking/editing" breadcrumb, the pending-question popup,
-    // and the context-meter usage. An incoming session-scoped frame may only
-    // touch them when it is for the attached session, so a background turn
-    // can't flicker the indicator, pop a question, or clobber the meter.
-    // Deliberate local transitions (attach/detach/dismiss/showLog) still write
-    // the backing flows directly; only frames off the wire route through these.
-    internal fun activityFor(id: String, text: String) {
-        if (id == _attachedId.value) _activity.value = text
-    }
-    internal fun usageFor(id: String, usage: TurnUsageInfo?) {
-        if (id == _attachedId.value) _lastTurnUsage.value = usage
-    }
-    internal fun askFor(id: String, questions: List<com.bam.spawner.net.AskQuestion>?) {
-        if (id == _attachedId.value) _ask.value = questions
-    }
+    // The live status of the ATTACHED session — the "thinking/editing" breadcrumb, the
+    // pending-question popup, and the context-meter usage — may only be touched by an
+    // incoming session-scoped frame when it is for the attached session, so a background
+    // turn can't flicker the indicator, pop a question, or clobber the meter. That
+    // attached-gate now lives in the shared router (activityFor/usageFor/askFor there,
+    // wired to the setActivity/setUsage/setAsk Host methods above). Deliberate local
+    // transitions (attach/detach/dismiss/showLog) still write the backing flows directly.
 
     // AI backend registry (`agents`) and execution profiles (`profiles`) — both are
     // app-managed catalogues, reconciled through the shared `catalogues` above.
@@ -330,14 +373,9 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
     @Volatile internal var turnInFlight = false
     internal var lostTurnWatchdog: Job? = null
     private val lostTurnGraceMs = 45_000L
-    // Sessions that have streamed at least one live prose chunk for their current
-    // turn. Keyed by session name so a gesture swap cannot make a late frame from
-    // the previous session render into the newly visible log.
-    internal val streamedSessions = mutableSetOf<String>()
-    // Per-session count of streamed replies already SPOKEN this turn, for the
-    // "speak initial replies" refinement of summary-only mode. Reset at every
-    // turn boundary alongside [streamedSessions] so it starts at 0 each turn.
-    internal val spokenReplyCounts = mutableMapOf<String, Int>()
+    // The per-turn streamed/spoken tracking (which sessions streamed a live chunk this
+    // turn, and how many replies were spoken) is hoisted into the shared router alongside
+    // the chat logs, so this controller and the web can't drift on turn reconciliation.
 
     init {
         // While Claude's reply is spoken, raise the recorder's VAD bar (echo) and
@@ -404,7 +442,7 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
     override fun sendText(text: String) {
         val t = text.trim()
         if (t.isEmpty()) return
-        addChat(Role.USER, t)
+        router.addChat(Role.USER, t)
         scrollToBottom() // typed message → jump to the latest
         client?.send(Outbound.utterance(t, sessionId = _attachedId.value))
     }
@@ -465,7 +503,7 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
     /** Load the previous page of older history for the current session. */
     override fun loadOlder() {
         val name = _attachedName.value ?: return // the history request is addressed by name
-        if (currentId.isNotEmpty()) fetchOlder(currentId, name)
+        if (router.currentId.isNotEmpty()) fetchOlder(router.currentId, name)
     }
 
     override fun detach() {
@@ -628,7 +666,7 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
         _connected.value = up
         _status.value = if (up) "connected" else "reconnecting…"
         if (!up) cancelServerSpeech() // a dropped socket orphans any in-flight speak streams
-        if (!up) persist(currentId) // flush the visible session to disk so it's available offline
+        if (!up) persist(router.currentId) // flush the visible session to disk so it's available offline
         // Dropped mid-turn: arm the watchdog. If the server is alive it'll re-deliver
         // the reply (or a "still working" breadcrumb) on reconnect and disarm this;
         // if it crashed/restarted, nothing comes and we warn when the grace elapses.
@@ -649,7 +687,7 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
                 _activity.value = ""
                 if (hfOn) _voiceState.value = VoiceState.LISTENING
                 val note = "⚠️ lost the connection while working — that turn may have been interrupted. Try again if you don't hear back."
-                addChat(Role.SYSTEM, note)
+                router.addChat(Role.SYSTEM, note)
                 speakText("that turn may have been interrupted. try again if you don't hear back.")
             }
         }
