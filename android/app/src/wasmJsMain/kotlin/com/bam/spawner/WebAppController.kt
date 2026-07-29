@@ -97,6 +97,11 @@ class WebAppController(internal val prefs: Prefs) : AppController {
         override fun turnInterruptedAttached(id: String) {
             if (id == _attachedId.value) speak("that turn got interrupted — the server restarted. say it again.")
         }
+        // Barge-in: a stop for the attached session halts any reply being read aloud, so a
+        // background stop can't cut off the reply you're hearing. Parity with Android.
+        override fun bargeInIfAttached(id: String) {
+            if (id == _attachedId.value) stopSpeaking()
+        }
     })
 
     internal val _chat = MutableStateFlow<List<ChatMessage>>(emptyList())
