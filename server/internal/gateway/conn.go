@@ -137,6 +137,7 @@ func (c *conn) fastTranscriber() transcribe.Transcriber {
 // send writes a JSON message to the client, returning any write error (also used
 // by job sinks to tell a delivered result from one lost to a dropped socket).
 func (c *conn) send(v any) error {
+	c.stampSession(v)
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
 	_ = c.ws.SetWriteDeadline(time.Now().Add(writeWait))
@@ -145,6 +146,41 @@ func (c *conn) send(v any) error {
 		return err
 	}
 	return nil
+}
+
+// stampSession attributes a session-scoped notice (`say`/`error`) to the
+// connection's attached session when the frame doesn't already carry a
+// session_id. These are the notices sent DIRECTLY from the read loop (dialog
+// prompts, session-op read-backs like "cleared", transcription failures) —
+// unlike hub-fanned turn frames, which jobSink already stamps authoritatively
+// (their id is set before they reach send, so we never overwrite it). Without
+// this, a session-less say/error reaches the client with no id and the client
+// files it under whatever session is currently ON SCREEN — so notices about the
+// session you're acting on land in, and "hop" between, the wrong chat logs when
+// you switch. The acting session is the attached one, which the SERVER knows at
+// send time and the client can only guess; so attributing here — symmetric with
+// jobSink — is the right seam. A detached connection leaves them unstamped, and
+// the client's general/unattached bucket is then correct.
+//
+// Runs before wmu is taken; safe from job goroutines too, because their frames
+// already carry a session_id and return early before touching attached state
+// (which is read via the locked attachedSession accessor).
+func (c *conn) stampSession(v any) {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return
+	}
+	switch m["type"] {
+	case "say", "error":
+	default:
+		return
+	}
+	if sid, _ := m["session_id"].(string); sid != "" {
+		return
+	}
+	if s := c.attachedSession(); s != nil {
+		m["session_id"] = s.SessionID
+	}
 }
 
 // sendBinary writes one binary frame (server→client TTS audio) under the same
