@@ -64,7 +64,7 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
     when (msg) {
         is ServerMsg.HelloOk -> {
             _status.value = "connected"
-            if (msg.whisperModel.isNotBlank()) _whisperModel.value = msg.whisperModel
+            if (msg.whisperModel.isNotBlank()) { _whisperModel.value = msg.whisperModel; prefs.whisperModel = msg.whisperModel }
             // Unconditional: "" is meaningful (no fast server configured there).
             _whisperFastModel.value = msg.whisperModelFast
             prefs.whisperFastModel = msg.whisperModelFast
@@ -80,7 +80,7 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
             }
         }
         is ServerMsg.WhisperModel -> {
-            if (msg.model.isNotBlank()) _whisperModel.value = msg.model
+            if (msg.model.isNotBlank()) { _whisperModel.value = msg.model; prefs.whisperModel = msg.model }
             _whisperFastModel.value = msg.fastModel
             prefs.whisperFastModel = msg.fastModel
             if (msg.models.isNotEmpty()) _whisperModels.value = msg.models
