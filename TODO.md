@@ -442,9 +442,11 @@ Dates are `YYYY-MM-DD`.
                 tests: fold order-independence + add/change/delete/timestamp flips, connect-suppress vs
                 connect-broadcast. `docs/protocol.md` updated; `go test ./... -count=1` + both APK/wasm
                 builds green. Still needs commit + master→app merge.
-          - [ ] **Note:** `fieldsync`/`docsync` guards docs↔Go only; it does NOT yet catch a missing
-                *Kotlin* field (that's Phase 4) — Phase 2a's both-sides parity was verified by build,
-                not by the drift test.
+          - [x] **Note (closed):** `fieldsync`/`docsync` originally guarded docs↔Go only and could not
+                catch a missing *Kotlin* field. Now `recordsync_test.go` reads the Kotlin parsers and
+                asserts record field-parity (incl. `updated_at`) both ways for every catalogue, and Phase
+                4's `TestCatalogueRegistryComplete` makes that coverage total — so the drift test now
+                catches a missing Kotlin field, not just the build.
     - [x] **Phase 3 — route genuinely-shared server-global settings through the sync layer — done,
           master (uncommitted at hand-off) 2026-07-16.** Added a fifth catalogue, **settings**: keyed
           `{key, value, updated_at}` records (value always a string, typed at the edges) with per-key
@@ -461,9 +463,20 @@ Dates are `YYYY-MM-DD`.
           keeps its dedicated `set_whisper_model` load message (which triggers the resident-server
           load/download); the server persists the result into the catalogue on success. `docs/protocol.md`
           updated; `go test ./... -count=1` + wasm/APK builds green. Still needs commit + master→app merge.
-    - [ ] **Phase 4 — extend a drift test to assert every registered syncable resource carries a
-          version token**, so a new synced resource can't be added without a conflict rule (closes the
-          semantic gap the current drift tests can't see).
+    - [x] 2026-07-29 — **Phase 4 — drift test asserts every registered syncable resource carries a
+          version token.** The per-catalogue field-parity check (`recordsync_test.go`) already asserted
+          `updated_at` on both the Go wire record and the Kotlin parser for the six catalogues, but off a
+          hand-maintained `rows` list — so a *newly-registered* catalogue could skip the check. Closed the
+          meta-gap: new `TestCatalogueRegistryComplete` treats the **digest layer as the authoritative
+          registry** (a synced catalogue must have a digest on both ends for the skip-if-equal fast path)
+          and requires the Go digests (`catalogdigest.go` `<catalogue>Digest` funcs), the Kotlin digests
+          (`CatalogueDigest.kt` public folds), and the parity rows to be the **same set** — so registering
+          a catalogue anywhere without a parity row (and thus without the both-ends `updated_at` assertion)
+          fails the build. Each digest func is also asserted to fold the version token (Go `UpdatedAt`
+          selector / Kotlin `updatedAt`), so a digest can't be defined without the conflict rule. `rows`
+          hoisted to a reusable `catalogueRows(t)` helper. Negative-tested (corrupt a row name → four
+          actionable failures); `go test ./internal/docsync/ -count=1` green. This completes the unified
+          versioned sync-layer epic.
 
 - [x] 2026-07-16 — **New-session picker uses dropdowns for expanding option sets.** The sidebar
   `BrowseScreen` now renders host/profile and provider/model choices as compact dropdown controls

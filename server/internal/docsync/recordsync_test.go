@@ -7,7 +7,13 @@ package docsync
 // gap lets a Go-side field addition, or a missing "updated_at" on the Kotlin
 // side, sail through CI even though it silently breaks the versioned sync layer
 // (last-writer-wins + tombstones + the per-catalogue digest). This file closes
-// it for all five catalogues (hosts, identities, profiles, providers, settings).
+// it for all six catalogues (hosts, identities, profiles, providers, settings,
+// spoken_tokens).
+//
+// TestCatalogueRegistryComplete then closes the meta-gap the per-catalogue check
+// can't: it asserts the set of catalogues checked here IS the full set registered
+// in the digest layer (Go + Kotlin), so a NEW syncable catalogue can't be added
+// without a conflict rule — the version-token guarantee, made total.
 //
 // The parity is framed as the *wire view*: the serialized record that crosses
 // the wire in the outbound list message — the exact shape a catalogue's digest
@@ -142,9 +148,6 @@ func sortedKeys(m map[string]bool) []string {
 // record and the Kotlin read<Type> parser must agree field-for-field, and both
 // must carry the "updated_at" version token.
 func TestRecordFieldParity(t *testing.T) {
-	root := repoRoot(t)
-	sess := filepath.Join(root, "server", "internal", "session")
-
 	// One-sided fields go here as "Resource.field" -> reason. The wire-view
 	// framing (serialized record vs. read<Type> parser) makes all five match
 	// exactly, so this is EMPTY for the current catalogues; kept (with the
@@ -170,33 +173,7 @@ func TestRecordFieldParity(t *testing.T) {
 		return only
 	}
 
-	rows := []struct {
-		name   string
-		ktFunc string
-		goSet  map[string]bool
-		ktSet  map[string]bool
-	}{
-		{"hosts", "readHosts",
-			toFieldSet(structJSONTags(t, filepath.Join(sess, "hosts.go"), "Host")),
-			ktRecordFields(t, root, "readHosts", "h")},
-		{"identities", "readIdentities",
-			funcRecordKeys(t, root, "msgIdentityList"),
-			ktRecordFields(t, root, "readIdentities", "i")},
-		{"profiles", "readProfiles",
-			toFieldSet(structJSONTags(t, filepath.Join(sess, "profile.go"), "ExecProfile")),
-			ktRecordFields(t, root, "readProfiles", "p")},
-		{"spoken_tokens", "readSpokenTokens",
-			toFieldSet(structJSONTags(t, filepath.Join(root, "server", "internal", "spoken", "token.go"), "Token")),
-			ktRecordFields(t, root, "readSpokenTokens", "t")},
-		{"providers", "readAgents",
-			funcRecordKeys(t, root, "msgAgents"),
-			ktRecordFields(t, root, "readAgents", "a")},
-		{"settings", "readSettings",
-			toFieldSet(structJSONTags(t, filepath.Join(sess, "settingskv.go"), "SettingRecord")),
-			ktRecordFields(t, root, "readSettings", "s")},
-	}
-
-	for _, r := range rows {
+	for _, r := range catalogueRows(t) {
 		t.Run(r.name, func(t *testing.T) {
 			// Guardrail: a broken extractor (bad regex / AST walk) must not pass silently.
 			if len(r.goSet) == 0 {
@@ -236,4 +213,158 @@ func TestRecordFieldParity(t *testing.T) {
 			t.Errorf("stale exemption %q: that field is no longer one-sided — remove the exemption", key)
 		}
 	}
+}
+
+// catalogueRow describes one synced catalogue: its wire name, the Kotlin
+// read<Type> parser, and the field sets on each side of the wire.
+type catalogueRow struct {
+	name   string
+	ktFunc string
+	goSet  map[string]bool
+	ktSet  map[string]bool
+}
+
+// catalogueRows is the enumerated set of synced catalogues the parity check
+// covers. It is a hand-maintained list — TestCatalogueRegistryComplete cross-checks
+// it against the digest layer (the authoritative registry) so a catalogue can't be
+// registered there without also being covered here (and thus without its version
+// token being asserted on both ends).
+func catalogueRows(t *testing.T) []catalogueRow {
+	t.Helper()
+	root := repoRoot(t)
+	sess := filepath.Join(root, "server", "internal", "session")
+	return []catalogueRow{
+		{"hosts", "readHosts",
+			toFieldSet(structJSONTags(t, filepath.Join(sess, "hosts.go"), "Host")),
+			ktRecordFields(t, root, "readHosts", "h")},
+		{"identities", "readIdentities",
+			funcRecordKeys(t, root, "msgIdentityList"),
+			ktRecordFields(t, root, "readIdentities", "i")},
+		{"profiles", "readProfiles",
+			toFieldSet(structJSONTags(t, filepath.Join(sess, "profile.go"), "ExecProfile")),
+			ktRecordFields(t, root, "readProfiles", "p")},
+		{"spoken_tokens", "readSpokenTokens",
+			toFieldSet(structJSONTags(t, filepath.Join(root, "server", "internal", "spoken", "token.go"), "Token")),
+			ktRecordFields(t, root, "readSpokenTokens", "t")},
+		{"providers", "readAgents",
+			funcRecordKeys(t, root, "msgAgents"),
+			ktRecordFields(t, root, "readAgents", "a")},
+		{"settings", "readSettings",
+			toFieldSet(structJSONTags(t, filepath.Join(sess, "settingskv.go"), "SettingRecord")),
+			ktRecordFields(t, root, "readSettings", "s")},
+	}
+}
+
+// normalizeCatalogue folds a catalogue name to a comparison key: lower-case with
+// separators stripped, so "spokenTokens" (a Go/Kotlin digest func), "spoken_tokens"
+// (a wire/row name) and "spokentokens" all compare equal.
+func normalizeCatalogue(s string) string {
+	return strings.ToLower(strings.ReplaceAll(s, "_", ""))
+}
+
+// bodyReferencesUpdatedAt reports whether a func's body mentions the `UpdatedAt`
+// selector anywhere — i.e. the digest folds the version token, so a timestamp-only
+// edit still flips the checksum (the whole point of the versioned sync layer).
+func bodyReferencesUpdatedAt(fn *ast.FuncDecl) bool {
+	found := false
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		if sel, ok := n.(*ast.SelectorExpr); ok && sel.Sel.Name == "UpdatedAt" {
+			found = true
+		}
+		return !found
+	})
+	return found
+}
+
+// goDigestCatalogues is the AUTHORITATIVE registry of synced catalogues on the Go
+// side: every top-level `<catalogue>Digest` func in gateway/catalogdigest.go except
+// the generic reducer foldDigest. Each is asserted to fold the `UpdatedAt` version
+// token, so a catalogue's digest can't be defined without a conflict rule. Returns
+// the normalized catalogue-name set.
+func goDigestCatalogues(t *testing.T, root string) map[string]bool {
+	t.Helper()
+	_, f := parseGo(t, filepath.Join(root, "server", "internal", "gateway", "catalogdigest.go"))
+	out := map[string]bool{}
+	for _, decl := range f.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Recv != nil {
+			continue
+		}
+		name := fn.Name.Name
+		if !strings.HasSuffix(name, "Digest") || name == "foldDigest" {
+			continue // foldDigest is the shared reducer, not a catalogue
+		}
+		if !bodyReferencesUpdatedAt(fn) {
+			t.Errorf("catalogdigest.go %s does not fold UpdatedAt — a catalogue digest must "+
+				"incorporate the version token so a timestamp-only edit flips the checksum", name)
+		}
+		out[normalizeCatalogue(strings.TrimSuffix(name, "Digest"))] = true
+	}
+	if len(out) == 0 {
+		t.Fatal("extractor broken — no <catalogue>Digest funcs found in catalogdigest.go")
+	}
+	return out
+}
+
+// ktDigestCatalogues is the AUTHORITATIVE registry on the Kotlin side: every public
+// fold function in the `object CatalogueDigest` (the private helpers fnv1a/fold/list/
+// map are `private fun`, so they're skipped). Each fold is asserted to reference
+// `updatedAt`, mirroring the Go-side check. Returns the normalized name set.
+func ktDigestCatalogues(t *testing.T, root string) map[string]bool {
+	t.Helper()
+	src := readDoc(t, root, filepath.FromSlash("android/app/src/commonMain/kotlin/com/bam/spawner/net/CatalogueDigest.kt"))
+	// A public fold spans `    fun name(` .. its terminating `    })`. Private helpers
+	// (`    private fun …`) don't start with "    fun ", so they're excluded.
+	blockRe := regexp.MustCompile(`(?sm)^    fun ([a-zA-Z]+)\(.*?\n    \}\)`)
+	out := map[string]bool{}
+	for _, m := range blockRe.FindAllStringSubmatch(src, -1) {
+		name, body := m[1], m[0]
+		if !strings.Contains(body, "updatedAt") {
+			t.Errorf("CatalogueDigest.%s does not fold updatedAt — the app's digest would drop "+
+				"the version token, diverging from the Go fold", name)
+		}
+		out[normalizeCatalogue(name)] = true
+	}
+	if len(out) == 0 {
+		t.Fatal("extractor broken — no public fold funcs found in CatalogueDigest.kt")
+	}
+	return out
+}
+
+// TestCatalogueRegistryComplete closes the semantic gap the other drift tests can't
+// see: it doesn't just check the catalogues we happen to list, it checks that the
+// list IS every registered syncable catalogue. The digest layer is the authoritative
+// registry — a synced catalogue must have a digest on both ends (the skip-if-equal
+// fast path), and each digest is asserted (above) to fold the version token. This
+// test requires the Go digests, the Kotlin digests, and the record-parity rows to be
+// the SAME set, so registering a new catalogue anywhere without giving it a parity
+// row (and thus a both-ends `updated_at` assertion) fails the build.
+func TestCatalogueRegistryComplete(t *testing.T) {
+	root := repoRoot(t)
+	goReg := goDigestCatalogues(t, root)
+	ktReg := ktDigestCatalogues(t, root)
+
+	covered := map[string]bool{}
+	for _, r := range catalogueRows(t) {
+		covered[normalizeCatalogue(r.name)] = true
+	}
+
+	// diff reports set membership mismatches both ways with actionable guidance.
+	diff := func(regName string, reg map[string]bool) {
+		for c := range reg {
+			if !covered[c] {
+				t.Errorf("catalogue %q has a %s but no record-parity row — a syncable catalogue was "+
+					"registered without a conflict rule. Add it to catalogueRows so its `updated_at` "+
+					"version token is asserted on both the Go wire record and the Kotlin parser.", c, regName)
+			}
+		}
+		for c := range covered {
+			if !reg[c] {
+				t.Errorf("catalogue %q has a record-parity row but no %s — every synced catalogue needs "+
+					"a digest fold on both ends for the skip-if-equal fast path.", c, regName)
+			}
+		}
+	}
+	diff("Go digest (catalogdigest.go)", goReg)
+	diff("Kotlin digest (CatalogueDigest.kt)", ktReg)
 }
