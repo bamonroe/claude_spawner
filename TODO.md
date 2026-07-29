@@ -42,6 +42,22 @@ Dates are `YYYY-MM-DD`.
         controller keeps its own deliberate jump-to-bottom tick). #2 (blank-text guard) landed via
         Step B's shared `addChat`. #8 (context-reset asymmetry) investigated → EQUIVALENT/by-design
         (per-platform disk+scroll choreography reaches the same observable state); no code change.
+- [x] 2026-07-29 — **Claude per-turn context trimming (`SPAWNER_CLAUDE_EXTRA_ARGS`).** Investigated
+      the ~34k fresh-cache cost of a spawner turn: measured a ~20.6k floor on a bare "reply Pong" turn
+      in an empty dir (Claude Code's system prompt + built-in tool schemas + skills listing), on top
+      of project `CLAUDE.md`/memory. Confirmed Claude's `--bare` minimal mode is unusable here (it
+      refuses OAuth, wants an API key), so added an OAuth-compatible knob instead: new
+      `SPAWNER_CLAUDE_EXTRA_ARGS` (space-split) appended to every Claude turn and the `/usage` probe,
+      via one seam — `TurnSpec.ExtraArgs` → claude `build` closure (config → `Driver.ClaudeExtraArgs`
+      → both turn + Usage). Empty default = no behavior change. Findings: `--disable-slash-commands`
+      drops the skills listing (~3.5k), `--setting-sources project` skips user settings,
+      `--disallowedTools` (NOT `--allowedTools`) actually removes tool schemas. Config drift-tested;
+      argv append test; docs in docs/config.md with recommended value + tradeoffs.
+- [x] 2026-07-29 — **Slimmed `CLAUDE.md`: moved the `SPAWNER_*` reference to `docs/config.md`.**
+      `CLAUDE.md` is auto-loaded into every spawned session, so its size is a per-turn token cost. The
+      ~138-line env-var catalogue was a third of the file — reference material, not "how to work here."
+      Gave it its own authoritative home (`docs/config.md`, loaded only on demand), left a short
+      pointer, and repointed the `docsync` drift test there. CLAUDE.md ~30KB → ~18KB.
 - [x] 2026-07-29 — **Eager background-job notify (`SPAWNER_EAGER_NOTIFY`).** The idle job-notifier
       only drove its autonomous "your job finished" turn when a device was attached; a user who
       started a job and walked away wasn't told until they revisited — leaving the agent idle for the

@@ -49,6 +49,9 @@ func claude() *Agent {
 			} else if m.Flag != "" {
 				args = append(args, "--model", m.Flag)
 			}
+			// Operator-supplied context-trimming flags, appended last so they can
+			// override an earlier default (SPAWNER_CLAUDE_EXTRA_ARGS).
+			args = append(args, s.ExtraArgs...)
 			return args
 		},
 		ParseTurn: parseClaudeStream,

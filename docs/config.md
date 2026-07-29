@@ -125,6 +125,21 @@ just a pointer to this file.)
   the file so it takes effect without a restart), `SPAWNER_SSH_CLAUDE_BIN`
   (`claude`; the remote claude binary), `SPAWNER_SSH_CODEX_BIN` (`codex`; the remote codex binary for
   Codex-backend SSH sessions — SSH reuses the host target, so this is the host codex binary).
+- Claude context trimming: `SPAWNER_CLAUDE_EXTRA_ARGS` (space-separated extra flags appended to
+  **every** Claude turn and the `/usage` probe; empty = no-op default, unchanged behavior). This is
+  the knob for shrinking the per-turn context Claude Code sends — the fixed overhead is ~20k tokens
+  on a bare turn (its system prompt + built-in tool schemas + the injected skills listing), on top
+  of any project `CLAUDE.md`/memory. Note the auth constraint: Claude's own `--bare` minimal mode
+  refuses OAuth (it accepts only `ANTHROPIC_API_KEY`/apiKeyHelper), so it is **not** usable here —
+  these flags are the OAuth-compatible way to trim. Measured savings in an empty dir (single "reply
+  Pong" turn, baseline ~20.6k): `--disable-slash-commands` drops the skills listing (~3.5k with
+  `--setting-sources`); `--setting-sources project` (or `""`) skips the user/global `settings.json`;
+  disallowing built-in tools by name (e.g. `--disallowedTools NotebookEdit WebFetch WebSearch`)
+  removes those tool schemas — **`--allowedTools` does NOT shrink context**, it only permission-gates
+  while keeping every schema, so use `--disallowedTools` to actually drop them. Each carries a
+  capability tradeoff (no skills, no user settings, fewer tools), so it is off by default and opt-in
+  per deployment; a capable coding session should trim only tools/skills a voice turn never uses, not
+  strip everything. A recommended moderate value: `--disable-slash-commands --setting-sources project`.
 - Restart: `SPAWNER_RESTART_CMD` — a shell command fired by the app's restart button; empty disables
   restart. The server runs in a Docker container that builds the Go binary and drives the host over
   SSH (host `claude` turns and the rootless sandbox runtime both execute on the host — no separate

@@ -83,6 +83,13 @@ type TurnSpec struct {
 	// detached background jobs. Empty for backends/turns that don't need it; only
 	// the Claude backend consumes it.
 	SettingsJSON string
+	// ExtraArgs are operator-supplied CLI flags appended verbatim to the end of the
+	// turn's command line (SPAWNER_CLAUDE_EXTRA_ARGS). They exist to trim the
+	// context Claude Code sends per turn — e.g. --disable-slash-commands (drop the
+	// skills listing) or --setting-sources project (skip user/global settings).
+	// Appended last so an operator flag can override an earlier default. Only the
+	// Claude backend consumes it; nil/empty is the no-op default.
+	ExtraArgs []string
 }
 
 // Agent is a headless AI CLI backend the server can drive. Each Agent is fully

@@ -50,6 +50,7 @@ func main() {
 	}
 	driver := session.NewDriver()
 	driver.RestartCmd = cfg.RestartCmd
+	driver.ClaudeExtraArgs = cfg.ClaudeExtraArgs
 	// First-run starter profiles, seeded from the flat sandbox config. Written once
 	// to SPAWNER_PROFILES; after that the app owns the catalogue. bare-metal (host)
 	// is the default so a fresh install works even without a sandbox image; the two

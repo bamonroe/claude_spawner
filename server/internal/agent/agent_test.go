@@ -104,6 +104,18 @@ func TestClaudeArgsMatchLegacyPlusModel(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Errorf("resume args\n got %v\nwant %v", got, want)
 	}
+
+	// Operator ExtraArgs (SPAWNER_CLAUDE_EXTRA_ARGS) are appended verbatim, last.
+	got = c.Args(TurnSpec{Prompt: "hi", SessionID: "sid", Bypass: true,
+		ExtraArgs: []string{"--disable-slash-commands", "--setting-sources", "project"}})
+	want = []string{
+		"-p", "hi", "--output-format", "stream-json", "--verbose",
+		"--session-id", "sid", "--dangerously-skip-permissions",
+		"--disable-slash-commands", "--setting-sources", "project",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("extra-args\n got %v\nwant %v", got, want)
+	}
 }
 
 func TestAntigravityArgs(t *testing.T) {

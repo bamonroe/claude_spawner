@@ -60,6 +60,8 @@ func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool fun
 		// failed the hook path is simply absent and Claude Code treats it as a
 		// non-blocking miss, degrading to the priming-instruction behaviour.
 		SettingsJSON: HookSettingsJSON(HostHome(), s.SessionID),
+		// Operator context-trimming flags (SPAWNER_CLAUDE_EXTRA_ARGS); empty by default.
+		ExtraArgs: d.ClaudeExtraArgs,
 	})
 
 	// Launch via the session's execution target (host by default). The executor
@@ -148,6 +150,8 @@ func (d *Driver) Usage(ctx context.Context) (string, error) {
 	if d.Bypass {
 		args = append(args, "--dangerously-skip-permissions")
 	}
+	// Same operator context-trimming flags as a real turn (SPAWNER_CLAUDE_EXTRA_ARGS).
+	args = append(args, d.ClaudeExtraArgs...)
 	// Account-global (no session_id/dir), so always run on the host — never inside
 	// a per-session sandbox. UsageDir must be a jail-allowed root in broker mode;
 	// fall back to a temp dir for native installs (no jail).

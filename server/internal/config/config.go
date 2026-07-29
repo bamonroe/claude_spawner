@@ -147,6 +147,10 @@ type Config struct {
 	// SandboxRunArgs are extra container `run` flags for sandbox sessions,
 	// space-separated (e.g. "--userns=keep-id --network=none").
 	SandboxRunArgs []string
+	// ClaudeExtraArgs are extra flags appended to every Claude turn (and the /usage
+	// probe), space-separated, for trimming the per-turn context Claude Code sends —
+	// e.g. "--disable-slash-commands --setting-sources project". Empty = no-op.
+	ClaudeExtraArgs []string
 	// RestartCmd is a shell command (run via `sh -c`, detached) that rebuilds and
 	// relaunches the server for the app's "restart" button — it SSHes to the host
 	// and launches deploy/rebuild-container.sh detached (setsid), which runs
@@ -228,6 +232,7 @@ func Load() (*Config, error) {
 		SandboxAgyBin:        env("SPAWNER_SANDBOX_AGY_BIN", "agy"),
 		SandboxMounts:        splitList(os.Getenv("SPAWNER_SANDBOX_MOUNTS"), ","),
 		SandboxRunArgs:       strings.Fields(os.Getenv("SPAWNER_SANDBOX_RUN_ARGS")),
+		ClaudeExtraArgs:      strings.Fields(os.Getenv("SPAWNER_CLAUDE_EXTRA_ARGS")),
 		RestartCmd:           os.Getenv("SPAWNER_RESTART_CMD"),
 		TLSCert:              os.Getenv("SPAWNER_TLS_CERT"),
 		TLSKey:               os.Getenv("SPAWNER_TLS_KEY"),

@@ -47,6 +47,10 @@ type Driver struct {
 	GlobalVars map[string]string
 	// Bypass adds --dangerously-skip-permissions when true (project default).
 	Bypass bool
+	// ClaudeExtraArgs are operator-supplied flags (SPAWNER_CLAUDE_EXTRA_ARGS)
+	// appended to every Claude turn and the /usage probe, for trimming the per-turn
+	// context (e.g. --disable-slash-commands). Nil is the no-op default.
+	ClaudeExtraArgs []string
 	// UsageDir is the working directory for the account-global /usage check. It has
 	// no session on disk, so any directory works; empty falls back to os.TempDir().
 	UsageDir string
