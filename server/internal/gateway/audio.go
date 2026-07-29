@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"log"
 	"strconv"
 	"strings"
 
@@ -95,6 +96,20 @@ func (c *conn) endAudio() {
 		pcm = decoded
 	} else {
 		pcm = append([]byte(nil), c.audio...) // already PCM16LE 16 kHz mono
+	}
+
+	// Server-side denoise (opt-in per client, needs SPAWNER_DENOISE_URL). Scrub
+	// steady background noise before anything downstream sees the clip — this one
+	// seam covers push-to-talk, calibration, the live hands-free draft, the end-
+	// token detector, and the accurate commit re-transcribe (all reuse this pcm /
+	// the buffer built from it). On any sidecar failure we fall back to the
+	// original audio rather than fail the turn.
+	if c.denoise && c.srv.denoiser != nil {
+		if dn, derr := c.srv.denoiser.Denoise(c.ctx, pcm, c.denoiseAttenDb); derr != nil {
+			log.Printf("denoise: %v (using original clip)", derr)
+		} else {
+			pcm = dn
+		}
 	}
 
 	// Calibration: transcribe with the fast (detection) model and just report

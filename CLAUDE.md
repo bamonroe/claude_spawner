@@ -216,6 +216,15 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
   token counts as detected — the trained models' optimal point is ~`0.04`–`0.07`, so lowering it
   trades a few false positives for near-zero misses). Detector *models* are trained out-of-tree —
   see the training project at `/data/livekit_training` (the app only consumes a finished model).
+- Server-side denoise: `SPAWNER_DENOISE_URL` (base URL of the resident DeepFilterNet denoise
+  sidecar, e.g. `http://localhost:8573` — the `deepfilternet` service in `/data/speech_services`,
+  `POST /denoise`). When set, the server advertises server-side denoising to clients (`hello_ok`
+  `denoise`); for a client that opts in (`hello` `denoise`), each clip's PCM is scrubbed of steady
+  background noise (wind, road, engine, fan) at the accurate-transcribe seam before Whisper — one
+  seam covers push-to-talk, calibration, the hands-free draft, the end-token detector and the commit
+  re-transcribe. The client's `denoise_atten_db` caps the attenuation (DeepFilterNet `atten_lim_db`;
+  lower is gentler, `<=0`/unset = full). Empty disables it (clips transcribed unfiltered); any
+  sidecar failure falls back to the original clip rather than failing the turn.
 - Server-side TTS (the Kokoro epic, see `TODO.md`): `SPAWNER_TTS_URL` (base URL of the resident
   Kokoro-FastAPI server, e.g. `http://localhost:8880` — the `kokoro` compose service; empty
   disables server TTS and clients use on-device speech), `SPAWNER_TTS_VOICE` (`af_heart`; default

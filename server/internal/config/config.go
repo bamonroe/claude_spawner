@@ -83,6 +83,12 @@ type Config struct {
 	// detected (default 0.5; the trained models' optimal point is ~0.04–0.07, so
 	// lower it to trade a few false positives for near-zero misses).
 	WakewordThreshold float64
+	// DenoiseURL points at a resident DeepFilterNet denoise server (its base URL,
+	// e.g. http://localhost:8573). When set, the server advertises server-side
+	// denoising to clients and, for clients that enable it, scrubs steady
+	// background noise from each clip before Whisper; empty disables it (clips go
+	// to Whisper unfiltered).
+	DenoiseURL string
 	// TTSURL points at a resident Kokoro TTS server (Kokoro-FastAPI's base URL,
 	// e.g. http://localhost:8880). When set, the server offers speech synthesis
 	// to clients; empty disables it (clients fall back to on-device TTS).
@@ -195,6 +201,7 @@ func Load() (*Config, error) {
 		WhisperFastModelName: env("SPAWNER_WHISPER_FAST_MODEL_NAME", "base.en"),
 		WhisperModelsDir:     os.Getenv("SPAWNER_WHISPER_MODELS_DIR"),
 		WakewordURL:          os.Getenv("SPAWNER_WAKEWORD_URL"),
+		DenoiseURL:           os.Getenv("SPAWNER_DENOISE_URL"),
 		TTSURL:               os.Getenv("SPAWNER_TTS_URL"),
 		TTSVoice:             env("SPAWNER_TTS_VOICE", "af_heart"),
 		TTSFormat:            env("SPAWNER_TTS_FORMAT", "opus"),

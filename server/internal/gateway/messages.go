@@ -43,6 +43,8 @@ type inbound struct {
 	SttMode               string               `json:"stt_mode"`                // on `hello`: "dynamic" | "fixed"
 	SttModel              string               `json:"stt_model"`               // on `hello`: fixed model "tiny" | "base" | "small"
 	WakeService           string               `json:"wake_service"`            // on `hello`: which backend scores the live wake/end tokens — "whisper" (default; string-match the fast transcript) | "detector" (the trained SPAWNER_WAKEWORD_URL sidecar)
+	Denoise               bool                 `json:"denoise"`                 // on `hello`: scrub steady background noise from each clip via the server's DeepFilterNet sidecar before transcribing (needs SPAWNER_DENOISE_URL; adds latency)
+	DenoiseAttenDb        float64              `json:"denoise_atten_db"`        // on `hello`: denoise attenuation cap in dB (DeepFilterNet atten_lim_db — lower is gentler; <=0 = full enhancement)
 	Calibrate             bool                 `json:"calibrate"`               // on `wake`: transcribe (fast model) and return, don't dispatch
 	Aliases               map[string]string    `json:"aliases"`                 // on `hello`: mis-transcription -> canonical command word
 	WhisperModel          string               `json:"whisper_model"`           // on `hello`: ggml model to hot-load on the resident server (e.g. "medium.en")
@@ -145,7 +147,7 @@ func msgProfiles(reg *session.ProfileRegistry) map[string]any {
 	return map[string]any{"type": "profiles", "profiles": profiles, "default": reg.DefaultName()}
 }
 
-func msgHelloOK(sessionID, whisperModel, whisperFastModel string, whisperModels, whisperModelsLocal []string, tts bool) map[string]any {
+func msgHelloOK(sessionID, whisperModel, whisperFastModel string, whisperModels, whisperModelsLocal []string, tts, denoise bool) map[string]any {
 	if whisperModels == nil {
 		whisperModels = []string{}
 	}
@@ -156,7 +158,7 @@ func msgHelloOK(sessionID, whisperModel, whisperFastModel string, whisperModels,
 		"type": "hello_ok", "server_version": serverVersion, "session_id": sessionID,
 		"whisper_model": whisperModel, "whisper_model_fast": whisperFastModel,
 		"whisper_models": whisperModels, "whisper_models_local": whisperModelsLocal,
-		"tts": tts,
+		"tts": tts, "denoise": denoise,
 	}
 }
 

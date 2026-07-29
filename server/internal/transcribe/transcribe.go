@@ -276,10 +276,24 @@ func phraseEq(words []string, a, b, plen int) bool {
 // Opus, and Opus is ~10x smaller than raw PCM for speech. Wrap the result with
 // PCM16WAV to get a WAV for whisper.
 func OggOpusToPCM(ffmpegBin string, ogg []byte) ([]byte, error) {
+	return decodeToPCM16(ffmpegBin, "utterance-*.ogg", "opus", ogg)
+}
+
+// WAVToPCM16 decodes an arbitrary-rate WAV (e.g. the 48 kHz mono clip the
+// DeepFilterNet denoise sidecar returns) back to raw little-endian PCM16 at
+// 16 kHz mono — the format the rest of the audio path assumes — so a denoised
+// clip can be substituted for the original in-place.
+func WAVToPCM16(ffmpegBin string, wav []byte) ([]byte, error) {
+	return decodeToPCM16(ffmpegBin, "denoised-*.wav", "wav", wav)
+}
+
+// decodeToPCM16 shells ffmpeg to convert an encoded clip to raw little-endian
+// PCM16 (16 kHz mono, no header). label names the codec in error messages.
+func decodeToPCM16(ffmpegBin, pattern, label string, data []byte) ([]byte, error) {
 	if ffmpegBin == "" {
 		ffmpegBin = "ffmpeg"
 	}
-	path, cleanup, err := writeTempFile("utterance-*.ogg", ogg)
+	path, cleanup, err := writeTempFile(pattern, data)
 	if err != nil {
 		return nil, err
 	}
@@ -298,7 +312,7 @@ func OggOpusToPCM(ffmpegBin string, ogg []byte) ([]byte, error) {
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("ffmpeg opus decode: %w: %s", err, strings.TrimSpace(stderr.String()))
+		return nil, fmt.Errorf("ffmpeg %s decode: %w: %s", label, err, strings.TrimSpace(stderr.String()))
 	}
 	return out, nil
 }

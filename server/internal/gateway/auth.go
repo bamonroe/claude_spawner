@@ -37,11 +37,16 @@ func (c *conn) authenticate() bool {
 	// detector is opt-in per client (the app's toggle), even when SPAWNER_WAKEWORD_URL
 	// is configured server-wide. Anything other than "detector" means Whisper.
 	c.wakeService = strings.TrimSpace(in.WakeService)
+	// Server-side denoise is opt-in per client and only effective when the sidecar
+	// is configured (SPAWNER_DENOISE_URL); a client asking for it without one just
+	// transcribes unfiltered. The seam in endAudio guards on both.
+	c.denoise = in.Denoise
+	c.denoiseAttenDb = in.DenoiseAttenDb
 	c.aliases = in.Aliases
 	// The whisper model is server-global: the app reads it here rather than pushing
 	// its own (so two clients don't bounce it), and changes it via set_whisper_model.
 	model, fastModel := c.srv.currentWhisperModels()
-	c.send(msgHelloOK("ws", model, fastModel, c.srv.catalogWhisperModels(), c.srv.availableWhisperModels(), c.srv.tts != nil))
+	c.send(msgHelloOK("ws", model, fastModel, c.srv.catalogWhisperModels(), c.srv.availableWhisperModels(), c.srv.tts != nil, c.srv.denoiser != nil))
 	// Per-catalogue digest fast path (skip-if-equal): the app presents a digest of
 	// each cached catalogue in `hello`; we re-send only the ones whose digest differs
 	// from ours, so an unchanged catalogue costs nothing on connect (Phase 2a LWW

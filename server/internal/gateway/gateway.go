@@ -17,6 +17,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/bam/claude_spawner/server/internal/config"
+	"github.com/bam/claude_spawner/server/internal/denoise"
 	"github.com/bam/claude_spawner/server/internal/detect"
 	"github.com/bam/claude_spawner/server/internal/session"
 	"github.com/bam/claude_spawner/server/internal/tmux"
@@ -43,7 +44,11 @@ type Server struct {
 	// score at/above which a token counts as fired.
 	detector      detect.Detector
 	wakeThreshold float64
-	up            websocket.Upgrader
+	// denoiser scrubs steady background noise from a clip before Whisper, when the
+	// sidecar is configured (SPAWNER_DENOISE_URL) and the client opts in; nil = no
+	// server-side denoising (clips transcribed unfiltered).
+	denoiser *denoise.Remote
+	up       websocket.Upgrader
 
 	clientsMu sync.Mutex
 	clients   map[string]*clientState // per-app resume state, keyed by client_id
@@ -93,6 +98,11 @@ func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, ids
 		detector = &detect.RemoteWakeword{URL: cfg.WakewordURL}
 		log.Printf("wakeword: detector enabled at %s (threshold %.3g)", cfg.WakewordURL, cfg.WakewordThreshold)
 	}
+	var denoiser *denoise.Remote
+	if cfg.DenoiseURL != "" {
+		denoiser = &denoise.Remote{URL: cfg.DenoiseURL, FfmpegBin: cfg.FfmpegBin}
+		log.Printf("denoise: server-side denoiser enabled at %s", cfg.DenoiseURL)
+	}
 	inflightPath, settingsPath := "", ""
 	if cfg.StatePath != "" {
 		inflightPath = filepath.Join(filepath.Dir(cfg.StatePath), "inflight.json")
@@ -131,6 +141,7 @@ func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, ids
 		tts:           ttsClient,
 		detector:      detector,
 		wakeThreshold: cfg.WakewordThreshold,
+		denoiser:      denoiser,
 		clients:       map[string]*clientState{},
 		downloading:   map[string]bool{},
 		jobs:          map[string]*sessionJob{},

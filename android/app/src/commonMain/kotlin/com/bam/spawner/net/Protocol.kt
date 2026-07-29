@@ -22,7 +22,7 @@ import kotlinx.serialization.json.putJsonObject
  * JVM-only and this file is now shared between the Android and web clients).
  */
 sealed interface ServerMsg {
-    data class HelloOk(val serverVersion: String, val whisperModel: String, val whisperModelFast: String = "", val whisperModels: List<String> = emptyList(), val whisperModelsLocal: List<String> = emptyList(), val tts: Boolean = false) : ServerMsg
+    data class HelloOk(val serverVersion: String, val whisperModel: String, val whisperModelFast: String = "", val whisperModels: List<String> = emptyList(), val whisperModelsLocal: List<String> = emptyList(), val tts: Boolean = false, val denoise: Boolean = false) : ServerMsg
     // The resident servers' current models, server-global: accurate ("full") +
     // fast draft/detection ("quick"; empty = no fast server configured). `models`
     // is the English-model catalogue offered as a picker; `local` is the subset
@@ -107,7 +107,7 @@ sealed interface ServerMsg {
         fun parse(raw: String): ServerMsg {
             val o = json.parseToJsonElement(raw).jsonObject
             return when (o.str("type")) {
-                "hello_ok" -> HelloOk(o.str("server_version"), o.str("whisper_model"), o.str("whisper_model_fast"), readStrings(o.arr("whisper_models")), readStrings(o.arr("whisper_models_local")), o.bool("tts"))
+                "hello_ok" -> HelloOk(o.str("server_version"), o.str("whisper_model"), o.str("whisper_model_fast"), readStrings(o.arr("whisper_models")), readStrings(o.arr("whisper_models_local")), o.bool("tts"), o.bool("denoise"))
                 "whisper_model" -> WhisperModel(o.str("model"), o.str("fast_model"), readStrings(o.arr("whisper_models")), readStrings(o.arr("whisper_models_local")))
                 "whisper_download" -> WhisperDownload(o.str("model"), o.bool("fast"), o.long("received"), o.long("total"), o.bool("done"), o.str("error"))
                 "say" -> Say(o.str("text"), o.str("turn"), o.str("session_id"))
@@ -463,6 +463,8 @@ data class HelloConfig(
     val wakeService: String,
     val sttMode: String,
     val sttModel: String,
+    val denoise: Boolean,
+    val denoiseAttenDb: Float,
     val aliases: Map<String, String>,
     val brief: Boolean,
     val interactive: Boolean,
@@ -496,6 +498,7 @@ object Outbound {
         put("speak_token", cfg.speakToken); put("dictation_gate", cfg.dictationGate)
         put("wake_service", cfg.wakeService)
         put("stt_mode", cfg.sttMode); put("stt_model", cfg.sttModel)
+        put("denoise", cfg.denoise); put("denoise_atten_db", cfg.denoiseAttenDb)
         putJsonObject("aliases") { for ((k, v) in cfg.aliases) put(k, v) }
         put("brief", cfg.brief); put("interactive", cfg.interactive)
         put("warm_compress", cfg.warmCompress); put("auto_compress", cfg.autoCompress)

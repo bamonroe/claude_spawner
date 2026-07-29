@@ -74,6 +74,8 @@ type conn struct {
 	sttMode         string            // "dynamic" | "fixed" whisper model selection
 	sttModel        string            // fixed-mode model: "tiny" | "base" | "small"
 	wakeService     string            // live wake/end-token backend: "whisper" (default string-match) | "detector" (the SPAWNER_WAKEWORD_URL sidecar)
+	denoise         bool              // scrub steady background noise from each clip via the SPAWNER_DENOISE_URL sidecar before transcribing
+	denoiseAttenDb  float64           // denoise attenuation cap in dB (DeepFilterNet atten_lim_db; <=0 = full enhancement)
 	aliases         map[string]string // mis-transcription -> canonical command word
 	scratch         bool              // scratch mode: while detached, echo each transcription back aloud (STT test)
 
