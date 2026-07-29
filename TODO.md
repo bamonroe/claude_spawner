@@ -31,8 +31,17 @@ Dates are `YYYY-MM-DD`.
         `spokenReplyCounts`; controller keeps disk-backed history merge + attach/detach choreography.
         The shared `addChat` blank-text guard incidentally lands drift-fix #2. Behavior-preserving;
         both wasmJs + Android compile green.
-  - [ ] **Step C (fix the surfaced drifts):** land the ~8 latent drift bugs the map found, one
-        small commit each, choosing the correct behavior deliberately (not silently).
+  - [x] 2026-07-29 — **Step C (fix the surfaced drifts):** landed the latent drift bugs the map
+        found, one small commit each, choosing the correct behavior deliberately. Fixed: #1 rename
+        matches by session id (id-precedence, not either-match, so a title can't hijack a same-named
+        session), #3 web reads pending Ask questions aloud with Android's shared `spokenQuestions`
+        phrasing, #4 web speaks the turn-interrupted notice on the attached session, #5 web barges in
+        on a stop for the attached session, #6 web persists the resident whisper model across reloads,
+        #7 filing never force-scrolls — `bumpScroll` removed from the `Host` interface so the shared
+        `pinned` auto-follow handles at-bottom and a scrolled-up reader is never yanked (each
+        controller keeps its own deliberate jump-to-bottom tick). #2 (blank-text guard) landed via
+        Step B's shared `addChat`. #8 (context-reset asymmetry) investigated → EQUIVALENT/by-design
+        (per-platform disk+scroll choreography reaches the same observable state); no code change.
 - [x] 2026-07-29 — **Eager background-job notify (`SPAWNER_EAGER_NOTIFY`).** The idle job-notifier
       only drove its autonomous "your job finished" turn when a device was attached; a user who
       started a job and walked away wasn't told until they revisited — leaving the agent idle for the
