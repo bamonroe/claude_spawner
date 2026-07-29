@@ -97,7 +97,14 @@ func parseTs(s string) int64 {
 // is the message's position in the filtered conversation (0-based), used as the
 // pagination cursor.
 type Message struct {
-	Index int    `json:"index"`
+	Index int `json:"index"`
+	// ID is the row's DURABLE identity, read from the backend transcript (Claude
+	// JSONL uuid, opencode msg_… id; Codex event lines and Antigravity have none
+	// yet, so it's empty there). Unlike Index — which is a positional cursor
+	// rewritten on every clear/compress rotation and cross-backend re-index — ID
+	// is stable across rotations, so the app reconciles live↔history rows by it
+	// (falling back to Index/text when absent). Omitted from the wire when empty.
+	ID    string `json:"id,omitempty"`
 	Role  string `json:"role"`
 	Text  string `json:"text"`
 	Ts    int64  `json:"ts"` // unix seconds from the transcript line's timestamp (0 if absent)
@@ -111,6 +118,7 @@ type Message struct {
 // transcriptLine is the subset of a Claude transcript JSONL line we read.
 type transcriptLine struct {
 	Type      string `json:"type"`      // "user" | "assistant" | (others ignored)
+	UUID      string `json:"uuid"`      // Claude Code's durable per-line id (stable across rotation)
 	Timestamp string `json:"timestamp"` // ISO-8601 when Claude Code wrote the line
 	Message   struct {
 		Content json.RawMessage `json:"content"` // string OR []{type,text,...}
@@ -215,7 +223,7 @@ func (fs claudeFS) readTranscript(path string) ([]Message, error) {
 		if strings.TrimSpace(text) == "" {
 			continue // tool-only turn, tool_result, etc.
 		}
-		m := Message{Index: idx, Role: role, Text: text, Ts: parseTs(l.Timestamp)}
+		m := Message{ID: l.UUID, Index: idx, Role: role, Text: text, Ts: parseTs(l.Timestamp)}
 		if role == "claude" {
 			if u := l.Message.Usage; u.Input+u.CacheRead+u.CacheWrite > 0 {
 				m.Usage = &Usage{Input: u.Input, Output: u.Output, CacheWrite: u.CacheWrite, CacheRead: u.CacheRead}
@@ -358,19 +366,27 @@ func extractText(raw json.RawMessage) string {
 }
 
 // HistoryDigest summarizes a transcript chain for cheap client-cache validation:
-// the message count and a content hash over each message (index, role, text,
-// timestamp). Two chains producing the same digest are identical as far as the
-// app's replayed chat view is concerned, so a client holding a matching digest
-// can skip refetching the history entirely. A clear/compress rotation re-indexes
-// and rewrites text, so the hash changes — the app sees the mismatch and does a
-// full refetch instead of a bad incremental append. The hash is opaque to the
-// client: it only ever compares two server-produced hashes for equality.
+// the message count and a content hash over each message (durable id or position,
+// role, text, timestamp). Two chains producing the same digest are identical as far
+// as the app's replayed chat view is concerned, so a client holding a matching
+// digest can skip refetching the history entirely. Each row is keyed by its durable
+// ID when it has one, so the hash is stable across a clear/compress rotation or a
+// cross-backend re-index that only shifts positions — the app then skips a needless
+// refetch; id-less rows fall back to the positional Index (today's behavior). A
+// rotation that actually changes content or count still flips the digest, so the
+// app refetches when it must. The hash is opaque to the client: it only ever
+// compares two server-produced hashes for equality.
 func HistoryDigest(msgs []Message) (count int, hash string) {
 	h := sha256.New()
 	var b [8]byte
 	for _, m := range msgs {
-		binary.BigEndian.PutUint64(b[:], uint64(m.Index))
-		h.Write(b[:])
+		if m.ID != "" {
+			h.Write([]byte(m.ID))
+		} else {
+			binary.BigEndian.PutUint64(b[:], uint64(m.Index))
+			h.Write(b[:])
+		}
+		h.Write([]byte{0})
 		h.Write([]byte(m.Role))
 		h.Write([]byte{0})
 		h.Write([]byte(m.Text))

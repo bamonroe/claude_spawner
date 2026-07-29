@@ -66,6 +66,7 @@ func (fs opencodeFS) run(args ...string) ([]byte, error) {
 type opencodeExport struct {
 	Messages []struct {
 		Info struct {
+			ID   string `json:"id"`   // opencode's durable msg_… id (stable across rotation)
 			Role string `json:"role"` // "user" | "assistant"
 			Time struct {
 				Created int64 `json:"created"` // unix milliseconds
@@ -168,7 +169,7 @@ func exportMessages(ex opencodeExport) []Message {
 		if t == "" {
 			continue // tool-only / empty turn: nothing to replay
 		}
-		msg := Message{Role: role, Text: t, Ts: m.Info.Time.Created / 1000}
+		msg := Message{ID: m.Info.ID, Role: role, Text: t, Ts: m.Info.Time.Created / 1000}
 		if role == "claude" && usage != nil && usage.Input+usage.CacheRead > 0 {
 			msg.Usage = usage
 		}

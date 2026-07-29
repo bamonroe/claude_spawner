@@ -77,7 +77,7 @@ func TestTranscriptIDs(t *testing.T) {
 func TestReadTranscriptParsesTimestamp(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "t.jsonl")
-	lines := `{"type":"user","timestamp":"2026-07-04T11:51:00Z","message":{"content":"hi"}}
+	lines := `{"type":"user","uuid":"u-0001","timestamp":"2026-07-04T11:51:00Z","message":{"content":"hi"}}
 {"type":"assistant","message":{"content":[{"type":"text","text":"hello"}]}}
 `
 	if err := os.WriteFile(path, []byte(lines), 0o600); err != nil {
@@ -95,6 +95,13 @@ func TestReadTranscriptParsesTimestamp(t *testing.T) {
 	}
 	if msgs[1].Ts != 0 {
 		t.Errorf("timestamp-less line should have Ts 0, got %d", msgs[1].Ts)
+	}
+	// The durable id is read from the line's uuid; a line without one carries "".
+	if msgs[0].ID != "u-0001" {
+		t.Errorf("user ID = %q, want %q", msgs[0].ID, "u-0001")
+	}
+	if msgs[1].ID != "" {
+		t.Errorf("uuid-less line should have empty ID, got %q", msgs[1].ID)
 	}
 }
 

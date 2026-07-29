@@ -13,15 +13,15 @@ import (
 const realExport = `{
   "info": { "id": "ses_x", "tokens": { "input": 4831, "output": 50 } },
   "messages": [
-    { "info": { "role": "user", "time": { "created": 1783980863951 } },
+    { "info": { "id": "msg_u1", "role": "user", "time": { "created": 1783980863951 } },
       "parts": [ { "type": "text", "text": "reply hi then stop" } ] },
-    { "info": { "role": "assistant", "time": { "created": 1783980865000 } },
+    { "info": { "id": "msg_a0", "role": "assistant", "time": { "created": 1783980865000 } },
       "parts": [
         { "type": "step-start" },
         { "type": "tool", "tool": "task" },
         { "type": "step-finish", "tokens": { "input": 2050, "output": 32, "reasoning": 0, "cache": { "read": 0, "write": 0 } } }
       ] },
-    { "info": { "role": "assistant", "time": { "created": 1783980870000 } },
+    { "info": { "id": "msg_a1", "role": "assistant", "time": { "created": 1783980870000 } },
       "parts": [
         { "type": "step-start" },
         { "type": "text", "text": "Hi." },
@@ -52,6 +52,14 @@ func TestExportMessages(t *testing.T) {
 	// Index is assigned by readTranscriptChain across the whole chain, not here.
 	if msgs[0].Role != "user" || msgs[0].Text != "reply hi then stop" {
 		t.Errorf("msg0 = %+v", msgs[0])
+	}
+	// The durable msg_… id is carried through (the dropped tool-only turn's id is
+	// gone with it, so the surviving prose assistant turn keeps its own id).
+	if msgs[0].ID != "msg_u1" {
+		t.Errorf("msg0 ID = %q, want msg_u1", msgs[0].ID)
+	}
+	if msgs[1].ID != "msg_a1" {
+		t.Errorf("msg1 ID = %q, want msg_a1", msgs[1].ID)
 	}
 	if msgs[0].Usage != nil {
 		t.Errorf("user turn should carry no usage, got %+v", msgs[0].Usage)
