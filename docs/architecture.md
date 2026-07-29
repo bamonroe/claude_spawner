@@ -478,7 +478,7 @@ uppercase letters by voice. Acceptable; documented in `docs/commands.md`.
   internal/tmux/tmux.go         detect a live interactive `claude` in a pane (ClaudeDirs)
   internal/usage/               per-turn token cost tracking + Estimator (server-global usage %)
   internal/config/config.go     env config + spawn-path validation
-  internal/docsync/             drift tests: env vars/wire messages/error codes ↔ docs + CLAUDE.md
+  internal/docsync/             drift tests: env vars/wire messages/error codes ↔ docs (config/protocol)
   cmd/wsclient/main.go          text client for manual testing; -audio streams a WAV
   cmd/gencommands/main.go       regenerate docs/commands.json from the command registry
   main.go                       server entrypoint (built into the Docker image from server/Dockerfile)

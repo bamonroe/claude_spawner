@@ -6,7 +6,7 @@
 // What it guards (see the "Documentation map" in CLAUDE.md for the full owner
 // table):
 //
-//   - SPAWNER_* env vars read in internal/config  -> must be in CLAUDE.md
+//   - SPAWNER_* env vars read in internal/config  -> must be in docs/config.md
 //   - inbound wire message types (gateway dispatch) -> must be in docs/protocol.md
 //   - outbound wire message types (messages.go)     -> must be in docs/protocol.md
 //   - error codes (msgError(...) and c.fail(...))    -> must be in docs/protocol.md
@@ -133,9 +133,9 @@ func TestConfigEnvVarsDocumented(t *testing.T) {
 	if len(vars) == 0 {
 		t.Fatal("found no SPAWNER_* env vars in config.go — parser broken?")
 	}
-	doc := readDoc(t, root, "CLAUDE.md")
-	reportMissing(t, doc, "CLAUDE.md", vars,
-		"Document each SPAWNER_* var in CLAUDE.md's config section (backticked).")
+	doc := readDoc(t, root, filepath.Join("docs", "config.md"))
+	reportMissing(t, doc, "docs/config.md", vars,
+		"Document each SPAWNER_* var in docs/config.md (backticked).")
 }
 
 // serverInboundTypes extracts the wire types the gateway dispatches on — the
