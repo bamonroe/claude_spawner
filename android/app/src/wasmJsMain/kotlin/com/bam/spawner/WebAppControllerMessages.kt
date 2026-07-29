@@ -162,7 +162,12 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
         is ServerMsg.Renamed -> {
             // Storage is id-keyed, so a rename is purely a title change — no map re-keying and
             // no per-session log/keying, so the whole (attach-title) body stays in the controller.
-            if (msg.old == _attachedName.value || (msg.sessionId.isNotBlank() && msg.sessionId == _attachedId.value)) {
+            // Match by the stable session id when the server sent one (a name compare can hit a
+            // stale/duplicate title and rename the wrong session); fall back to the old name only
+            // when there's no id — parity with the Android onRenamed precedence.
+            val mine = if (msg.sessionId.isNotBlank()) msg.sessionId == _attachedId.value
+            else msg.old == _attachedName.value
+            if (mine) {
                 _attachedName.value = msg.name; prefs.lastSession = msg.name
                 _status.value = "attached: ${msg.name}"
             }
