@@ -41,18 +41,11 @@ class WebAppController(internal val prefs: Prefs) : AppController {
     internal val _status = MutableStateFlow("disconnected")
     override val status: StateFlow<String> = _status.asStateFlow()
 
-    // Per-session chat logs, keyed by the stable session id; currentId is the visible one
-    // (a rename never re-keys these — the id is invariant). "" = the general/unattached view.
-    internal val logs = mutableMapOf<String, List<ChatMessage>>()
-    internal val oldest = mutableMapOf<String, Int>()
-    internal val hasMore = mutableMapOf<String, Boolean>()
-    internal var currentId = ""
-    internal var loadingOlder = false
-    internal val streamedSessions = mutableSetOf<String>()
-    // Per-session count of streamed replies already spoken this turn, for the
-    // "speak initial replies" refinement of summary-only mode (mirrors the phone).
-    // Reset at every turn boundary alongside [streamedSessions].
-    internal val spokenReplyCounts = mutableMapOf<String, Int>()
+    // The per-session chat logs (keyed by stable id), view cursors (currentId/loadingOlder),
+    // paging maps (oldest/hasMore), and per-turn streamed/spoken tracking are hoisted into the
+    // shared commonMain [InboundRouter] (see `router` below), which also owns the session-scoped
+    // frame filing. This controller reads/writes that state through `router.*` for the handlers
+    // that stay here (History merge, loadOlder, attach/detach/context-reset choreography).
 
     // Session focus, per-session digest freshness (the phone's cache-validation fast-path,
     // minus the on-disk cache — the browser holds transcripts in memory only), and the one
@@ -67,6 +60,32 @@ class WebAppController(internal val prefs: Prefs) : AppController {
         override fun attachedName() = _attachedName.value
         override fun attachedAgent() = _attachedAgent.value
         override fun attachedModel() = _attachedModel.value
+    })
+
+    // The shared commonMain inbound-message router (sibling to SessionSync/CatalogueSync): it
+    // owns the per-session chat logs, view cursors and per-turn streamed/spoken tracking, and
+    // files every session-scoped frame (Say/Output/Activity/Files/Diff/Ask/Transcript/Err/
+    // TurnInterrupted/TurnStopped) through one place both clients will share. Platform side
+    // effects (StateFlows, audio, touchDiscovered) go through InboundRouter.Host below; the
+    // attach/detach/context-reset choreography and the index-sorted History merge stay in this
+    // controller (they're platform-specific) and reach the router via its state + primitives.
+    internal val router = com.bam.spawner.net.InboundRouter(session, object : com.bam.spawner.net.InboundRouter.Host {
+        override fun publishChat(chat: List<ChatMessage>) { _chat.value = chat }
+        override fun setHasMore(hasMore: Boolean) { _hasMoreHistory.value = hasMore }
+        override fun bumpScroll() { _scrollTick.value = _scrollTick.value + 1 }
+        override fun attachedId() = _attachedId.value
+        override fun setActivity(text: String) { _activity.value = text }
+        override fun setUsage(usage: TurnUsageInfo?) { _lastTurnUsage.value = usage }
+        override fun setAsk(questions: List<AskQuestion>?) { _ask.value = questions }
+        override fun setPending(text: String) { _pending.value = text }
+        override fun setMicStatus(text: String) { _micText.value = text }
+        override fun setDiscoverError(text: String) { _discoverError.value = text }
+        override fun stopUsageLoading() { if (_usageLoading.value) _usageLoading.value = false }
+        override fun touchDiscovered(id: String, busy: Boolean?) { this@WebAppController.touchDiscovered(id, busy) }
+        override fun speak(text: String) { this@WebAppController.speak(text) }
+        override fun beep() { webBeep() }
+        override fun summaryOnly() = prefs.summaryOnlySpeech
+        override fun speakInitialReplies() = prefs.speakInitialReplies
     })
 
     internal val _chat = MutableStateFlow<List<ChatMessage>>(emptyList())
@@ -165,22 +184,13 @@ class WebAppController(internal val prefs: Prefs) : AppController {
     internal val _ask = MutableStateFlow<List<AskQuestion>?>(null)
     override val ask: StateFlow<List<AskQuestion>?> = _ask.asStateFlow()
 
-    // Phase C — these three flows describe the live status of the ATTACHED
-    // session: the "thinking/editing" breadcrumb, the pending-question popup,
-    // and the context-meter usage. An incoming session-scoped frame may only
-    // touch them when it is for the attached session, so a background turn
-    // can't flicker the indicator, pop a question, or clobber the meter.
-    // Deliberate local transitions (attach/detach/dismiss/showLog) still write
-    // the backing flows directly; only frames off the wire route through these.
-    internal fun activityFor(id: String, text: String) {
-        if (id == _attachedId.value) _activity.value = text
-    }
-    internal fun usageFor(id: String, usage: TurnUsageInfo?) {
-        if (id == _attachedId.value) _lastTurnUsage.value = usage
-    }
-    internal fun askFor(id: String, questions: List<AskQuestion>?) {
-        if (id == _attachedId.value) _ask.value = questions
-    }
+    // Phase C — the live status of the ATTACHED session (the "thinking/editing"
+    // breadcrumb, the pending-question popup, and the context-meter usage) may only be
+    // touched by an incoming session-scoped frame when it is for the attached session, so
+    // a background turn can't flicker the indicator, pop a question, or clobber the meter.
+    // That attached-gate now lives in the shared router (activityFor/usageFor/askFor there,
+    // wired to the setActivity/setUsage/setAsk Host methods above). Deliberate local
+    // transitions (attach/detach/dismiss/showLog) still write the backing flows directly.
 
     // The four app-managed catalogues (hosts, identities, profiles, providers) are
     // reconciled through one shared commonMain point so this controller and the Android
@@ -237,7 +247,7 @@ class WebAppController(internal val prefs: Prefs) : AppController {
     override fun sendText(text: String) {
         val t = text.trim()
         if (t.isEmpty()) return
-        addChat(Role.USER, t)
+        router.addChat(Role.USER, t)
         client?.send(Outbound.utterance(t, sessionId = _attachedId.value))
     }
     override fun focusSession(session: DiscoveredInfo) = focusKnownSession(session, syncServer = true)
@@ -260,8 +270,8 @@ class WebAppController(internal val prefs: Prefs) : AppController {
         prefs.lastSession = ""
         prefs.lastSessionId = ""
         _status.value = "connected"
-        currentId = ""
-        publish()
+        router.currentId = ""
+        router.publish()
         client?.send(Outbound.detach())
     }
     override fun swap() {
@@ -273,10 +283,10 @@ class WebAppController(internal val prefs: Prefs) : AppController {
     }
     override fun abortTurn() { client?.send(Outbound.abort()) }
     override fun loadOlder() {
-        val before = oldest[currentId] ?: return // cursor keyed by the stable id
-        if (before <= 0 || loadingOlder) return
+        val before = router.oldest[router.currentId] ?: return // cursor keyed by the stable id
+        if (before <= 0 || router.loadingOlder) return
         val name = _attachedName.value ?: return // the history request is addressed by name
-        loadingOlder = true
+        router.loadingOlder = true
         client?.send(Outbound.history(name, before))
     }
     override fun submitAnswers(text: String) { _ask.value = null; sendText(text) }

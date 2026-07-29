@@ -41,7 +41,7 @@ fun WebAppController.startTalking() {
         val s = res.toString()
         if (s.startsWith("err:") && capturing) {
             capturing = false; _micText.value = ""
-            addChat(Role.SYSTEM, "⚠️ mic unavailable (${s.removePrefix("err:")})")
+            router.addChat(Role.SYSTEM, "⚠️ mic unavailable (${s.removePrefix("err:")})")
         }
         null
     }
@@ -82,7 +82,7 @@ fun WebAppController.startHandsFree() {
             val s = res.toString()
             if (s.startsWith("err:")) {
                 _voiceState.value = VoiceState.OFF
-                addChat(Role.SYSTEM, "⚠️ mic unavailable (${s.removePrefix("err:")})")
+                router.addChat(Role.SYSTEM, "⚠️ mic unavailable (${s.removePrefix("err:")})")
             } else {
                 _voiceState.value = VoiceState.LISTENING
                 handsFreeJob = scope.launch {

@@ -7,25 +7,20 @@ import com.bam.spawner.net.ServerMsg
 // Split out of WebAppController.kt to keep the giant onMessage dispatcher and its
 // message/chat/session-state helpers in one focused file. Pure relocation — see
 // WebAppController.kt for the class fields these extensions read/mutate.
+//
+// The per-session chat/log filing (addChat, publish, dropSessionCache,
+// attachUsageToLastClaude, the activityFor/usageFor/askFor attached-gate, and the
+// bodies of the session-scoped frames) now lives in the shared commonMain
+// InboundRouter (`controller.router`). What stays here is the platform-specific
+// glue: the attach/detach/context-reset choreography (which writes the attach
+// StateFlows + prefs) and the index-sorted in-memory History merge.
 
-// dropSessionCache forgets every trace of a session id's transcript (in-memory log +
-// paging cursors + held/server digests) so the next history fetch rebuilds it from
-// scratch. Used when a clear/compress retires a session_id server-side: the old rows
-// carry stale indexes and merging a fresh page over them would duplicate, so discard
-// wholesale and refetch. Mirror of Android's method.
-internal fun WebAppController.dropSessionCache(id: String) {
-    logs.remove(id)
-    hasMore.remove(id)
-    oldest.remove(id)
-    session.drop(id) // held + server digests
-    if (id == currentId) publish()
-}
-
-/** Locally bump a session's sidebar metadata (recency + busy cue) the instant a
- *  message arrives, so the list re-sorts and shows "working…" without waiting for
- *  the next `discover` round trip. A no-op if the session isn't in the list yet
- *  (a later discover fills it in). Never persisted — the authoritative snapshot
- *  still comes from the server's `discovered` frame. */
+// touchDiscovered locally bumps a session's sidebar metadata (recency + busy cue) the
+// instant a message arrives, so the list re-sorts and shows "working…" without waiting
+// for the next `discover` round trip. A no-op if the session isn't in the list yet
+// (a later discover fills it in). Never persisted — the authoritative snapshot still
+// comes from the server's `discovered` frame. It mutates the discovered StateFlow, so it
+// stays controller-owned and the router reaches it through InboundRouter.Host.touchDiscovered.
 internal fun WebAppController.touchDiscovered(id: String, busy: Boolean? = null) {
     if (id.isEmpty()) return
     val now = nowEpochSeconds()
@@ -37,12 +32,6 @@ internal fun WebAppController.touchDiscovered(id: String, busy: Boolean? = null)
         } else d
     }
     if (changed) _discovered.value = next
-}
-
-
-internal fun WebAppController.publish() {
-    _chat.value = logs[currentId] ?: emptyList()
-    _hasMoreHistory.value = hasMore[currentId] ?: false
 }
 
 internal fun WebAppController.focusKnownSession(target: DiscoveredInfo, syncServer: Boolean) {
@@ -61,26 +50,11 @@ internal fun WebAppController.focusKnownSession(target: DiscoveredInfo, syncServ
     prefs.lastSession = target.name
     prefs.lastSessionId = target.sessionId
     _status.value = "attached: ${target.name}"
-    currentId = target.sessionId
-    publish()
+    router.currentId = target.sessionId
+    router.publish()
     _scrollTick.value = _scrollTick.value + 1
     session.requestFreshHistory(target.sessionId, target.name)
     if (syncServer) client?.send(Outbound.attach(target.name, sessionId = target.sessionId, silent = true))
-}
-
-internal fun WebAppController.addChat(role: Role, text: String, usage: com.bam.spawner.net.TokenUsage? = null, key: String = currentId) {
-    val now = nowEpochSeconds()
-    // Reconcile on the LIVE path (see SessionSync.dedupe): a hands-free utterance
-    // streams a live draft/echo row and then lands the committed `transcript` as a
-    // second identical live row (index==-1 both), which nothing collapsed until a
-    // reattach. Deduping here drops that adjacent duplicate as it's appended.
-    logs[key] = session.dedupe(
-        (logs[key] ?: emptyList()) + ChatMessage(role, text, usage = usage, ts = now)
-    ).takeLast(2000)
-    if (key == currentId) {
-        publish()
-        _scrollTick.value = _scrollTick.value + 1
-    }
 }
 
 internal fun WebAppController.roleOf(role: String) = if (role == "user") Role.USER else Role.CLAUDE
@@ -117,77 +91,9 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
                 if (msg.done && msg.error.isBlank()) null
                 else WhisperDownloadInfo(msg.model, msg.fast, msg.received, msg.total, msg.done, msg.error)
         }
-        is ServerMsg.Say -> {
-            _micText.value = "" // a terminal `say` (e.g. "didn't catch that") ends the PTT clip; clear "transcribing…"
-            // Hub-fanned says (compress done, breadcrumbs) carry their session id;
-            // conversational dialog says don't → fall back to the current view.
-            val key = msg.sessionId.ifEmpty { currentId }
-            activityFor(key, "") // a background compress `say` must not clear the attached session's indicator
-            // A turn-terminal say (compress done) can be redelivered buffered on
-            // reconnect — its turn id drops the repeat. Breadcrumb says have no id.
-            if (!session.terminalSeen(key, msg.turn)) {
-                addChat(Role.SYSTEM, msg.text, key = key); speak(msg.text)
-            }
-        }
-        is ServerMsg.Output -> {
-            // Summary-only: beep through intermediate steps, speak only the final result.
-            val summaryOnly = prefs.summaryOnlySpeech
-            val sid = msg.sessionId.ifEmpty { currentId } // stable id; the turn's session
-            activityFor(sid, "") // prose/close is arriving — drop the indicator (attached session only)
-            touchDiscovered(sid, busy = msg.chunk) // reorder + working cue live
-            if (msg.chunk) {
-                streamedSessions.add(sid)
-                session.noteChunk(sid, msg.turn)
-                addChat(Role.CLAUDE, msg.text, key = sid)
-                if (sid == currentId) {
-                    if (summaryOnly) {
-                        // Speak the first N replies of the turn aloud; beep the rest.
-                        val spoken = spokenReplyCounts.getOrElse(sid) { 0 }
-                        if (spoken < prefs.speakInitialReplies) {
-                            spokenReplyCounts[sid] = spoken + 1
-                            speak(msg.text)
-                            session.noteSpokenChunk(sid, msg.text, msg.turn)
-                        } else {
-                            webBeep()
-                        }
-                    } else {
-                        speak(msg.text)
-                        session.noteSpokenChunk(sid, msg.text, msg.turn)
-                    }
-                }
-            } else {
-                // Same id-keyed close reconciliation as the Android controller:
-                // redelivered = this close's turn was already decided on (buffered
-                // resend / doubled close); streamed = its chunks reached us, by id
-                // even when the legacy flag was cleared mid-turn. Query the ids
-                // BEFORE shouldSpeakClose — that call records them.
-                val redelivered = session.closeSeen(sid, msg.turn)
-                val streamed = streamedSessions.remove(sid) ||
-                    session.closeStreamed(sid, msg.turn)
-                spokenReplyCounts.remove(sid) // new turn restarts the initial-reply count
-                val wantSpeak = session.shouldSpeakClose(sid, msg.text, summaryOnly, msg.turn)
-                // A live bubble for this reply already exists when the turn streamed, but
-                // also when a duplicate closing Output arrives for the same turn (backend
-                // double-emit, or streamedSessions cleared mid-turn) — that second close
-                // is what appended a second identical bubble. Reuse it in either case.
-                val lastClaude = logs[sid]?.lastOrNull { it.role == Role.CLAUDE }
-                val haveLiveBubble = lastClaude != null && lastClaude.index < 0 &&
-                    lastClaude.text.trim() == msg.text.trim()
-                if (!streamed && !haveLiveBubble && !redelivered) {
-                    addChat(Role.CLAUDE, msg.text, msg.usage, key = sid)
-                }
-                else {
-                    if (msg.usage != null) attachUsageToLastClaude(sid, msg.usage)
-                }
-                if (wantSpeak && sid == currentId) speak(msg.text)
-                // Anchor the cache-warm countdown to the turn's real completion
-                // time (usage_at), not to when a buffered reply reached us.
-                msg.usage?.let { u ->
-                    val ageMs = if (msg.usageAt > 0) (nowEpochSeconds() - msg.usageAt) * 1000 else 0L
-                    usageFor(sid, TurnUsageInfo(u, nowMonotonicMs() - ageMs.coerceIn(0, 6 * 60 * 1000L))) // meter tracks the attached session only
-                }
-            }
-        }
+        // Session-scoped chat/log frames: filed by the shared commonMain router.
+        is ServerMsg.Say -> router.onSay(msg)
+        is ServerMsg.Output -> router.onOutput(msg)
         is ServerMsg.StopSpeaking -> { cancelServerSpeech(); cancelSpeech(); _speaking.value = false }
         is ServerMsg.SpeakAudio -> onSpeakAudio(msg)
         is ServerMsg.SpeakEnd -> onSpeakEnd(msg)
@@ -197,65 +103,37 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
         }
         is ServerMsg.SpeechMode -> prefs.summaryOnlySpeech = msg.summaryOnly // voice toggle mirrors the audio-settings switch
         is ServerMsg.ContextReset -> {
-            usageFor(msg.sessionId.ifEmpty { currentId }, null) // context cleared → the attached session's status bar returns to 0
+            router.usageFor(router.keyOf(msg.sessionId), null) // context cleared → the attached session's status bar returns to 0
             // A clear/compress rotates the session_id server-side and wipes/summarizes the
             // transcript. The rotation bridges OLD id → NEW id by name (the reset is for the
             // attached session): drop the retired old id's rows, re-key the view + attached id
             // to the fresh one, and refetch. An old server omits session_id → meter reset only.
+            // The attach-StateFlow/prefs choreography stays here; the router owns the log/keying.
             if (msg.sessionId.isNotEmpty() && _attachedName.value == msg.name) {
                 val oldId = _attachedId.value
                 _attachedId.value = msg.sessionId
                 prefs.lastSessionId = msg.sessionId
-                val wasViewing = currentId == oldId
-                if (wasViewing) currentId = msg.sessionId
-                dropSessionCache(oldId) // retired id's transcript wiped/summarized: forget rows + digests
-                if (wasViewing) publish() // reflect the fresh (empty) new-id view
+                val wasViewing = router.currentId == oldId
+                if (wasViewing) router.currentId = msg.sessionId
+                router.dropSessionCache(oldId) // retired id's transcript wiped/summarized: forget rows + digests
+                if (wasViewing) router.publish() // reflect the fresh (empty) new-id view
                 session.requestFreshHistory(msg.sessionId, msg.name)
             }
         }
-        is ServerMsg.Activity -> { val id = msg.sessionId.ifEmpty { currentId }; activityFor(id, msg.text); touchDiscovered(id, busy = true) }
+        is ServerMsg.Activity -> router.onActivity(msg)
         is ServerMsg.Transcribing -> _micText.value = "transcribing…" // committed clip being re-transcribed
-        is ServerMsg.Files -> if (msg.files.isNotEmpty()) {
-            addChat(Role.SYSTEM, "📝 changed: " + msg.files.joinToString(", "), key = msg.sessionId.ifEmpty { currentId })
-            if (prefs.summaryOnlySpeech) webBeep() // intermediate step → beep like the rest
-        }
-        is ServerMsg.Diff -> {
-            addChat(Role.SYSTEM, "📊 diff:\n${msg.text}", key = msg.sessionId.ifEmpty { currentId })
-            if (prefs.summaryOnlySpeech) webBeep()
-        }
+        is ServerMsg.Files -> router.onFiles(msg)
+        is ServerMsg.Diff -> router.onDiff(msg)
         is ServerMsg.RateLimit -> _rateLimit.value = msg.info
         is ServerMsg.Usage -> { _usageLoading.value = false; _usageReport.value = msg.report }
-        is ServerMsg.Ask -> {
-            val key = msg.sessionId.ifEmpty { currentId }
-            activityFor(key, ""); streamedSessions.remove(key); spokenReplyCounts.remove(key)
-            touchDiscovered(key, busy = false) // turn-terminal → clear the working cue
-            // An ask is a turn-terminal and can be redelivered buffered on reconnect
-            // — keyed by its turn id; drop a repeat instead of re-presenting it.
-            if (!session.terminalSeen(key, msg.turn)) {
-                askFor(key, msg.questions) // only the attached session pops the question dialog
-                addChat(Role.SYSTEM, "❓ " + msg.questions.joinToString("  ") { it.q }, key = key)
-            }
-        }
-        is ServerMsg.Transcript -> {
-            // Key by the session the clip was captured for (msg.sessionId), not the currently
-            // attached one — otherwise switching sessions before the async transcript lands
-            // files the user bubble under the wrong session. Older servers omit it → fall
-            // back to the current view.
-            val key = msg.sessionId.ifEmpty { currentId }
-            askFor(key, null) // a spoken/typed reply answers the attached session's pending questions
-            key.takeIf { it.isNotEmpty() }?.let { streamedSessions.remove(it); spokenReplyCounts.remove(it); session.noteTurnStart(it) }
-            // The committed transcript supersedes the live hands-free draft — clear it
-            // so the utterance isn't shown as both a draft and a committed bubble.
-            _pending.value = ""
-            _micText.value = "" // the committed transcript ends the PTT clip; clear "transcribing…"
-            addChat(Role.USER, msg.text, key = key)
-            touchDiscovered(key, busy = true) // dictation submitted → session is now working
-        }
+        is ServerMsg.Ask -> router.onAsk(msg)
+        is ServerMsg.Transcript -> router.onTranscript(msg)
         is ServerMsg.Attached -> {
             session.rememberPreviousOnAttach(msg.name, msg.sessionId)
             // Storage is keyed by the stable session_id, so a backend switch (set_agent)
             // that rotates the id and re-emits `attached` just lands on a fresh, empty id
             // and refetches — no stale-row drop dance needed (the old id orphans harmlessly).
+            // The attach-StateFlow/prefs choreography stays here; the router owns the log/keying.
             _activity.value = ""
             _attachedId.value = msg.sessionId
             _attachedName.value = msg.name
@@ -269,9 +147,9 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
                 val ageMs = if (msg.usageAt > 0) (nowEpochSeconds() - msg.usageAt) * 1000 else Long.MAX_VALUE
                 _lastTurnUsage.value = TurnUsageInfo(msg.usage, nowMonotonicMs() - ageMs.coerceIn(0, 6 * 60 * 1000L))
             }
-            currentId = msg.sessionId
-            publish()
-            loadingOlder = false
+            router.currentId = msg.sessionId
+            router.publish()
+            router.loadingOlder = false
             session.requestFreshHistory(msg.sessionId, msg.name)
         }
         is ServerMsg.Detached -> {
@@ -279,10 +157,11 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
             _attachedId.value = ""; _attachedName.value = null
             _attachedAgent.value = ""; _attachedModel.value = ""
             prefs.lastSession = ""; prefs.lastSessionId = ""
-            _status.value = "connected"; currentId = ""; publish()
+            _status.value = "connected"; router.currentId = ""; router.publish()
         }
         is ServerMsg.Renamed -> {
-            // Storage is id-keyed, so a rename is purely a title change — no map re-keying.
+            // Storage is id-keyed, so a rename is purely a title change — no map re-keying and
+            // no per-session log/keying, so the whole (attach-title) body stays in the controller.
             if (msg.old == _attachedName.value || (msg.sessionId.isNotBlank() && msg.sessionId == _attachedId.value)) {
                 _attachedName.value = msg.name; prefs.lastSession = msg.name
                 _status.value = "attached: ${msg.name}"
@@ -320,38 +199,9 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
         }
         is ServerMsg.ReadLast -> onReadLast(msg.count)
         is ServerMsg.Pending -> _pending.value = msg.text // live hands-free draft (the web has VAD hands-free too)
-        is ServerMsg.Err -> {
-            // Version skew: an older server rejects the connect-time `digest` probe
-            // with bad_message — harmless (we fall back to fetching history), so
-            // swallow it instead of a scary chat note (mirrors the Android client).
-            if (msg.code == "bad_message" && msg.message.contains("digest")) return
-            // A failed turn ends it: clear the streamed/spoken turn state so a later
-            // stray close for the session isn't misread as "streamed" (Android parity).
-            if (msg.code == "turn_failed") { streamedSessions.clear(); spokenReplyCounts.clear() }
-            _micText.value = "" // a transcribe_failed / not_implemented error ends the PTT clip; clear "transcribing…"
-            if (_usageLoading.value) _usageLoading.value = false
-            // Turn-terminal errors carry a session_id + turn id and can be redelivered
-            // buffered on reconnect — drop the repeated row (state here is idempotent).
-            val key = msg.sessionId.ifEmpty { currentId }
-            activityFor(key, "") // only clear the indicator if the erroring turn is the attached session's
-            if (session.terminalSeen(key, msg.turn)) return
-            if (msg.code in setOf("session_active", "not_found", "bad_delete", "bad_adopt", "discover_failed")) {
-                _discoverError.value = msg.message
-            } else addChat(Role.SYSTEM, "⚠️ ${msg.code}: ${msg.message}", key = key)
-        }
-        is ServerMsg.TurnInterrupted -> {
-            val key = msg.sessionId.ifEmpty { currentId }
-            activityFor(key, ""); streamedSessions.remove(key); spokenReplyCounts.remove(key)
-            addChat(Role.SYSTEM, "⚠️ turn interrupted (${msg.reason}) — say it again.", key = key)
-        }
-        is ServerMsg.TurnStopped -> {
-            val key = msg.sessionId.ifEmpty { currentId }
-            activityFor(key, ""); streamedSessions.remove(key); spokenReplyCounts.remove(key)
-            // A redelivered stop (buffered terminal, keyed by turn id) — drop the row.
-            if (!session.terminalSeen(key, msg.turn)) {
-                addChat(Role.SYSTEM, "⏹ stopped that turn.", key = key)
-            }
-        }
+        is ServerMsg.Err -> router.onErr(msg)
+        is ServerMsg.TurnInterrupted -> router.onTurnInterrupted(msg)
+        is ServerMsg.TurnStopped -> router.onTurnStopped(msg)
         // Phone-only voice surfaces with no web analogue — explicit, documented
         // no-ops so the omission is intentional, not an accidental gap:
         is ServerMsg.Calibration -> {} // detection-model mic calibration; the web has no calibration UI
@@ -369,27 +219,23 @@ internal fun WebAppController.onReadLast(count: Int) {
     _scrollTick.value = _scrollTick.value + 1
 }
 
-internal fun WebAppController.attachUsageToLastClaude(key: String, usage: com.bam.spawner.net.TokenUsage) {
-    val log = logs[key] ?: return
-    val idx = log.indexOfLast { it.role == Role.CLAUDE }
-    if (idx < 0) return
-    logs[key] = log.toMutableList().also { it[idx] = it[idx].copy(usage = usage) }
-    if (key == currentId) publish()
-}
-
+// onHistory merges an inbound history page into the router's in-memory transcript store.
+// This index-sorted, in-memory merge is the web's platform-specific strategy (Android's is
+// a disk-backed timestamp merge with reconnect gap-fill), so it stays in the controller and
+// drives the shared router state directly rather than moving into InboundRouter.
 internal fun WebAppController.onHistory(msg: ServerMsg.History) {
-    val key = msg.sessionId.ifEmpty { currentId } // file the page under the stable id
+    val key = msg.sessionId.ifEmpty { router.currentId } // file the page under the stable id
     // `unchanged` answers a top-page freshness check whose have_hash still matched:
     // our in-memory transcript is current, so keep it untouched and just refresh the
     // stored digest so future freshness checks stand.
     if (msg.unchanged) {
         if (msg.hash.isNotEmpty()) session.recordSynced(key, msg.count, msg.hash)
-        loadingOlder = false
+        router.loadingOlder = false
         return
     }
     val hist = msg.messages.map { ChatMessage(roleOf(it.role), it.text, it.index, usage = it.usage, ts = it.ts) }
-    val existing = logs[key] ?: emptyList()
-    logs[key] = if (loadingOlder) {
+    val existing = router.logs[key] ?: emptyList()
+    router.logs[key] = if (router.loadingOlder) {
         // Prepend older page, keeping the live tail; the shared index-aware de-dup
         // collapses any live chunk already landed as an indexed history row.
         session.dedupe(hist + existing.filter { it.index < 0 || it.index > (hist.lastOrNull()?.index ?: -1) })
@@ -409,13 +255,13 @@ internal fun WebAppController.onHistory(msg: ServerMsg.History) {
         }
         session.dedupe((hist + kept).sortedBy { if (it.index >= 0) it.index else Int.MAX_VALUE })
     }
-    loadingOlder = false
-    oldest[key] = hist.firstOrNull()?.index ?: (oldest[key] ?: 0)
-    hasMore[key] = msg.more
+    router.loadingOlder = false
+    router.oldest[key] = hist.firstOrNull()?.index ?: (router.oldest[key] ?: 0)
+    router.hasMore[key] = msg.more
     // Record the chain digest this page belongs to so a later reattach can
     // short-circuit the fetch when the server hash still matches what we hold.
     if (msg.hash.isNotEmpty()) session.recordSynced(key, msg.count, msg.hash)
-    if (key == currentId) { publish(); _scrollTick.value = _scrollTick.value + 1 }
+    if (key == router.currentId) { router.publish(); _scrollTick.value = _scrollTick.value + 1 }
 }
 
 // mirrorSettingsToPrefs folds the inbound shared-settings catalogue into the
