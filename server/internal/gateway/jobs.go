@@ -18,7 +18,7 @@ import (
 // a buffered redelivery from a fresh event (an unstamped ask would re-present
 // its questions — and re-speak them — on every reconnect).
 func stampTurn(m map[string]any, turn string) map[string]any {
-	m["turn"] = turn
+	attribute(m, "", turn, false)
 	return m
 }
 

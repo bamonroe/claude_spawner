@@ -221,6 +221,21 @@ long agentic turn's middle isn't lost to a reconnect. The turn-terminal reply is
 by the per-connection `pending`/`orphan` redelivery buffers; the client dedups any replay overlap and
 the whole reply collapses into the indexed history row once the turn lands.
 
+**Frame attribution is one resolver, two backends.** Every server→client frame that belongs to a
+session must carry its `session_id` (and, for turn frames, a `turn` id), or a client viewing a
+*different* session misfiles it under whatever it's showing. That metadata is written in exactly one
+place — `attribute(m, session, turn, overwrite)` in `attribution.go` — which both send backends funnel
+through: the **hub fan-out** (`conn.jobSink`) attributes each fanned frame to the job's session,
+authoritatively, so it tracks a compress rotation; a **direct unicast** (`conn.stampSession`, at the
+`conn.send` write choke point) attributes a session-scoped notice to the connection's *current* session
+(`currentSessionID` = attached, or none), filling only when the builder didn't already stamp it. Which
+directly-sent types are session-scoped is the declared `sessionScoped` registry, not an inline check,
+so a new such type can't silently ship unattributed. Builders that already bake in `session_id`
+(`transcript`, `attached`, `context_reset`, `renamed`, `history`) attribute at construction and pass
+through both backends untouched. Delivery stays two transports — plain unicast vs the hub's
+fan-out + buffering + replay — but they speak this one attribution vocabulary rather than each
+re-deriving the ids.
+
 ### Adding an AI backend (e.g. Gemini CLI, a local model)
 
 The checklist, in dependency order — the design goal is that a new backend is **one new file plus

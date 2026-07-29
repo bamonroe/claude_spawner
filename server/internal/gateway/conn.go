@@ -148,19 +148,30 @@ func (c *conn) send(v any) error {
 	return nil
 }
 
-// stampSession attributes a session-scoped notice (`say`/`error`) to the
-// connection's attached session when the frame doesn't already carry a
-// session_id. These are the notices sent DIRECTLY from the read loop (dialog
-// prompts, session-op read-backs like "cleared", transcription failures) —
-// unlike hub-fanned turn frames, which jobSink already stamps authoritatively
-// (their id is set before they reach send, so we never overwrite it). Without
-// this, a session-less say/error reaches the client with no id and the client
-// files it under whatever session is currently ON SCREEN — so notices about the
-// session you're acting on land in, and "hop" between, the wrong chat logs when
-// you switch. The acting session is the attached one, which the SERVER knows at
-// send time and the client can only guess; so attributing here — symmetric with
-// jobSink — is the right seam. A detached connection leaves them unstamped, and
-// the client's general/unattached bucket is then correct.
+// currentSessionID is the session this connection is acting on — its attached
+// session, or "" when detached. It's the attribution a direct session-scoped
+// notice belongs to: the server knows it at send time, whereas a client can only
+// guess from what's on screen.
+func (c *conn) currentSessionID() string {
+	if s := c.attachedSession(); s != nil {
+		return s.SessionID
+	}
+	return ""
+}
+
+// stampSession is the direct-unicast half of frame attribution (the hub half is
+// jobSink): at the write choke point it attributes a session-scoped notice sent
+// DIRECTLY from the read loop (dialog prompts, session-op read-backs like
+// "cleared", transcription failures) to the connection's current session. Without
+// it, such a notice reaches the client with no session_id and the client files it
+// under whatever session is currently ON SCREEN — so notices about the session
+// you're acting on land in, and "hop" between, the wrong chat logs when you
+// switch. It fills only when absent (the shared [attribute] resolver, overwrite
+// false), so a builder that already stamped its session — and a hub frame jobSink
+// stamped before it reached send — pass through untouched. Which types count as
+// session-scoped is the declared [sessionScoped] registry, not a hardcoded check,
+// so a new such type can't silently regress. A detached connection stamps nothing,
+// and the client's general/unattached bucket is then correct.
 //
 // Runs before wmu is taken; safe from job goroutines too, because their frames
 // already carry a session_id and return early before touching attached state
@@ -170,17 +181,10 @@ func (c *conn) stampSession(v any) {
 	if !ok {
 		return
 	}
-	switch m["type"] {
-	case "say", "error":
-	default:
+	if t, _ := m["type"].(string); !sessionScoped[t] {
 		return
 	}
-	if sid, _ := m["session_id"].(string); sid != "" {
-		return
-	}
-	if s := c.attachedSession(); s != nil {
-		m["session_id"] = s.SessionID
-	}
+	attribute(m, c.currentSessionID(), "", false)
 }
 
 // sendBinary writes one binary frame (server→client TTS audio) under the same
