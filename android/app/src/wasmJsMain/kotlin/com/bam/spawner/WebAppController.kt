@@ -73,7 +73,6 @@ class WebAppController(internal val prefs: Prefs) : AppController {
     internal val router = com.bam.spawner.net.InboundRouter(session, object : com.bam.spawner.net.InboundRouter.Host {
         override fun publishChat(chat: List<ChatMessage>) { _chat.value = chat }
         override fun setHasMore(hasMore: Boolean) { _hasMoreHistory.value = hasMore }
-        override fun bumpScroll() { _scrollTick.value = _scrollTick.value + 1 }
         override fun attachedId() = _attachedId.value
         override fun setActivity(text: String) { _activity.value = text }
         override fun setUsage(usage: TurnUsageInfo?) { _lastTurnUsage.value = usage }
@@ -264,6 +263,7 @@ class WebAppController(internal val prefs: Prefs) : AppController {
         val t = text.trim()
         if (t.isEmpty()) return
         router.addChat(Role.USER, t)
+        _scrollTick.value = _scrollTick.value + 1 // typed send → jump to the bottom (re-pin), like Android's sendText
         client?.send(Outbound.utterance(t, sessionId = _attachedId.value))
     }
     override fun focusSession(session: DiscoveredInfo) = focusKnownSession(session, syncServer = true)

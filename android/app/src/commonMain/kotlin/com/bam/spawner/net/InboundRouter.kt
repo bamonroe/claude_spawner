@@ -56,8 +56,6 @@ class InboundRouter(
         fun publishChat(chat: List<ChatMessage>)
         /** Push whether the current view has an older history page to load. */
         fun setHasMore(hasMore: Boolean)
-        /** Nudge the "scroll to bottom" tick after a new row lands in the current view. */
-        fun bumpScroll()
         /** The attached session's stable id ("" when detached) — the attached-gate for
          *  [activityFor]/[usageFor]/[askFor]. */
         fun attachedId(): String
@@ -147,7 +145,11 @@ class InboundRouter(
      * path (see [SessionSync.dedupe]) — a hands-free utterance streams a live draft/echo row
      * and then lands the committed `transcript` as a second identical live row, which nothing
      * collapsed until a reattach; deduping here drops that adjacent duplicate as it's appended.
-     * Publishes + bumps scroll when the row lands in the current view.
+     * Publishes when the row lands in the current view. Filing never force-scrolls: the shared
+     * ChatList auto-follows an append only while the reader is parked at the bottom (its `pinned`
+     * gate), so a live incoming row can't yank a reader who has scrolled up to read history.
+     * Deliberate "jump to the bottom" scrolls (attach/switch/typed-send/history/read-last) are
+     * driven by the controllers' own explicit scroll tick, not from here.
      */
     fun addChat(role: Role, text: String, usage: TokenUsage? = null, key: String = currentId) {
         if (text.isBlank()) return // never file an empty bubble (a blank say/output/transcript)
@@ -155,10 +157,7 @@ class InboundRouter(
         logs[key] = session.dedupe(
             (logs[key] ?: emptyList()) + ChatMessage(role, text, usage = usage, ts = now)
         ).takeLast(2000)
-        if (key == currentId) {
-            publish()
-            host.bumpScroll()
-        }
+        if (key == currentId) publish()
     }
 
     /** Late-attach a turn's usage badge to the last Claude row under [key] (the reply's live

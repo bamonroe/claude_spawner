@@ -122,7 +122,6 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
         override fun setHasMore(hasMore: Boolean) { _hasMoreHistory.value = hasMore }
         // Android does not auto-scroll on a live incoming row (only on attach/switch/history/
         // typed-send, which call scrollToBottom directly); leaving this a no-op preserves that.
-        override fun bumpScroll() {}
         override fun attachedId() = _attachedId.value
         override fun setActivity(text: String) { _activity.value = text }
         override fun setUsage(usage: TurnUsageInfo?) { _lastTurnUsage.value = usage }
