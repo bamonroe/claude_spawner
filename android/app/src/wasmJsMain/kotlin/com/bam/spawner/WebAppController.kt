@@ -3,6 +3,7 @@ package com.bam.spawner
 import com.bam.spawner.audio.AudioOutput
 import com.bam.spawner.net.AgentInfo
 import com.bam.spawner.net.AskQuestion
+import com.bam.spawner.net.spokenQuestions
 import com.bam.spawner.net.DiscoveredInfo
 import com.bam.spawner.net.HelloConfig
 import com.bam.spawner.net.Host
@@ -86,6 +87,11 @@ class WebAppController(internal val prefs: Prefs) : AppController {
         override fun beep() { webBeep() }
         override fun summaryOnly() = prefs.summaryOnlySpeech
         override fun speakInitialReplies() = prefs.speakInitialReplies
+        // Read a pending ask aloud (attached session only) so it can be answered by voice —
+        // parity with Android, sharing the commonMain spokenQuestions phrasing.
+        override fun speakAskIfAttached(id: String, questions: List<AskQuestion>) {
+            if (id == _attachedId.value) speak(spokenQuestions(questions))
+        }
     })
 
     internal val _chat = MutableStateFlow<List<ChatMessage>>(emptyList())

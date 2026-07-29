@@ -8,6 +8,7 @@ import com.bam.spawner.audio.AudioInput
 import com.bam.spawner.audio.AudioOutput
 import com.bam.spawner.audio.AudioRouter
 import com.bam.spawner.net.AskQuestion
+import com.bam.spawner.net.spokenQuestions
 import com.bam.spawner.audio.HandsFreeRecorder
 import com.bam.spawner.audio.LevelMeter
 import com.bam.spawner.audio.OpusRecorder
@@ -544,13 +545,6 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
 
     /** Dismiss the questions without answering (they stay in the transcript). */
     override fun dismissAsk() { _ask.value = null }
-
-    internal fun spokenQuestions(qs: List<AskQuestion>): String {
-        fun opts(q: AskQuestion) = if (q.options.isEmpty()) "" else " Options: " + q.options.joinToString(", ") + "."
-        if (qs.size == 1) return qs[0].q + opts(qs[0])
-        return "I have ${qs.size} questions. " +
-            qs.mapIndexed { i, q -> "${i + 1}: ${q.q}${opts(q)}" }.joinToString(" ")
-    }
 
     // --- Visual directory browser (New session) ---
     // Browsing is host-scoped: the listing is produced on `host` (its filesystem

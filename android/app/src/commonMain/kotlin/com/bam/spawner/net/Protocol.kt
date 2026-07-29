@@ -454,6 +454,16 @@ data class SettingRecord(
 /** One clarification Claude asked (interactive mode). Empty options = free-text. */
 data class AskQuestion(val q: String, val options: List<String>)
 
+/** Render pending clarification questions as one spoken string (shared by both clients so
+ *  the web and Android read an ask aloud identically). One question is spoken bare; several
+ *  are numbered under a "I have N questions." lead-in, each with its options enumerated. */
+fun spokenQuestions(qs: List<AskQuestion>): String {
+    fun opts(q: AskQuestion) = if (q.options.isEmpty()) "" else " Options: " + q.options.joinToString(", ") + "."
+    if (qs.size == 1) return qs[0].q + opts(qs[0])
+    return "I have ${qs.size} questions. " +
+        qs.mapIndexed { i, q -> "${i + 1}: ${q.q}${opts(q)}" }.joinToString(" ")
+}
+
 /** Per-connection preferences sent in the hello handshake. */
 data class HelloConfig(
     val endToken: String,
