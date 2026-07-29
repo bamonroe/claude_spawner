@@ -12,6 +12,23 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- **Shared inbound-message router (kill the two-controller session-filing drift).** The web
+      (wasmJs) and Android controllers each hand-wrote ~12 `msg.sessionId.ifEmpty { currentId }`
+      keying sites plus parallel filing/dedup bodies for every session-scoped frame — two copies
+      that already drifted (Renamed match precedence, a missing blank-text guard, web not speaking
+      Ask/interrupt notices, no web barge-in, lost whisper-model persistence). Extracting one shared
+      `commonMain` `InboundRouter` (sibling to `SessionSync`/`CatalogueSync`) collapses the ~24
+      keying sites to one `keyOf` and gives the filing invariant a single home. History-merge stays
+      per-platform behind `Host.mergeHistory` (web index-sort vs Android timestamp+gap-fill+disk).
+  - [x] 2026-07-29 — **Step A (web-first):** `InboundRouter` created; web controller files
+        Say/Output/Activity/Files/Diff/Ask/Transcript/Err/TurnInterrupted/TurnStopped through it,
+        with attach/detach/context-reset choreography + History merge staying in the controller.
+        Behavior-preserving; wasmJs build green.
+  - [ ] **Step B (Android adoption):** wire `VoiceController` to the same router (add the
+        Android-only Host hooks — chirp/voiceState/watchdog/persistence — at their verified points),
+        so both platforms share one filing path. Emulator + phone verify.
+  - [ ] **Step C (fix the surfaced drifts):** land the ~8 latent drift bugs the map found, one
+        small commit each, choosing the correct behavior deliberately (not silently).
 - [x] 2026-07-29 — **Eager background-job notify (`SPAWNER_EAGER_NOTIFY`).** The idle job-notifier
       only drove its autonomous "your job finished" turn when a device was attached; a user who
       started a job and walked away wasn't told until they revisited — leaving the agent idle for the
