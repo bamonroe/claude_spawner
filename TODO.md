@@ -312,12 +312,23 @@ Dates are `YYYY-MM-DD`.
             just because one device got it. Double-speak of a redelivered terminal is prevented by the
             per-turn `turnID` stamped on every terminal frame (client dedups on the id) rather than the
             proposed `replay: true` flag — same outcome. Shipped in `5f5f75f`.
-      - [ ] **Stable history row ids.** History rows are keyed by a rotation-unstable positional
-            `index`; every backend transcript has durable ids we currently drop (Claude JSONL
-            `uuid`/`parentUuid`, Codex response-item ids, opencode `msg_…` ids, Antigravity
-            `step_index`). Surfacing them as an optional `id` on `history` rows (and feeding the
-            digest hash) would make live↔history reconciliation id-keyed like the turn stream, and
-            survive clear/compress re-indexing.
+      - [x] 2026-07-29 — **Stable history row ids.** Surfaced an optional durable `id` on the
+            backend-neutral `session.Message`, populated from each backend transcript's stable id
+            (Claude JSONL `uuid`, opencode `msg_…` `info.id`; Codex event lines + Antigravity expose
+            none yet, so those rows keep the empty-id/index fallback). The gateway marshals `[]Message`
+            directly so `id` auto-surfaces on the `history` wire row (documented in `docs/protocol.md`;
+            enforced by the fieldsync drift test). `HistoryDigest` now keys each row on its durable id
+            when present (falling back to index), so the digest is stable across a pure re-index and the
+            app skips a needless refetch while a real content/count change still flips it. App:
+            `HistMsg`/`ChatMessage`/`CachedMsg` gain `id` (defaulted, so pre-id disk caches still load),
+            threaded through both controllers' history mapping; `SessionSync.dedupe` collapses by `id`
+            FIRST — so a stale cached copy vs. a freshly re-indexed copy after clear/compress collapses
+            instead of duplicating. Backward compatible both directions (old server → no id → index
+            fallback). Tests: id-keyed digest survives re-index but flips on edit/id-swap; id-less rows
+            stay index-keyed; Claude+opencode readers surface the id; dedupe id cases. `go test ./...` +
+            wasmJs/Android compile + unit tests green. **Deploy pending: server bounce to serve the id +
+            phone APK install for end-to-end hardware check** (Codex/Antigravity id are separate
+            follow-ups, gated on those backends' transcript readers).
       - [ ] **Antigravity readable transcript.** `nullTranscript` means agy sessions digest as
             empty and history refetches return nothing (clients now preserve their cached rows, but
             a fresh device sees an empty conversation). A brain-transcript reader
