@@ -8,7 +8,9 @@ enum class Role { USER, CLAUDE, SYSTEM }
 /** Hands-free pipeline state, surfaced as a status pill in the UI. */
 enum class VoiceState { OFF, LISTENING, CAPTURING, TRANSCRIBING, THINKING, SPEAKING }
 
-/** One line in the chat log. `index` ties a live row back to its server-history slot;
+/** One line in the chat log. `id` is the row's durable backend identity (stable
+ *  across clear/compress rotation; empty for live rows and id-less backends);
+ *  `index` ties a live row back to its server-history slot positionally;
  *  `usage` carries the per-turn token badge; `ts` is unix seconds (0 for history). */
 data class ChatMessage(
     val role: Role,
@@ -16,4 +18,5 @@ data class ChatMessage(
     val index: Int = -1,
     val usage: TokenUsage? = null,
     val ts: Long = 0L,
+    val id: String = "",
 )

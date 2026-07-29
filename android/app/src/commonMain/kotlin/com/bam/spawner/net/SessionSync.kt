@@ -166,34 +166,44 @@ class SessionSync(private val host: Host) {
     // --- Chat de-dup ---------------------------------------------------------
 
     /**
-     * The one true chat de-dup, keyed on the stable server `index`. Server history rows
-     * carry a real index; live streamed rows carry `index == -1`. Collapse duplicate
-     * indexed rows by index, and drop a live row when its `(role, text)` already appears
-     * in an indexed row — the fallback that folds the N partial live chunks of a streamed
-     * reply into the one indexed history row once it lands — OR when it exactly repeats the
-     * live row immediately before it. That adjacent-live case is the hands-free double
-     * bubble: the utterance is streamed as a live draft/echo row and then the committed
-     * `transcript` lands the SAME text as a second live row (index==-1 both), which the
-     * index-keyed rule can't touch because neither is indexed yet; a backend can likewise
-     * double-emit a reply's closing frame. It is safe to collapse an *adjacent* identical
-     * live pair — two genuinely separate messages can never sit adjacent here, because the
-     * server refuses a new dictation while a turn is in flight, so a real repeat always has
-     * a reply/ask/error row between the two. Live rows with no such match are kept (a turn
-     * still streaming, not yet persisted).
+     * The one true chat de-dup. A row's identity is its durable backend `id` when it has
+     * one, else its stable server `index`; live streamed rows carry neither (`id == ""`,
+     * `index == -1`). Three collapses, in order:
+     *
+     *  1. **By `id`** — a non-empty durable id dedupes FIRST, independent of index. This is
+     *     what survives a clear/compress rotation (or a cross-backend re-index): the same
+     *     underlying row fetched twice with *different* indexes — a stale cached copy vs. a
+     *     freshly re-indexed one — collapses because its id is unchanged, where the old
+     *     index-only rule left both as duplicate bubbles.
+     *  2. **By `index`** — id-less indexed history rows (Codex/Antigravity backends) keep
+     *     the positional collapse, exactly as before.
+     *  3. **Live fold** — drop a live row when its `(role, text)` already appears in a
+     *     settled (id- or index-bearing) row: folds the N partial live chunks of a streamed
+     *     reply into the one history row once it lands; OR when it exactly repeats the live
+     *     row immediately before it. That adjacent-live case is the hands-free double bubble:
+     *     the utterance is streamed as a live draft/echo row and then the committed
+     *     `transcript` lands the SAME text as a second live row (both live), which neither
+     *     id nor index can touch; a backend can likewise double-emit a reply's closing frame.
+     *     It is safe to collapse an *adjacent* identical live pair — two genuinely separate
+     *     messages can never sit adjacent here, because the server refuses a new dictation
+     *     while a turn is in flight, so a real repeat always has a reply/ask/error row
+     *     between the two. Live rows with no such match are kept (a turn still streaming).
      */
     fun dedupe(messages: List<ChatMessage>): List<ChatMessage> {
-        val indexedText = messages
-            .filter { it.index >= 0 }
+        val settledText = messages
+            .filter { it.index >= 0 || it.id.isNotEmpty() }
             .map { it.role to it.text.trim() }
             .toSet()
+        val seenIds = mutableSetOf<String>()
         val seenIndexes = mutableSetOf<Int>()
         val out = ArrayList<ChatMessage>(messages.size)
         for (m in messages) {
             val keep = when {
+                m.id.isNotEmpty() -> seenIds.add(m.id)
                 m.index >= 0 -> seenIndexes.add(m.index)
-                indexedText.isNotEmpty() && (m.role to m.text.trim()) in indexedText -> false
-                out.isNotEmpty() && out.last().index < 0 && out.last().role == m.role &&
-                    out.last().text.trim() == m.text.trim() -> false
+                settledText.isNotEmpty() && (m.role to m.text.trim()) in settledText -> false
+                out.isNotEmpty() && out.last().index < 0 && out.last().id.isEmpty() &&
+                    out.last().role == m.role && out.last().text.trim() == m.text.trim() -> false
                 else -> true
             }
             if (keep) out.add(m)

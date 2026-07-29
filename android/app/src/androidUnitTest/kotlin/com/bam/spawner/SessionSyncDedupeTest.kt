@@ -26,6 +26,8 @@ class SessionSyncDedupeTest {
 
     private fun user(text: String, index: Int = -1) = ChatMessage(Role.USER, text, index = index)
     private fun claude(text: String, index: Int = -1) = ChatMessage(Role.CLAUDE, text, index = index)
+    private fun claudeId(text: String, id: String, index: Int = -1) =
+        ChatMessage(Role.CLAUDE, text, index = index, id = id)
 
     // The bug: a hands-free utterance's live draft/echo row and its committed transcript
     // are both live (index==-1) with the same text; they must collapse to ONE user bubble.
@@ -69,5 +71,37 @@ class SessionSyncDedupeTest {
     fun distinctStreamedSegmentsPreserved() {
         val out = sync().dedupe(listOf(claude("part one"), claude("part two")))
         assertEquals(2, out.size)
+    }
+
+    // The re-index survival case: a stale cached copy (old index) and its freshly
+    // re-indexed copy (new index) share a durable id, so they collapse despite the
+    // index rewrite that a clear/compress rotation performs — where the index-only
+    // rule left both as duplicate bubbles.
+    @Test
+    fun sameDurableIdCollapsesEvenWhenIndexChanged() {
+        val out = sync().dedupe(listOf(
+            claudeId("hello", id = "u1", index = 2),
+            claudeId("hello", id = "u1", index = 7),
+        ))
+        assertEquals(1, out.size)
+        assertEquals(2, out.first().index) // the first copy wins
+    }
+
+    // Two genuinely distinct rows with IDENTICAL text but different durable ids are
+    // both kept — the id, not the text, decides identity.
+    @Test
+    fun distinctDurableIdsAreKept() {
+        val out = sync().dedupe(listOf(
+            claudeId("hello", id = "u1", index = 0),
+            claudeId("hello", id = "u2", index = 1),
+        ))
+        assertEquals(2, out.size)
+    }
+
+    // A live streamed copy (no id/index) still folds into its landed id-bearing row.
+    @Test
+    fun liveRowCollapsesAgainstIdBearingHistoryRow() {
+        val out = sync().dedupe(listOf(claudeId("hi", id = "u1", index = 4), claude("hi")))
+        assertEquals(listOf(claudeId("hi", id = "u1", index = 4)), out)
     }
 }

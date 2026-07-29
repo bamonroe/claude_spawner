@@ -238,7 +238,7 @@ internal fun WebAppController.onHistory(msg: ServerMsg.History) {
         router.loadingOlder = false
         return
     }
-    val hist = msg.messages.map { ChatMessage(roleOf(it.role), it.text, it.index, usage = it.usage, ts = it.ts) }
+    val hist = msg.messages.map { ChatMessage(roleOf(it.role), it.text, it.index, usage = it.usage, ts = it.ts, id = it.id) }
     val existing = router.logs[key] ?: emptyList()
     router.logs[key] = if (router.loadingOlder) {
         // Prepend older page, keeping the live tail; the shared index-aware de-dup

@@ -193,7 +193,7 @@ sealed interface ServerMsg {
         private fun readHist(arr: JsonArray?): List<HistMsg> {
             if (arr == null) return emptyList()
             return arr.map { it.jsonObject }.map { m ->
-                HistMsg(m.int("index", -1), m.str("role"), m.str("text"), m.long("ts"), readUsage(m.obj("usage")))
+                HistMsg(m.int("index", -1), m.str("role"), m.str("text"), m.long("ts"), readUsage(m.obj("usage")), m.str("id"))
             }
         }
 
@@ -380,8 +380,10 @@ data class UsageReport(
     val weekPct: Int, val weekReset: String, val text: String,
 )
 
-/** One past message from a session's server-served history. */
-data class HistMsg(val index: Int, val role: String, val text: String, val ts: Long = 0L, val usage: TokenUsage? = null)
+/** One past message from a session's server-served history. `id` is the row's
+ *  durable backend identity (stable across clear/compress; empty when the backend
+ *  exposes none — Codex/Antigravity today); `index` is the positional cursor. */
+data class HistMsg(val index: Int, val role: String, val text: String, val ts: Long = 0L, val usage: TokenUsage? = null, val id: String = "")
 
 /** One session's transcript digest from the `digests` message: message `count`
  *  and an opaque content `hash` the app compares against its cached copy. */

@@ -64,6 +64,7 @@ data class CachedMsg(
     val index: Int,
     val ts: Long,
     val usage: CachedUsage? = null,
+    val id: String = "", // durable backend id; default keeps pre-id cache files loadable
 )
 
 @Serializable
@@ -73,10 +74,12 @@ data class CachedUsage(val input: Int, val output: Int, val cacheWrite: Int, val
 fun ChatMessage.toCached() = CachedMsg(
     role = role.name, text = text, index = index, ts = ts,
     usage = usage?.let { CachedUsage(it.input, it.output, it.cacheWrite, it.cacheRead) },
+    id = id,
 )
 
 fun CachedMsg.toChat() = ChatMessage(
     role = runCatching { Role.valueOf(role) }.getOrDefault(Role.SYSTEM),
     text = text, index = index, ts = ts,
     usage = usage?.let { TokenUsage(it.input, it.output, it.cacheWrite, it.cacheRead) },
+    id = id,
 )

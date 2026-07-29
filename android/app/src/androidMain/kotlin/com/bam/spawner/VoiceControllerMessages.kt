@@ -410,7 +410,7 @@ internal fun VoiceController.onHistory(msg: ServerMsg.History) {
     // Highest transcript index we already held before applying this page — the
     // watermark a reconnect must page back down to so no middle stays missing.
     val heldMax = (router.logs[key] ?: emptyList()).mapNotNull { it.index.takeIf { i -> i >= 0 } }.maxOrNull()
-    val hist = msg.messages.map { ChatMessage(roleOf(it.role), it.text, it.index, usage = it.usage, ts = it.ts) }
+    val hist = msg.messages.map { ChatMessage(roleOf(it.role), it.text, it.index, usage = it.usage, ts = it.ts, id = it.id) }
     val histIdx = hist.mapNotNull { if (it.index >= 0) it.index else null }.toSet()
     // On a top reload (an attach/reattach), the history page is the authoritative
     // tail of the conversation: drop any live (index < 0) copy whose text now
