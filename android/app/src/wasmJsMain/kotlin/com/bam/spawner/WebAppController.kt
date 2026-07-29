@@ -92,6 +92,11 @@ class WebAppController(internal val prefs: Prefs) : AppController {
         override fun speakAskIfAttached(id: String, questions: List<AskQuestion>) {
             if (id == _attachedId.value) speak(spokenQuestions(questions))
         }
+        // Speak the "turn got interrupted — say it again" notice (attached session only),
+        // parity with Android. The web voice pill is poll-driven, so no manual state reset.
+        override fun turnInterruptedAttached(id: String) {
+            if (id == _attachedId.value) speak("that turn got interrupted — the server restarted. say it again.")
+        }
     })
 
     internal val _chat = MutableStateFlow<List<ChatMessage>>(emptyList())
