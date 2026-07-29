@@ -573,12 +573,13 @@ supported deployment. It runs as your ordinary user (never root) and drives the 
 (unconditional): `claude` for host sessions and rootless Podman for sandbox sessions both execute
 **on the host**, over the same SSH connection, so the container needs no host root and no separate
 broker. A session may spawn anywhere on the host (no spawn-directory jail). Transcription is a second container — a resident
-whisper.cpp HTTP server on `:8571`, which lives in the separate `/data/speech_services` stack.
+WhisperX HTTP server on `:8572`, which lives in the separate `/data/speech_services` stack (it
+speaks the same `/inference` contract as whisper.cpp but with accurate, stable word timestamps).
 One model handles both dictation and the live hands-free draft; on fast enough hardware
-there's no need to split the load. An optional second **fast** draft/detection model on `:8572`
-(`whisper-fast`) can offload the live draft — start that container and set `SPAWNER_WHISPER_FAST_URL`
-to enable it; with it unset, the **quick** field simply reads "none" and everything routes to the one
-model. The model(s) are
+there's no need to split the load. An optional second **fast** draft/detection model can offload
+the live draft — the `/data/speech_services` stack also carries a whisper.cpp server on `:8571`;
+set `SPAWNER_WHISPER_FAST_URL=http://localhost:8571` to enable the two-model draft/commit split. With
+it unset, the **quick** field simply reads "none" and everything routes to the one model. The model(s) are
 server-global and can be hot-swapped from **Settings → Audio → Transcription models** (they load
 for every device at once): the **full** field is the accurate server (dictation), the **quick**
 field the fast one (live hands-free draft + end-token detection). When `SPAWNER_WHISPER_MODELS_DIR`
@@ -632,9 +633,9 @@ go run -C server ./cmd/wsclient -url ws://localhost:8080/ws
 - `claude` authenticates via your host creds in `~/.claude` + `~/.claude.json` (or set
   `ANTHROPIC_API_KEY`). Sessions can spawn anywhere on the target host (no directory jail).
 - Voice end-to-end needs the resident whisper server running and `SPAWNER_WHISPER_URL` pointed at
-  it. The whisper (and Kokoro TTS) containers live in the separate **`/data/speech_services`** stack
-  (`docker compose up -d` there) on the same ports `:8571`/`:8880` — bring that up alongside the
-  gateway.
+  it. The whisper (WhisperX on `:8572`, whisper.cpp on `:8571`) and Kokoro TTS (`:8880`) containers
+  live in the separate **`/data/speech_services`** stack (`docker compose up -d` there) — bring that
+  up alongside the gateway.
 - To test a change without killing a live turn, run the fresh binary on a scratch port
   (`SPAWNER_ADDR=:8557`) with a separate `SPAWNER_STATE` — see [`deploy/README.md`](./deploy/README.md).
 

@@ -52,8 +52,9 @@ type Config struct {
 	ClaudeBin string
 	// WhisperBin is the whisper.cpp CLI (default "whisper-cli").
 	WhisperBin string
-	// WhisperURL points at a resident whisper.cpp server (its base URL, e.g.
-	// http://localhost:8571). When set, transcription goes there instead of
+	// WhisperURL points at a resident whisper server speaking the whisper.cpp
+	// /inference contract (its base URL, e.g. http://localhost:8572 for the
+	// WhisperX server). When set, transcription goes there instead of
 	// forking whisper-cli locally.
 	WhisperURL string
 	// WhisperFastURL points at a second, fast whisper server (e.g. base.en) used

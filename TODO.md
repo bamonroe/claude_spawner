@@ -150,11 +150,12 @@ Dates are `YYYY-MM-DD`.
       field); the flat wake/end/speak fields left Commands settings. Sets up the LiveKit epic's
       per-token ONNX model picks. All drift tests updated + green.
 
-- **Move the whisper/kokoro STT+TTS containers out to `/data/speech_services`.** The speech
-  models (accurate whisper on `:8571`, kokoro TTS on `:8880`) are being consolidated into the
-  standalone `/data/speech_services` stack, which republishes the **same ports**, so the spawner
-  needs **no URL/config change** — `SPAWNER_WHISPER_URL`/`SPAWNER_TTS_URL` still point at
-  `localhost:8571`/`:8880`. Work:
+- [x] 2026-07-29 — **Move the whisper/kokoro STT+TTS containers out to `/data/speech_services`.** The
+  speech models were consolidated into the standalone `/data/speech_services` stack. The STT endpoint
+  is now **WhisperX on `:8572`** (`SPAWNER_WHISPER_URL=http://localhost:8572`) — same `/inference`
+  contract as whisper.cpp but accurate/stable word timestamps; kokoro TTS stays on `:8880`. The
+  stack also carries a whisper.cpp server on `:8571`, available as the optional fast draft via
+  `SPAWNER_WHISPER_FAST_URL` (currently unset — WhisperX handles committed dictation). Work:
   - [x] 2026-07-17 — Retire the app-supplied per-connection whisper URL so the endpoint is fixed
         server-side (below); prerequisite so nothing but config can repoint STT.
   - [x] 2026-07-17 — Dropped the `whisper` and `kokoro` services from this repo's
@@ -164,9 +165,11 @@ Dates are `YYYY-MM-DD`.
   - [x] 2026-07-17 — Updated `docs/architecture.md` + `README.md` + `deploy/README.md` to say the
         STT/TTS containers live in `/data/speech_services` (same ports); kept the
         `SPAWNER_WHISPER_URL`/`_TTS_URL` docs.
-  - [ ] **Live swap (needs a safe moment — interrupts STT):** `docker compose` down whisper+kokoro
-        here, bring up the `/data/speech_services` stack. Only one process can bind `:8571`/`:8880`,
-        so they can't overlap.
+  - [x] 2026-07-29 — **Live swap done.** The old spawner-hosted whisper/kokoro containers are gone;
+        the `/data/speech_services` stack (`speech-whisperx:8572`, `speech-kokoro:8880`,
+        `speech-deepfilternet:8573`) is the live speech backend and the spawner is pointed at it.
+        Docs (README, deploy/README, architecture, docker-compose comments, config/remote code
+        comments) updated to WhisperX/`:8572`.
 - [x] 2026-07-19 — **App version / build-stamp About page (Settings → About).** A new shared
   settings page shows the app version plus the exact git commit the bundle was built from (short
   hash + branch, full commit, build time), so you can tell which build is on the phone vs. the

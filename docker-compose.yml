@@ -12,11 +12,11 @@
 #                    points at it via SPAWNER_WAKEWORD_URL. Optional — without it detection
 #                    falls back to the Whisper string-match.
 #
-# STT + TTS live in a SEPARATE stack: the whisper transcription server (:8571,
-# SPAWNER_WHISPER_URL) and the Kokoro TTS server (:8880, SPAWNER_TTS_URL) were moved out
-# to /data/speech_services, which republishes the SAME ports — bring that stack up
-# alongside this one. Only one process can bind :8571/:8880, so the two stacks' speech
-# services must not overlap.
+# STT + TTS live in a SEPARATE stack: the whisper transcription server (WhisperX on :8572,
+# SPAWNER_WHISPER_URL; a whisper.cpp server on :8571 alongside it as the optional fast draft
+# via SPAWNER_WHISPER_FAST_URL) and the Kokoro TTS server (:8880, SPAWNER_TTS_URL) were moved
+# out to /data/speech_services — bring that stack up alongside this one. Only one process can
+# bind a given port, so the two stacks' speech services must not overlap.
 #
 # Prereqs FIRST (see deploy/README.md for the full first-run guide): copy
 # deploy/spawner-container.env.example to deploy/spawner-container.env and fill it in
@@ -32,7 +32,7 @@
 
 services:
   # The Go gateway. Host networking so localhost:22 is the host's sshd (host turns run
-  # over SSH) and SPAWNER_ADDR binds on the host directly; localhost:8571 reaches the
+  # over SSH) and SPAWNER_ADDR binds on the host directly; localhost:8572 reaches the
   # whisper service's published port. No host FS is mounted for project/home access:
   # every turn, spawn-dir op, and transcript/discovery read runs on the host over SSH,
   # so the gateway never touches the host's `/data` or `$HOME` from inside the container.
@@ -45,7 +45,7 @@ services:
     user: "${SPAWNER_UID:?set SPAWNER_UID=$(id -u) (or put it in .env)}:${SPAWNER_GID:?set SPAWNER_GID=$(id -g) (or put it in .env)}"
     env_file: deploy/spawner-container.env
     # No depends_on for whisper: it lives in the separate /data/speech_services stack and
-    # the gateway only dials it lazily over localhost:8571, so the two stacks stay
+    # the gateway only dials it lazily over localhost:8572, so the two stacks stay
     # independent (and text-only `up … spawner-server` needs no GPU).
     volumes:
       # Whisper ggml models, mounted directly (rw) so the gateway can download

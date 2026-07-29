@@ -17,11 +17,12 @@ This directory holds the server's env template, the rebuild script, and a transc
 
 ## The whisper transcription service
 
-The resident whisper.cpp HTTP server (on `:8571`) the gateway transcribes through **now lives in the
-separate `/data/speech_services` stack** (moved out of this repo, same port), so bring it up from
-there with `docker compose up -d`. `docker compose down` in that stack removes it and voice goes
-silent until the next `up`. An optional second "fast" draft model on `:8572` can offload the live
-hands-free draft — start it and set `SPAWNER_WHISPER_FAST_URL` to enable it.
+The resident whisper HTTP server (WhisperX on `:8572`) the gateway transcribes through **now lives in
+the separate `/data/speech_services` stack** (moved out of this repo), so bring it up from there with
+`docker compose up -d`. `docker compose down` in that stack removes it and voice goes silent until the
+next `up`. That stack also carries a whisper.cpp server on `:8571` (same `/inference` contract); point
+`SPAWNER_WHISPER_FAST_URL=http://localhost:8571` at it to offload the live hands-free draft to a
+second, faster model.
 
 ## The wakeword detector service (optional)
 
@@ -49,7 +50,7 @@ The host (the machine the stack runs on) needs, before the first `up`:
 ## Running the whole stack — one command
 
 The `spawner-server` service uses **host networking** (so `localhost:22` is the host's own sshd and
-an empty `Session.Host` drives the host; `localhost:8571` reaches the whisper service). It mounts
+an empty `Session.Host` drives the host; `localhost:8572` reaches the whisper service). It mounts
 **no** host home or project roots: every turn, spawn-dir op, and transcript/discovery read runs on
 the host over SSH, so the only host mounts are durable state (`./deploy/state`) and the shared
 whisper models dir (`SPAWNER_WHISPER_MODELS_DIR`). Its config vars are documented in
@@ -189,7 +190,7 @@ port with a separate session store, leaving the live container running:
 go build -C server -o /tmp/spawner-dev .
 SPAWNER_TOKEN=devsecret SPAWNER_ADDR=:8557 \
   SPAWNER_STATE=$HOME/.local/share/claude_spawner_dev/sessions.json \
-  SPAWNER_WHISPER_URL=http://localhost:8571 \
+  SPAWNER_WHISPER_URL=http://localhost:8572 \
   /tmp/spawner-dev
 ```
 

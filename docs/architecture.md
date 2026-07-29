@@ -276,7 +276,7 @@ anywhere on the target host. No component holds host root: the server is an unpr
 container and sandboxes use a rootless runtime on the host. Recipe: the root `docker-compose.yml`
 (the `spawner-server` gateway + the `wakeword` detector; STT/TTS containers live in the separate
 `/data/speech_services` stack on the same ports; host networking so `localhost:22` is the host sshd
-and `localhost:8571` reaches whisper; only durable state and the whisper models dir are mounted —
+and `localhost:8572` reaches whisper; only durable state and the whisper models dir are mounted —
 discovery, browse, and transcript reads all run on the host over SSH, not off a host home/root
 mount). See the Dockerfile at `server/Dockerfile`.
 
@@ -419,15 +419,16 @@ the hook is a graceful no-op. Hooks fire under `--dangerously-skip-permissions`,
 The gateway depends only on the `Transcriber` interface; there are **two implementations** and
 either can back it:
 
-- **`RemoteWhisper`** (`remote.go`) — POSTs the WAV to a **resident whisper.cpp HTTP server**
+- **`RemoteWhisper`** (`remote.go`) — POSTs the WAV to a **resident whisper HTTP server**
   (`/inference`). This is the preferred path on this host, which has an **Nvidia GPU**: a
-  CUDA-built whisper.cpp keeps the model warm (`medium.en`, `:8571`), handling both real
+  CUDA-built **WhisperX** server keeps the model warm (`medium.en`, `:8572`) — same `/inference`
+  contract as whisper.cpp but with accurate, stable word timestamps — handling both real
   dictation and the live hands-free draft + end-token detection. An optional second, fast draft
-  server (`base.en`, `:8572`) can offload the cheap high-frequency work so it never blocks the
-  accurate model. The whisper (and Kokoro TTS) containers no longer live in this repo — they were
-  moved out to the standalone **`/data/speech_services`** stack, which republishes the same ports,
-  so nothing here changes but where the containers are launched. Enabled via
-  `SPAWNER_WHISPER_URL` / `SPAWNER_WHISPER_FAST_URL`.
+  server (a whisper.cpp server on `:8571`) can offload the cheap high-frequency work so it never
+  blocks the accurate model. The whisper (and Kokoro TTS) containers no longer live in this repo —
+  they were moved out to the standalone **`/data/speech_services`** stack (which carries both the
+  WhisperX and whisper.cpp servers), so nothing here changes but where the containers are launched.
+  Enabled via `SPAWNER_WHISPER_URL` / `SPAWNER_WHISPER_FAST_URL`.
 - **`WhisperCPP`** (`transcribe.go`) — shells out to the **whisper.cpp CLI** (one process per
   utterance), `exec`'d like `claude`/`tmux`, no server. The fallback when no whisper URL is set.
   It size-picks a model per clip (tiny/base/small) from `SPAWNER_WHISPER_MODEL{,_FAST,_BASE}`.

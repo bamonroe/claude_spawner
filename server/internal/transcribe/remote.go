@@ -49,7 +49,7 @@ func LoadRemoteModel(ctx context.Context, url, modelPath string) error {
 // server keeps the model loaded, so there's no per-call reload — same model,
 // same accuracy, far less latency. One model per server, so Options is ignored.
 type RemoteWhisper struct {
-	// URL is the whisper server base, e.g. "http://localhost:8571".
+	// URL is the whisper server base, e.g. "http://localhost:8572" (WhisperX).
 	URL string
 	// Client is the HTTP client (nil → a default with a generous timeout).
 	Client *http.Client
