@@ -30,10 +30,17 @@ const jobReconcileTick = 12 * time.Second
 // jobReconcileLoop is the server-owned monitor that turns a finished detached job
 // into a spoken heads-up without waiting for the user to speak again. Every tick it
 // scans started, idle sessions; reconcileJobs stages any completion note (and reaps
-// the job); and when a session has pending notes AND a device is attached, it drives
-// an autonomous notify turn so the user hears the result. With nobody attached the
-// note simply waits in PendingNotes for the next dictation/attach (the fallback), so
-// we never narrate to an empty room. Started once from New().
+// the job); and when a session has pending notes it drives an autonomous notify turn
+// so the user hears the result. Started once from New().
+//
+// Whether a detached session (no attached device) fires depends on SPAWNER_EAGER_NOTIFY:
+//   - default (off): a notify turn runs only when a device is attached; with nobody
+//     listening the note waits in PendingNotes for the next dictation/attach (the
+//     fallback), so we never narrate to an empty room.
+//   - eager (on): the turn runs the moment the job is detected regardless of
+//     attachment, so the agent isn't idle for the gap until the user revisits and the
+//     turn is far likelier to land in the token cache window. The spoken reply buffers
+//     (the hub's orphan slot) for the next attach.
 func (s *Server) jobReconcileLoop() {
 	t := time.NewTicker(jobReconcileTick)
 	defer t.Stop()
@@ -51,11 +58,12 @@ func (s *Server) jobReconcileLoop() {
 			if len(sess.PendingNotes) == 0 {
 				continue // nothing finished since we last looked
 			}
-			// Someone has to be listening for an out-loud notice to mean anything. With
-			// no attached device, leave the note in PendingNotes — the next dictation or
-			// attach surfaces it.
+			// In the default mode someone has to be listening for an out-loud notice to
+			// mean anything: with no attached device, leave the note in PendingNotes so
+			// the next dictation/attach surfaces it. In eager mode we fire regardless —
+			// the reply buffers to the hub's orphan slot for the next attach.
 			j := s.jobFor(sess.SessionID)
-			if !j.hasSink() {
+			if !j.hasSink() && !s.cfg.EagerNotify {
 				continue
 			}
 			// Announce ALL pending notes (this scan's plus any that accumulated while no

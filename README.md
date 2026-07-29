@@ -363,7 +363,12 @@ if a job finishes while you're just waiting for it (not typing or speaking), the
 it and, if a device is attached, **drives an autonomous turn so Claude tells you out loud right
 then** — you don't have to say something else first to unstick the notification. With nothing
 attached, the note simply waits and surfaces on your next message or reconnect, so a finish is never
-lost. Because the ticker re-polls on a schedule, a momentary SSH hiccup no longer silently swallows a
+lost. Set **`SPAWNER_EAGER_NOTIFY=true`** to make the idle ticker fire that follow-up turn **even
+when no device is attached** — the job's next step runs the moment it finishes rather than waiting
+for you to revisit the session, which keeps the agent from sitting idle for the gap and makes the
+turn far likelier to land inside the token-cache window (the spoken reply is buffered and delivered
+when you next attach). The default (`false`) keeps the conservative behavior above and never narrates
+to an empty room. Because the ticker re-polls on a schedule, a momentary SSH hiccup no longer silently swallows a
 completion — the next tick just tries again. Claude can also check progress itself at any time with
 `~/.spawner-jobs/spawner-job list` / `tail <id>`. Reconcile and staging failures are swallowed and
 never block a turn. Two caveats: a **sandbox** session's jobs live only as long as its container —

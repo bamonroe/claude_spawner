@@ -191,6 +191,12 @@ All read in `internal/config`; the `docsync` drift test requires each to appear 
   driven non-interactively via `agy --prompt` — it has no machine-readable stream mode, so only the
   final spoken reply is captured (no live tool events or token accounting), and its caller-supplied
   `--conversation` id makes it resumable like Claude).
+- Background-job notifier: `SPAWNER_EAGER_NOTIFY` (`false`; when true, the idle notifier drives its
+  autonomous "your background job finished" turn the moment a detached job is detected **even with
+  no device attached**, instead of holding the note until the next attach/dictation — so the agent
+  isn't idle for the gap until you revisit the session, and the follow-up is far likelier to land
+  inside the token cache window. The spoken reply buffers in the hub's orphan slot for the next
+  attach. Default `false` keeps the conservative "never narrate to an empty room" behavior).
 - Transport TLS (all optional; empty = plain `ws://`, fine behind Tailscale): `SPAWNER_TLS_CERT`
   and `SPAWNER_TLS_KEY` (PEM cert/key — set **both** to serve `wss://`; one without the other is a
   startup error), `SPAWNER_TLS_CLIENT_CA` (PEM CA bundle — when set, the app must present a client

@@ -83,6 +83,15 @@ type Config struct {
 	// detected (default 0.5; the trained models' optimal point is ~0.04–0.07, so
 	// lower it to trade a few false positives for near-zero misses).
 	WakewordThreshold float64
+	// EagerNotify, when true, lets the idle background-job notifier drive its
+	// autonomous "your job finished" turn even with NO device attached, instead of
+	// waiting for the next attach/dictation. The finished job's follow-up runs the
+	// moment it's detected — so the agent isn't idle for the gap until the user
+	// revisits, and the turn is far likelier to land inside the token cache window.
+	// The spoken reply buffers (the hub's orphan slot) for the next attach, and any
+	// still-connected device is pinged. Default false keeps the conservative
+	// "never narrate to an empty room" behavior.
+	EagerNotify bool
 	// DenoiseURL points at a resident DeepFilterNet denoise server (its base URL,
 	// e.g. http://localhost:8573). When set, the server advertises server-side
 	// denoising to clients and, for clients that enable it, scrubs steady
@@ -201,6 +210,7 @@ func Load() (*Config, error) {
 		WhisperFastModelName: env("SPAWNER_WHISPER_FAST_MODEL_NAME", "base.en"),
 		WhisperModelsDir:     os.Getenv("SPAWNER_WHISPER_MODELS_DIR"),
 		WakewordURL:          os.Getenv("SPAWNER_WAKEWORD_URL"),
+		EagerNotify:          envBool("SPAWNER_EAGER_NOTIFY"),
 		DenoiseURL:           os.Getenv("SPAWNER_DENOISE_URL"),
 		TTSURL:               os.Getenv("SPAWNER_TTS_URL"),
 		TTSVoice:             env("SPAWNER_TTS_VOICE", "af_heart"),
@@ -303,6 +313,13 @@ func (c *Config) BuildTLSConfig() (*tls.Config, error) {
 		t.ClientAuth = tls.RequireAndVerifyClientCert
 	}
 	return t, nil
+}
+
+// envBool reports whether key is set to a truthy value (strconv.ParseBool: 1, t,
+// true, …). Unset, empty, or unparseable is false — the conservative default.
+func envBool(key string) bool {
+	b, err := strconv.ParseBool(os.Getenv(key))
+	return err == nil && b
 }
 
 func env(key, def string) string {

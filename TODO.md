@@ -12,6 +12,18 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-07-29 — **Eager background-job notify (`SPAWNER_EAGER_NOTIFY`).** The idle job-notifier
+      only drove its autonomous "your job finished" turn when a device was attached; a user who
+      started a job and walked away wasn't told until they revisited — leaving the agent idle for the
+      gap and pushing the follow-up outside the token cache window. New `SPAWNER_EAGER_NOTIFY` (bool,
+      default false) lets the ticker fire the turn regardless of attachment; the reply buffers to the
+      hub's orphan slot for the next attach (`bgnotify.go` gate; `config.EagerNotify`/`envBool`).
+      Config drift-tested. Docs: CLAUDE.md config + README background-jobs section.
+- [ ] **Ping a still-connected phone on an eager notify.** When the eager turn fires to a session
+      with no attached sink, push a lightweight `notice` frame to any device still connected but
+      viewing another screen, so it surfaces the finished job without opening the session. Needs a
+      new wire message (Protocol.kt + docsync) + app handling + an APK test cycle. (Truly waking a
+      fully-closed/backgrounded app needs FCM push infra, which does not exist yet — separate epic.)
 - [x] 2026-07-29 — **Server-side denoise (DeepFilterNet) — the second half of the noise story.**
       The VAD dials only decide *when* a clip is captured; they can't clean audio that was already
       noisy when the gate opened. Added an optional, per-client-toggleable server-side scrub: new
