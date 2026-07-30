@@ -128,6 +128,32 @@ type codexEventPayload struct {
 	} `json:"info"` // on token_count
 }
 
+// codexResponseItem is the subset of a `response_item` payload we read: the
+// API-level message record that, for assistant turns, carries Codex's durable
+// message id (`msg_…`). The parallel `event_msg` agent_message holds the same
+// prose but no id, so we lift the id off the response_item and pin it to that
+// row (see readTranscript). User/developer response_items carry no id (their
+// content is injected context, not the clean prose we display), so only claude
+// rows get a durable id — id-less rows fall back to index in the digest.
+type codexResponseItem struct {
+	Type    string `json:"type"` // "message" | "reasoning" | "function_call" | ...
+	ID      string `json:"id"`
+	Role    string `json:"role"` // "assistant" | "user" | "developer"
+	Content []struct {
+		Text string `json:"text"`
+	} `json:"content"`
+}
+
+// text concatenates the item's content fragments, matching the prose Codex
+// records on the paired event_msg.
+func (ri codexResponseItem) text() string {
+	var b strings.Builder
+	for _, c := range ri.Content {
+		b.WriteString(c.Text)
+	}
+	return b.String()
+}
+
 // codexTokenUsage is Codex's per-turn token accounting. InputTokens is the whole
 // prompt for the turn and is inclusive of CachedInputTokens (the cached prefix).
 type codexTokenUsage struct {
@@ -155,9 +181,11 @@ func (u codexTokenUsage) usage() Usage {
 
 // readTranscript parses a Codex rollout JSONL into ordered user/claude prose
 // messages, attaching each turn's token_count usage to its agent_message so the
-// per-message context badge survives a reattach. Empty path / missing file yields
-// an empty slice (no error), matching claudeFS.readTranscript. Overrides the
-// embedded claudeFS parser (which expects Claude's schema).
+// per-message context badge survives a reattach, and pinning each claude row's
+// durable msg_… id (lifted off the paired assistant response_item) so history
+// rows reconcile across a re-index. Empty path / missing file yields an empty
+// slice (no error), matching claudeFS.readTranscript. Overrides the embedded
+// claudeFS parser (which expects Claude's schema).
 func (fs codexFS) readTranscript(path string) ([]Message, error) {
 	if path == "" {
 		return nil, nil
@@ -183,34 +211,49 @@ func (fs codexFS) readTranscript(path string) ([]Message, error) {
 	idx, lastClaude := 0, -1
 	for sc.Scan() {
 		var l codexRolloutLine
-		if json.Unmarshal(sc.Bytes(), &l) != nil || l.Type != "event_msg" {
+		if json.Unmarshal(sc.Bytes(), &l) != nil {
 			continue
 		}
-		var p codexEventPayload
-		if json.Unmarshal(l.Payload, &p) != nil {
-			continue
-		}
-		switch p.Type {
-		case "user_message", "agent_message":
-			role := "user"
-			if p.Type == "agent_message" {
-				role = "claude"
-			}
-			if strings.TrimSpace(p.Message) == "" {
+		switch l.Type {
+		case "event_msg":
+			var p codexEventPayload
+			if json.Unmarshal(l.Payload, &p) != nil {
 				continue
 			}
-			out = append(out, Message{Index: idx, Role: role, Text: p.Message, Ts: parseTs(l.Timestamp)})
-			if role == "claude" {
-				lastClaude = len(out) - 1
-			}
-			idx++
-		case "token_count":
-			// The turn's usage lands after its agent_message; badge that message.
-			if lastClaude >= 0 {
-				u := p.Info.LastTokenUsage.usage()
-				if u.Input+u.CacheRead > 0 {
-					out[lastClaude].Usage = &u
+			switch p.Type {
+			case "user_message", "agent_message":
+				role := "user"
+				if p.Type == "agent_message" {
+					role = "claude"
 				}
+				if strings.TrimSpace(p.Message) == "" {
+					continue
+				}
+				out = append(out, Message{Index: idx, Role: role, Text: p.Message, Ts: parseTs(l.Timestamp)})
+				if role == "claude" {
+					lastClaude = len(out) - 1
+				}
+				idx++
+			case "token_count":
+				// The turn's usage lands after its agent_message; badge that message.
+				if lastClaude >= 0 {
+					u := p.Info.LastTokenUsage.usage()
+					if u.Input+u.CacheRead > 0 {
+						out[lastClaude].Usage = &u
+					}
+				}
+			}
+		case "response_item":
+			// Each assistant response_item immediately follows its agent_message
+			// twin and carries the durable msg_… id that twin lacks. Pin it to the
+			// pending claude row when the prose matches — the id-empty guard keeps a
+			// skipped/empty agent_message from stealing the previous row's id.
+			var ri codexResponseItem
+			if json.Unmarshal(l.Payload, &ri) != nil || ri.Type != "message" || ri.Role != "assistant" || ri.ID == "" {
+				continue
+			}
+			if lastClaude >= 0 && out[lastClaude].ID == "" && out[lastClaude].Text == ri.text() {
+				out[lastClaude].ID = ri.ID
 			}
 		}
 	}

@@ -12,10 +12,12 @@ const codexRollout = `{"type":"session_meta","timestamp":"2026-07-10T00:19:43.92
 {"type":"event_msg","timestamp":"2026-07-10T00:19:44.000Z","payload":{"type":"task_started"}}
 {"type":"event_msg","timestamp":"2026-07-10T00:19:45.000Z","payload":{"type":"user_message","message":"Reply with exactly the word: pong"}}
 {"type":"event_msg","timestamp":"2026-07-10T00:19:46.000Z","payload":{"type":"agent_message","message":"pong"}}
+{"type":"response_item","timestamp":"2026-07-10T00:19:46.500Z","payload":{"type":"message","role":"assistant","id":"msg_pong_a","content":[{"type":"output_text","text":"pong"}]}}
 {"type":"event_msg","timestamp":"2026-07-10T00:19:47.000Z","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":12259,"cached_input_tokens":4992,"output_tokens":5},"last_token_usage":{"input_tokens":12259,"cached_input_tokens":4992,"output_tokens":5,"reasoning_output_tokens":0}}}}
 {"type":"response_item","timestamp":"2026-07-10T00:19:47.500Z","payload":{"type":"message","role":"developer","content":[{"type":"input_text","text":"<permissions instructions>"}]}}
 {"type":"event_msg","timestamp":"2026-07-10T00:20:00.000Z","payload":{"type":"user_message","message":"What word did you just say?"}}
 {"type":"event_msg","timestamp":"2026-07-10T00:20:01.000Z","payload":{"type":"agent_message","message":"pong"}}
+{"type":"response_item","timestamp":"2026-07-10T00:20:01.500Z","payload":{"type":"message","role":"assistant","id":"msg_pong_b","content":[{"type":"output_text","text":"pong"}]}}
 {"type":"event_msg","timestamp":"2026-07-10T00:20:02.000Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":14328,"cached_input_tokens":4992,"output_tokens":6,"reasoning_output_tokens":2}}}}
 `
 
@@ -34,19 +36,19 @@ func TestCodexReadTranscript(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []struct {
-		role, text string
+		role, text, id string
 	}{
-		{"user", "Reply with exactly the word: pong"},
-		{"claude", "pong"},
-		{"user", "What word did you just say?"},
-		{"claude", "pong"},
+		{"user", "Reply with exactly the word: pong", ""}, // user turns carry no durable id
+		{"claude", "pong", "msg_pong_a"},                  // id lifted off the paired assistant response_item
+		{"user", "What word did you just say?", ""},
+		{"claude", "pong", "msg_pong_b"},
 	}
 	if len(msgs) != len(want) {
 		t.Fatalf("got %d messages, want %d: %+v", len(msgs), len(want), msgs)
 	}
 	for i, w := range want {
-		if msgs[i].Role != w.role || msgs[i].Text != w.text || msgs[i].Index != i {
-			t.Errorf("msg %d = %+v, want role=%s text=%q index=%d", i, msgs[i], w.role, w.text, i)
+		if msgs[i].Role != w.role || msgs[i].Text != w.text || msgs[i].Index != i || msgs[i].ID != w.id {
+			t.Errorf("msg %d = %+v, want role=%s text=%q index=%d id=%q", i, msgs[i], w.role, w.text, i, w.id)
 		}
 	}
 	if msgs[0].Ts != 1783642785 {
