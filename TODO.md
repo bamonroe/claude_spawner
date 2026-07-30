@@ -340,10 +340,18 @@ Dates are `YYYY-MM-DD`.
             re-index like Claude's. User/developer response_items carry no id (injected context, not
             clean prose), so user rows keep the index fallback the mixed-key `HistoryDigest` handles.
             Test fixture gained assistant response_items + id assertions; `go test ./...` green.
-      - [ ] **Antigravity readable transcript.** `nullTranscript` means agy sessions digest as
-            empty and history refetches return nothing (clients now preserve their cached rows, but
-            a fresh device sees an empty conversation). A brain-transcript reader
-            (`Session.AgyBrainIDs` exists, unconsumed) would close it.
+      - [x] 2026-07-29 — **Antigravity readable transcript.** Wired `antigravityFS`
+            (`internal/session/antigravity_transcript.go`), consuming the per-turn brain ids we already
+            capture in `Session.AgyBrainIDs`. Each brain's `transcript.jsonl` replays as one user row
+            (unwrapped from agy's `<USER_REQUEST>` envelope; our scaffolding stripped downstream by the
+            gateway's `stripInjected`) + one joined assistant row (`PLANNER_RESPONSE` steps ordered by
+            `step_index`, rejoined with blank lines like `reconstructAgyReply` renders the live reply, so
+            a replayed turn dedupes against its live copy). Durable brain-scoped ids (`<brain>:in` /
+            `<brain>:resp`) survive re-index. agy exposes no token usage → context stays absent; delete
+            is a no-op (brain dirs are agy's store); host/SSH only (sandbox-internal dirs invisible, the
+            pre-existing reader limit). `nullTranscript` had no remaining caller → removed. Reader unit
+            tests + a real-brain smoke check green; docs (architecture.md + README.md) no longer claim
+            agy history is unavailable. `go test ./...` green.
     - [x] 2026-07-17 — **Audit** the other mutation messages (`renamed`, `session_list`, `detached`)
           for the same completeness so the app never has to infer a state change. Findings: the wire
           shapes of `renamed`/`detached`/`context_reset` were already complete; `session_list` has no
@@ -617,9 +625,10 @@ Dates are `YYYY-MM-DD`.
         `--log-file`'s `Print mode: conversation=<id>` line) and passing THAT back as `--conversation`
         next turn — which would also give a stable id to key a real history reader on. The comments in
         `antigravity.go` are corrected to say resume is a no-op today.
-  - [~] **Follow-up: real antigravity history reader (still `nullTranscript`).** `TranscriptAntigravity`
-        routes to the `nullTranscript` stub, so reattach history / context meter / deletion are empty.
-        Blocked on the id problem above (no stable our-id → agy-id mapping).
+  - [x] 2026-07-29 — **Follow-up: real antigravity history reader.** Done — `TranscriptAntigravity`
+        now routes to `antigravityFS` (below), so reattach replays agy history. (It was never actually
+        blocked on the `--conversation` resume bug: the brain-id capture foundation gave us the stable
+        our-session → agy-brain mapping the reader needed, independent of whether agy resumes.)
     - [x] 2026-07-17 — **Foundation: capture the per-turn brain id (the missing mapping).** Since agy
           ignores our `--conversation` id and files every turn under a fresh internal brain id, we now
           build the mapping ourselves: `agyBrainScript` emits each transcript's path, `matchAgyParagraphs`
@@ -628,13 +637,14 @@ Dates are `YYYY-MM-DD`.
           unchanged (still `nullTranscript`), so zero regression — this just starts recording the data the
           reader needs. Unit tests in `antigravity_transcript_test.go`. Needs live agy turns to confirm
           the ids populate on real hardware.
-    - [ ] **Next: wire the `antigravityFS` reader over `AgyBrainIDs`.** With the map now recorded, add an
-          `antigravityFS` transcript reader that, given a session's `AgyBrainIDs`, reads each
-          `brain/<id>/…/transcript.jsonl` and assembles `[]Message` (USER_INPUT → user turn, its
-          PLANNER_RESPONSEs → the reply). Interface seam to resolve: the reader is selected/called by our
-          session_ids (`TranscriptIDs()`), but agy needs the brain ids — route `AgyBrainIDs` to it (e.g. a
-          backend-aware `HistoryIDs()`), and back `deleteByIDs` (remove the brain dirs) + `lastContextUsage`
-          (nil; agy has no token counts).
+    - [x] 2026-07-29 — **Wired the `antigravityFS` reader over `AgyBrainIDs`.** Given a session's
+          `AgyBrainIDs`, it reads each `brain/<id>/…/transcript.jsonl` and assembles `[]Message`
+          (USER_INPUT → user turn, unwrapped from the `<USER_REQUEST>` envelope; PLANNER_RESPONSE steps →
+          one joined reply, mirroring `reconstructAgyReply`). The interface seam was already solved:
+          `currentHistoryIDs`/`transcriptReaderFor` route `AgyBrainIDs` + host to the reader (the
+          backend-aware `HistoryIDs()` this item anticipated already existed). `deleteByIDs` is a no-op
+          (brain dirs are agy's store, not ours to reap) and `lastContextUsage` returns nil (agy has no
+          token counts). Durable brain-scoped row ids; `nullTranscript` removed; docs updated.
   - [ ] **Follow-up (gated on Google): rich agy turns via JSON output.** When `agy` grows a
         `--output-format json`/stream mode (or a resolvable transcript path keyed by our conversation
         id), replace `parseAgyText` with a real stream parser and wire an antigravity transcript
