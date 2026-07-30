@@ -26,6 +26,19 @@ Dates are `YYYY-MM-DD`.
       mutated post-arrival). Decide the deep fix: guarantee every session-scoped ephemeral frame is
       attributed (extend `sessionScoped`/audit direct sends) so nothing leaks, and/or accept pure
       acks as ephemeral. Not yet fixed — needs a design call before a server rebuild.
+- [x] 2026-07-30 — **Web chat view froze (no half-open-socket detection).** In the browser the
+      transcript stalled at the last-rendered frame while later replies kept persisting server-side
+      (verified via `jq`: nothing lost, view simply frozen; manual refresh recovered). Root cause:
+      the web `SpawnerClient`'s `for (frame in incoming)` read loop only exits on a real socket
+      close, so a half-open socket (backgrounded/throttled tab, NAT/proxy idle-timeout) blocks
+      forever and its reconnect/backoff never fires. Android sets `pingIntervalMillis` on OkHttp,
+      but browsers don't surface WS ping/pong to JS so the Js engine can't ping. Fix: a client-side
+      wall-clock liveness watchdog in `WebAppController` (`startLivenessWatchdog`) — a 5s timer that,
+      when a tick lands >15s late (the tell-tale of a frozen/throttled tab), forces a fresh
+      `connect()`, whose `HelloOk` re-attaches + refetches history (the catch-up path already
+      worked; only the trigger was missing). Deployable first fix; a protocol-level app ping/pong
+      heartbeat remains a possible follow-up for foreground socket-deaths. Web-only — pending a
+      rebuild+bounce to go live.
 - [x] 2026-07-30 — **Autonomous job-notify prompt re-surfaced as a user bubble on history refetch.**
       A finished background job drives an autonomous turn whose user-prompt is the `jobNotifyPrompt`
       envelope (`[Autonomous update — the user did NOT send this message…]`); Claude records it as a

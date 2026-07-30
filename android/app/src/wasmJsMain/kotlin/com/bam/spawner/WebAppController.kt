@@ -19,6 +19,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -33,6 +36,11 @@ import kotlinx.coroutines.flow.asStateFlow
  * browser audio itself: push-to-talk, SpeechSynthesis TTS, and VAD-gated hands-free. The audio
  * hooks aren't on the interface (like Android); the web shell calls them directly.
  */
+// Liveness-watchdog cadence (see startLivenessWatchdog): tick every 5s; a tick that
+// lands >15s late means the tab was frozen/throttled, so the socket is likely stale.
+private const val watchdogTickMs = 5_000L
+private const val watchdogStaleMs = 15_000L
+
 class WebAppController(internal val prefs: Prefs) : AppController {
     internal var client: SpawnerClient? = null
     internal val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
@@ -256,6 +264,38 @@ class WebAppController(internal val prefs: Prefs) : AppController {
             onAudio = { onSpeakFrame(it) },
             catalogueDigests = { catalogues.digests() },
         ).also { it.connect() }
+        startLivenessWatchdog()
+    }
+
+    private var watchdogStarted = false
+
+    // Web-only liveness watchdog. The browser WebSocket API doesn't surface ping/pong
+    // to JS, so — unlike Android, which sets `pingIntervalMillis` on its OkHttp engine —
+    // the Js engine CANNOT detect a half-open socket: a backgrounded/throttled tab or a
+    // NAT/proxy idle-timeout leaves SpawnerClient's `incoming` loop blocked forever, so
+    // its reconnect/backoff never fires and the chat view freezes at the last frame it
+    // rendered until a manual page refresh (transcript stays intact on the server; only
+    // the live stream stalls). We can't ping, but we CAN notice the tell-tale of a
+    // suspended tab: our own timer stops ticking. When a tick lands far later than its
+    // interval — the tab was frozen/throttled, so the socket is very likely stale — we
+    // force a fresh connect(), whose HelloOk re-attaches + refetches history (the
+    // catch-up path already works; only the trigger was missing). A needless reconnect
+    // is cheap: the digest fast-path transfers no bodies when nothing changed.
+    private fun startLivenessWatchdog() {
+        if (watchdogStarted) return
+        watchdogStarted = true
+        scope.launch {
+            var last = nowEpochMs()
+            while (isActive) {
+                delay(watchdogTickMs)
+                val gap = nowEpochMs() - last
+                last = nowEpochMs()
+                if (gap > watchdogStaleMs && _connected.value) {
+                    _status.value = "reconnecting…"
+                    connect(prefs.url, prefs.token) // stale socket after a suspend → reconnect + catch up
+                }
+            }
+        }
     }
 
     // --- AppController methods -> Outbound sends ----------------------------
