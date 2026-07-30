@@ -178,6 +178,14 @@ func stripInjected(text string) string {
 			text = text[i+len(seedRecapClose):]
 		}
 	}
+	// The autonomous job-completion turn (bgnotify) is WHOLLY synthetic — envelope +
+	// notes + instruction, with no user words to preserve. Unlike the cases above,
+	// which trim scaffolding off a real dictation, strip the entire row to empty so
+	// history matches the live view (where the autonomous prompt shows no user bubble
+	// at all); serveHistory then drops the now-empty row.
+	if strings.HasPrefix(text, jobNotifyMark) {
+		return ""
+	}
 	return text
 }
 

@@ -12,6 +12,31 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [ ] **Ephemeral frames vanish on full browser refresh + unattributed-frame leakage.** Root cause
+      of a live-vs-refresh chat inconsistency the user hit while rapidly switching sessions with
+      background job-notify turns firing. Two halves: (1) `say`/`error`/`activity`/`turn_stopped`
+      frames are deliberately NOT written to Claude's transcript, so a full page reload (which wipes
+      in-memory chat and rebuilds only from history) drops them — "shown live → gone on refresh",
+      the mirror of the 2026-07-30 job-notify strip fix. (2) The client keying rule
+      `keyOf(sessionId) = sessionId.ifEmpty { currentId }` files ANY unattributed frame under the
+      currently-viewed session, so during a session switch an ephemeral frame lacking a `session_id`
+      can surface in the wrong log and disappear on refresh. Content frames are all attributed +
+      persisted (verified: no real message content was ever lost — both transcripts intact on disk);
+      exposure is limited to ephemeral/dialog frames. Timestamps are NOT the cause (they're not
+      mutated post-arrival). Decide the deep fix: guarantee every session-scoped ephemeral frame is
+      attributed (extend `sessionScoped`/audit direct sends) so nothing leaks, and/or accept pure
+      acks as ephemeral. Not yet fixed — needs a design call before a server rebuild.
+- [x] 2026-07-30 — **Autonomous job-notify prompt re-surfaced as a user bubble on history refetch.**
+      A finished background job drives an autonomous turn whose user-prompt is the `jobNotifyPrompt`
+      envelope (`[Autonomous update — the user did NOT send this message…]`); Claude records it as a
+      `user` line, but `stripInjected` (dictate.go) had no case for it (it stripped only the
+      *dictation* job-notes preamble), so `serveHistory` replayed the envelope as a user bubble that
+      was never shown live — "hidden live → shown on refresh". Fix: gave the envelope a shared
+      `jobNotifyMark` constant (bgnotify.go) used by both the builder and `stripInjected`, which now
+      strips the WHOLLY-synthetic turn to empty; `serveHistory` drops user rows that strip to empty
+      so no blank bubble renders (digest is over the full transcript, so paging/freshness unaffected).
+      Test `TestStripInjected` asserts the notify prompt strips to empty. `go test ./...` green.
+      Server-only change — pending a rebuild+bounce to go live.
 - **Shared inbound-message router (kill the two-controller session-filing drift).** The web
       (wasmJs) and Android controllers each hand-wrote ~12 `msg.sessionId.ifEmpty { currentId }`
       keying sites plus parallel filing/dedup bodies for every session-scoped frame — two copies

@@ -1,6 +1,8 @@
 package gateway
 
 import (
+	"strings"
+
 	"github.com/bam/claude_spawner/server/internal/session"
 )
 
@@ -33,12 +35,22 @@ func (c *conn) serveHistory(name string, before *int, limit int, haveHash string
 	page, more := session.HistoryPage(msgs, b, limit)
 	// Strip the server-injected scaffolding from user messages so replayed history
 	// matches what the live view showed (and never re-surfaces hidden instructions).
+	// A user row that is ENTIRELY scaffolding (the autonomous job-notify turn) strips
+	// to empty — drop it so history shows no bubble the live view never did. The
+	// digest (count/hash) is over the full stored transcript, not this display page,
+	// so omitting a display row doesn't disturb the app's freshness check or paging
+	// (each kept row carries its own transcript index).
+	kept := page[:0]
 	for i := range page {
 		if page[i].Role == "user" {
 			page[i].Text = stripInjected(page[i].Text)
+			if strings.TrimSpace(page[i].Text) == "" {
+				continue
+			}
 		}
+		kept = append(kept, page[i])
 	}
-	c.send(msgHistory(s.SessionID, name, page, more, count, hash, false))
+	c.send(msgHistory(s.SessionID, name, kept, more, count, hash, false))
 }
 
 // serveDigests reports every registered session's transcript digest (message

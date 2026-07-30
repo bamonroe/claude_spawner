@@ -78,9 +78,17 @@ func (s *Server) jobReconcileLoop() {
 // dictate's preamble (which precedes real user text), this IS the whole turn — there
 // is no user message — so it tells Claude to speak the outcome directly and briefly,
 // and not to go off and do more work on its own.
+// jobNotifyMark is the leading marker of the autonomous job-completion prompt below.
+// Because the whole prompt is server scaffolding (no user words), stripInjected uses
+// this prefix to drop the entire synthetic turn from stored history — otherwise the
+// envelope, recorded by Claude as a `user` line, re-surfaces as a bubble on a history
+// refetch that was never shown live. It's a package constant so the literal lives in
+// exactly one place across the builder and the stripper.
+const jobNotifyMark = "[Autonomous update — the user did NOT send this message; the server is " +
+	"notifying you that a background job you started earlier has now finished.]"
+
 func jobNotifyPrompt(notes []string) string {
-	return "[Autonomous update — the user did NOT send this message; the server is " +
-		"notifying you that a background job you started earlier has now finished.]\n\n" +
+	return jobNotifyMark + "\n\n" +
 		strings.Join(notes, "\n") +
 		"\n\n[Give the user a brief spoken heads-up that it finished and, from the output " +
 		"above, whether it succeeded or failed — a sentence or two. Do not take any further " +

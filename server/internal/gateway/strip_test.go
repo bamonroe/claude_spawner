@@ -33,4 +33,11 @@ func TestStripInjected(t *testing.T) {
 	if got := stripInjected(spoken); got != spoken {
 		t.Errorf("plain text should be unchanged, got %q", got)
 	}
+	// The autonomous job-notify prompt is WHOLLY synthetic (envelope + notes +
+	// instruction, no user words), so it must strip to empty — serveHistory then drops
+	// the row so history matches the live view, where it never showed a user bubble.
+	notify := jobNotifyPrompt([]string{"• `go build ./...` finished. Last output:\nok"})
+	if got := stripInjected(notify); got != "" {
+		t.Errorf("autonomous job-notify prompt should strip to empty, got %q", got)
+	}
 }
