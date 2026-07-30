@@ -10,7 +10,8 @@ second file (link to the owner instead). This table is itself the index: read it
 
 | You want to know / change…                    | Authoritative home                          | Enforced by |
 |-----------------------------------------------|---------------------------------------------|-------------|
-| **What to do next / what's done** (task state)| `TODO.md`                                   | discipline (the `TODO.md` rule below) |
+| **What to do next** (open/active task state)  | `TODO.md`                                   | discipline (the `TODO.md` rule below) |
+| **What's finished** (archive of fully-done features/epics) | `FINISHED.md`                  | discipline (the `TODO.md` rule below) |
 | **How to work here** (conventions, decisions, rules) | `CLAUDE.md` (this file)               | discipline |
 | **How the system works internally** (data flow, session driver, transcription, repo layout) | `docs/architecture.md` | discipline |
 | **How a user runs/uses it** (setup, build & run, security, phase history) | `README.md`         | discipline |
@@ -242,11 +243,17 @@ or immediately after — never defer it to "later," and never ship code without 
 - Docs land in the same commit as the feature (or an immediately-following commit) — a feature
   commit with no accompanying documentation is incomplete.
 
-## `TODO.md` is the live task list — keep it current
+## `TODO.md` is the live task list, `FINISHED.md` is the archive — keep both current
 
-`TODO.md` (repo root) is the single source of truth for active and completed work — status
-("what's built, what's next") lives there only, not here or in `README.md` (both link to it). The
-historical phase roadmap is separate, in `README.md`. **Update `TODO.md` in the same commit that
-changes the work it describes:** add proposed features/tests unchecked; check off and date
-completed ones; remove dropped ones with a one-line why. A stale `TODO.md` means the change isn't
-done — same rule as the docs.
+`TODO.md` (repo root) is the single source of truth for **open** work — status ("what's next")
+lives there only, not here or in `README.md` (both link to it). The historical phase roadmap is
+separate, in `README.md`. **Update `TODO.md` in the same commit that changes the work it
+describes:** add proposed features/tests unchecked; check off and date completed ones; remove
+dropped ones with a one-line why. A stale `TODO.md` means the change isn't done — same rule as the
+docs.
+
+**Retire fully-done work to `FINISHED.md` so `TODO.md` doesn't grow endlessly.** Once a feature or
+epic is fully checked off and confirmed done against the code, move its entry out of `TODO.md` and
+append it verbatim to `FINISHED.md` (the completed-work archive). A **partial** epic stays in
+`TODO.md` with its done sub-items intact for context, and only migrates once *every* box is
+checked. `FINISHED.md` is history, never a worklist — nothing unchecked belongs there.
