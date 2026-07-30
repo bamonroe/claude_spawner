@@ -238,8 +238,12 @@ Dates are `YYYY-MM-DD`.
           (StateFlow/settings wiring, Android's on-disk cache + timestamp merge + gap-fill, the
           web's in-memory index-sorted merge) stay behind the `SessionSync.Host` seam. No wire
           change; `:app:compileKotlinWasmJs` + `:app:clean :app:assembleDebug` both green.
-      - [ ] Still to do: verify end-to-end on the phone that the sporadic duplicate rows are
-            actually gone (needs a real device run; not verifiable from the build).
+      - [x] 2026-07-29 — Verified in the field: the sporadic duplicate rows / double-speak have not
+            recurred in a long time of daily use on the live self-hosting Pixel 8a client (the bug was
+            never deterministically reproducible even when active, so live-use absence is the strongest
+            available signal). The layered fixes are all shipped — `SessionSync.dedupe`, the
+            buffered-branch in-place badge in both controllers, and now durable-id-first collapse so a
+            re-indexed history copy reconciles against a live row instead of duplicating.
       - [x] 2026-07-17 — **Transient duplicate reply bubble** — two identical fully-badged rows
             (same timestamp + token counts); detach/reattach collapsed it to one. **Root cause found
             (not the earlier guess):** both duplicate rows are LIVE rows (`index==-1`), not a
@@ -326,9 +330,16 @@ Dates are `YYYY-MM-DD`.
             instead of duplicating. Backward compatible both directions (old server → no id → index
             fallback). Tests: id-keyed digest survives re-index but flips on edit/id-swap; id-less rows
             stay index-keyed; Claude+opencode readers surface the id; dedupe id cases. `go test ./...` +
-            wasmJs/Android compile + unit tests green. **Deploy pending: server bounce to serve the id +
-            phone APK install for end-to-end hardware check** (Codex/Antigravity id are separate
-            follow-ups, gated on those backends' transcript readers).
+            wasmJs/Android compile + unit tests green. **Deployed 2026-07-29:** server bounced onto the
+            new image (serving the id) and the phone APK installed. (Codex id landed below; Antigravity
+            id is the remaining follow-up.)
+      - [x] 2026-07-29 — **Codex durable per-row id.** Codex's `event_msg` agent_message lines carry
+            the prose but no id; the durable `msg_…` id lives on the paired assistant `response_item`
+            line (previously skipped). `codexFS.readTranscript` now decodes those lines too and pins
+            each assistant id to its claude row by prose match, so Codex history rows reconcile across a
+            re-index like Claude's. User/developer response_items carry no id (injected context, not
+            clean prose), so user rows keep the index fallback the mixed-key `HistoryDigest` handles.
+            Test fixture gained assistant response_items + id assertions; `go test ./...` green.
       - [ ] **Antigravity readable transcript.** `nullTranscript` means agy sessions digest as
             empty and history refetches return nothing (clients now preserve their cached rows, but
             a fresh device sees an empty conversation). A brain-transcript reader
@@ -426,8 +437,10 @@ Dates are `YYYY-MM-DD`.
                       primitive is shared; unifying would be a behavior change. (The web
                       `renamed`/`discovered` digest-key / title gap noted here was closed 2026-07-17 by
                       the mutation-message audit above.) Revisit if full history-merge parity is wanted.
-          - [ ] **On-device verification (still open):** run on the phone and confirm the sporadic
-                duplicate rows are actually gone end-to-end (no emulator/APK step done yet).
+          - [x] 2026-07-29 — **On-device verification:** confirmed in the field on the live Pixel 8a
+                self-hosting client — the sporadic duplicate rows have not recurred in a long time of
+                daily use (see the duplicate-rows epic above; the bug was never deterministically
+                reproducible, so live-use absence is the verification).
     - [~] **Phase 2 — add `updated_at` to the catalogue records + messages (both worktrees).** Extend
           `Host`/`Identity`/`ProfileInfo`/`AgentInfo` and their Go structs with `updated_at`; server
           persists it and arbitrates LWW; add tombstones for deletes. This is the one non-parallel
@@ -810,11 +823,13 @@ Dates are `YYYY-MM-DD`.
       catalog/fallback tests; `go test ./...` green; architecture + README + TODO updated. Server-only
       change — no APK needed (the app already renders whatever `agents` advertises).
 
-- [ ] **Session execution-environment profiles** — named, per-session, templatable bundles of
-      mounts / credential injection / network endpoints for host + sandbox turns, replacing the flat
-      global `SPAWNER_SANDBOX_*` config (which becomes the built-in `default` profile). Prerequisite
-      for the opencode backend and for reaching a local Ollama model across hosts/sandboxes. Full
-      design + phasing in `EXEC_PROFILES_DESIGN.md`. Proposed 2026-07-13.
+- [x] 2026-07-29 — **Session execution-environment profiles** — named, per-session, templatable
+      bundles of mounts / credential injection / network endpoints for host + sandbox turns, replacing
+      the flat global `SPAWNER_SANDBOX_*` config (which becomes the built-in `default` profile).
+      Prerequisite for the opencode backend and for reaching a local Ollama model across hosts/sandboxes.
+      Full design + phasing in `EXEC_PROFILES_DESIGN.md`. Proposed 2026-07-13; all phases landed and live
+      — profiles are visible and user-creatable in the app's Settings → Profiles tab. Sub-milestones
+      below.
       - [x] 2026-07-13 — Server foundation: added `ExecProfile` + registry, optional
         `SPAWNER_PROFILES` (`profiles.json`) loader, durable `Session.Profile`, and driver
         resolution. The built-in `default` profile is seeded from the existing sandbox env vars, so
@@ -869,12 +884,13 @@ Dates are `YYYY-MM-DD`.
         (unchanged behavior), so a `locked` profile with empty `home_mount`/`mounts`/`creds` now gets
         no host home inside the box. Covered by a new executor test.
 
-- [ ] **Kokoro server-side TTS** — synthesize reply speech on the server (Kokoro-82M via
+- [x] 2026-07-29 — **Kokoro server-side TTS** — synthesize reply speech on the server (Kokoro-82M via
       [Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI), OpenAI-compatible
       `/v1/audio/speech`, streaming, CUDA) and ship audio to clients, replacing on-device
       Android `TextToSpeech` and the browser's `SpeechSynthesis` with one consistent
       high-quality voice — and giving the web client a real voice for the first time.
-      Scoped 2026-07-12; design notes:
+      Scoped 2026-07-12; all five milestones ✅ and live in daily use (TTS now served by the standalone
+      `speech-kokoro:8880` service in the `speech_services` stack). Design notes + milestones below:
       - **Pull, not push**: the speak/mute/summary-only decision stays client-local (as today —
         the server has no per-client speak flag). Client sends a new `speak` request
         (`{id, text}`, markdown already stripped client-side via `tts/Markdown.kt`); server
