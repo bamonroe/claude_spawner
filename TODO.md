@@ -501,10 +501,12 @@ Dates are `YYYY-MM-DD`.
                 self-hosting client — the sporadic duplicate rows have not recurred in a long time of
                 daily use (see the duplicate-rows epic above; the bug was never deterministically
                 reproducible, so live-use absence is the verification).
-    - [~] **Phase 2 — add `updated_at` to the catalogue records + messages (both worktrees).** Extend
+    - [x] 2026-07-30 — **Phase 2 — add `updated_at` to the catalogue records + messages.** Extend
           `Host`/`Identity`/`ProfileInfo`/`AgentInfo` and their Go structs with `updated_at`; server
-          persists it and arbitrates LWW; add tombstones for deletes. This is the one non-parallel
-          step — coordinate, land, merge.
+          persists it and arbitrates LWW; add tombstones for deletes. Done: `UpdatedAt` on all structs,
+          LWW/tombstone arbitration in `hosts.go`/`profile.go`/`identity.go` (+ `tombstone.go`, `lww_test.go`),
+          wire carries `updated_at` both directions. The "coordinate/merge across worktrees" caveat is moot —
+          the tree folded back to a single `master`. (verified against code)
           - [x] **Phase 2a (LWW + tombstones) — done, master.** Landed coordinated on `master`
                 (Go + Kotlin together). Each record carries client-stamped `updated_at` (unix ms);
                 server rejects older upserts + re-broadcasts current; timestamped tombstones block
@@ -1626,17 +1628,23 @@ any backend runs on any target.
       fed from the `attached` message), and the new-session `BrowseScreen` — with its backend/model/host
       pickers — moved to `commonMain` typed against `AppController`, so the **web** client now has the
       full spawn flow too (`WebRoot` routes `onNewSession` → `browse`). (2026-07-09)
-- [ ] Optional: `agent`/`model` on the `spawn_at` inbound message so the visual picker can spawn a
-      chosen backend (voice spawn selection already works).
+- [x] 2026-07-30 — Optional: `agent`/`model` on the `spawn_at` inbound message so the visual picker can spawn a
+      chosen backend (voice spawn selection already works). Done: `messages.go` `Agent`/`Model` fields →
+      `doSpawnAt(agentID, model)`; `Protocol.kt` `spawnAt(agent, model)` emits them. (verified against code)
 - [x] Voice model selection: "hey buddy, list models" speaks the attached session's backend
       catalogue numbered (marking current); "hey buddy, use model 3" switches by ordinal (digit or
       number-word) — ordinals dodge hard-to-say model names. `internal/command` (ListModels/UseModel
       intents + `modelIndex`), gateway `doListModels`/`doUseModel`, `docs/commands.md` + regenerated
       `commands.json`, parse tests. Durable on the session; applies next turn. (2026-07-09)
-- [ ] Register a second real backend (TBD which) — the proof the seam holds: a new `Agent` entry
+- [x] 2026-07-30 — Register a second real backend (TBD which) — the proof the seam holds: a new `Agent` entry
       (+ parser if its output isn't stream-json), no changes to the session/executor/gateway core.
-- [ ] Docs: `README.md` (user-facing: choosing a backend + model), `docs/architecture.md` (the
-      backend-vs-executor seam), `CLAUDE.md` config section for any new env vars.
+      Done and exceeded: `agent.Default()` registers four real backends — claude, codex, opencode
+      (Ollama, custom JSONL parser + live model discovery), antigravity (`agy`, Gemini, plain-prose
+      `parseAgyText`). (verified against code)
+- [x] 2026-07-30 — Docs: `README.md` (user-facing: choosing a backend + model), `docs/architecture.md` (the
+      backend-vs-executor seam), `CLAUDE.md` config section for any new env vars. Done: README
+      "Choosing the AI backend and its model"; architecture "AI backend registry" / "Four backends
+      ship today"; env vars documented in `docs/config.md` (the authoritative home). (verified against code)
 
 ### Web client via Compose Multiplatform — no-divergence with the app (proposed 2026-07-08)
 
@@ -1663,7 +1671,10 @@ Milestones:
       web uses the browser WebSocket (Ktor Js engine). Both targets compile + build (`:app:assembleDebug`
       and `:app:wasmJsBrowserDistribution`). Deferred: a **live** browser connect+hello test — needs the
       server/token connect UI, which is still in `androidMain` MainActivity; wire it once M3 shares that UI.
-- [ ] **M3 — Shared UI.** Move the pure-Compose screens (chat, sidebar, hosts/identities/server/audio/
+- [x] 2026-07-30 — **M3 — Shared UI.** (verified against code: all sub-items done; shared screens live in
+      `commonMain` — chat, `Sidebar`, `TopBar`, `InputBar`, `MainScreen`, `BrowseScreen`, and the full
+      `Settings*.kt` set incl. `SettingsProviders`; platform pieces behind expect/actual.) Move the
+      pure-Compose screens (chat, sidebar, hosts/identities/server/audio/
       appearance/commands settings, browse) into `commonMain`; abstract platform pieces (mic, wake word,
       TTS, permissions, SAF file pickers, prefs) behind `expect`/`actual`. Web stubs where no browser
       equivalent yet.
@@ -1705,7 +1716,9 @@ Milestones:
         moved to `Prefs.companion` so both clients use identical defaults. `SettingsStore` now
         `: Prefs` (props `override`, dup alias logic dropped); client-cert file I/O stays Android-only.
         A web `localStorage`-backed `Prefs` comes with the web controller (step e / M5). Both build.
-  - [ ] **(c) Then lift, screen by screen (each its own commit, both targets green):**
+  - [x] 2026-07-30 — **(c) Then lift, screen by screen (each its own commit, both targets green):**
+        (verified against code: every enumerated screen — Appearance/Commands/Server/Audio settings,
+        TopBar, Usage, Sidebar, InputBar, MainScreen — is present in `commonMain`.)
         - [x] 2026-07-09 — `SettingsHub` + `SettingsRow` (pure), `AppearanceSettings` (theme/badge/
               cache-warm), and the shared `ThemeChoice` pill lifted into `commonMain/SettingsScreens.kt`;
               `AppearanceSettings` retyped against `Prefs`. `ThemeMode`/`parseThemeMode` moved to
@@ -1809,8 +1822,10 @@ Milestones:
         "plain Enter sends"; now Shift+Enter sends and plain Enter is a newline on both the web
         client and a Bluetooth keyboard paired to the Android app (on-screen keyboards never emit
         the chord, so touch typing is unaffected). Built clean and installed on the phone.
-- [~] **M5 — Web-native platform bits.** Browser audio (Web Audio → server STT), `SpeechSynthesis` TTS,
-      browser spawn UI.
+- [x] 2026-07-30 — **M5 — Web-native platform bits.** Browser audio (Web Audio → server STT), `SpeechSynthesis` TTS,
+      browser spawn UI. Done in code: `wasmJsMain/WebAudio.kt` push-to-talk + `SpeechSynthesis` TTS +
+      hands-free VAD; `WebRoot.kt` routes new-session → shared `BrowseScreen`; `WebTransfer.kt` file flow.
+      The web client is in live self-hosting use (recent freeze/liveness fixes were against it). (verified against code)
   - [x] 2026-07-09 — **Web file transfer (the 📎 flow).** The web `MainScreen` now fills the
         `transferButton` slot with a browser upload/download button over the existing WebSocket
         `upload`/`download` protocol (already implemented in `WebAppController`): the DOM File API
@@ -1854,7 +1869,9 @@ Milestones:
         `TopBar` output button. (Any saved earpiece/bluetooth value from the phone normalizes to
         Speaker.) Replaces the old MUTE-only stub.
   - [x] `localStorage`-backed prefs — done earlier with `WebPrefs`.
-- [~] **M6 — Serve + document.** (in progress)
+- [x] 2026-07-30 — **M6 — Serve + document.** Done: `SPAWNER_WEB_DIR` served by `main.go` via `http.FileServer`
+      at `/` (with `/ws` + `/healthz` precedence); `docs/web-client.md` exists; Material vector icons
+      replaced emoji across shared composables. (verified against code)
   - [x] 2026-07-09 — **Server hosts the web bundle.** New `SPAWNER_WEB_DIR` config: when set, the Go
         server serves that directory (the built Compose/Wasm bundle) as static files at `/` alongside
         the `/ws` gateway, so one binary hosts both. `/ws` + `/healthz` keep precedence; static assets
@@ -1949,6 +1966,11 @@ label. (Full code map established 2026-07-05 via two Explore passes — server +
       `spawn_at` updated. Cleanup of the EXISTING pileup is now a manual step — Phase 1 made every
       session individually visible and per-session deletable in the sidebar, so duplicates can be
       pruned there (no destructive auto-cleanup, since which to keep is the user's call).
+      **NOTE (2026-07-30, verified against code): this was later REVERSED.** `doSpawnAt` (browse.go)
+      no longer calls `GetByDir` and deliberately mints a NEW session every spawn — "a directory is
+      the session's initial working dir, not its identity; re-attaching is the session list's job."
+      So same-folder spawns are intentionally NOT deduped anymore, consistent with the epic's
+      "directory is not identity" thesis.
 - [x] 2026-07-07 — **Dev/Prod naming divergence resolved by dropping the toggle** (tail of Phase 4).
       The temporary Dev/Prod server toggle (which kept two registries, so one `session_id` could
       carry a different name per server) was removed in `a2a4c48`; the app now targets a single
