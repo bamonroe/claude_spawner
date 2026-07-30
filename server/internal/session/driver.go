@@ -386,11 +386,10 @@ func (d *Driver) transcriptReaderFor(agentID, host string) transcriptReader {
 	case agent.TranscriptOpencode:
 		return opencodeFS{d.claudeFSFor(host)}
 	case agent.TranscriptAntigravity:
-		// agy's on-disk store isn't wired to a reader yet (keyed by an internal id
-		// we don't hold, and it records no token usage), so history replay/context/
-		// deletion are backed by nothing rather than accidentally reading a
-		// co-located Claude transcript. Its reply still streams live off stdout.
-		return nullTranscript{}
+		// agy ignores our --conversation id and keys its store by internal brain-dir
+		// ids we capture per turn (Session.AgyBrainIDs); antigravityFS replays those
+		// brain transcripts. It records no token usage, so context stays absent.
+		return antigravityFS{d.claudeFSFor(host)}
 	}
 	return d.claudeFSFor(host)
 }

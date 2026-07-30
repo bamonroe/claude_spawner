@@ -188,10 +188,13 @@ token accounting** (agy exposes none). Like Claude it takes a **caller-supplied*
 <uuid>`, created on the first turn and resumed on later ones, so `SelfAssignsID` is false), and unlike
 every other backend it **ignores the process cwd** — it works in its own scratch project unless the
 workspace is named, so `Turn` threads the session directory through `TurnSpec.Dir` and the build passes
-`--add-dir`. Its transcript store isn't wired to a reader (keyed by an internal id we don't hold, and
-carrying no usage), so it maps to the **null** transcript reader — the live reply streams off stdout,
-but reattach shows no prior history. Making agy first-class the way the other three are is a follow-up
-gated on Google shipping a JSON output mode (see `TODO.md`).
+`--add-dir`. agy **ignores** the `--conversation` id we pass and keys its store by internal *brain-dir*
+ids of its own, so we can't look a transcript up by our session id; instead each turn's brain id is
+captured as the reply is reconstructed (`reconstructAgyReply` → `Session.AgyBrainIDs`), and that ordered
+list is what `antigravityFS` (`internal/session/antigravity_transcript.go`) replays on reattach — one
+user row + one joined assistant row per brain transcript. agy still exposes **no token accounting**, so
+an agy session simply carries no context badge. (A richer live turn — tool breadcrumbs / usage — stays
+a follow-up gated on Google shipping a JSON output mode; see `TODO.md`.)
 
 **Reattach replays each backend's own on-disk transcript.** A session has no live process, so the
 `history` page and the on-attach context badge are rebuilt from disk — and *where* that record lives
@@ -205,11 +208,15 @@ by `codexFS` (`internal/session/codex_transcript.go`). opencode keeps sessions i
 (`internal/session/opencode_transcript.go`) instead shells out to opencode's own stable commands over
 the same SSH seam — `opencode export <id>` for history (mapping its message/part JSON, taking each
 turn's context size from the last `step-finish` part's tokens, since the session-level `info.tokens`
-is summed across turns) and `opencode session delete <id>` for removal. Those three normalize to the same
-`[]Message` / `ContextSnapshot` the gateway already sends, so a Codex or opencode session's past turns
-replay on reattach exactly like a Claude session's. Antigravity is the exception: it maps to the null
-reader (`nullTranscript`), reporting no history, no context, and deleting nothing. (These persisted records are *not* the live
-`--json` streams the agents' `ParseTurn` consume during a turn.)
+is summed across turns) and `opencode session delete <id>` for removal. Antigravity keys its store by
+internal brain-dir ids we can't query by session id, so `antigravityFS` replays the per-turn brain
+transcripts we captured in `Session.AgyBrainIDs` — each brain's `transcript.jsonl` becoming one user row
+(unwrapped from agy's `<USER_REQUEST>` envelope) plus one joined assistant row (its `PLANNER_RESPONSE`
+steps), reporting no context (agy exposes no usage) and deleting nothing (the brain dirs are agy's own
+store). All four normalize to the same `[]Message` / `ContextSnapshot` the gateway already sends, so a
+Codex, opencode, or antigravity session's past turns replay on reattach much like a Claude session's.
+(These persisted records are *not* the live `--json` streams the agents' `ParseTurn` consume during a
+turn.)
 
 **A turn *in flight* isn't on disk yet — so mid-turn (re)attach is caught up from a live replay
 buffer, not history.** A turn's streamed prose is only written to the on-disk transcript when it
