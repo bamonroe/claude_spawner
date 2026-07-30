@@ -18,8 +18,9 @@ Dates are `YYYY-MM-DD`.
       that already drifted (Renamed match precedence, a missing blank-text guard, web not speaking
       Ask/interrupt notices, no web barge-in, lost whisper-model persistence). Extracting one shared
       `commonMain` `InboundRouter` (sibling to `SessionSync`/`CatalogueSync`) collapses the ~24
-      keying sites to one `keyOf` and gives the filing invariant a single home. History-merge stays
-      per-platform behind `Host.mergeHistory` (web index-sort vs Android timestamp+gap-fill+disk).
+      keying sites to one `keyOf` and gives the filing invariant a single home. History-merge storage
+      stays per-platform (web in-memory vs Android gap-fill+disk); the merge ORDER is shared
+      (`orderByTimestamp`) as of the 2026-07-30 fix below.
   - [x] 2026-07-29 — **Step A (web-first):** `InboundRouter` created; web controller files
         Say/Output/Activity/Files/Diff/Ask/Transcript/Err/TurnInterrupted/TurnStopped through it,
         with attach/detach/context-reset choreography + History merge staying in the controller.
@@ -42,6 +43,19 @@ Dates are `YYYY-MM-DD`.
         controller keeps its own deliberate jump-to-bottom tick). #2 (blank-text guard) landed via
         Step B's shared `addChat`. #8 (context-reset asymmetry) investigated → EQUIVALENT/by-design
         (per-platform disk+scroll choreography reaches the same observable state); no code change.
+- [x] 2026-07-30 — **Fix: ephemeral system acks (`cleared, starting fresh` / `stopping that` /
+      `nothing to clear yet`) re-popped at the BOTTOM of the web transcript on every detach→reattach.**
+      Root cause was a genuine cross-platform divergence in the history-merge ORDER: these acks are
+      ephemeral `say` sends — never written to the on-disk transcript, filed as `Role.SYSTEM` live rows
+      with `index = -1` and a real arrival `ts`. On a top-page reload the merge keeps live rows not yet
+      in the page (correct — a still-streaming turn belongs there), but the web sorted the merged rows
+      `by index` only, mapping every `index < 0` row to `Int.MAX_VALUE` → dumped below the whole
+      indexed transcript, so each old ack resurfaced at the bottom out of order on every reattach.
+      Android already ordered by `ts` (its `ordered` helper), so it never showed this. Deep fix: hoisted
+      that ts-ordering into shared `commonMain` as `orderByTimestamp` (ChatModels.kt) and merged both
+      platforms through it — a live row now interleaves by its arrival ts into its true chronological
+      slot instead of stranding at the bottom. Storage stays per-platform (web in-memory / Android
+      disk-backed gap-fill); only the ordering unified. Both wasmJs + Android compile green.
 - [x] 2026-07-29 — **Claude per-turn context trimming (`SPAWNER_CLAUDE_EXTRA_ARGS`).** Investigated
       the ~34k fresh-cache cost of a spawner turn: measured a ~20.6k floor on a bare "reply Pong" turn
       in an empty dir (Claude Code's system prompt + built-in tool schemas + skills listing), on top

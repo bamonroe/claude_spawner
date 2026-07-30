@@ -13,7 +13,8 @@ import com.bam.spawner.net.ServerMsg
 // bodies of the session-scoped frames) now lives in the shared commonMain
 // InboundRouter (`controller.router`). What stays here is the platform-specific
 // glue: the attach/detach/context-reset choreography (which writes the attach
-// StateFlows + prefs) and the index-sorted in-memory History merge.
+// StateFlows + prefs) and the in-memory History merge (chronological, via the shared
+// orderByTimestamp).
 
 // touchDiscovered locally bumps a session's sidebar metadata (recency + busy cue) the
 // instant a message arrives, so the list re-sorts and shows "working…" without waiting
@@ -225,9 +226,11 @@ internal fun WebAppController.onReadLast(count: Int) {
 }
 
 // onHistory merges an inbound history page into the router's in-memory transcript store.
-// This index-sorted, in-memory merge is the web's platform-specific strategy (Android's is
-// a disk-backed timestamp merge with reconnect gap-fill), so it stays in the controller and
-// drives the shared router state directly rather than moving into InboundRouter.
+// This in-memory merge is the web's platform-specific strategy (Android's is disk-backed with
+// reconnect gap-fill), so it stays in the controller and drives the shared router state
+// directly rather than moving into InboundRouter. Both platforms order the merged rows the
+// same way — chronologically, via the shared orderByTimestamp — so a live (unindexed) row
+// interleaves by its arrival ts instead of being stranded at the bottom.
 internal fun WebAppController.onHistory(msg: ServerMsg.History) {
     val key = msg.sessionId.ifEmpty { router.currentId } // file the page under the stable id
     // `unchanged` answers a top-page freshness check whose have_hash still matched:
@@ -242,9 +245,10 @@ internal fun WebAppController.onHistory(msg: ServerMsg.History) {
     val existing = router.logs[key] ?: emptyList()
     router.logs[key] = if (router.loadingOlder) {
         // Prepend older page, keeping the live tail; the shared index-aware de-dup
-        // collapses any live chunk already landed as an indexed history row.
-        session.dedupe(hist + existing.filter { it.index < 0 || it.index > (hist.lastOrNull()?.index ?: -1) })
-            .sortedBy { if (it.index >= 0) it.index else Int.MAX_VALUE }
+        // collapses any live chunk already landed as an indexed history row. Order by
+        // ts (not index): a live row — a system ack, a still-streaming reply — has no
+        // index, and an index-only sort would strand every one of them at the bottom.
+        session.dedupe(orderByTimestamp(hist + existing.filter { it.index < 0 || it.index > (hist.lastOrNull()?.index ?: -1) }))
     } else {
         // The top page is the authoritative transcript tail — but PRESERVE what it
         // doesn't cover, like the Android client: indexed rows from older pages we
@@ -258,7 +262,11 @@ internal fun WebAppController.onHistory(msg: ServerMsg.History) {
             (it.index < 0 && (it.role to it.text) !in histTexts) ||
                 (it.index >= 0 && it.index !in histIdx)
         }
-        session.dedupe((hist + kept).sortedBy { if (it.index >= 0) it.index else Int.MAX_VALUE })
+        // Order by ts, matching Android: a surviving live row (an old "cleared, starting
+        // fresh"/"stopping that" ack, a mid-turn breadcrumb) drops into its true
+        // chronological slot instead of being sorted to Int.MAX_VALUE — the bottom —
+        // and re-popping below the whole transcript on every reattach.
+        session.dedupe(orderByTimestamp(hist + kept))
     }
     router.loadingOlder = false
     router.oldest[key] = hist.firstOrNull()?.index ?: (router.oldest[key] ?: 0)

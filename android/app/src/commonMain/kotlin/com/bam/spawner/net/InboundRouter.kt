@@ -38,8 +38,10 @@ import com.bam.spawner.nowMonotonicMs
  * What deliberately stays in each controller (behind [Host]) is the platform-specific side
  * effect: the StateFlow/settings wiring, the audio (speak/beep), and — crucially — the
  * **attach/detach/context-reset choreography** (writing the attach StateFlows + prefs) and the
- * **history-merge strategy**, both of which genuinely differ between the web (in-memory, index
- * sort) and Android (disk-backed, timestamp merge). Those talk to this router through [Host]
+ * **history-merge strategy**, which genuinely differs in storage between the web (in-memory) and
+ * Android (disk-backed, with reconnect gap-fill) — though both now order the merged rows the same
+ * way, chronologically via the shared [orderByTimestamp], so a live row never strands at the
+ * bottom on either. Those talk to this router through [Host]
  * (or, for attach choreography, wrap a call to the router's log/keying primitives) rather than
  * moving their divergent logic in here — which is exactly what will let both share the router.
  *

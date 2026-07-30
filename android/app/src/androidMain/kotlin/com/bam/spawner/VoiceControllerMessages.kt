@@ -371,23 +371,6 @@ internal fun VoiceController.showLog(key: String) {
     scrollToBottom() // attaching / switching → show the latest (history refresh re-scrolls)
 }
 
-// ordered returns the log sorted chronologically by timestamp. History carries
-// server transcript time; live messages carry the phone's wall clock at arrival
-// (addChat) — both unix seconds, so they interleave correctly. Two guards keep it
-// safe: (1) messages predating transcript timestamps have ts==0, so a timestamp is
-// carried forward from the preceding message (computed on the pre-sort order, where
-// the zeros sit contiguously at the front of the history block) instead of letting
-// them float to the top; (2) the sort is stable, so equal timestamps preserve the
-// existing order (history ahead of the live tail, live in arrival order).
-internal fun VoiceController.ordered(msgs: List<ChatMessage>): List<ChatMessage> {
-    var carried = 0L
-    val stamped = msgs.map { m ->
-        if (m.ts > 0L) carried = m.ts
-        m to carried
-    }
-    return stamped.sortedBy { it.second }.map { it.first }
-}
-
 // onHistory merges a server-served page of OLDER messages into the session's
 // log, ordered chronologically with any live messages, and updates the paging cursor.
 internal fun VoiceController.onHistory(msg: ServerMsg.History) {
@@ -425,7 +408,7 @@ internal fun VoiceController.onHistory(msg: ServerMsg.History) {
     // mid-turn breadcrumb not present in the fetched page) may be OLDER than the
     // history block, so `hist + existing` would strand it at the bottom, out of
     // order. Ordering by ts drops it back into its true chronological slot.
-    router.logs[key] = session.dedupe(ordered(hist + existing))
+    router.logs[key] = session.dedupe(orderByTimestamp(hist + existing))
     if (msg.messages.isNotEmpty()) router.oldest[key] = msg.messages.first().index
     router.hasMore[key] = msg.more
     loadingOlder.remove(key)
