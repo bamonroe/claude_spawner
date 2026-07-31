@@ -54,4 +54,17 @@ func attribute(m map[string]any, session, turn string, overwrite bool) {
 var sessionScoped = map[string]bool{
 	"say":   true,
 	"error": true,
+	// Ephemeral session-scoped notices sent DIRECTLY from the read loop (or a
+	// background goroutine) rather than through the hub. Without attribution the
+	// client's `keyOf(sessionId) = sessionId.ifEmpty { currentId }` rule files them
+	// under whatever session the device is *currently* viewing, so during a session
+	// switch one of these could surface in the wrong log (and vanish on the next
+	// refresh, since they're deliberately not persisted to the transcript). Stamping
+	// them with the connection's current session — a no-op when unattached (e.g. a
+	// spawn-flow `dialog`), so genuinely global dialogs are unaffected — pins each to
+	// the right log. Content frames were never at risk (they carry their own id).
+	"dialog":           true, // await_*/confirm prompts for the attached session
+	"pending":          true, // live hands-free draft for the attached session
+	"transcribing":     true, // transient "transcribing…" state
+	"turn_interrupted": true, // shutdown notice (direct send at gateway.go)
 }

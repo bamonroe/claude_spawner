@@ -15,20 +15,24 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
-- [ ] **Ephemeral frames vanish on full browser refresh + unattributed-frame leakage.** Root cause
-      of a live-vs-refresh chat inconsistency the user hit while rapidly switching sessions with
-      background job-notify turns firing. Two halves: (1) `say`/`error`/`activity`/`turn_stopped`
-      frames are deliberately NOT written to Claude's transcript, so a full page reload (which wipes
-      in-memory chat and rebuilds only from history) drops them — "shown live → gone on refresh",
-      the mirror of the 2026-07-30 job-notify strip fix. (2) The client keying rule
-      `keyOf(sessionId) = sessionId.ifEmpty { currentId }` files ANY unattributed frame under the
-      currently-viewed session, so during a session switch an ephemeral frame lacking a `session_id`
-      can surface in the wrong log and disappear on refresh. Content frames are all attributed +
-      persisted (verified: no real message content was ever lost — both transcripts intact on disk);
-      exposure is limited to ephemeral/dialog frames. Timestamps are NOT the cause (they're not
-      mutated post-arrival). Decide the deep fix: guarantee every session-scoped ephemeral frame is
-      attributed (extend `sessionScoped`/audit direct sends) so nothing leaks, and/or accept pure
-      acks as ephemeral. Not yet fixed — needs a design call before a server rebuild.
+- [x] 2026-07-30 — **Ephemeral frames vanish on full browser refresh + unattributed-frame leakage.**
+      Root cause of a live-vs-refresh chat inconsistency the user hit while rapidly switching sessions
+      with background job-notify turns firing. **Decision (both halves resolved):** the leak half is the
+      real bug and is fixed at the unifying choke point; the refresh-vanish half is accepted by design.
+      (1) *Leakage — FIXED.* The client keying rule `keyOf(sessionId) = sessionId.ifEmpty { currentId }`
+      filed any unattributed frame under the currently-viewed session, so during a switch a session-scoped
+      ephemeral frame lacking a `session_id` could surface in the wrong log. Audited every direct-send
+      ephemeral type and extended the `sessionScoped` allowlist (`attribution.go`) — the single write
+      choke point `conn.stampSession` consults it — to cover `dialog`, `pending`, `transcribing`, and
+      `turn_interrupted` (previously only `say`/`error`). Now every session-scoped ephemeral direct send
+      is stamped with the connection's current session (a no-op when unattached, so genuinely global
+      spawn-flow dialogs are unaffected), so nothing leaks. `stamp_session_test.go` covers the four new
+      types (stamped when attached, unstamped when detached). (2) *Vanish on refresh — accepted as
+      designed.* `say`/`error`/`activity`/`turn_stopped`/`dialog`/`pending` are deliberately NOT written
+      to Claude's transcript, so a full reload (rebuild-from-history) legitimately drops them — they are
+      transient UI state, not conversation content. Content frames carry their own id and are persisted
+      (verified: no real message content was ever lost — both transcripts intact on disk). Server-only
+      fix; needs the image rebuilt to go live (build-safe; a bounce picks it up).
 - [ ] **Ping a still-connected phone on an eager notify.** When the eager turn fires to a session
       with no attached sink, push a lightweight `notice` frame to any device still connected but
       viewing another screen, so it surfaces the finished job without opening the session. Needs a

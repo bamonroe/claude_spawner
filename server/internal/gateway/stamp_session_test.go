@@ -34,6 +34,31 @@ func TestStampSessionAttributesDirectNotices(t *testing.T) {
 		}
 	})
 
+	t.Run("ephemeral session-scoped notices stamped with attached id", func(t *testing.T) {
+		// The direct-send ephemeral frames that used to leak into the wrong log
+		// during a session switch: each must now be attributed at the choke point.
+		frames := map[string]map[string]any{
+			"dialog":           msgDialog("await_target", "host or sandbox?"),
+			"pending":          msgPending("hey buddy, what is"),
+			"transcribing":     msgTranscribing(),
+			"turn_interrupted": msgTurnInterrupted("proj", "server restarting"),
+		}
+		for typ, m := range frames {
+			attached.stampSession(m)
+			if got := sidOf(m); got != "sid-A" {
+				t.Fatalf("%s session_id = %q, want %q", typ, got, "sid-A")
+			}
+		}
+	})
+
+	t.Run("ephemeral notice left unstamped when detached (global bucket)", func(t *testing.T) {
+		m := msgDialog("await_dir", "where do you want it?")
+		detached.stampSession(m)
+		if _, present := m["session_id"]; present {
+			t.Fatalf("detached dialog gained a session_id: %v", m)
+		}
+	})
+
 	t.Run("existing id not overwritten (hub-fanned)", func(t *testing.T) {
 		m := msgSay("compressed.")
 		m["session_id"] = "sid-B"
