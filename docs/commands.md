@@ -12,6 +12,13 @@ Go server reference this. When you change a command, change it here first.
   together — notably **"everybody"** (and "heybuddy"). Add a new mishearing by extending that list.
   (One-word aliases are ordinary English words, so they wake more eagerly — e.g. "everybody knows"
   strips a wake; the set is kept small on purpose.)
+  - **Retirement path (once the detector is trusted):** the `wakePhrases` mishearing list exists only
+    because Whisper's transcript is string-matched to spot the wake/end token. When the dedicated
+    LiveKit wake-word detector (`SPAWNER_WAKEWORD_URL`, see `README.md`) is proven in the field and
+    made the default, the string-match — and this hand-curated alias list with it — becomes dead
+    weight and should be dropped: the detector fires on the acoustics of "bump bump"/"beep beep"
+    directly, so mishearing aliases no longer apply. Until then the list stays authoritative (Whisper
+    string-match is still the default `wake_service`).
 - **Custom wake words (per client):** the app's Commands settings can set extra wake word(s) (the
   `wake_token` field of the `hello` handshake). They're accepted **alongside** the built-in "hey buddy"
   family, not instead of it — the server folds them in via `command.WakePhrase` → `StripWakeWith` /

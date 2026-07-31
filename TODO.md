@@ -455,9 +455,11 @@ Accurate full transcription on commit stays on Whisper, untouched.
       server, and compare hands-free end-token catch rate against today's Whisper string-match on real
       phone audio. The restart kills the in-flight turn, so do it on a scratch port or when ready to
       drop the session. This is the gate for both trusting the detector and the positional work above.
-- [ ] **Docs:** `README.md` (setup: training a model + running the detector service), `docs/architecture.md`
-      (the detector seam + data flow), `CLAUDE.md` config section (`SPAWNER_WAKEWORD_URL`), and note the
-      retirement path for `command.wakePhrases` once the detector is trusted.
+- [x] 2026-07-30 — **Docs:** `README.md` (setup: training a model + running the detector service),
+      `docs/architecture.md` (the detector seam + data flow), config vars (`SPAWNER_WAKEWORD_URL`/
+      `_THRESHOLD` in `docs/config.md`, the authoritative home the `CLAUDE.md` config section now points
+      to) all done; added the **`command.wakePhrases` retirement path** note to `docs/commands.md`
+      (drop the mishearing list once the detector is trusted and made the default).
 
 **Open decisions (resolve before coding):**
 - **Frames vs. clips — RESOLVED empirically (2026-07-15): must slide the window.** The classifier
