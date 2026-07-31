@@ -59,6 +59,18 @@ class SessionSyncDedupeTest {
         assertEquals(3, out.size)
     }
 
+    // Regression: re-saying/typing a word that ALREADY SETTLED into history (an indexed
+    // row earlier in the log) must keep the fresh optimistic bubble. A global "text appears
+    // in any settled row" fold ate it here — the row vanished the instant it was sent and
+    // only reappeared after a hard refresh/reattach (once the server re-indexed it). The
+    // fold is positional now: only an adjacent twin collapses, and the stale "yes" isn't one.
+    @Test
+    fun liveRepeatOfSettledTextIsKept() {
+        val out = sync().dedupe(listOf(user("yes", index = 4), claude("ok", index = 5), user("yes")))
+        assertEquals(3, out.size)
+        assertEquals(-1, out.last().index) // the fresh optimistic row survived
+    }
+
     // Existing behavior preserved: a live row still collapses against a landed indexed row.
     @Test
     fun liveRowCollapsesAgainstIndexedHistoryRow() {

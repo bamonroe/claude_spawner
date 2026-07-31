@@ -177,23 +177,28 @@ class SessionSync(private val host: Host) {
      *     index-only rule left both as duplicate bubbles.
      *  2. **By `index`** — id-less indexed history rows (Codex/Antigravity backends) keep
      *     the positional collapse, exactly as before.
-     *  3. **Live fold** — drop a live row when its `(role, text)` already appears in a
-     *     settled (id- or index-bearing) row: folds the N partial live chunks of a streamed
-     *     reply into the one history row once it lands; OR when it exactly repeats the live
-     *     row immediately before it. That adjacent-live case is the hands-free double bubble:
-     *     the utterance is streamed as a live draft/echo row and then the committed
-     *     `transcript` lands the SAME text as a second live row (both live), which neither
-     *     id nor index can touch; a backend can likewise double-emit a reply's closing frame.
-     *     It is safe to collapse an *adjacent* identical live pair — two genuinely separate
-     *     messages can never sit adjacent here, because the server refuses a new dictation
-     *     while a turn is in flight, so a real repeat always has a reply/ask/error row
-     *     between the two. Live rows with no such match are kept (a turn still streaming).
+     *  3. **Adjacent live fold** — drop a live row when its `(role, text)` exactly repeats
+     *     the row **immediately before it** (settled or live). This is deliberately
+     *     *positional*, not a global "does this text appear in any settled row" test: the
+     *     fold must only eat a live row that its neighbour actually replaces, never a fresh
+     *     live row that merely happens to repeat some older settled row elsewhere in the log
+     *     (typing/saying "yes" again after an earlier "yes" already settled into history —
+     *     which a global text fold silently swallowed until a hard refresh). Two things it
+     *     legitimately collapses, both adjacent by construction:
+     *       - a live streamed row landing on top of its just-settled twin: the live draft
+     *         and the indexed/id-bearing history row of the SAME text sort adjacently, so the
+     *         live copy folds into the settled one once it lands (the streamed-reply and
+     *         typed-echo → history case);
+     *       - the hands-free double bubble: an utterance is streamed as a live draft/echo row
+     *         and then the committed `transcript` lands the SAME text as a second live row
+     *         (both live, so neither id nor index can touch it) — and a backend can likewise
+     *         double-emit a reply's closing frame.
+     *     Collapsing an *adjacent* identical pair is safe — two genuinely separate messages
+     *     can never sit adjacent, because the server refuses a new dictation while a turn is
+     *     in flight, so a real repeat always has a reply/ask/error row between the two. Live
+     *     rows with no adjacent twin are kept (a turn still streaming, a legitimate repeat).
      */
     fun dedupe(messages: List<ChatMessage>): List<ChatMessage> {
-        val settledText = messages
-            .filter { it.index >= 0 || it.id.isNotEmpty() }
-            .map { it.role to it.text.trim() }
-            .toSet()
         val seenIds = mutableSetOf<String>()
         val seenIndexes = mutableSetOf<Int>()
         val out = ArrayList<ChatMessage>(messages.size)
@@ -201,9 +206,8 @@ class SessionSync(private val host: Host) {
             val keep = when {
                 m.id.isNotEmpty() -> seenIds.add(m.id)
                 m.index >= 0 -> seenIndexes.add(m.index)
-                settledText.isNotEmpty() && (m.role to m.text.trim()) in settledText -> false
-                out.isNotEmpty() && out.last().index < 0 && out.last().id.isEmpty() &&
-                    out.last().role == m.role && out.last().text.trim() == m.text.trim() -> false
+                out.isNotEmpty() && out.last().role == m.role &&
+                    out.last().text.trim() == m.text.trim() -> false
                 else -> true
             }
             if (keep) out.add(m)
