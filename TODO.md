@@ -318,6 +318,37 @@ Dates are `YYYY-MM-DD`.
       reconcile, but not turn-vs-ops or two devices. Wants a deliberate design (per-record
       mutex or store-mediated mutation), not a drive-by — scoped out of the 2026-07-13
       concurrency fixes below.
+      - **Scoped 2026-07-30 (design ready; NOT implemented — deliberately deferred: this can't be
+        live-verified, and a lock-ordering slip would deadlock the production server on next deploy, a
+        worse failure than the current rare race).** Findings:
+        - **`Store` (`store.go:15`) protects only the two index maps** (`byName`/`byID`); every getter
+          (`Get`/`GetByDir`/`GetBySessionID`/`GetByAnyID`/`List`) returns the shared `*Session` directly
+          under `RLock` and then drops the lock — so record *fields* are unsynchronized once the pointer
+          escapes. `Session` (`session.go:25`) has no mutex.
+        - **`Store.flush` (`store.go:262`) marshals the shared pointers under only the map RLock** — a
+          concurrent field write (esp. a slice append: `PriorIDs`/`History`/`AgyBrainIDs`/`Jobs`) is a
+          real data race against `json.Marshal` and can corrupt/crash the marshal, independent of the
+          two-writer problem.
+        - **Mutation sites** (~20): turn goroutine — `driver_turn.go:75/90/107/108/127`,
+          `turns.go:101/118/122/130` (startTurn), `turns.go:232-238` (startCompress rotation);
+          read-loop ops — `ops_session.go:311-317` (doClear, *isBusy-guarded*),
+          `ops_discover.go:158-175` (set_agent/model, *isBusy guards only the backend-switch branch, not
+          the model-only `rec.Model=` write*), `ops_usage.go:164` (doSetModel, **unguarded**),
+          `bgjobs.go:243` (doKillJob, **unguarded**), `dictate.go:37`; off-loop tickers —
+          `bgjobs.go:95-127` (reconcileJobs, isBusy-guarded), `bgnotify.go:165` (isBusy-guarded);
+          `store.Rename` (`store.go:244`) is the one store-mediated field write.
+        - **The three genuinely-unguarded turn-vs-ops races:** `doSetModel`, `doKillJob`, and the
+          model-only path of `set_agent`. (A blunt `isBusy` guard on these is the wrong fix — it would
+          e.g. block killing a runaway bg job while a turn runs; that UX nuance is why this is not a
+          drive-by.)
+        - **Recommended fix (lowest-churn complete path):** embed a `sync.Mutex` in `Session`; wrap
+          each mutation (multi-field rotations as one critical section); make `flush` **snapshot each
+          record's fields under that record's lock, then marshal the snapshots outside the lock** (so
+          encode holds no record lock and can't deadlock a `Mutate→Put→flush` chain). Full read-side
+          race-freedom additionally needs the gateway's `sess.Name`/`sess.SessionID` routing reads to
+          lock too — the large half — so land it as: (a) mutex + flush-snapshot + wrap writers
+          (closes the corruption/two-writer races), verified with `go test -race ./...`; then (b)
+          audit read-side field access. Do it in a session where a live deploy can validate.
 
 ### Dedicated wake-word / end-token detector via LiveKit (epic — proposed 2026-07-14)
 
