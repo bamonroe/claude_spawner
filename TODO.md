@@ -307,18 +307,23 @@ Dates are `YYYY-MM-DD`.
       a transient "audio route unavailable" status. Clean `:app:assembleDebug` green and installed on
       the Pixel 8a. Still open for real in-car Bluetooth validation.
 
-- [ ] 2026-07-13 — **Providers settings tab (Settings → Providers).** A per-backend settings overlay
+- [x] 2026-07-13 — **Providers settings tab (Settings → Providers).** A per-backend settings overlay
       that mirrors Profiles: pick the model a fresh spawn defaults to, and toggle which models the
       voice `list models`/`use model N` commands enumerate. Backends stay compile-time; only the
-      overrides are stored.
+      overrides are stored. Both halves (server + client) landed — see sub-items. (Fully done →
+      migrate to `FINISHED.md`.)
       - [x] Server layer: `agent.SettingsStore` (`SPAWNER_PROVIDERS`/`providers.json`, validated
         against the registry, nil-safe reads), driver `Providers` field + `ProviderSettings()`, the
         `provider_put` wire handler (`bad_provider`), enriched `agents` message (effective default +
         per-model `voice` flag, re-broadcast on change), spawn default-model stamping + voice-command
         filtering now honor the overlay. Kotlin `AgentInfo.voiceModels` + `providerPut` builder.
         Docs + drift tests green.
-      - [ ] Client tab: `ProvidersController` + `ProvidersSettings` composable, `SettingsHub` row,
-        `MainActivity`/`WebRoot` nav branches, controller impls, APK build + phone install.
+      - [x] 2026-07-30 — Client tab: DONE (verified against code — this item was stale). `ProvidersController`
+        + `ProvidersSettings`/`ProviderCard` composable (`SettingsProviders.kt`), the `SettingsHub`
+        "Providers" row (`set_providers`), and both `MainActivity`/`WebRoot` nav branches all exist and
+        are wired; `AgentInfo.voiceModels` + `Outbound.providerPut` carry the overrides, parsed by
+        `readAgents`, flowed through `CatalogueSync.agentCat`/`putProvider`. Both Android and web
+        controllers expose `agents`/`putProvider`.
 
 - [ ] **Per-session record locking** (1.0 quality pass, deferred item). The store hands out
       shared `*session.Session` pointers; a running turn's goroutine mutates the record
@@ -899,7 +904,13 @@ _Robustness / ops (smaller, safe when we get to them):_
       `TestAudioUnknownCodecRejected`).
 - [x] 2026-07-05 — Loud startup warning when `SPAWNER_ROOT` is empty (unrestricted spawn scope)
       (`main.go`).
-- [ ] Graceful shutdown waits briefly for an in-flight turn instead of a hard 5s HTTP-server kill.
+- [x] 2026-07-30 — Graceful shutdown waits briefly for an in-flight turn instead of a hard 5s
+      HTTP-server kill. On SIGINT/SIGTERM `main` now calls `gw.WaitForInflight(ctx)` (30s grace) before
+      `NotifyShutdown` + `srv.Shutdown`: a dictation turn runs in the session-job hub, independent of the
+      HTTP layer, so `srv.Shutdown` never waited for it — now a turn about to finish gets a bounded
+      window to complete cleanly instead of dying mid-stream, and only a turn STILL running after the
+      grace period is interrupted as before. `WaitForInflight`/`inflightCount` poll the jobs map;
+      `shutdown_test.go` covers idle / waits-then-idle / expires-while-busy.
 
 _2026-07-10 hardening pass (drift-proofing + error handling):_
 - [x] 2026-07-10 — **Client↔server wire drift tests** (`docsync/clientsync_test.go`): the Kotlin

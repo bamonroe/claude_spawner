@@ -316,7 +316,18 @@ func main() {
 	// from the host — see the `restart` command and Driver.Restart).
 	<-stop
 	log.Println("shutting down...")
-	gw.NotifyShutdown() // tell connected apps their in-flight turn was interrupted
+	// Give an in-flight dictation turn a bounded chance to finish cleanly instead of
+	// dying mid-stream on process exit — a turn runs in the session-job hub, so the
+	// HTTP Shutdown below never waits for it. If the grace window expires with a turn
+	// still running, we fall through and interrupt it as before.
+	graceCtx, graceCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	if gw.WaitForInflight(graceCtx) {
+		log.Println("no in-flight turns; shutting down cleanly")
+	} else {
+		log.Println("grace period expired with a turn still running; interrupting")
+	}
+	graceCancel()
+	gw.NotifyShutdown() // tell any app whose turn is STILL running it was interrupted
 	if sshConns != nil {
 		_ = sshConns.Close() // tear down pooled SSH connections + their keepalives
 	}

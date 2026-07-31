@@ -308,6 +308,48 @@ func (s *Server) NotifyShutdown() {
 	}
 }
 
+// inflightCount reports how many sessions have a turn running right now, so
+// shutdown can wait for them to finish instead of killing them mid-stream.
+func (s *Server) inflightCount() int {
+	s.jobsMu.Lock()
+	js := make([]*sessionJob, 0, len(s.jobs))
+	for _, j := range s.jobs {
+		js = append(js, j)
+	}
+	s.jobsMu.Unlock()
+	n := 0
+	for _, j := range js {
+		if j.isRunning() {
+			n++
+		}
+	}
+	return n
+}
+
+// WaitForInflight blocks until no dictation turn is running or ctx is done,
+// whichever comes first. A turn runs in the session-job hub independent of the
+// HTTP layer, so srv.Shutdown does not wait for it; call this first (after
+// NotifyShutdown) to give an in-flight turn a bounded chance to complete cleanly
+// instead of dying mid-stream on process exit. Returns true if the server went
+// idle, false if ctx expired with turns still running.
+func (s *Server) WaitForInflight(ctx context.Context) bool {
+	if s.inflightCount() == 0 {
+		return true
+	}
+	t := time.NewTicker(200 * time.Millisecond)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return s.inflightCount() == 0
+		case <-t.C:
+			if s.inflightCount() == 0 {
+				return true
+			}
+		}
+	}
+}
+
 // broadcast sends a message to every currently-connected app (best-effort; a
 // failed write to a dropped socket is ignored).
 
