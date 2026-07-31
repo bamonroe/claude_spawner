@@ -1989,3 +1989,21 @@ is one atomic, independently-shippable commit with builds/tests green.
 - [x] Whisper vocab biasing toward session names; brief-reply TTS toggle; finished-turn
       notifications; audio-output picker (earpiece/speaker/Bluetooth); barge-in.
 - [x] Whole server-side voice pipeline + Android app verified live (emulator + Pixel 8a).
+
+### Providers settings tab (Settings → Providers) — proposed 2026-07-13, done 2026-07-30
+
+A per-backend settings overlay that mirrors Profiles: pick the model a fresh spawn defaults to, and
+toggle which models the voice `list models`/`use model N` commands enumerate. Backends stay
+compile-time; only the overrides are stored.
+
+- [x] Server layer: `agent.SettingsStore` (`SPAWNER_PROVIDERS`/`providers.json`, validated against
+      the registry, nil-safe reads), driver `Providers` field + `ProviderSettings()`, the
+      `provider_put` wire handler (`bad_provider`), enriched `agents` message (effective default +
+      per-model `voice` flag, re-broadcast on change), spawn default-model stamping + voice-command
+      filtering now honor the overlay. Kotlin `AgentInfo.voiceModels` + `providerPut` builder. Docs +
+      drift tests green.
+- [x] 2026-07-30 — Client tab: `ProvidersController` + `ProvidersSettings`/`ProviderCard` composable
+      (`SettingsProviders.kt`), the `SettingsHub` "Providers" row (`set_providers`), and both
+      `MainActivity`/`WebRoot` nav branches, all wired; `AgentInfo.voiceModels` + `Outbound.providerPut`
+      carry the overrides, parsed by `readAgents`, flowed through `CatalogueSync.agentCat`/`putProvider`.
+      Both Android and web controllers expose `agents`/`putProvider`.

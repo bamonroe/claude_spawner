@@ -307,24 +307,6 @@ Dates are `YYYY-MM-DD`.
       a transient "audio route unavailable" status. Clean `:app:assembleDebug` green and installed on
       the Pixel 8a. Still open for real in-car Bluetooth validation.
 
-- [x] 2026-07-13 — **Providers settings tab (Settings → Providers).** A per-backend settings overlay
-      that mirrors Profiles: pick the model a fresh spawn defaults to, and toggle which models the
-      voice `list models`/`use model N` commands enumerate. Backends stay compile-time; only the
-      overrides are stored. Both halves (server + client) landed — see sub-items. (Fully done →
-      migrate to `FINISHED.md`.)
-      - [x] Server layer: `agent.SettingsStore` (`SPAWNER_PROVIDERS`/`providers.json`, validated
-        against the registry, nil-safe reads), driver `Providers` field + `ProviderSettings()`, the
-        `provider_put` wire handler (`bad_provider`), enriched `agents` message (effective default +
-        per-model `voice` flag, re-broadcast on change), spawn default-model stamping + voice-command
-        filtering now honor the overlay. Kotlin `AgentInfo.voiceModels` + `providerPut` builder.
-        Docs + drift tests green.
-      - [x] 2026-07-30 — Client tab: DONE (verified against code — this item was stale). `ProvidersController`
-        + `ProvidersSettings`/`ProviderCard` composable (`SettingsProviders.kt`), the `SettingsHub`
-        "Providers" row (`set_providers`), and both `MainActivity`/`WebRoot` nav branches all exist and
-        are wired; `AgentInfo.voiceModels` + `Outbound.providerPut` carry the overrides, parsed by
-        `readAgents`, flowed through `CatalogueSync.agentCat`/`putProvider`. Both Android and web
-        controllers expose `agents`/`putProvider`.
-
 - [ ] **Per-session record locking** (1.0 quality pass, deferred item). The store hands out
       shared `*session.Session` pointers; a running turn's goroutine mutates the record
       (Started/PendingSeed/primes + Put) while another device's read loop can mutate it too
