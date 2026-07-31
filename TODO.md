@@ -38,7 +38,12 @@ Dates are `YYYY-MM-DD`.
       viewing another screen, so it surfaces the finished job without opening the session. Needs a
       new wire message (Protocol.kt + docsync) + app handling + an APK test cycle. (Truly waking a
       fully-closed/backgrounded app needs FCM push infra, which does not exist yet — separate epic.)
-- [ ] **Unified versioned app↔server sync layer (one entry point, no drift).** Today every piece
+- [x] **Unified versioned app↔server sync layer (one entry point, no drift).** DONE — Phase 4's
+      `TestCatalogueRegistryComplete` completed the epic (all phasing sub-items checked). The only thing
+      left open below is the **optional, deliberately-deferred** history-merge-parity follow-up (a
+      behavior change, not a gap); the epic stays here rather than in `FINISHED.md` solely because of
+      that one optional box. Original goal, met:
+      Today every piece
       of shared state is reconciled ad-hoc: the four app-managed catalogues (hosts, identities,
       profiles, providers) and every per-client setting are **blind last-write-wins by name with no
       timestamp/version**, and the incoming/outgoing message handling is **written twice** —
