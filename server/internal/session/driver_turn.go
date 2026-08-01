@@ -13,9 +13,10 @@ import (
 // by the agent package (where the per-backend parsers that produce them live).
 // Aliased here so the rest of the server keeps saying session.Usage etc.
 type (
-	ToolUse   = agent.ToolUse
-	Usage     = agent.Usage
-	RateLimit = agent.RateLimit
+	ToolUse    = agent.ToolUse
+	Usage      = agent.Usage
+	RateLimit  = agent.RateLimit
+	TurnResult = agent.TurnResult
 )
 
 // Turn sends one user message to the session and returns the assistant's final
@@ -31,9 +32,9 @@ type (
 // The first turn (s.Started == false) creates the session with --session-id;
 // later turns reattach with --resume. Turn flips s.Started to true on success —
 // the caller is responsible for persisting the updated record.
-func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool func(ToolUse), onText func(string), onRateLimit func(RateLimit)) (string, Usage, error) {
+func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool func(ToolUse), onText func(string), onRateLimit func(RateLimit)) (TurnResult, error) {
 	if s.SessionID == "" {
-		return "", Usage{}, fmt.Errorf("session %q has no SessionID", s.Name)
+		return TurnResult{}, fmt.Errorf("session %q has no SessionID", s.Name)
 	}
 	// The session's AI backend owns the command line and the output parsing: it
 	// turns this spec into the concrete flags (Claude's
@@ -42,7 +43,7 @@ func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool fun
 	// the default.
 	ag := d.agents().Resolve(s.Agent)
 	if ag.ParseTurn == nil {
-		return "", Usage{}, fmt.Errorf("agent %q has no turn parser", ag.ID)
+		return TurnResult{}, fmt.Errorf("agent %q has no turn parser", ag.ID)
 	}
 	args := ag.Args(agent.TurnSpec{
 		Prompt:    prompt,
@@ -70,12 +71,12 @@ func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool fun
 	// executor use its own configured binary (the Claude path).
 	p, err := d.ProfileFor(s)
 	if err != nil {
-		return "", Usage{}, err
+		return TurnResult{}, err
 	}
 	s.ResolvedProfile = p
 	proc, err := d.executor(s.Target).Start(ctx, s, d.binFor(ag, s.Target), args)
 	if err != nil {
-		return "", Usage{}, err
+		return TurnResult{}, err
 	}
 
 	// For a backend that takes a caller-supplied id (Claude), the session now
@@ -108,10 +109,10 @@ func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool fun
 		s.Started = true
 	}
 	if werr := proc.Wait(); werr != nil {
-		return "", Usage{}, fmt.Errorf("%s exited: %w", ag.ID, werr)
+		return TurnResult{}, fmt.Errorf("%s exited: %w", ag.ID, werr)
 	}
 	if perr != nil {
-		return "", Usage{}, perr
+		return TurnResult{}, perr
 	}
 	// Antigravity's stdout collapses a turn's several messages into one blank-line-less
 	// blob; rebuild the paragraph breaks from agy's on-disk transcript (best-effort —
@@ -127,7 +128,7 @@ func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool fun
 			s.AgyBrainIDs = append(s.AgyBrainIDs, brainID)
 		}
 	}
-	return res.Reply, res.Usage, nil
+	return res, nil
 }
 
 // Usage runs `claude -p "/usage"` headless and returns its report text (the

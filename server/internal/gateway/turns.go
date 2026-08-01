@@ -70,7 +70,7 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk, primeJo
 			if strings.Contains(prose, "::ASK::") {
 				return
 			}
-			j.emit(msgOutput(sess.Name, prose, turnID, true, nil))
+			j.emit(msgOutput(sess.Name, prose, turnID, true, nil, nil))
 		}
 		// The rate_limit_event lands early in the stream; broadcast the plan's
 		// session-limit state to every attached device as soon as it arrives.
@@ -79,7 +79,8 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk, primeJo
 			j.emit(msgRateLimit(rl))
 		}
 		wasStarted := sess.Started // Turn flips Started true on the first success
-		reply, turnUsage, err := s.driver.Turn(ctx, sess, text, onTool, onText, onRateLimit)
+		res, err := s.driver.Turn(ctx, sess, text, onTool, onText, onRateLimit)
+		reply, turnUsage := res.Reply, res.Usage
 		if len(changed) > 0 {
 			j.emit(msgFiles(sortedKeys(changed))) // persistent "edited: …" chip
 		}
@@ -155,7 +156,10 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk, primeJo
 		if cx := s.driver.LastContextUsage(sess.Agent, sess.Host, sess.TranscriptIDs()); cx != nil {
 			badge = cx.Usage
 		}
-		j.finish(msgOutput(sess.Name, reply, turnID, false, &badge))
+		// The closing frame also carries the turn's cycle count + aggregate usage
+		// (turnUsage is the result event's per-turn total, summed over every cycle),
+		// which the detailed badge shows next to the context snapshot.
+		j.finish(msgOutput(sess.Name, reply, turnID, false, &badge, &turnStats{Turns: res.Turns, Total: turnUsage}))
 	}()
 	return true
 }
@@ -202,7 +206,8 @@ func (s *Server) startCompress(sess *session.Session) bool {
 			s.setRateLimit(rl)
 			j.emit(msgRateLimit(rl))
 		}
-		summary, _, err := s.driver.Turn(ctx, sess, compressPrompt, nil, nil, onRateLimit)
+		res, err := s.driver.Turn(ctx, sess, compressPrompt, nil, nil, onRateLimit)
+		summary := res.Reply
 		if err != nil {
 			j.mu.Lock()
 			aborted := j.aborted

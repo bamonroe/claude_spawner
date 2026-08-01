@@ -285,7 +285,8 @@ func TestLiveSSHRealClaude(t *testing.T) {
 	s := &Session{Name: "live-ssh", Dir: t.TempDir(), SessionID: id} // Host "" = loopback
 	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	defer cancel()
-	reply, _, err := d.Turn(ctx, s, "Reply with exactly the token LIVESSHOK and nothing else.", nil, nil, nil)
+	res, err := d.Turn(ctx, s, "Reply with exactly the token LIVESSHOK and nothing else.", nil, nil, nil)
+	reply := res.Reply
 	if err != nil {
 		t.Fatalf("live ssh turn: %v", err)
 	}
@@ -325,7 +326,8 @@ func TestLiveSSHRemoteClaude(t *testing.T) {
 	s := &Session{Name: "live-ssh-remote", Dir: dir, Host: host, SessionID: id}
 	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	defer cancel()
-	reply, _, err := d.Turn(ctx, s, "Reply with exactly the token LIVEREMOTEOK and nothing else.", nil, nil, nil)
+	res, err := d.Turn(ctx, s, "Reply with exactly the token LIVEREMOTEOK and nothing else.", nil, nil, nil)
+	reply := res.Reply
 	if err != nil {
 		t.Fatalf("live remote ssh turn on %s: %v", host, err)
 	}
@@ -365,7 +367,8 @@ func TestLiveSSHHostRegistry(t *testing.T) {
 	s := &Session{Name: "live-registry", Dir: dir, Host: "workbox", SessionID: id}
 	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	defer cancel()
-	reply, _, err := d.Turn(ctx, s, "Reply with exactly the token LIVEREGISTRYOK and nothing else.", nil, nil, nil)
+	res, err := d.Turn(ctx, s, "Reply with exactly the token LIVEREGISTRYOK and nothing else.", nil, nil, nil)
+	reply := res.Reply
 	if err != nil {
 		t.Fatalf("live registry turn (host=workbox → %s): %v", addr, err)
 	}

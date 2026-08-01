@@ -137,9 +137,10 @@ func (s *Server) startJobNotify(sess *session.Session, notes []string) bool {
 			if strings.Contains(prose, "::ASK::") {
 				return
 			}
-			j.emit(msgOutput(sess.Name, prose, turnID, true, nil))
+			j.emit(msgOutput(sess.Name, prose, turnID, true, nil, nil))
 		}
-		reply, turnUsage, err := s.driver.Turn(ctx, sess, jobNotifyPrompt(notes), nil, onText, onRateLimit)
+		res, err := s.driver.Turn(ctx, sess, jobNotifyPrompt(notes), nil, onText, onRateLimit)
+		reply, turnUsage := res.Reply, res.Usage
 		if err != nil {
 			j.mu.Lock()
 			aborted := j.aborted
@@ -172,7 +173,7 @@ func (s *Server) startJobNotify(sess *session.Session, notes []string) bool {
 		if cx := s.driver.LastContextUsage(sess.Agent, sess.Host, sess.TranscriptIDs()); cx != nil {
 			badge = cx.Usage
 		}
-		j.finish(msgOutput(sess.Name, reply, turnID, false, &badge))
+		j.finish(msgOutput(sess.Name, reply, turnID, false, &badge, &turnStats{Turns: res.Turns, Total: turnUsage}))
 	}()
 	return true
 }

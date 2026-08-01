@@ -231,7 +231,8 @@ func TestExecutorSelectByTarget(t *testing.T) {
 	}
 	for _, tc := range cases {
 		s := &Session{Name: "s", Dir: "/tmp/x", SessionID: "id", Target: tc.target}
-		got, _, err := d.Turn(context.Background(), s, "hi", nil, nil, nil)
+		res, err := d.Turn(context.Background(), s, "hi", nil, nil, nil)
+		got := res.Reply
 		if err != nil {
 			t.Fatalf("target %q: Turn: %v", tc.target, err)
 		}
@@ -247,7 +248,7 @@ func TestTurnPassesDirAndArgs(t *testing.T) {
 
 	// First turn: --session-id, plus bypass, run in the session's Dir.
 	s := &Session{Name: "s", Dir: "/work/proj", SessionID: "sid-1"}
-	if _, _, err := d.Turn(context.Background(), s, "hello", nil, nil, nil); err != nil {
+	if _, err := d.Turn(context.Background(), s, "hello", nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if host.gotDir != "/work/proj" {
@@ -264,7 +265,7 @@ func TestTurnPassesDirAndArgs(t *testing.T) {
 	}
 
 	// s.Started flipped true → next turn resumes instead of creating.
-	if _, _, err := d.Turn(context.Background(), s, "again", nil, nil, nil); err != nil {
+	if _, err := d.Turn(context.Background(), s, "again", nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	joined = strings.Join(host.gotArgs, " ")

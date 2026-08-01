@@ -176,9 +176,9 @@ func TestMidTurnAttachReplaysStreamedOutput(t *testing.T) {
 
 	// The turn streams two prose steps plus an ephemeral activity breadcrumb; only
 	// the output prose should be buffered for replay.
-	j.emit(msgOutput("cpt", "step one", "t1", true, nil))
+	j.emit(msgOutput("cpt", "step one", "t1", true, nil, nil))
 	j.emit(msgActivity("🤔 thinking…"))
-	j.emit(msgOutput("cpt", "step two", "t1", true, nil))
+	j.emit(msgOutput("cpt", "step two", "t1", true, nil, nil))
 
 	j.mu.Lock()
 	if got := len(j.turnFrames); got != 2 {
@@ -195,7 +195,7 @@ func TestMidTurnAttachReplaysStreamedOutput(t *testing.T) {
 
 	// The turn ends; a NEW turn resets the buffer so last turn's prose isn't replayed
 	// to someone attaching later (they get history + any buffered terminal reply).
-	j.finish(msgOutput("cpt", "final", "t1", false, nil))
+	j.finish(msgOutput("cpt", "final", "t1", false, nil, nil))
 	j.mu.Lock()
 	j.beginTurn(func() {})
 	stale := j.turnFrames
@@ -204,8 +204,8 @@ func TestMidTurnAttachReplaysStreamedOutput(t *testing.T) {
 		t.Fatalf("beginTurn must clear the replay buffer, got %v", stale)
 	}
 	// Output emitted when no turn is running is not buffered.
-	j.finish(msgOutput("cpt", "x", "t2", false, nil)) // running=false
-	j.emit(msgOutput("cpt", "after", "t2", true, nil))
+	j.finish(msgOutput("cpt", "x", "t2", false, nil, nil)) // running=false
+	j.emit(msgOutput("cpt", "after", "t2", true, nil, nil))
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if len(j.turnFrames) != 0 {

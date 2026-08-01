@@ -81,7 +81,8 @@ func TestLiveHostRealClaude(t *testing.T) {
 	s := &Session{Name: "live", Dir: dir, SessionID: id}
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
-	reply, _, err := d.Turn(ctx, s, "Reply with exactly the token LIVEHOSTOK and nothing else.", nil, nil, nil)
+	res, err := d.Turn(ctx, s, "Reply with exactly the token LIVEHOSTOK and nothing else.", nil, nil, nil)
+	reply := res.Reply
 	if err != nil {
 		t.Fatalf("live host turn: %v", err)
 	}
@@ -126,7 +127,8 @@ func TestLiveSandboxContainer(t *testing.T) {
 	defer cancel()
 
 	// First turn creates the container (Ensure) and execs the stub.
-	reply, _, err := d.Turn(ctx, s, "hello", nil, nil, nil)
+	res, err := d.Turn(ctx, s, "hello", nil, nil, nil)
+	reply := res.Reply
 	if err != nil {
 		t.Fatalf("live sandbox turn: %v", err)
 	}
@@ -137,7 +139,7 @@ func TestLiveSandboxContainer(t *testing.T) {
 	if !se.running(ctx, cn) {
 		t.Errorf("container %q should still be running after a turn", cn)
 	}
-	if _, _, err := d.Turn(ctx, s, "again", nil, nil, nil); err != nil {
+	if _, err := d.Turn(ctx, s, "again", nil, nil, nil); err != nil {
 		t.Fatalf("second sandbox turn (reuse): %v", err)
 	}
 	// It shows up in the managed list, and reconcile removes it when orphaned.
@@ -206,7 +208,8 @@ func TestLiveSandboxRealClaude(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
 	defer cancel()
 
-	reply, _, err := d.Turn(ctx, s, "Reply with exactly the token SANDBOXCLAUDEOK and nothing else.", nil, nil, nil)
+	res, err := d.Turn(ctx, s, "Reply with exactly the token SANDBOXCLAUDEOK and nothing else.", nil, nil, nil)
+	reply := res.Reply
 	if err != nil {
 		t.Fatalf("real claude in sandbox: %v", err)
 	}

@@ -338,11 +338,29 @@ func msgRenamed(old, name, sessionID string) map[string]any {
 // guaranteed (some backends reshape the closing text), and a close can reach a
 // client twice (buffered redelivery), so clients key "did I already show/speak
 // this turn" on the id, never on the text.
-func msgOutput(name, text, turn string, chunk bool, usage *session.Usage) map[string]any {
+// turnStats is the per-dictation rollup the detailed token badge shows alongside
+// the context snapshot: how many API request/response cycles ran (Turns) and the
+// aggregate tokens they consumed (Total — the stream-json `result` event's usage,
+// which sums every cycle). It's internal plumbing for the closing `output` frame,
+// carried on the wire as the flat `turns` / `turn_total` keys, not as a nested
+// object — so its fields need no json tags.
+type turnStats struct {
+	Turns int
+	Total session.Usage
+}
+
+func msgOutput(name, text, turn string, chunk bool, usage *session.Usage, stats *turnStats) map[string]any {
 	m := map[string]any{"type": "output", "name": name, "text": text, "chunk": chunk, "turn": turn}
 	if usage != nil {
 		m["usage"] = usage
 		m["usage_at"] = time.Now().Unix()
+	}
+	// The closing frame carries the turn's cycle count + aggregate usage (distinct
+	// from `usage`, which is the current context-window snapshot). Streaming chunks
+	// pass nil — there's no per-chunk rollup.
+	if stats != nil {
+		m["turns"] = stats.Turns
+		m["turn_total"] = stats.Total
 	}
 	return m
 }

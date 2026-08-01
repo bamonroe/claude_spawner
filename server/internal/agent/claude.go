@@ -120,6 +120,10 @@ func parseClaudeStream(r io.Reader, cb TurnCallbacks) (TurnResult, error) {
 		}
 		switch ev.Type {
 		case "assistant":
+			// One assistant event is one model response = one API request/response
+			// cycle of the agentic loop; count it so the turn's aggregate usage reads
+			// as N cycles, not one (see TurnResult.Turns).
+			res.Turns++
 			// One assistant event carries a whole message (text and/or tool_use
 			// blocks). Fan tool breadcrumbs out via OnTool and the joined prose via
 			// OnText, in the order the blocks appear.

@@ -54,6 +54,13 @@ type TurnCallbacks struct {
 type TurnResult struct {
 	Reply string // the clean final reply text
 	Usage Usage  // the turn's token accounting (zero if unreported)
+	// Turns is how many API request/response cycles the backend ran to answer one
+	// dictation. A single user message triggers an agentic loop where every tool
+	// round-trip is its own model call; each shows up as one `assistant` event in
+	// the stream, so we count those. 0 when the backend reports none. Surfaced in
+	// the app's detailed token badge so the aggregate Usage (which sums every one
+	// of these cycles) reads in context — N turns, not one.
+	Turns int
 	// SessionID is the backend-minted session id announced in the stream — only
 	// set by self-assigning backends (Codex's thread_id). Parsers return it even
 	// on the error path (the id event precedes any failure), so a first turn that
