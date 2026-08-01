@@ -113,6 +113,16 @@ type Message struct {
 	// final assistant line of a turn (matching the live badge, which lands on the
 	// closing message), and nil on user turns. Omitted from the wire when nil.
 	Usage *Usage `json:"usage,omitempty"`
+	// Turns / TurnTotal are the agentic-loop rollup for the dictation this message
+	// closes: how many API request/response cycles ran and the tokens they summed
+	// to. Live turns carry the same pair on the closing `output` frame (counted from
+	// the stream's `assistant` events and the `result` event's aggregate usage);
+	// here they're reconstructed from the transcript — every assistant line since
+	// the last user message, tool-only ones included — so the detailed badge keeps
+	// its "N turns · X total" tail after a reattach instead of losing it to history.
+	// Set only where Usage is (the run's closing claude line); omitted when zero.
+	Turns     int    `json:"turns,omitempty"`
+	TurnTotal *Usage `json:"turn_total,omitempty"`
 }
 
 // transcriptLine is the subset of a Claude transcript JSONL line we read.
@@ -205,6 +215,19 @@ func (fs claudeFS) readTranscript(path string) ([]Message, error) {
 	sc := newLineScanner(f)
 	var out []Message
 	idx := 0
+	// Agentic-loop rollup for the dictation currently being scanned: every assistant
+	// line counts as one cycle (tool-only ones too, which never become messages), and
+	// their usages sum the way the live stream's `result` event does. Flushed onto the
+	// run's last claude message when the next user message starts a new dictation.
+	curTurns, lastClaude := 0, -1
+	var curTotal Usage
+	flushTurnStats := func() {
+		if lastClaude >= 0 && curTurns > 0 {
+			total := curTotal
+			out[lastClaude].Turns, out[lastClaude].TurnTotal = curTurns, &total
+		}
+		curTurns, lastClaude, curTotal = 0, -1, Usage{}
+	}
 	for sc.Scan() {
 		var l transcriptLine
 		if json.Unmarshal(sc.Bytes(), &l) != nil {
@@ -219,9 +242,22 @@ func (fs claudeFS) readTranscript(path string) ([]Message, error) {
 		default:
 			continue
 		}
+		if role == "claude" {
+			// Count the cycle before the text filter — a tool-only assistant line is a
+			// real API round-trip even though it never becomes a bubble.
+			u := l.Message.Usage
+			curTurns++
+			curTotal.Input += u.Input
+			curTotal.Output += u.Output
+			curTotal.CacheWrite += u.CacheWrite
+			curTotal.CacheRead += u.CacheRead
+		}
 		text := extractText(l.Message.Content)
 		if strings.TrimSpace(text) == "" {
 			continue // tool-only turn, tool_result, etc.
+		}
+		if role == "user" {
+			flushTurnStats() // a new dictation begins; close out the previous run
 		}
 		m := Message{ID: l.UUID, Index: idx, Role: role, Text: text, Ts: parseTs(l.Timestamp)}
 		if role == "claude" {
@@ -230,8 +266,12 @@ func (fs claudeFS) readTranscript(path string) ([]Message, error) {
 			}
 		}
 		out = append(out, m)
+		if role == "claude" {
+			lastClaude = len(out) - 1
+		}
 		idx++
 	}
+	flushTurnStats() // the trailing dictation
 	// A dictation turn can span several assistant text lines (text interleaved with
 	// tool calls); the live badge lands only on the turn's closing message. Match
 	// that: keep usage on the last claude line of each run, clearing earlier ones.

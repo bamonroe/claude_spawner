@@ -180,6 +180,50 @@ func TestReadTranscriptCarriesTurnUsage(t *testing.T) {
 	}
 }
 
+// TestReadTranscriptCarriesTurnRollup confirms the agentic-loop rollup is
+// reconstructed per dictation and lands on the same closing line the badge does:
+// every assistant line since the last user message counts as a cycle (tool-only
+// ones included, though they never become messages) and their usages sum.
+func TestReadTranscriptCarriesTurnRollup(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "t.jsonl")
+	// Turn 1: three cycles — a text line, a tool-only line (no bubble), a closing
+	// text line. Turn 2: a single cycle.
+	lines := `{"type":"user","message":{"content":"go"}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"working"}],"usage":{"input_tokens":1,"output_tokens":2,"cache_read_input_tokens":50}}}
+{"type":"assistant","message":{"content":[{"type":"tool_use"}],"usage":{"input_tokens":4,"output_tokens":8,"cache_creation_input_tokens":5,"cache_read_input_tokens":20}}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"done"}],"usage":{"input_tokens":3,"output_tokens":9,"cache_creation_input_tokens":10,"cache_read_input_tokens":80}}}
+{"type":"user","message":{"content":"again"}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":2,"output_tokens":4,"cache_read_input_tokens":90}}}
+`
+	if err := os.WriteFile(path, []byte(lines), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	msgs, err := ReadTranscript(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 5 { // the tool-only line yields no message
+		t.Fatalf("want 5 messages, got %d", len(msgs))
+	}
+	if msgs[2].Turns != 3 {
+		t.Errorf("turn 1 cycles = %d, want 3 (tool-only line counted)", msgs[2].Turns)
+	}
+	want := Usage{Input: 8, Output: 19, CacheWrite: 15, CacheRead: 150}
+	if msgs[2].TurnTotal == nil || *msgs[2].TurnTotal != want {
+		t.Errorf("turn 1 total = %+v, want %+v", msgs[2].TurnTotal, want)
+	}
+	if msgs[1].Turns != 0 || msgs[1].TurnTotal != nil {
+		t.Error("intermediate assistant line should carry no rollup")
+	}
+	if msgs[0].Turns != 0 || msgs[3].Turns != 0 {
+		t.Error("user messages should carry no rollup")
+	}
+	if msgs[4].Turns != 1 || msgs[4].TurnTotal == nil || msgs[4].TurnTotal.CacheRead != 90 {
+		t.Errorf("turn 2 rollup = %d %+v, want 1 cycle with its own usage", msgs[4].Turns, msgs[4].TurnTotal)
+	}
+}
+
 // TestTranscriptCacheInvalidatesOnChange confirms the per-file parse cache is
 // self-invalidating: reading primes the cache, and appending a turn (which grows
 // the file) must yield the fresh content on the next read, not the stale cached
