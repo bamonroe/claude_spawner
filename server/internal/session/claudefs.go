@@ -2,6 +2,7 @@ package session
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -206,6 +207,80 @@ func (fs claudeFS) open(path string) (io.ReadCloser, error) {
 	return io.NopCloser(bytes.NewReader(out)), nil
 }
 
+// cwdHeadLines is how far into a transcript the cheap metadata reads look for the
+// `cwd` field — it's recorded on essentially every event, so the first few dozen
+// lines always carry it.
+const cwdHeadLines = 40
+
+// headsChunk caps how many paths go into one remote `head` command, keeping the
+// argument list well inside ARG_MAX.
+const headsChunk = 200
+
+// headSep delimits path/body records in the batched remote head output. 0x1e (RS)
+// can't appear raw in a JSONL transcript — JSON escapes control characters — so it
+// is unambiguous as a framing byte.
+const headSep = 0x1e
+
+// heads returns the first `lines` lines of each path. It exists so metadata reads
+// — which only ever need a transcript's head — can never pull whole files: over
+// SSH, `open` is a `cat`, so reading 500-odd transcripts to recover their working
+// directories moved hundreds of megabytes and made session discovery take minutes
+// (the app timed out with an empty session list). Batching turns that into a
+// handful of `head` commands. Paths that can't be read are simply absent from the
+// result.
+func (fs claudeFS) heads(paths []string, lines int) map[string][]byte {
+	out := make(map[string][]byte, len(paths))
+	if fs.remote == nil {
+		for _, p := range paths {
+			f, err := os.Open(p)
+			if err != nil {
+				continue
+			}
+			var buf bytes.Buffer
+			sc := newLineScanner(f)
+			for i := 0; i < lines && sc.Scan(); i++ {
+				buf.Write(sc.Bytes())
+				buf.WriteByte('\n')
+			}
+			f.Close()
+			out[p] = buf.Bytes()
+		}
+		return out
+	}
+	for start := 0; start < len(paths); start += headsChunk {
+		end := min(start+headsChunk, len(paths))
+		var cmd strings.Builder
+		cmd.WriteString("for p in")
+		for _, p := range paths[start:end] {
+			cmd.WriteString(" " + shellQuote(p))
+		}
+		cmd.WriteString(`; do printf '\036%s\036' "$p"; head -n ` + strconv.Itoa(lines) + ` "$p" 2>/dev/null; done`)
+		blob, err := fs.remote.output(cmd.String())
+		if err != nil {
+			continue
+		}
+		// Records come back as: sep path sep body sep path sep body …
+		parts := bytes.Split(blob, []byte{headSep})
+		for i := 1; i+1 < len(parts); i += 2 {
+			out[string(parts[i])] = parts[i+1]
+		}
+	}
+	return out
+}
+
+// cwdFromHead pulls the first recorded `cwd` out of a transcript head.
+func cwdFromHead(head []byte) string {
+	for _, line := range bytes.Split(head, []byte("\n")) {
+		var ev struct {
+			Cwd string `json:"cwd"`
+		}
+		if json.Unmarshal(line, &ev) == nil && ev.Cwd != "" {
+			return ev.Cwd
+		}
+	}
+	return ""
+}
+
 // remove deletes a transcript file (idempotent; a missing file is not an error).
 func (fs claudeFS) remove(path string) error {
 	if fs.remote == nil {
@@ -236,13 +311,22 @@ func (fs claudeFS) discoverSessions() ([]Discovered, error) {
 		return nil, err
 	}
 	seen := map[string]bool{}
+	// Recover every transcript's working directory in one batch (a couple of remote
+	// commands) rather than a per-file read — see heads.
+	paths := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if id := strings.TrimSuffix(filepath.Base(ref.path), ".jsonl"); looksLikeUUID(id) {
+			paths = append(paths, ref.path)
+		}
+	}
+	headByPath := fs.heads(paths, cwdHeadLines)
 	out := make([]Discovered, 0, len(refs))
 	for _, ref := range refs {
 		id := strings.TrimSuffix(filepath.Base(ref.path), ".jsonl")
 		if !looksLikeUUID(id) || seen[id] {
 			continue
 		}
-		dir := fs.transcriptCwd(ref.path)
+		dir := cwdFromHead(headByPath[ref.path])
 		if dir == "" {
 			continue
 		}

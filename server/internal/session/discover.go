@@ -1,9 +1,5 @@
 package session
 
-import (
-	"encoding/json"
-)
-
 // Discovered is a Claude session found on disk (via its transcript) that isn't
 // necessarily in the spawner's registry — used to surface sessions started
 // outside the spawner (e.g. interactive `claude` in tmux) so they can be adopted.
@@ -31,21 +27,7 @@ func (d *Driver) DiscoverSessions(host string) ([]Discovered, error) {
 // transcriptCwd returns the first `cwd` recorded in a transcript (present on most
 // events), reading only the head of the file. Backend-neutral: local or over SSH.
 func (fs claudeFS) transcriptCwd(path string) string {
-	f, err := fs.open(path)
-	if err != nil {
-		return ""
-	}
-	defer f.Close()
-	sc := newLineScanner(f)
-	for i := 0; i < 40 && sc.Scan(); i++ {
-		var ev struct {
-			Cwd string `json:"cwd"`
-		}
-		if json.Unmarshal(sc.Bytes(), &ev) == nil && ev.Cwd != "" {
-			return ev.Cwd
-		}
-	}
-	return ""
+	return cwdFromHead(fs.heads([]string{path}, cwdHeadLines)[path])
 }
 
 // TranscriptCwd reads the working directory from a LOCAL transcript.
