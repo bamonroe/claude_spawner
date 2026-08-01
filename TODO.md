@@ -15,6 +15,17 @@ Dates are `YYYY-MM-DD`.
 
 ## Active
 
+- [x] 2026-08-01 — **Detailed token badge shows the agentic turn count + aggregate total.**
+      One dictation drives an agentic loop of several model calls (each tool round-trip is its own
+      API request/response cycle), so the per-message `in/cached/new/out` badge was a single-call
+      snapshot with no sense of how many calls actually ran. The closing `output` frame now carries
+      `turns` (count of `assistant` events) and `turn_total` (the `result` event's aggregate usage,
+      previously computed as `turnUsage` and discarded), and the **detailed** badge renders
+      "… · N turns · X total". Server: `Driver.Turn` returns the full `TurnResult` (no more lossy
+      reply+usage projection); protocol.md documents the two new fields; docsync green. Client:
+      `TurnStats` parsed off the frame, threaded through `ChatMessage`, shown by `TokenBadge`.
+      Deferred (user dropped it): a top-bar "next turn will cost N reads/writes" predictor.
+
 - [x] 2026-07-30 — **Ephemeral frames vanish on full browser refresh + unattributed-frame leakage.**
       Root cause of a live-vs-refresh chat inconsistency the user hit while rapidly switching sessions
       with background job-notify turns firing. **Decision (both halves resolved):** the leak half is the
