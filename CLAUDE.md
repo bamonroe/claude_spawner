@@ -10,8 +10,8 @@ second file (link to the owner instead). This table is itself the index: read it
 
 | You want to know / change…                    | Authoritative home                          | Enforced by |
 |-----------------------------------------------|---------------------------------------------|-------------|
-| **What to do next** (open/active task state)  | `TODO.md`                                   | discipline (the `TODO.md` rule below) |
-| **What's finished** (archive of fully-done features/epics) | `FINISHED.md`                  | discipline (the `TODO.md` rule below) |
+| **What to do next** (open/active task state)  | `TODO.toml` (via the `todo` skill)          | `scripts/todo.sh validate` + the rule below |
+| **What's finished** (archive of fully-done features/epics) | `FINISHED.toml` (via the `todo` skill) | `scripts/todo.sh validate` + the rule below |
 | **How to work here** (conventions, decisions, rules) | `CLAUDE.md` (this file)               | discipline |
 | **How the system works internally** (data flow, session driver, transcription, repo layout) | `docs/architecture.md` | discipline |
 | **How a user runs/uses it** (setup, build & run, security, phase history) | `README.md`         | discipline |
@@ -35,7 +35,7 @@ second file (link to the owner instead). This table is itself the index: read it
    Markdown files — a code change always re-runs the checks; for a **doc-only** edit run the
    canonical drift check uncached: `go test ./... -count=1`.)
 2. **Narrative facts** (status, "verified live", roadmap history) can't be tested, so they live in
-   **one** place only — status/tasks in `TODO.md`, architecture in `docs/architecture.md`,
+   **one** place only — status/tasks in `TODO.toml`, architecture in `docs/architecture.md`,
    conventions here, run/history in `README.md` —
    and the update rules below (and in `README.md`) keep that single copy current.
 
@@ -243,17 +243,26 @@ or immediately after — never defer it to "later," and never ship code without 
 - Docs land in the same commit as the feature (or an immediately-following commit) — a feature
   commit with no accompanying documentation is incomplete.
 
-## `TODO.md` is the live task list, `FINISHED.md` is the archive — keep both current
+## `TODO.toml` is the live task list, `FINISHED.toml` is the archive — keep both current
 
-`TODO.md` (repo root) is the single source of truth for **open** work — status ("what's next")
+`TODO.toml` (repo root) is the single source of truth for **open** work — status ("what's next")
 lives there only, not here or in `README.md` (both link to it). The historical phase roadmap is
-separate, in `README.md`. **Update `TODO.md` in the same commit that changes the work it
-describes:** add proposed features/tests unchecked; check off and date completed ones; remove
-dropped ones with a one-line why. A stale `TODO.md` means the change isn't done — same rule as the
-docs.
+separate, in `README.md`. `FINISHED.toml` is the archive of completed work, newest-first.
 
-**Retire fully-done work to `FINISHED.md` so `TODO.md` doesn't grow endlessly.** Once a feature or
-epic is fully checked off and confirmed done against the code, move its entry out of `TODO.md` and
-append it verbatim to `FINISHED.md` (the completed-work archive). A **partial** epic stays in
-`TODO.md` with its done sub-items intact for context, and only migrates once *every* box is
-checked. `FINISHED.md` is history, never a worklist — nothing unchecked belongs there.
+Both are **TOML**, not Markdown, and each task carries structured metadata (`id`, `status`,
+`category`, `urgency`, `order`, `created`/`completed`, `tags`). **Drive them through the `todo`
+skill** — `scripts/todo.sh <command>`, documented in `.claude/skills/todo/SKILL.md` — rather than
+hand-editing, so ids, ordering, and metadata stay consistent and diffs stay small. The skill also
+answers "how many tasks / bugs are left" (`scripts/todo.sh stats`).
+
+- **Update them in the same commit that changes the work they describe:** add proposed
+  features/tests with `scripts/todo.sh add …`; drop descoped ones with
+  `scripts/todo.sh remove <id> --reason "…"`.
+- **When a task is fully finished** (built, tested, documented), run `scripts/todo.sh done <id>`
+  to move it into `FINISHED.toml`, dated. A **partial** epic stays in `TODO.toml` (status
+  `in-progress`) with its done sub-items in the description for context, and only migrates once
+  every part is done. `FINISHED.toml` is history, never a worklist — nothing open belongs there.
+- A stale `TODO.toml`/`FINISHED.toml` means the change isn't done — same rule as the docs. Run
+  `scripts/todo.sh validate` if you ever hand-edit them.
+- Per-task boolean flags (`store.FLAGS` in `.claude/skills/todo/scripts/store.py`): this project
+  uses none.

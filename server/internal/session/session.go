@@ -55,7 +55,7 @@ type Session struct {
 	// execution: empty means the local machine (loopback), a name like "work" means
 	// that remote box. SSHExecutor reads it to pick the pooled connection. Reserved:
 	// the spawn-dialog choice and Driver routing that select the SSH executor land in
-	// a later commit of the SSH-native epic (see TODO.md); today nothing sets it.
+	// a later commit of the SSH-native epic (see TODO.toml); today nothing sets it.
 	Host string `json:"host,omitempty"`
 	// Agent is the id of the AI backend this session runs (agent.Registry). Empty
 	// means the default backend — records predate this field, and it keeps old

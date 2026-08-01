@@ -2,7 +2,7 @@
 
 Trainer artifacts for the dedicated wake-word / end-token detector that replaces the
 Whisper-as-keyword-spotter path. See the **LiveKit wake-word/end-token detector** epic in
-[`../TODO.md`](../TODO.md) for the rationale, architecture (offline trainer → Rust sidecar →
+[`../TODO.toml`](../TODO.toml) for the rationale, architecture (offline trainer → Rust sidecar →
 gateway `Detector` swap), and open decisions — not restated here.
 
 ## What's here

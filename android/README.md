@@ -39,7 +39,7 @@ it reads the server's `say`/`output` replies aloud (TTS).
 ## Remaining
 
 Open work (verifying the hands-free voice model on a real device, etc.) is tracked in the repo's
-[`../TODO.md`](../TODO.md), the single live task list.
+[`../TODO.toml`](../TODO.toml), the single live task list.
 
 ## Layout
 

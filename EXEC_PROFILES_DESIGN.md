@@ -182,7 +182,7 @@ set, so a `locked` profile with no mounts is genuinely isolated.
      Add is `enabled=connected` like Hosts). Remaining on-device check: the form + CRUD round-trip on
      a **server-connected** client (emulator was offline), and a Pixel 8a install.
 7. **opencode backend spike** drops in on top: an `opencode.go` agent + a profile that injects its
-   creds and points at the Ollama endpoint. (See the multi-backend epic in `TODO.md`.)
+   creds and points at the Ollama endpoint. (See the multi-backend epic in `TODO.toml`.)
 
 ## Relationship to the interrupted "Fable" client refactor
 

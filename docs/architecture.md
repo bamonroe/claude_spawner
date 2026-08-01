@@ -194,7 +194,7 @@ captured as the reply is reconstructed (`reconstructAgyReply` → `Session.AgyBr
 list is what `antigravityFS` (`internal/session/antigravity_transcript.go`) replays on reattach — one
 user row + one joined assistant row per brain transcript. agy still exposes **no token accounting**, so
 an agy session simply carries no context badge. (A richer live turn — tool breadcrumbs / usage — stays
-a follow-up gated on Google shipping a JSON output mode; see `TODO.md`.)
+a follow-up gated on Google shipping a JSON output mode; see `TODO.toml`.)
 
 **Reattach replays each backend's own on-disk transcript.** A session has no live process, so the
 `history` page and the on-attach context badge are rebuilt from disk — and *where* that record lives
@@ -498,7 +498,7 @@ docker-compose.yml              spawner-server gateway + wakeword detector (STT/
   protocol.md                   WebSocket message schema (single source of truth)
   commands.md                   "hey buddy" command grammar + dialog flows
   commands.json                 command list generated from the registry (consumed by the app build)
-README.md / CLAUDE.md / TODO.md / .gitignore
+README.md / CLAUDE.md / TODO.toml / .gitignore
 ```
 
 Architectural status: the **full voice loop works end-to-end and is verified live** against
@@ -507,4 +507,4 @@ across reconnects. Real **audio** turns are verified too: a spoken/`jfk.wav` cli
 `transcript` → `utterance` → Claude reply, on both the resident GPU whisper server and the CLI
 fallback (the shell-out contract is also unit-tested with a fake binary). The **Android app** is
 built and verified live on the emulator and the Pixel 8a. (Task-level status — what's built vs.
-next — lives in `TODO.md`, not here.)
+next — lives in `TODO.toml`, not here.)

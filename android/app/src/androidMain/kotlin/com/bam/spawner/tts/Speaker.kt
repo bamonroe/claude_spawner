@@ -109,7 +109,7 @@ class Speaker(context: Context) {
         speakingCb?.invoke(false)
     }
 
-    // --- Server-TTS stream playback (the Kokoro epic, see TODO.md) -------------
+    // --- Server-TTS stream playback (the Kokoro epic, see TODO.toml) -------------
     //
     // The server synthesizes speech and streams raw PCM (24 kHz s16le mono, the
     // `pcm` speak format) as binary WebSocket frames; this section plays them on

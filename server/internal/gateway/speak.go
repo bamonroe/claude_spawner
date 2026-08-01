@@ -1,7 +1,7 @@
 package gateway
 
 // Server-side TTS: the `speak` request path (M2 of the Kokoro epic, see
-// TODO.md). The client decides what gets spoken (mute/summary-only stay
+// TODO.toml). The client decides what gets spoken (mute/summary-only stay
 // client-local) and sends `speak {id, text, voice?}` with markdown already
 // stripped; the server synthesizes via the resident Kokoro server and streams
 // back a `speak_audio {id, codec}` header, the audio bytes as binary frames,

@@ -80,7 +80,7 @@ just a pointer to this file.)
   mount at `/models`; when set, its model names are sent to clients as a settings picker —
   empty = free-text entry only),
   `SPAWNER_WHISPER_FAST_MAX_SEC` (`2.5`; clips shorter than this use the fast server).
-- Dedicated wake-word / end-token detector (the LiveKit epic, see `TODO.md`): `SPAWNER_WAKEWORD_URL`
+- Dedicated wake-word / end-token detector (the LiveKit epic, see `TODO.toml`): `SPAWNER_WAKEWORD_URL`
   (base URL of the resident `spawner-wakeword` sidecar, e.g. `http://localhost:9060` — the Rust
   service wrapping LiveKit's runtime; it slides a 2s window over each clip and returns peak per-model
   scores, `POST /detect`). When set, live hands-free wake ("bump bump") / end ("beep beep") detection
@@ -99,7 +99,7 @@ just a pointer to this file.)
   re-transcribe. The client's `denoise_atten_db` caps the attenuation (DeepFilterNet `atten_lim_db`;
   lower is gentler, `<=0`/unset = full). Empty disables it (clips transcribed unfiltered); any
   sidecar failure falls back to the original clip rather than failing the turn.
-- Server-side TTS (the Kokoro epic, see `TODO.md`): `SPAWNER_TTS_URL` (base URL of the resident
+- Server-side TTS (the Kokoro epic, see `TODO.toml`): `SPAWNER_TTS_URL` (base URL of the resident
   Kokoro-FastAPI server, e.g. `http://localhost:8880` — the `kokoro` compose service; empty
   disables server TTS and clients use on-device speech), `SPAWNER_TTS_VOICE` (`af_heart`; default
   Kokoro voice until a client picks one), `SPAWNER_TTS_FORMAT` (`opus`; synthesis response format:

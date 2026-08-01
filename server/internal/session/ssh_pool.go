@@ -13,7 +13,7 @@ import (
 
 // SSH-native execution runs a session's turns on a remote host over SSH instead of
 // forking claude locally. It is the unified transport of the SSH-native epic (see
-// TODO.md): every host — including the local machine, reached as loopback — is just
+// TODO.toml): every host — including the local machine, reached as loopback — is just
 // an entry in one connection pool, so there is a single execution path to maintain
 // and a containerized server can drive the "real" host over SSH without a
 // privileged host broker. This file is the foundation: the pooled, keepalive'd

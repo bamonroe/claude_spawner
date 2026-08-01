@@ -91,7 +91,7 @@ as before. The speak token is comma-separated too, so you can give it a couple o
 end tokens are recognized by string-matching the fast Whisper transcript — always available, no extra
 service. Turn on **Use dedicated wake-word detector** to instead score the purpose-trained LiveKit
 detector sidecar (the server's `SPAWNER_WAKEWORD_URL` service — see the wake-word detector notes in
-[`TODO.md`](TODO.md)). Leave it off unless that sidecar is running and you've validated the model;
+[`TODO.toml`](TODO.toml)). Leave it off unless that sidecar is running and you've validated the model;
 the server treats any client that doesn't opt in as Whisper.
 
 **Adapting to background noise (Settings → Audio).** The mic threshold slider sets how loud a frame
@@ -737,6 +737,6 @@ Built in phases: the response-capture decision and spec (Phase 0), the Go server
 transcription and dialog (Phase 2), the Kotlin/Compose app (Phase 3), passthrough/attach (Phase 4),
 and polish (Phase 5 — auto-reconnect, barge-in, abort-a-turn, notifications, and the token/usage
 displays above). All phases are complete and verified live. Active work and any remaining open items
-live in the single task tracker, [`TODO.md`](./TODO.md).
+live in the single task tracker, [`TODO.toml`](./TODO.toml).
 </content>
 </invoke>

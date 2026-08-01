@@ -32,3 +32,4 @@ deploy/tls/
 /server/webdist/*
 !/server/webdist/.gitkeep
 brian_notes
+__pycache__/

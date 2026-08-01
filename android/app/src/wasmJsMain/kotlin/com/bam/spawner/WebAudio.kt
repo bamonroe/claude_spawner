@@ -210,7 +210,7 @@ fun stopHandsFreeMic(): Unit = js(
     """,
 )
 
-// ── Server-TTS playback (the Kokoro epic, see TODO.md) ───────────────────────
+// ── Server-TTS playback (the Kokoro epic, see TODO.toml) ───────────────────────
 // The server synthesizes speech (the `speak` protocol) and streams the audio back
 // as binary WebSocket frames. The web client asks for mp3 — decodeAudioData wants
 // one complete compressed clip (unlike Android's frame-by-frame pcm AudioTrack),

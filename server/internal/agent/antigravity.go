@@ -33,7 +33,7 @@ const agyPrintTimeout = "45m"
 // below is currently a no-op — recent agy ignores a caller-supplied conversation id
 // ("not found, ignoring --conversation flag") and keys its store by an internal id
 // of its own, so turns do NOT actually resume the same conversation and there is no
-// stable id to key a history reader on (see TODO.md; reconstructAgyReply works
+// stable id to key a history reader on (see TODO.toml; reconstructAgyReply works
 // around this by content-matching the transcript instead of by id). SelfAssignsID
 // stays false regardless. agy ignores the process cwd and
 // works in its own scratch project unless a workspace is named, so every turn

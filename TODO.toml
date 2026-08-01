@@ -1,0 +1,619 @@
+# TODO — active task list for this project.
+#
+# Single source of truth for active work (see CLAUDE.md -> documentation map).
+# Edit through the todo skill so ids, ordering, and metadata stay consistent:
+#   scripts/todo.sh <command>      (see .claude/skills/todo/SKILL.md)
+# Hand-editing works too — it is plain TOML — but the skill keeps it tidy.
+
+schema_version = 1
+
+[meta]
+title = "TODO"
+kind = "todo"
+purpose = "The live task list for claude_spawner — open work only."
+documentation_map = "CLAUDE.md"
+archive = "FINISHED.toml"
+
+[meta.rules]
+add_proposed_work = "Add proposed features and tests as new tasks rather than losing them."
+remove_dropped_items = "Remove dropped items with a one-line why (`scripts/todo.sh remove <id> --reason`)."
+finish_work = "When a task is fully finished (built, tested, documented), run `scripts/todo.sh done <id>` to move it to FINISHED.toml — in the same commit that completes the work."
+scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/KMP app + web client. The historical phase roadmap stays in README.md."
+
+[[task]]
+id = "ping-a-still-connected-phone-on-an-eager-notify"
+title = "Ping a still-connected phone on an eager notify"
+description = """
+When the eager turn fires to a session
+with no attached sink, push a lightweight `notice` frame to any device still connected but
+viewing another screen, so it surfaces the finished job without opening the session. Needs a
+new wire message (Protocol.kt + docsync) + app handling + an APK test cycle. (Truly waking a
+fully-closed/backgrounded app needs FCM push infra, which does not exist yet — separate epic.)"""
+status = "active"
+category = "feature"
+urgency = "normal"
+order = 10
+created = "2026-07-01"
+tags = []
+
+[[task]]
+id = "unified-versioned-app-server-sync-layer-one-entry-point-no-drift"
+title = "Unified versioned app↔server sync layer (one entry point, no drift)"
+description = """
+DONE — Phase 4's
+    `TestCatalogueRegistryComplete` completed the epic (all phasing sub-items checked). The only thing
+    left open below is the **optional, deliberately-deferred** history-merge-parity follow-up (a
+    behavior change, not a gap); the epic stays here rather than in `FINISHED.md` solely because of
+    that one optional box. Original goal, met:
+    Today every piece
+    of shared state is reconciled ad-hoc: the four app-managed catalogues (hosts, identities,
+    profiles, providers) and every per-client setting are **blind last-write-wins by name with no
+    timestamp/version**, and the incoming/outgoing message handling is **written twice** —
+    `VoiceController` (androidMain) and `WebAppController` (wasmJsMain) each hand-implement ~40
+    apply branches + ~40 send sites independently, which has already drifted (web silently no-ops
+    on `digests`, `session_list`, calibration, read-last). The `docsync`/`clientsync` drift tests
+    enforce message-type and field-name parity but are blind to versioning/conflict semantics.
+    Goal: **one authoritative, versioned sync point per side** that every syncable resource flows
+    through, so a change is added in one place and both clients + the server stay consistent, and a
+    newer server value (written by a *different* app client) reflects back to the app instead of
+    being clobbered.
+
+- **Conflict model (chosen): per-record `updated_at` (client-stamped ms) + last-writer-wins with
+  tombstones.** Every catalogue record and syncable setting carries an `updated_at`. The app is
+  still source of truth on *first* write, but on any exchange the newer `updated_at` wins in either
+  direction: the server keeps the max and rejects a stale upsert (echoing its newer record back so
+  the app adopts it); the app adopts any incoming record newer than its local copy. Deletes become
+  timestamped **tombstones** so a stale client can't resurrect a removed record. (Considered and
+  rejected for now: server-assigned monotonic revision + optimistic-concurrency `base_rev` — more
+  robust against clock skew but heavier; single-user/home-network makes wall-clock LWW enough.
+  Revisit if clock trust becomes a problem.)
+
+- **Fast-path: per-catalogue digest (skip-if-equal).** Reconciling every record on every connect
+  is wasteful when nothing changed — the common case after a long absence. Each side computes a
+  **stable, order-independent checksum per catalogue** (e.g. XOR/sum of per-record hashes over
+  `(key, updated_at, payload)`, so a timestamp-only change still flips it) and exchanges just that
+  one small hash in the handshake. **Digests match → do nothing.** Only on mismatch does the side
+  ship its (small) catalogue and let the LWW+timestamp merge resolve direction. This is exactly the
+  `count`+`hash` freshness pattern the chat transcript already uses (`digests`/`history unchanged`),
+  generalized to the catalogues. A flat per-catalogue checksum is enough here (tens of records);
+  a Merkle tree — to binary-search *which* records differ without shipping the whole set — is only
+  worth it if a catalogue ever grows large, so it's explicitly out of scope for now.
+
+- **Structure: a `commonMain` resource-sync registry.** Each syncable resource declares once —
+  key function, `updated_at` accessor, and merge rule — in shared `commonMain` code. A single
+  inbound `applyServerState(msg)` and outbound `pushLocalChange(resource, record)` dispatch by
+  resource, replacing the duplicated per-controller `when` bodies; `VoiceController`/`WebAppController`
+  keep only the thin platform bits (StateFlow wiring, disk cache). The server gets the symmetric
+  single apply/broadcast entry point with the LWW+tombstone arbitration, replacing the four
+  near-identical `do*Put`/`flush`/`broadcast` paths in `gateway/{hosts,identities,profiles,providers}.go`.
+
+- **Phasing** (versioning is a wire change → land coordinated across both worktrees, drift test first):
+  - [x] **Phase 1 — pure refactor, no wire change (app worktree). DONE** (branch `app`). The
+        duplicated inbound apply + outbound send logic is now hoisted into shared `commonMain`
+        reconcilers so the two controllers can't drift; web brought to parity; `dedupeCachedLog`
+        moved onto server `index`. Drift tests stay green (no new messages). Slices below.
+        - [x] **Slice 1 (catalogues) — done, branch `app` `acea2f4`.** New
+              `commonMain/net/CatalogueSync.kt`: a `Catalogue<T>` (StateFlow + `key` + `merge` seam
+              for Phase 2's LWW/digest) and a `CatalogueSync` owning all four catalogues (hosts,
+              identities, profiles, providers) with one `apply(msg)` inbound + all outbound mutators.
+              `VoiceController`/`WebAppController` lost their four StateFlow holders, four inbound
+              branches, and 13 mutator bodies — now thin delegations. Both targets compile.
+        - [x] **Slice 2 (web parity) — done, branch `app` `f620173`.** Web `onMessage` was one
+              collapsed `else -> {}` swallowing six variants; now exhaustive over all 41 `ServerMsg`
+              (compile-time guard like Android). Implemented `digests` cache-validation on web (sends
+              `digest` on `HelloOk`, stores per-session `(count,hash)`, `requestFreshHistory()` skips
+              refetch when held==server, handles `unchanged` — fixed a latent bug where an empty
+              `unchanged` page wiped the log), `read_last`, and `pending` (real web VAD). Documented
+              intentional no-ops for `calibration`/`dialog` (Android-hardware / already-via-`say`).
+              Note: `session_list` from the old map doesn't exist in the protocol — nothing to do.
+        - [x] **Slice 3 (session/chat reconcile) — done, branch `app` `0d90713`.** New
+              `commonMain/net/SessionSync.kt` (sibling to `CatalogueSync`) owns the reconcile
+              DECISION logic; a 7-accessor `SessionSync.Host` seam keeps platform side effects local
+              (Android disk `TranscriptCache` + timestamped merge + reconnect gap-fill; web in-memory
+              index-sorted merge). Unified `attached`/`detached`/`context_reset`/`renamed`/
+              `discovered`/`history`/`digests`/`swap`/`focusKnownSession`. Single `SessionSync.dedupe`
+              (index-first, `(role,text)` fallback only to drop a live `index==-1` row once its
+              indexed row lands) replaced both the Android `dedupeCachedLog` and the web inline
+              `distinctBy`. Both targets build; no wire change.
+              - [ ] **Follow-up (deferred, optional):** history-merge algorithm left per-client by
+                    design (Android timestamp+gap-fill vs web index-replace) — only the dedup
+                    primitive is shared; unifying would be a behavior change. (The web
+                    `renamed`/`discovered` digest-key / title gap noted here was closed 2026-07-17 by
+                    the mutation-message audit above.) Revisit if full history-merge parity is wanted.
+        - [x] 2026-07-29 — **On-device verification:** confirmed in the field on the live Pixel 8a
+              self-hosting client — the sporadic duplicate rows have not recurred in a long time of
+              daily use (see the duplicate-rows epic above; the bug was never deterministically
+              reproducible, so live-use absence is the verification).
+  - [x] 2026-07-30 — **Phase 2 — add `updated_at` to the catalogue records + messages.** Extend
+        `Host`/`Identity`/`ProfileInfo`/`AgentInfo` and their Go structs with `updated_at`; server
+        persists it and arbitrates LWW; add tombstones for deletes. Done: `UpdatedAt` on all structs,
+        LWW/tombstone arbitration in `hosts.go`/`profile.go`/`identity.go` (+ `tombstone.go`, `lww_test.go`),
+        wire carries `updated_at` both directions. The "coordinate/merge across worktrees" caveat is moot —
+        the tree folded back to a single `master`. (verified against code)
+        - [x] **Phase 2a (LWW + tombstones) — done, master.** Landed coordinated on `master`
+              (Go + Kotlin together). Each record carries client-stamped `updated_at` (unix ms);
+              server rejects older upserts + re-broadcasts current; timestamped tombstones block
+              stale re-adds (new `session/tombstone.go`); app stamps edits via a new expect/actual
+              `nowEpochMs` clock and `CatalogueSync` merges LWW by `updatedAt`. `docs/protocol.md`
+              updated; Go arbitration unit tests added; `go test -count=1` + both APK/wasm builds
+              green. Still needs **master→app merge** and on-device check.
+        - [x] **Phase 2b — per-catalogue digest fast-path (skip-if-equal) — done, master (uncommitted
+              at hand-off).** Each side folds a catalogue's live records `(key, updated_at, payload)`
+              into one order-independent checksum (64-bit FNV-1a per record, wrapping-summed, hex —
+              portable so Go `gateway/catalogdigest.go` and Kotlin `net/CatalogueDigest.kt` compute
+              byte-identical values, cross-verified). The app presents all four digests in `hello`
+              (fresh each send, via a `SpawnerClient` provider — catalogues aren't persisted, so a
+              cold start yields empty digests → safe full re-broadcast); the server suppresses each
+              catalogue's connect-time send when the digest matches, else broadcasts as before and
+              lets the Phase 2a LWW merge resolve direction. Hosts/identities, previously request-only,
+              now reconcile proactively on connect too (only when they differ). Tombstones aren't
+              folded in (a pending delete shows as an extra record → digests already differ). Go unit
+              tests: fold order-independence + add/change/delete/timestamp flips, connect-suppress vs
+              connect-broadcast. `docs/protocol.md` updated; `go test ./... -count=1` + both APK/wasm
+              builds green. Still needs commit + master→app merge.
+        - [x] **Note (closed):** `fieldsync`/`docsync` originally guarded docs↔Go only and could not
+              catch a missing *Kotlin* field. Now `recordsync_test.go` reads the Kotlin parsers and
+              asserts record field-parity (incl. `updated_at`) both ways for every catalogue, and Phase
+              4's `TestCatalogueRegistryComplete` makes that coverage total — so the drift test now
+              catches a missing Kotlin field, not just the build.
+  - [x] **Phase 3 — route genuinely-shared server-global settings through the sync layer — done,
+        master (uncommitted at hand-off) 2026-07-16.** Added a fifth catalogue, **settings**: keyed
+        `{key, value, updated_at}` records (value always a string, typed at the edges) with per-key
+        LWW + tombstones (`session.SettingKV`, persisted to `settings_kv.json`) and an order-independent
+        FNV-1a-64 digest byte-identical to Kotlin (`settingsDigest` ↔ `CatalogueDigest.settings`, pinned
+        by a known-hex cross test). Six keys routed: `whisper_model`, `whisper_fast_model`,
+        `warm_compress`, `auto_compress`, `auto_compress_threshold`, `summary_only` — so the whisper
+        model (was server-global-mutable), auto-compress (was in-memory-only, clobbered on every hello),
+        and summary-only (was stateless) now persist and propagate to every client with the same LWW
+        rule. New wire messages `setting_put` (in) / `settings` (out) + `settings_digest` in `hello`;
+        `hello` no longer clobbers `acCfg`. App: `Catalogue<SettingRecord>` in `CatalogueSync`, the
+        picker/switches call the synced mutator and inbound `settings` mirrors back. Per-device prefs
+        (wake sensitivity, on-device-vs-server TTS, color scheme) stay LOCAL — out of scope. Whisper
+        keeps its dedicated `set_whisper_model` load message (which triggers the resident-server
+        load/download); the server persists the result into the catalogue on success. `docs/protocol.md`
+        updated; `go test ./... -count=1` + wasm/APK builds green. Still needs commit + master→app merge.
+  - [x] 2026-07-29 — **Phase 4 — drift test asserts every registered syncable resource carries a
+        version token.** The per-catalogue field-parity check (`recordsync_test.go`) already asserted
+        `updated_at` on both the Go wire record and the Kotlin parser for the six catalogues, but off a
+        hand-maintained `rows` list — so a *newly-registered* catalogue could skip the check. Closed the
+        meta-gap: new `TestCatalogueRegistryComplete` treats the **digest layer as the authoritative
+        registry** (a synced catalogue must have a digest on both ends for the skip-if-equal fast path)
+        and requires the Go digests (`catalogdigest.go` `<catalogue>Digest` funcs), the Kotlin digests
+        (`CatalogueDigest.kt` public folds), and the parity rows to be the **same set** — so registering
+        a catalogue anywhere without a parity row (and thus without the both-ends `updated_at` assertion)
+        fails the build. Each digest func is also asserted to fold the version token (Go `UpdatedAt`
+        selector / Kotlin `updatedAt`), so a digest can't be defined without the conflict rule. `rows`
+        hoisted to a reusable `catalogueRows(t)` helper. Negative-tested (corrupt a row name → four
+        actionable failures); `go test ./internal/docsync/ -count=1` green. This completes the unified
+        versioned sync-layer epic."""
+status = "in-progress"
+category = "refactor"
+urgency = "normal"
+order = 20
+created = "2026-07-01"
+tags = []
+
+[[task]]
+id = "context-handoff-across-backend-switch"
+title = "Context handoff across backend switch"
+description = """
+Switching a session's AI (`set_agent`,
+    `doSetAgent` in `gateway/ops.go`) still rotates to a fresh `session_id` (Claude/Codex/opencode
+    transcripts are incompatible on disk), but no longer drops the conversation: before rotating it
+    reads the outgoing backend's transcript via the existing **generic** `transcriptReader`
+    (`Driver.ReadTranscriptChain`) and stashes a portable, recent-weighted, neutrally-labeled recap
+    (`formatHandoffRecap`, budget-bounded) as `PendingSeed`. The existing compress seed path
+    (`dictate` → `seedPreamble`) then injects it into the new backend's first turn, so any backend
+    whose transcript is readable hands off to any other with zero per-backend code. A backend with a
+    null transcript (antigravity today) yields an empty recap and switches clean as before. Unit
+    tests in `gateway/handoff_test.go`; full `go test ./...` green. Not yet confirmed on-device.
+- [x] 2026-07-17 — **Server side DONE (segmented display history).** Shipped: `Session.History
+      []HistorySegment{Agent,Host,IDs}` (durable, omitempty → old sessions unchanged); `doSetAgent`
+      archives the outgoing backend (`Driver.ArchiveSegment`, skipped for an un-run backend) before the
+      rotation nulls `PriorIDs`; display (`serveHistory`, `serveDigests`) now reads
+      `Driver.ReadDisplayHistory` — each archived segment via its own backend reader, then the current
+      chain, concat + globally re-indexed for stable pagination; full delete uses `Driver.DeleteSessionAll`
+      so a switched-away backend's transcripts don't orphan; CONTEXT/usage reads stay current-backend
+      (unchanged). Antigravity convergence in place: `currentHistoryIDs`/`ArchiveSegment` use `AgyBrainIDs`
+      for agy. Tests in `session/history_display_test.go`; full `go test ./... -count=1` green. **Remaining
+      (app worktree): reword/drop the now-false "this deletes history" warning in the switch dialog** — the
+      server keeps the transcript and carries a recap, so nothing is deleted. Scrollback needs NO app change
+      (server serves one merged list as before). Not yet confirmed on-device.
+- [ ] ~~**Follow-up: preserve the OLD backend's messages in the display log across a switch (server-owned,
+      drift-free).**~~ *(design below — implemented above)* Live-tested finding: after a Codex→Claude switch the app's chat log goes blank —
+      you can't scroll back to the Codex messages — and the app still shows a "this will delete history"
+      warning that is now false (the server keeps the transcript; it carries a recap forward). Fix both
+      **server-side** so the app just renders what the server serves (no app-local message memory → no
+      app/server drift). Design:
+  - **Root constraint (reshapes the naive fix).** Display history now spans *multiple backends*, and
+    `ReadTranscriptChain(agentID, host, ids)` is **monomorphic** — it reads every id with the *one*
+    current backend's reader (`session.go:507`). So we cannot just keep the old Codex id in `PriorIDs`:
+    after the switch the Claude reader would try to parse a Codex transcript and get nothing. The
+    display history must be a **segmented list tagged with the backend (+host) that wrote each segment**,
+    each segment read by its own reader and concatenated.
+  - **New field** `Session.History []HistorySegment` where `HistorySegment{ Agent, Host string; IDs []string }`
+    (durable JSON, rides clear/compress like `PriorIDs`). `PriorIDs` stays the *current-backend*
+    rotation chain (clear/compress); `History` holds the *archived previous-backend* segments.
+  - **Split the three consumer groups of `TranscriptIDs()`** (all conflated today):
+    **DISPLAY** (`serveHistory` ops.go:506, `serveDigests` ops.go:544, and the handoff recap read
+    ops.go:369) → read each `History` segment with `ReadTranscriptChain(seg.Agent, seg.Host, seg.IDs)`,
+    concat, then append the current chain, re-index globally for stable pagination.
+    **CONTEXT/usage** (attach badge ops.go:670/698, turn-complete jobs.go:314, autocompress.go:85) →
+    **unchanged**, stays current-backend `TranscriptIDs()` (usage must reflect the live backend; note
+    `lastContextUsage` already walks newest-first so it only ever reads the current id in practice).
+    **DELETE** (`doDeleteDiscovered` ops.go:473, `doClear` purge ops.go:1022) → full-session delete must
+    **also** enumerate `History` segments and call each backend's `deleteByIDs`, else a switched-away
+    transcript is orphaned on disk forever.
+  - **`doSetAgent` change** (ops.go:384): instead of `rec.PriorIDs = nil` discarding the old chain, push
+    `HistorySegment{oldAgent, oldHost, TranscriptIDs()}` onto `rec.History`, THEN reset `PriorIDs=nil`
+    and rotate. The recap-into-context path is untouched — this only preserves the old messages for
+    *display/delete*, orthogonal to what the new backend reads.
+  - **No protocol/app change for the display fix** (the drift win): `serveHistory` still emits one flat
+    `messages` list built server-side, so the app renders the merged log unchanged. The only app-side
+    edit is the stale warning copy in the switch dialog — reword to "context is carried over, history is
+    kept" (or drop it); coordinate that one string in the `app` worktree.
+  - **Converges with antigravity.** An antigravity `History` segment's `IDs` are its `AgyBrainIDs`, read
+    by the future `antigravityFS` reader — the same backend-tagged-segment seam the "Next: wire the
+    `antigravityFS` reader" item below needs. Build this split and that reader together.
+  - **Back-compat:** existing sessions have no `History` (omitempty) → behaves exactly as today. Optional
+    nicety: `store.GetByAnyID` (store.go:178) could also scan `History` ids so attach-by-old-id resolves."""
+status = "in-progress"
+category = "feature"
+urgency = "normal"
+order = 30
+created = "2026-07-17"
+tags = []
+
+[[task]]
+id = "antigravity-agy-backend"
+title = "Antigravity (`agy`) backend"
+description = """
+Added Google's Gemini-powered `agy` CLI as the
+    fourth AI backend (`server/internal/agent/antigravity.go`), registered in `agent.Default()`.
+    Driven non-interactively via `agy --prompt` (its only headless mode — verified live: no
+    machine-readable stream, plain-prose stdout is the reply). Caller-supplied `--conversation`
+    uuid (created then resumed, like Claude, so `SelfAssignsID` false — verified resume recalls
+    prior context). agy ignores the process cwd, so a new `TurnSpec.Dir` threads the session
+    directory into `--add-dir`. Per-target binaries `SPAWNER_SSH_AGY_BIN` / `SPAWNER_SANDBOX_AGY_BIN`.
+    Gemini 3.x Pro/Flash model catalogue with spoken aliases. Its on-disk store isn't wired to a
+    reader (keyed by an internal id we don't hold, no usage recorded), so it routes to a new
+    `nullTranscript` reader — reply streams live, but no history replay/context/deletion. Unit tests
+    for args + parser; full `go test ./...` green.
+- [x] 2026-07-17 — **Antigravity reply paragraph reconstruction.** `agy --print` concatenates a
+      turn's several assistant messages into one blank-line-less blob on stdout, so multi-message
+      turns rendered as a single wall-of-text paragraph in the app. After each antigravity turn the
+      driver now reads agy's on-disk `brain/<id>/…/transcript.jsonl`, pulls the ordered
+      `PLANNER_RESPONSE` messages, and rejoins them with blank lines
+      (`session/antigravity_transcript.go`, `reconstructAgyReply`). Since agy ignores our
+      `--conversation` id (see below), the right transcript is found by content-matching the newest
+      few brain transcripts against the stdout blob — which also guards the rewrite: only line breaks
+      change, never wording, and it falls back to the stdout reply on any miss. Unit tests + full
+      `go test ./...` green.
+- [ ] **Follow-up: agy ignores `--conversation` → turns don't actually resume.** Recent `agy` logs
+      "conversation … not found, ignoring --conversation flag" and creates a fresh conversation
+      (keyed by its own internal id) every turn, so an antigravity session has NO cross-turn memory
+      despite the code passing our uuid. Fix by capturing the id agy creates (e.g. from a pinned
+      `--log-file`'s `Print mode: conversation=<id>` line) and passing THAT back as `--conversation`
+      next turn — which would also give a stable id to key a real history reader on. The comments in
+      `antigravity.go` are corrected to say resume is a no-op today.
+- [x] 2026-07-29 — **Follow-up: real antigravity history reader.** Done — `TranscriptAntigravity`
+      now routes to `antigravityFS` (below), so reattach replays agy history. (It was never actually
+      blocked on the `--conversation` resume bug: the brain-id capture foundation gave us the stable
+      our-session → agy-brain mapping the reader needed, independent of whether agy resumes.)
+  - [x] 2026-07-17 — **Foundation: capture the per-turn brain id (the missing mapping).** Since agy
+        ignores our `--conversation` id and files every turn under a fresh internal brain id, we now
+        build the mapping ourselves: `agyBrainScript` emits each transcript's path, `matchAgyParagraphs`
+        returns the matched block's brain id, and `Driver.Turn` records it in turn order on the new
+        `Session.AgyBrainIDs` field (deduped against the last, rides through clear/compress). Read path
+        unchanged (still `nullTranscript`), so zero regression — this just starts recording the data the
+        reader needs. Unit tests in `antigravity_transcript_test.go`. Needs live agy turns to confirm
+        the ids populate on real hardware.
+  - [x] 2026-07-29 — **Wired the `antigravityFS` reader over `AgyBrainIDs`.** Given a session's
+        `AgyBrainIDs`, it reads each `brain/<id>/…/transcript.jsonl` and assembles `[]Message`
+        (USER_INPUT → user turn, unwrapped from the `<USER_REQUEST>` envelope; PLANNER_RESPONSE steps →
+        one joined reply, mirroring `reconstructAgyReply`). The interface seam was already solved:
+        `currentHistoryIDs`/`transcriptReaderFor` route `AgyBrainIDs` + host to the reader (the
+        backend-aware `HistoryIDs()` this item anticipated already existed). `deleteByIDs` is a no-op
+        (brain dirs are agy's store, not ours to reap) and `lastContextUsage` returns nil (agy has no
+        token counts). Durable brain-scoped row ids; `nullTranscript` removed; docs updated.
+- [ ] **Follow-up (gated on Google): rich agy turns via JSON output.** When `agy` grows a
+      `--output-format json`/stream mode (or a resolvable transcript path keyed by our conversation
+      id), replace `parseAgyText` with a real stream parser and wire an antigravity transcript
+      reader, to recover live tool breadcrumbs, **token/context accounting**, and reattach history —
+      the three things the plain-text v1 can't do. Today agy exposes no token counts anywhere."""
+status = "in-progress"
+category = "feature"
+urgency = "normal"
+order = 40
+created = "2026-07-15"
+tags = []
+
+[[task]]
+id = "verify-re-apply-the-audio-output-route-after-selecting-it-bluetooth-car-stickiness"
+title = "Verify + re-apply the audio output route after selecting it (Bluetooth/car stickiness)"
+description = """
+
+`AudioRouter.setOutput` calls `setCommunicationDevice` fire-and-forget and returns its raw
+boolean; `setAudioOutput` then commits `_audioOutput.value` even if the platform silently
+reverted the grab (common with car BT stacks, which fall back to A2DP with no comm route). So
+the app's state and the actual route diverge and the user has to re-pick a few times before it
+"takes" (observed live: paired in the car, had to toggle output back and forth before speaker
+engaged). Fix: after `setOutput`, re-read `AudioRouter.current()`/`communicationDevice` and, if
+it didn't land on the requested device, retry (poll a short window like the SCO-mic
+`verifyHeadsetMic` path already does) before trusting the selection — and surface a transient
+state if it never engages. Needs real in-car BT testing to validate; deferred from the
+2026-07-14 hands-free mic fixes. See `VoiceController.setAudioOutput` / `AudioRouter.setOutput`.
+Code-side fix landed 2026-07-16: route picks now retry for ~6 s and commit prefs/UI only after
+`AudioRouter.outputActive` confirms the route; failed picks restore the previous route and show
+a transient "audio route unavailable" status. Clean `:app:assembleDebug` green and installed on
+the Pixel 8a. Still open for real in-car Bluetooth validation."""
+status = "active"
+category = "feature"
+urgency = "normal"
+order = 50
+created = "2026-07-01"
+tags = []
+
+[[task]]
+id = "per-session-record-locking"
+title = "Per-session record locking"
+description = """
+(1.0 quality pass, deferred item). The store hands out
+shared `*session.Session` pointers; a running turn's goroutine mutates the record
+(Started/PendingSeed/primes + Put) while another device's read loop can mutate it too
+(kill-job, set_agent/model, rename). The one-writer invariant covers turn-vs-turn and
+reconcile, but not turn-vs-ops or two devices. Wants a deliberate design (per-record
+mutex or store-mediated mutation), not a drive-by — scoped out of the 2026-07-13
+concurrency fixes below.
+- **Scoped 2026-07-30 (design ready; NOT implemented — deliberately deferred: this can't be
+  live-verified, and a lock-ordering slip would deadlock the production server on next deploy, a
+  worse failure than the current rare race).** Findings:
+  - **`Store` (`store.go:15`) protects only the two index maps** (`byName`/`byID`); every getter
+    (`Get`/`GetByDir`/`GetBySessionID`/`GetByAnyID`/`List`) returns the shared `*Session` directly
+    under `RLock` and then drops the lock — so record *fields* are unsynchronized once the pointer
+    escapes. `Session` (`session.go:25`) has no mutex.
+  - **`Store.flush` (`store.go:262`) marshals the shared pointers under only the map RLock** — a
+    concurrent field write (esp. a slice append: `PriorIDs`/`History`/`AgyBrainIDs`/`Jobs`) is a
+    real data race against `json.Marshal` and can corrupt/crash the marshal, independent of the
+    two-writer problem.
+  - **Mutation sites** (~20): turn goroutine — `driver_turn.go:75/90/107/108/127`,
+    `turns.go:101/118/122/130` (startTurn), `turns.go:232-238` (startCompress rotation);
+    read-loop ops — `ops_session.go:311-317` (doClear, *isBusy-guarded*),
+    `ops_discover.go:158-175` (set_agent/model, *isBusy guards only the backend-switch branch, not
+    the model-only `rec.Model=` write*), `ops_usage.go:164` (doSetModel, **unguarded**),
+    `bgjobs.go:243` (doKillJob, **unguarded**), `dictate.go:37`; off-loop tickers —
+    `bgjobs.go:95-127` (reconcileJobs, isBusy-guarded), `bgnotify.go:165` (isBusy-guarded);
+    `store.Rename` (`store.go:244`) is the one store-mediated field write.
+  - **The three genuinely-unguarded turn-vs-ops races:** `doSetModel`, `doKillJob`, and the
+    model-only path of `set_agent`. (A blunt `isBusy` guard on these is the wrong fix — it would
+    e.g. block killing a runaway bg job while a turn runs; that UX nuance is why this is not a
+    drive-by.)
+  - **Recommended fix (lowest-churn complete path):** embed a `sync.Mutex` in `Session`; wrap
+    each mutation (multi-field rotations as one critical section); make `flush` **snapshot each
+    record's fields under that record's lock, then marshal the snapshots outside the lock** (so
+    encode holds no record lock and can't deadlock a `Mutate→Put→flush` chain). Full read-side
+    race-freedom additionally needs the gateway's `sess.Name`/`sess.SessionID` routing reads to
+    lock too — the large half — so land it as: (a) mutex + flush-snapshot + wrap writers
+    (closes the corruption/two-writer races), verified with `go test -race ./...`; then (b)
+    audit read-side field access. Do it in a session where a live deploy can validate."""
+status = "active"
+category = "feature"
+urgency = "normal"
+order = 60
+created = "2026-07-01"
+tags = []
+
+[[task]]
+id = "dedicated-wake-word-end-token-detector-via-livekit-epic-proposed-2026-07-14"
+title = "Dedicated wake-word / end-token detector via LiveKit (epic — proposed 2026-07-14)"
+description = """
+Replace Whisper-as-keyword-spotter with a purpose-built keyword-spotting model. Today all live
+hands-free detection funnels through `gatedChunk` (`internal/gateway/stream.go`): each VAD clip is
+fast-transcribed by the resident Whisper server and the wake word ("hey buddy") and end token are
+found by **string-matching the transcript** — backed by a hand-curated list of Whisper mishearings
+(`command.wakePhrases`) that also causes false triggers. That's the wrong tool: Whisper is a full
+transcription model, and on the live deploy it's the **heavy `large-v3`** doing double duty (detection
+on tiny clips + accurate transcription), which is both unreliable on short clips and wasteful.
+**Decision — going with LiveKit (`livekit/livekit-wakeword`), not openWakeWord.** Both are Apache-2.0.
+LiveKit replaces openWakeWord's simple classifier with a conv-attention model (claims ~100× fewer
+false positives), ships a **native Rust runtime crate** (mel + embedding compiled into the binary,
+loads only the small classifier `.onnx` at runtime — no Python), and a model we train ourselves on
+synthetic Piper TTS data is commercially unrestricted (the CC-BY-NC restriction is only on
+openWakeWord's *distributed* pre-trained models, not on self-trained weights or the Apache-2.0 Google
+embedding backbone). Its flagship conv-attention ONNX is **not** openWakeWord-loadable (only its
+fallback `dnn`→TFLite head is), so we commit to LiveKit's own runtime end-to-end rather than straddle.
+Accurate full transcription on commit stays on Whisper, untouched."""
+status = "active"
+category = "feature"
+urgency = "normal"
+order = 70
+created = "2026-07-14"
+tags = ["dedicated-wake-word-end-token-detector-v", "epic"]
+
+[[task]]
+id = "positional-detection-correct-whisper-with-the-detector-proposed-2026-07-15"
+title = "Positional detection → correct Whisper with the detector (proposed 2026-07-15)"
+description = """
+The
+detector knows a token was said far more reliably than Whisper; use *where* it fired to stop
+Whisper's mishearings from corrupting the parse. Enabling change: the sidecar returns the token's
+**time offset** (the peak window's position — `predict_peak` already computes the argmax window,
+just surface it) alongside the score, on both `/detect` and `/stream`. Then in `commitMessage`:
+instead of string-searching the accurate transcript for the end token (which fails when Whisper
+mishears "beep beep"), **trim the audio at the detected offset before the accurate pass** so
+Whisper only ever transcribes the real command and can't mis-splice the token. Generalizes:
+request word-level timestamps from Whisper, align them against the detector's high-confidence
+token positions, and where they disagree **trust the detector** (force the token in/out at that
+spot) — also covers mid-utterance wake tokens once the sidecar can report *all* above-threshold
+window positions, not just the peak. Do this AFTER the base end-token gate is proven live (below),
+so we're not stacking on an unverified layer."""
+status = "active"
+category = "feature"
+urgency = "normal"
+order = 80
+created = "2026-07-15"
+tags = ["dedicated-wake-word-end-token-detector-v"]
+
+[[task]]
+id = "go-live-plumbing-live-a-b-the-actual-next-functional-step"
+title = "Go-live plumbing + live A/B (the actual next functional step)"
+description = """
+Run `spawner-wakeword` as a
+**resident service** (compose service with both `bump_bump` + `beep_beep` models mounted), set
+`SPAWNER_WAKEWORD_URL` (+ optional `SPAWNER_WAKEWORD_THRESHOLD`) in the deploy env, restart the
+server, and compare hands-free end-token catch rate against today's Whisper string-match on real
+phone audio. The restart kills the in-flight turn, so do it on a scratch port or when ready to
+drop the session. This is the gate for both trusting the detector and the positional work above."""
+status = "active"
+category = "feature"
+urgency = "normal"
+order = 90
+created = "2026-07-01"
+tags = ["dedicated-wake-word-end-token-detector-v"]
+
+[[task]]
+id = "ssh-native-unified-execution-epic-proposed-2026-07-08-foundation-landed-2026-07-08"
+title = "SSH-native unified execution (epic — proposed 2026-07-08; foundation landed 2026-07-08)"
+description = """
+**Why:** collapse the three execution paths (host fork, sandbox `podman exec`, would-be remote) into
+**one SSH transport**. Every turn — including on the local machine — runs over SSH, so localhost is
+just another host in the pool and there's a single code path to maintain. This also lets us
+**containerize the server again without a root broker**: instead of a bespoke privileged host agent
+(the thing we tore out in the 2026-07-06 revert), the container SSHes into the "real" host exactly as
+it would any remote box, leaning on SSH's battle-tested auth/encryption/signal-delivery instead of
+inventing our own. Motivated by wanting to drive Claude on the work box (`ssh work` → `potato`, has
+`claude` + `podman`).
+**Design (worked out 2026-07-08):**
+- **Native Go SSH (`golang.org/x/crypto/ssh`), not shelling out**, and **not sshfs** — sshfs is
+  explicitly rejected (FUSE fragility/hangs on drop, needs container privilege that undercuts the
+  no-root goal, and only relocates the path-translation problem). If we don't adopt it now, never
+  introduce it.
+- **Persistent client pool keyed by host** so no per-turn handshake: dial+authenticate **once** per
+  host, cache the `*ssh.Client`, open a fresh **session (channel)** per turn (≈free). Keepalive
+  goroutine + reconnect-on-failure so a dead link transparently re-dials on the next turn.
+- **Slots into the existing seam unchanged:** a new `SSHExecutor` implements `Executor.Start`; the
+  returned proc implements `Proc` (`Stdout()` → the channel's stdout, straight into the current
+  `parseStream`; `Wait()` → `session.Wait()`). Reuses the exact `claude` argv the code already builds.
+- **Cancel** (the fiddly part — SSH signal delivery is unreliable): tag each remote command with a
+  unique token and, on ctx-cancel, open a **second cheap channel on the same live client** to kill the
+  tagged process group. Handshake-free, and avoids a PTY (which would corrupt the stream-json stdout).
+- **`Session.Host`** field (empty = loopback), chosen in the spawn dialog like host/sandbox is today;
+  sandbox-over-SSH becomes "SSH to host, then `podman`", still uniform.
+- **Discovery over the same SSH channel**, not a mounted FS: a small remote command lists sessions and
+  cats only the specific `~/.claude/projects/.../<session_id>.jsonl` we need (we only ever read a
+  handful), so no FUSE, no privilege, one transport. Replaces today's local-filesystem discovery.
+- **Security:** verify host keys against a known-hosts file (no blind-trust), auth via ssh-agent or a
+  configured key; new `SPAWNER_SSH_*` env vars for the key/known-hosts paths.
+- **Credential propagation** (copy known-working creds host→host once SSH is up) is a **separate later
+  feature** — powerful but widens blast radius, so keep it deliberate and out of the first cut.
+**Sequencing:** build the single `SSHExecutor` + pool and prove it against **localhost first** (so the
+"real host" is our first remote and we flush out discovery/cancel rework immediately) → then the work
+box is nearly free → then containerizing the server is a deploy change, not new code.
+**Order of remaining work (user, 2026-07-08):** do **all non-Android (server-only) steps first**,
+**Android steps last**. Test Android on the **emulator** throughout; install on the Pixel 8a only once
+the feature works as expected, as the ship step (see [[use-android-dev-skill-and-emulator]]).
+**Re-containerizing the server is LOW priority** — it blocks nothing, do it whenever."""
+status = "active"
+category = "feature"
+urgency = "normal"
+order = 100
+created = "2026-07-08"
+tags = ["ssh-native-unified-execution-epic-propos", "epic"]
+
+[[task]]
+id = "later-separate-credential-propagation-between-hosts"
+title = "(Later, separate) credential propagation between hosts"
+description = "(Later, separate) credential propagation between hosts."
+status = "active"
+category = "refactor"
+urgency = "normal"
+order = 110
+created = "2026-07-01"
+tags = ["ssh-native-unified-execution-epic-propos"]
+
+[[task]]
+id = "vocab-bias-tuning-measure-whether-the-prompt-session-name-biasing-actually-improves"
+title = "Vocab-bias tuning: measure whether the `--prompt` session-name biasing actually improves"
+description = """
+Vocab-bias tuning: measure whether the `--prompt` session-name biasing actually improves
+recognition of real session names/paths, adjust if not. *(biasing itself is implemented)*"""
+status = "active"
+category = "feature"
+urgency = "normal"
+order = 120
+created = "2026-07-01"
+tags = ["server-infra"]
+
+[[task]]
+id = "plumb-the-wake-token-alias-list-command-wakephrases-through-the-same-pipeline-as-command"
+title = "Plumb the wake-token alias list (`command.wakePhrases`) through the same pipeline as command"
+description = """
+Plumb the wake-token alias list (`command.wakePhrases`) through the same pipeline as command
+aliases (→ `docs/commands.json` → `generateCommands` → app), so wake mishearings are visible
+and **editable in the app's alias editor** like regular commands. Server list is authoritative
+today; this makes it user-tunable on-device."""
+status = "active"
+category = "feature"
+urgency = "normal"
+order = 130
+created = "2026-07-01"
+tags = ["later-nice-to-have"]
+
+[[task]]
+id = "slim-the-kokoro-tts-runtime-drop-the-pytorch-vram-tax"
+title = "Slim the Kokoro TTS runtime — drop the PyTorch VRAM tax"
+description = """
+The `kokoro` GPU service
+(`ghcr.io/remsky/kokoro-fastapi-gpu`) is Python/PyTorch and pays a fixed ~1.5–2 GB VRAM
+framework overhead for an 82M-param model (measured 2026-07-14: ~2.4 GB resident, vs
+whisper.cpp's lean ~3.8 GB which is nearly all real large-v3 weights). Kokoro ships official
+ONNX weights, so swap the service for a compiled ONNX runtime — [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)
+(C++, Go/Rust/Python bindings, no PyTorch) or the Rust [Kokoros](https://github.com/lucasjinreal/Kokoros).
+**Keep it on the GPU** (fast, and beats the host CPU) — the goal is only to cut the base
+overhead to a few hundred MB (CUDA context), not move it off-device. Frees VRAM for whisper +
+the LiveKit wake-word model. Same lesson as whisper.cpp vs PyTorch. Later item; tackle after
+the detector epic lands."""
+status = "active"
+category = "feature"
+urgency = "normal"
+order = 140
+created = "2026-07-01"
+tags = ["later-nice-to-have"]
+
+[[task]]
+id = "on-device-fallback-stt-when-offline"
+title = "On-device fallback STT when offline"
+description = "On-device fallback STT when offline."
+status = "active"
+category = "feature"
+urgency = "normal"
+order = 150
+created = "2026-07-01"
+tags = ["later-nice-to-have"]
+
+[[task]]
+id = "ios-app"
+title = "iOS app"
+description = "iOS app."
+status = "active"
+category = "feature"
+urgency = "normal"
+order = 160
+created = "2026-07-01"
+tags = ["later-nice-to-have"]
+
+[[task]]
+id = "hardening-backlog-2026-07-05-fragility-audit"
+title = "Hardening backlog (2026-07-05 fragility audit)"
+description = """
+Ranked, verified findings from a full-codebase audit. The store's `flush` and usage `persist`
+are already atomic (temp+rename), so several "corruption" claims were discounted; the per-conn
+read loop is single-goroutine, so several "attach/detach race" claims were discounted too. What
+remains real:
+_Done in this pass:_"""
+status = "active"
+category = "feature"
+urgency = "normal"
+order = 170
+created = "2026-07-05"
+tags = ["hardening-backlog-2026-07-05-fragility-a", "epic"]
