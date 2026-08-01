@@ -60,7 +60,9 @@ sealed interface ServerMsg {
     // turn is the opaque per-turn id shared by every frame of one turn (chunks +
     // close) — the dedup key; text equality between chunk and close is not
     // guaranteed ("" from a pre-turn-id server).
-    data class Output(val name: String, val text: String, val chunk: Boolean, val usage: TokenUsage? = null, val usageAt: Long = 0, val turn: String = "", val sessionId: String = "") : ServerMsg
+    // turnStats (closing frame only) is the agentic-loop rollup: how many API
+    // cycles ran and their aggregate token total — shown in the detailed badge.
+    data class Output(val name: String, val text: String, val chunk: Boolean, val usage: TokenUsage? = null, val usageAt: Long = 0, val turn: String = "", val sessionId: String = "", val turnStats: TurnStats? = null) : ServerMsg
     data class History(val name: String, val messages: List<HistMsg>, val more: Boolean, val count: Int = 0, val hash: String = "", val unchanged: Boolean = false, val sessionId: String = "") : ServerMsg
     data class ReadLast(val count: Int) : ServerMsg
     data class Discovered(val sessions: List<DiscoveredInfo>) : ServerMsg
@@ -122,7 +124,7 @@ sealed interface ServerMsg {
                 "detached" -> Detached
                 "context_reset" -> ContextReset(o.str("name"), o.str("session_id"))
                 "renamed" -> Renamed(o.str("old"), o.str("name"), o.str("session_id"))
-                "output" -> Output(o.str("name"), o.str("text"), o.bool("chunk", false), readUsage(o.obj("usage")), o.long("usage_at"), o.str("turn"), o.str("session_id"))
+                "output" -> Output(o.str("name"), o.str("text"), o.bool("chunk", false), readUsage(o.obj("usage")), o.long("usage_at"), o.str("turn"), o.str("session_id"), readTurnStats(o))
                 "history" -> History(o.str("name"), readHist(o.arr("messages")), o.bool("more"), o.int("count", 0), o.str("hash"), o.bool("unchanged", false), o.str("session_id"))
                 "read_last" -> ReadLast(o.int("count", 1))
                 "discovered" -> Discovered(readDiscovered(o.arr("sessions")))
@@ -162,6 +164,14 @@ sealed interface ServerMsg {
         private fun readUsage(o: JsonObject?): TokenUsage? {
             if (o == null) return null
             return TokenUsage(o.int("input"), o.int("output"), o.int("cache_write"), o.int("cache_read"))
+        }
+
+        // The closing `output` frame carries the agentic-loop rollup as flat
+        // `turns` + `turn_total` keys; absent (streaming chunks, pre-feature server)
+        // → null, so the badge just omits the extra line.
+        private fun readTurnStats(o: JsonObject): TurnStats? {
+            val total = readUsage(o.obj("turn_total")) ?: return null
+            return TurnStats(o.int("turns", 0), total)
         }
 
         private fun readDiscovered(arr: JsonArray?): List<DiscoveredInfo> {
@@ -301,6 +311,18 @@ data class TokenUsage(val input: Int, val output: Int, val cacheWrite: Int, val 
     val contextTokens: Int get() = input + cacheRead + cacheWrite
     /** True if this turn reused a warm cache rather than rebuilding it. */
     val warmHit: Boolean get() = cacheRead > 0
+}
+
+/**
+ * Per-dictation agentic-loop rollup from the closing `output` frame (see docs/protocol.md).
+ * A single user message drives [turns] model calls (each tool round-trip is its own API
+ * request/response cycle); [total] is the aggregate tokens summed across all of them —
+ * distinct from [TokenUsage], which is the current context-window snapshot. Shown in the
+ * detailed token badge so the aggregate reads in context (N cycles, not one).
+ */
+data class TurnStats(val turns: Int, val total: TokenUsage) {
+    /** Every token the whole turn moved (all cycles): input + output + both cache buckets. */
+    val totalTokens: Int get() = total.input + total.output + total.cacheWrite + total.cacheRead
 }
 
 /**

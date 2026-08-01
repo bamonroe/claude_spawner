@@ -153,22 +153,22 @@ class InboundRouter(
      * Deliberate "jump to the bottom" scrolls (attach/switch/typed-send/history/read-last) are
      * driven by the controllers' own explicit scroll tick, not from here.
      */
-    fun addChat(role: Role, text: String, usage: TokenUsage? = null, key: String = currentId) {
+    fun addChat(role: Role, text: String, usage: TokenUsage? = null, key: String = currentId, turnStats: TurnStats? = null) {
         if (text.isBlank()) return // never file an empty bubble (a blank say/output/transcript)
         val now = nowEpochSeconds()
         logs[key] = session.dedupe(
-            (logs[key] ?: emptyList()) + ChatMessage(role, text, usage = usage, ts = now)
+            (logs[key] ?: emptyList()) + ChatMessage(role, text, usage = usage, ts = now, turnStats = turnStats)
         ).takeLast(2000)
         if (key == currentId) publish()
     }
 
     /** Late-attach a turn's usage badge to the last Claude row under [key] (the reply's live
      *  bubble already existed when its closing `output` arrived). */
-    fun attachUsageToLastClaude(key: String, usage: TokenUsage) {
+    fun attachUsageToLastClaude(key: String, usage: TokenUsage, turnStats: TurnStats? = null) {
         val log = logs[key] ?: return
         val idx = log.indexOfLast { it.role == Role.CLAUDE }
         if (idx < 0) return
-        logs[key] = log.toMutableList().also { it[idx] = it[idx].copy(usage = usage) }
+        logs[key] = log.toMutableList().also { it[idx] = it[idx].copy(usage = usage, turnStats = turnStats) }
         if (key == currentId) publish()
     }
 
@@ -263,9 +263,9 @@ class InboundRouter(
             val haveLiveBubble = lastClaude != null && lastClaude.index < 0 &&
                 lastClaude.text.trim() == msg.text.trim()
             if (!streamed && !haveLiveBubble && !redelivered) {
-                addChat(Role.CLAUDE, msg.text, msg.usage, key = sid)
+                addChat(Role.CLAUDE, msg.text, msg.usage, key = sid, turnStats = msg.turnStats)
             } else {
-                if (msg.usage != null) attachUsageToLastClaude(sid, msg.usage)
+                if (msg.usage != null) attachUsageToLastClaude(sid, msg.usage, msg.turnStats)
             }
             if (wantSpeak && sid == currentId) host.speak(msg.text)
             // Anchor the cache-warm countdown to the turn's real completion

@@ -1,6 +1,7 @@
 package com.bam.spawner
 
 import com.bam.spawner.net.TokenUsage
+import com.bam.spawner.net.TurnStats
 
 /** Who a chat message is from — drives left/right alignment + colour in the UI. */
 enum class Role { USER, CLAUDE, SYSTEM }
@@ -11,7 +12,9 @@ enum class VoiceState { OFF, LISTENING, CAPTURING, TRANSCRIBING, THINKING, SPEAK
 /** One line in the chat log. `id` is the row's durable backend identity (stable
  *  across clear/compress rotation; empty for live rows and id-less backends);
  *  `index` ties a live row back to its server-history slot positionally;
- *  `usage` carries the per-turn token badge; `ts` is unix seconds (0 for history). */
+ *  `usage` carries the per-turn token badge; `turnStats` the agentic-loop rollup
+ *  (cycle count + aggregate) shown in the detailed badge; `ts` is unix seconds (0
+ *  for history). */
 data class ChatMessage(
     val role: Role,
     val text: String,
@@ -19,6 +22,7 @@ data class ChatMessage(
     val usage: TokenUsage? = null,
     val ts: Long = 0L,
     val id: String = "",
+    val turnStats: TurnStats? = null,
 )
 
 /**

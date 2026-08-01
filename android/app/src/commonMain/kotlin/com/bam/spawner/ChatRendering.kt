@@ -43,6 +43,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.dp
 import com.bam.spawner.net.TokenUsage
+import com.bam.spawner.net.TurnStats
 import com.bam.spawner.ui.MarkdownText
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
@@ -203,7 +204,7 @@ fun Bubble(msg: ChatMessage, badgeMode: String = "off") {
                     }
                 }
                 // Per-turn token badge under Claude replies (Appearance → Token badge).
-                if (msg.role == Role.CLAUDE && badgeMode != "off") msg.usage?.let { TokenBadge(it, badgeMode) }
+                if (msg.role == Role.CLAUDE && badgeMode != "off") msg.usage?.let { TokenBadge(it, badgeMode, msg.turnStats) }
                 // Date/time badge below the token line: bottom-right for Claude, bottom-left
                 // for user input. Only live messages carry a timestamp (history has ts=0).
                 if (msg.ts > 0) Text(
@@ -224,12 +225,15 @@ fun Bubble(msg: ChatMessage, badgeMode: String = "off") {
 // ⚡ marks a warm prompt-cache hit; detailed mode breaks the context into fresh
 // input / cached / newly-cached tokens. See docs/protocol.md's `output.usage`.
 @Composable
-fun TokenBadge(u: TokenUsage, mode: String) {
+fun TokenBadge(u: TokenUsage, mode: String, stats: TurnStats? = null) {
     val label = if (mode == "detailed") buildString {
         append("${fmtTok(u.input)} in")
         if (u.cacheRead > 0) append(" · ${fmtTok(u.cacheRead)} cached")
         if (u.cacheWrite > 0) append(" · ${fmtTok(u.cacheWrite)} new")
         append(" · ${fmtTok(u.output)} out")
+        // Agentic-loop rollup: how many API cycles this one dictation ran and the
+        // total tokens they moved (so the per-call numbers above read in context).
+        stats?.let { append(" · ${it.turns} ${if (it.turns == 1) "turn" else "turns"} · ${fmtTok(it.totalTokens)} total") }
     } else {
         "${fmtTok(u.contextTokens)}↑ ${fmtTok(u.output)}↓"
     }
