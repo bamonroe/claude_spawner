@@ -420,9 +420,8 @@ fun MainScreen(
                     if (selAgent != curAgent) {
                         Spacer(Modifier.height(8.dp))
                         Text("Switching agent starts a fresh conversation on ${agentInfo?.name ?: selAgent} — " +
-                            "the old history stays on disk but won't carry over.",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.error)
+                            "a recap of the current one is carried over, and the old messages stay in the log.",
+                            style = MaterialTheme.typography.labelSmall)
                     }
                 }
             },

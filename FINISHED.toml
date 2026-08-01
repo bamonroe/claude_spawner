@@ -14,6 +14,187 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "ssh-native-unified-execution-epic-proposed-2026-07-08-foundation-landed-2026-07-08"
+title = "SSH-native unified execution — remaining work"
+description = "Verified complete 2026-08-01. Landed: native Go SSH (`golang.org/x/crypto/ssh`, sshfs explicitly rejected), persistent per-host client pool, `SSHExecutor`/`Proc` behind the existing executor seam, tagged-process-group cancel, `Session.Host`, discovery + transcript reads over the same transport (`session/ssh_pool.go`, `ssh_exec.go`, `ssh_fs.go`, `ssh_config.go`, `ssh_hostkeys.go` + `ssh_knownhosts_test.go`), host-key verification against known-hosts, and the `SPAWNER_SSH_*` env vars. Re-containerizing the server (the stated low-priority remainder) is done too — `deploy/rebuild-container.sh` and the `spawner-server` container. App side is in place as well: host/identity management in `SettingsHostsIdentities.kt` and host-scoped browsing in `BrowseScreen.kt`. Credential propagation between hosts was always scoped as a separate later feature and remains its own open task."
+status = "finished"
+category = "feature"
+created = "2026-07-08"
+completed = 2026-08-01
+tags = ["ssh-native-unified-execution-epic-propos", "epic"]
+
+[[task]]
+id = "hardening-backlog-2026-07-05-fragility-audit"
+title = "Hardening backlog (2026-07-05 fragility audit)"
+description = """
+Ranked, verified findings from a full-codebase audit. The store's `flush` and usage `persist`
+are already atomic (temp+rename), so several "corruption" claims were discounted; the per-conn
+read loop is single-goroutine, so several "attach/detach race" claims were discounted too. What
+remains real:
+_Done in this pass:_"""
+status = "finished"
+category = "feature"
+created = "2026-07-05"
+completed = 2026-08-01
+tags = ["hardening-backlog-2026-07-05-fragility-a", "epic"]
+
+[[task]]
+id = "unified-versioned-app-server-sync-layer-one-entry-point-no-drift"
+title = "Unified versioned app↔server sync layer (one entry point, no drift)"
+description = """
+DONE — Phase 4's
+    `TestCatalogueRegistryComplete` completed the epic (all phasing sub-items checked). The only thing
+    left open below is the **optional, deliberately-deferred** history-merge-parity follow-up (a
+    behavior change, not a gap); the epic stays here rather than in `FINISHED.md` solely because of
+    that one optional box. Original goal, met:
+    Today every piece
+    of shared state is reconciled ad-hoc: the four app-managed catalogues (hosts, identities,
+    profiles, providers) and every per-client setting are **blind last-write-wins by name with no
+    timestamp/version**, and the incoming/outgoing message handling is **written twice** —
+    `VoiceController` (androidMain) and `WebAppController` (wasmJsMain) each hand-implement ~40
+    apply branches + ~40 send sites independently, which has already drifted (web silently no-ops
+    on `digests`, `session_list`, calibration, read-last). The `docsync`/`clientsync` drift tests
+    enforce message-type and field-name parity but are blind to versioning/conflict semantics.
+    Goal: **one authoritative, versioned sync point per side** that every syncable resource flows
+    through, so a change is added in one place and both clients + the server stay consistent, and a
+    newer server value (written by a *different* app client) reflects back to the app instead of
+    being clobbered.
+
+- **Conflict model (chosen): per-record `updated_at` (client-stamped ms) + last-writer-wins with
+  tombstones.** Every catalogue record and syncable setting carries an `updated_at`. The app is
+  still source of truth on *first* write, but on any exchange the newer `updated_at` wins in either
+  direction: the server keeps the max and rejects a stale upsert (echoing its newer record back so
+  the app adopts it); the app adopts any incoming record newer than its local copy. Deletes become
+  timestamped **tombstones** so a stale client can't resurrect a removed record. (Considered and
+  rejected for now: server-assigned monotonic revision + optimistic-concurrency `base_rev` — more
+  robust against clock skew but heavier; single-user/home-network makes wall-clock LWW enough.
+  Revisit if clock trust becomes a problem.)
+
+- **Fast-path: per-catalogue digest (skip-if-equal).** Reconciling every record on every connect
+  is wasteful when nothing changed — the common case after a long absence. Each side computes a
+  **stable, order-independent checksum per catalogue** (e.g. XOR/sum of per-record hashes over
+  `(key, updated_at, payload)`, so a timestamp-only change still flips it) and exchanges just that
+  one small hash in the handshake. **Digests match → do nothing.** Only on mismatch does the side
+  ship its (small) catalogue and let the LWW+timestamp merge resolve direction. This is exactly the
+  `count`+`hash` freshness pattern the chat transcript already uses (`digests`/`history unchanged`),
+  generalized to the catalogues. A flat per-catalogue checksum is enough here (tens of records);
+  a Merkle tree — to binary-search *which* records differ without shipping the whole set — is only
+  worth it if a catalogue ever grows large, so it's explicitly out of scope for now.
+
+- **Structure: a `commonMain` resource-sync registry.** Each syncable resource declares once —
+  key function, `updated_at` accessor, and merge rule — in shared `commonMain` code. A single
+  inbound `applyServerState(msg)` and outbound `pushLocalChange(resource, record)` dispatch by
+  resource, replacing the duplicated per-controller `when` bodies; `VoiceController`/`WebAppController`
+  keep only the thin platform bits (StateFlow wiring, disk cache). The server gets the symmetric
+  single apply/broadcast entry point with the LWW+tombstone arbitration, replacing the four
+  near-identical `do*Put`/`flush`/`broadcast` paths in `gateway/{hosts,identities,profiles,providers}.go`.
+
+- **Phasing** (versioning is a wire change → land coordinated across both worktrees, drift test first):
+  - [x] **Phase 1 — pure refactor, no wire change (app worktree). DONE** (branch `app`). The
+        duplicated inbound apply + outbound send logic is now hoisted into shared `commonMain`
+        reconcilers so the two controllers can't drift; web brought to parity; `dedupeCachedLog`
+        moved onto server `index`. Drift tests stay green (no new messages). Slices below.
+        - [x] **Slice 1 (catalogues) — done, branch `app` `acea2f4`.** New
+              `commonMain/net/CatalogueSync.kt`: a `Catalogue<T>` (StateFlow + `key` + `merge` seam
+              for Phase 2's LWW/digest) and a `CatalogueSync` owning all four catalogues (hosts,
+              identities, profiles, providers) with one `apply(msg)` inbound + all outbound mutators.
+              `VoiceController`/`WebAppController` lost their four StateFlow holders, four inbound
+              branches, and 13 mutator bodies — now thin delegations. Both targets compile.
+        - [x] **Slice 2 (web parity) — done, branch `app` `f620173`.** Web `onMessage` was one
+              collapsed `else -> {}` swallowing six variants; now exhaustive over all 41 `ServerMsg`
+              (compile-time guard like Android). Implemented `digests` cache-validation on web (sends
+              `digest` on `HelloOk`, stores per-session `(count,hash)`, `requestFreshHistory()` skips
+              refetch when held==server, handles `unchanged` — fixed a latent bug where an empty
+              `unchanged` page wiped the log), `read_last`, and `pending` (real web VAD). Documented
+              intentional no-ops for `calibration`/`dialog` (Android-hardware / already-via-`say`).
+              Note: `session_list` from the old map doesn't exist in the protocol — nothing to do.
+        - [x] **Slice 3 (session/chat reconcile) — done, branch `app` `0d90713`.** New
+              `commonMain/net/SessionSync.kt` (sibling to `CatalogueSync`) owns the reconcile
+              DECISION logic; a 7-accessor `SessionSync.Host` seam keeps platform side effects local
+              (Android disk `TranscriptCache` + timestamped merge + reconnect gap-fill; web in-memory
+              index-sorted merge). Unified `attached`/`detached`/`context_reset`/`renamed`/
+              `discovered`/`history`/`digests`/`swap`/`focusKnownSession`. Single `SessionSync.dedupe`
+              (index-first, `(role,text)` fallback only to drop a live `index==-1` row once its
+              indexed row lands) replaced both the Android `dedupeCachedLog` and the web inline
+              `distinctBy`. Both targets build; no wire change.
+              - [ ] **Follow-up (deferred, optional):** history-merge algorithm left per-client by
+                    design (Android timestamp+gap-fill vs web index-replace) — only the dedup
+                    primitive is shared; unifying would be a behavior change. (The web
+                    `renamed`/`discovered` digest-key / title gap noted here was closed 2026-07-17 by
+                    the mutation-message audit above.) Revisit if full history-merge parity is wanted.
+        - [x] 2026-07-29 — **On-device verification:** confirmed in the field on the live Pixel 8a
+              self-hosting client — the sporadic duplicate rows have not recurred in a long time of
+              daily use (see the duplicate-rows epic above; the bug was never deterministically
+              reproducible, so live-use absence is the verification).
+  - [x] 2026-07-30 — **Phase 2 — add `updated_at` to the catalogue records + messages.** Extend
+        `Host`/`Identity`/`ProfileInfo`/`AgentInfo` and their Go structs with `updated_at`; server
+        persists it and arbitrates LWW; add tombstones for deletes. Done: `UpdatedAt` on all structs,
+        LWW/tombstone arbitration in `hosts.go`/`profile.go`/`identity.go` (+ `tombstone.go`, `lww_test.go`),
+        wire carries `updated_at` both directions. The "coordinate/merge across worktrees" caveat is moot —
+        the tree folded back to a single `master`. (verified against code)
+        - [x] **Phase 2a (LWW + tombstones) — done, master.** Landed coordinated on `master`
+              (Go + Kotlin together). Each record carries client-stamped `updated_at` (unix ms);
+              server rejects older upserts + re-broadcasts current; timestamped tombstones block
+              stale re-adds (new `session/tombstone.go`); app stamps edits via a new expect/actual
+              `nowEpochMs` clock and `CatalogueSync` merges LWW by `updatedAt`. `docs/protocol.md`
+              updated; Go arbitration unit tests added; `go test -count=1` + both APK/wasm builds
+              green. Still needs **master→app merge** and on-device check.
+        - [x] **Phase 2b — per-catalogue digest fast-path (skip-if-equal) — done, master (uncommitted
+              at hand-off).** Each side folds a catalogue's live records `(key, updated_at, payload)`
+              into one order-independent checksum (64-bit FNV-1a per record, wrapping-summed, hex —
+              portable so Go `gateway/catalogdigest.go` and Kotlin `net/CatalogueDigest.kt` compute
+              byte-identical values, cross-verified). The app presents all four digests in `hello`
+              (fresh each send, via a `SpawnerClient` provider — catalogues aren't persisted, so a
+              cold start yields empty digests → safe full re-broadcast); the server suppresses each
+              catalogue's connect-time send when the digest matches, else broadcasts as before and
+              lets the Phase 2a LWW merge resolve direction. Hosts/identities, previously request-only,
+              now reconcile proactively on connect too (only when they differ). Tombstones aren't
+              folded in (a pending delete shows as an extra record → digests already differ). Go unit
+              tests: fold order-independence + add/change/delete/timestamp flips, connect-suppress vs
+              connect-broadcast. `docs/protocol.md` updated; `go test ./... -count=1` + both APK/wasm
+              builds green. Still needs commit + master→app merge.
+        - [x] **Note (closed):** `fieldsync`/`docsync` originally guarded docs↔Go only and could not
+              catch a missing *Kotlin* field. Now `recordsync_test.go` reads the Kotlin parsers and
+              asserts record field-parity (incl. `updated_at`) both ways for every catalogue, and Phase
+              4's `TestCatalogueRegistryComplete` makes that coverage total — so the drift test now
+              catches a missing Kotlin field, not just the build.
+  - [x] **Phase 3 — route genuinely-shared server-global settings through the sync layer — done,
+        master (uncommitted at hand-off) 2026-07-16.** Added a fifth catalogue, **settings**: keyed
+        `{key, value, updated_at}` records (value always a string, typed at the edges) with per-key
+        LWW + tombstones (`session.SettingKV`, persisted to `settings_kv.json`) and an order-independent
+        FNV-1a-64 digest byte-identical to Kotlin (`settingsDigest` ↔ `CatalogueDigest.settings`, pinned
+        by a known-hex cross test). Six keys routed: `whisper_model`, `whisper_fast_model`,
+        `warm_compress`, `auto_compress`, `auto_compress_threshold`, `summary_only` — so the whisper
+        model (was server-global-mutable), auto-compress (was in-memory-only, clobbered on every hello),
+        and summary-only (was stateless) now persist and propagate to every client with the same LWW
+        rule. New wire messages `setting_put` (in) / `settings` (out) + `settings_digest` in `hello`;
+        `hello` no longer clobbers `acCfg`. App: `Catalogue<SettingRecord>` in `CatalogueSync`, the
+        picker/switches call the synced mutator and inbound `settings` mirrors back. Per-device prefs
+        (wake sensitivity, on-device-vs-server TTS, color scheme) stay LOCAL — out of scope. Whisper
+        keeps its dedicated `set_whisper_model` load message (which triggers the resident-server
+        load/download); the server persists the result into the catalogue on success. `docs/protocol.md`
+        updated; `go test ./... -count=1` + wasm/APK builds green. Still needs commit + master→app merge.
+  - [x] 2026-07-29 — **Phase 4 — drift test asserts every registered syncable resource carries a
+        version token.** The per-catalogue field-parity check (`recordsync_test.go`) already asserted
+        `updated_at` on both the Go wire record and the Kotlin parser for the six catalogues, but off a
+        hand-maintained `rows` list — so a *newly-registered* catalogue could skip the check. Closed the
+        meta-gap: new `TestCatalogueRegistryComplete` treats the **digest layer as the authoritative
+        registry** (a synced catalogue must have a digest on both ends for the skip-if-equal fast path)
+        and requires the Go digests (`catalogdigest.go` `<catalogue>Digest` funcs), the Kotlin digests
+        (`CatalogueDigest.kt` public folds), and the parity rows to be the **same set** — so registering
+        a catalogue anywhere without a parity row (and thus without the both-ends `updated_at` assertion)
+        fails the build. Each digest func is also asserted to fold the version token (Go `UpdatedAt`
+        selector / Kotlin `updatedAt`), so a digest can't be defined without the conflict rule. `rows`
+        hoisted to a reusable `catalogueRows(t)` helper. Negative-tested (corrupt a row name → four
+        actionable failures); `go test ./internal/docsync/ -count=1` green. This completes the unified
+        versioned sync-layer epic."""
+status = "finished"
+category = "refactor"
+created = "2026-07-01"
+completed = 2026-08-01
+tags = []
+
+[[task]]
 id = "migrate-todo-finished-from-markdown-to-the-toml-todo-skill"
 title = "Migrate TODO/FINISHED from Markdown to the TOML todo skill"
 description = "Adopted the /data/template/base task tooling: copied .claude/skills/todo (dependency-free Python CLI) + scripts/todo.sh, converted every top-level checkbox bullet in TODO.md and FINISHED.md into a [[task]] table (epic preambles kept as their own tasks, tagged by their old section heading), and deleted the Markdown originals. scripts/todo.sh validate is green. CLAUDE.md's documentation map and task-list rule now point at TODO.toml/FINISHED.toml and the skill; README.md, docs/architecture.md, docs/config.md, android/README.md, wakeword/README.md and the Go/Kotlin comment references were repointed too."
