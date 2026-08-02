@@ -33,8 +33,21 @@ type SSHPool struct {
 	ids        *IdentityStore // resolves a host's Identity → its server-side private key; may be nil
 	knownHosts string         // known_hosts path; TrustHost/ForgetHost edit it and reload hostKey
 	hostKey    ssh.HostKeyCallback
-	mu         sync.Mutex
-	clients    map[string]*ssh.Client
+	mu         sync.Mutex            // guards the entries map ONLY — never held across a dial
+	entries    map[string]*poolEntry // one per host name
+}
+
+// poolEntry is one host's cached connection plus the lock that serializes dials
+// FOR THAT HOST. The per-host lock is the whole point: dialing an unreachable host
+// blocks for the full dial timeout, and when that wait happened under a pool-wide
+// lock it stalled every other host's callers too. One offline machine in the
+// registry (a laptop that's asleep, a box off the tailnet) would freeze all
+// loopback work — history reads, discovery, browsing — for 15 s at a stretch,
+// which read as "the server is broken" with nothing in the log to show for it.
+// Holding p.mu only for the map lookup keeps a dead host's cost local to that host.
+type poolEntry struct {
+	mu     sync.Mutex // serializes dials for this host; may be held for the dial timeout
+	client *ssh.Client
 }
 
 // NewSSHPool validates the global config (building the shared known_hosts
@@ -51,7 +64,7 @@ func NewSSHPool(cfg SSHConfig, hosts *HostStore, ids *IdentityStore) (*SSHPool, 
 	if err != nil {
 		return nil, fmt.Errorf("ssh: load known_hosts %s: %w", khPath, err)
 	}
-	return &SSHPool{cfg: cfg, hosts: hosts, ids: ids, knownHosts: khPath, hostKey: cb, clients: map[string]*ssh.Client{}}, nil
+	return &SSHPool{cfg: cfg, hosts: hosts, ids: ids, knownHosts: khPath, hostKey: cb, entries: map[string]*poolEntry{}}, nil
 }
 
 // resolve maps a Session.Host name to dial details: a registry entry's
@@ -121,13 +134,17 @@ func (p *SSHPool) clientConfig(user, keyFile, password string) (*ssh.ClientConfi
 
 // client returns the cached connection for a host name, resolving it through the
 // registry and dialing (and caching) on first use. Concurrent callers for the same
-// cold host serialize on the pool lock, so exactly one dial happens. Cached by name
-// so two names sharing an address keep independent entries.
+// cold host serialize on that host's entry lock, so exactly one dial happens —
+// while callers for OTHER hosts proceed unblocked. Cached by name so two names
+// sharing an address keep independent entries.
 func (p *SSHPool) client(name string) (*ssh.Client, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if c := p.clients[name]; c != nil {
-		return c, nil
+	e := p.entry(name)
+	// Per-host lock only: a slow or hanging dial to THIS host must not stall
+	// callers of any other host. See poolEntry.
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.client != nil {
+		return e.client, nil
 	}
 	address, user, keyFile, password, port := p.resolve(name)
 	ccfg, err := p.clientConfig(user, keyFile, password)
@@ -139,9 +156,22 @@ func (p *SSHPool) client(name string) (*ssh.Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ssh dial %s: %w", addr, err)
 	}
-	p.clients[name] = c
+	e.client = c
 	go p.keepalive(name, c)
 	return c, nil
+}
+
+// entry returns the per-host pool slot, creating it on first use. The pool-wide
+// lock is held only for this map lookup — never across a dial.
+func (p *SSHPool) entry(name string) *poolEntry {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	e := p.entries[name]
+	if e == nil {
+		e = &poolEntry{}
+		p.entries[name] = e
+	}
+	return e
 }
 
 // dial connects to addr, verifying the host key against known_hosts. On a
@@ -190,11 +220,12 @@ func knownHostAlgos(keys []knownhosts.KnownKey) []string {
 // drop removes c from the cache (only if it's still the current client for host)
 // and closes it, so the next client(host) re-dials. Idempotent.
 func (p *SSHPool) drop(host string, c *ssh.Client) {
-	p.mu.Lock()
-	if p.clients[host] == c {
-		delete(p.clients, host)
+	e := p.entry(host)
+	e.mu.Lock()
+	if e.client == c {
+		e.client = nil
 	}
-	p.mu.Unlock()
+	e.mu.Unlock()
 	_ = c.Close()
 }
 
@@ -215,10 +246,21 @@ func (p *SSHPool) keepalive(host string, c *ssh.Client) {
 // Close tears down every pooled connection. Called on server shutdown.
 func (p *SSHPool) Close() error {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	for h, c := range p.clients {
-		_ = c.Close()
-		delete(p.clients, h)
+	entries := make([]*poolEntry, 0, len(p.entries))
+	for h, e := range p.entries {
+		entries = append(entries, e)
+		delete(p.entries, h)
+	}
+	p.mu.Unlock()
+	// Close outside the pool lock: an entry mid-dial holds its own lock for the
+	// dial timeout, and shutdown mustn't serialize every host behind that.
+	for _, e := range entries {
+		e.mu.Lock()
+		if e.client != nil {
+			_ = e.client.Close()
+			e.client = nil
+		}
+		e.mu.Unlock()
 	}
 	return nil
 }
