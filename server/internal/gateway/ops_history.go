@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"strings"
+	"sync"
 
 	"github.com/bam/claude_spawner/server/internal/session"
 )
@@ -60,24 +61,67 @@ func (c *conn) serveHistory(name string, before *int, limit int, haveHash string
 // so recomputing digests when nothing changed is cheap. An unreadable session is
 // skipped (the app keeps whatever it already cached for it).
 
-// serveDigests reports every registered session's transcript digest (message
-// count + content hash) so the app can validate its offline transcript cache on
-// connect without transferring any message bodies — it refetches history only
-// for sessions whose hash changed. Transcript reads are memoized by file stat,
-// so recomputing digests when nothing changed is cheap. An unreadable session is
-// skipped (the app keeps whatever it already cached for it).
+// digestSweepConcurrency bounds how many sessions the sweep reads at once. The
+// reads are independent and mostly wait on remote I/O, so overlapping them turns
+// a sum of latencies into roughly the slowest one; the cap keeps a machine with
+// dozens of sessions from opening dozens of SSH channels at once (OpenSSH's
+// default MaxSessions is 10 per connection).
+const digestSweepConcurrency = 8
+
+// startDigestSweep runs the sweep OFF the connection's inbound loop. The loop
+// handles one message at a time, so doing this inline made every other request —
+// attach, history, anything the user tapped — wait behind a full walk of every
+// session's transcripts. On a cold server that walk is the expensive one (nothing
+// is memoized yet), which is exactly when the user is reconnecting and least able
+// to wait.
+//
+// Only one sweep runs per connection at a time: a request arriving while one is
+// in flight is dropped rather than queued, because the running sweep sends a
+// `digests` message that answers it too. That also stops a client that re-requests
+// on a timer from stacking sweeps.
+func (c *conn) startDigestSweep() {
+	if !c.digestSweeping.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		defer c.digestSweeping.Store(false)
+		c.serveDigests()
+	}()
+}
+
+// serveDigests computes and sends the sweep. Callers should go through
+// startDigestSweep rather than calling this on the inbound loop.
 func (c *conn) serveDigests() {
 	sessions := c.srv.store.List()
-	items := make([]digestView, 0, len(sessions))
-	for _, s := range sessions {
-		msgs, err := c.srv.driver.ReadDisplayHistory(s)
-		if err != nil {
-			continue
-		}
-		count, hash := session.HistoryDigest(msgs)
-		items = append(items, digestView{Name: s.Name, SessionID: s.SessionID, Count: count, Hash: hash})
+	// Indexed writes (not appends) so the result keeps the store's order
+	// regardless of which read finishes first.
+	items := make([]digestView, len(sessions))
+	served := make([]bool, len(sessions))
+	sem := make(chan struct{}, digestSweepConcurrency)
+	var wg sync.WaitGroup
+	for i, s := range sessions {
+		wg.Add(1)
+		go func(i int, s *session.Session) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			msgs, err := c.srv.driver.ReadDisplayHistory(s)
+			if err != nil {
+				return // unreadable: the app keeps whatever it already cached
+			}
+			count, hash := session.HistoryDigest(msgs)
+			items[i] = digestView{Name: s.Name, SessionID: s.SessionID, Count: count, Hash: hash}
+			served[i] = true
+		}(i, s)
 	}
-	c.send(msgDigests(items))
+	wg.Wait()
+	out := make([]digestView, 0, len(items))
+	for i, ok := range served {
+		if ok {
+			out = append(out, items[i])
+		}
+	}
+	c.send(msgDigests(out))
 }
 
 // commandHelp is spoken + shown when the user asks "hey buddy help".

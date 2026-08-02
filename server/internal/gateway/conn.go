@@ -5,6 +5,7 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -52,6 +53,8 @@ type conn struct {
 
 	wmu    sync.Mutex // guards writes (job goroutines also write) AND closed
 	closed bool       // set once the connection is gone (guards job delivery)
+
+	digestSweeping atomic.Bool // a transcript-digest sweep is running off the inbound loop; see startDigestSweep
 
 	attachedMu    sync.Mutex       // guards attached for cross-goroutine readers; see setAttached
 	attached      *session.Session // non-nil when in passthrough mode

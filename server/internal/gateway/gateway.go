@@ -545,7 +545,7 @@ var wireHandlers = map[string]func(c *conn, in inbound){
 	"commit":        func(c *conn, in inbound) { c.commitMessage() }, // silence-timeout commit of the hands-free buffer
 	"discard_draft": func(c *conn, in inbound) { c.clearBuffer() },   // drop the uncommitted hands-free draft
 	"history":       func(c *conn, in inbound) { c.serveHistory(in.Name, in.Before, in.Limit, in.HaveHash) },
-	"digest":        func(c *conn, in inbound) { c.serveDigests() },
+	"digest":        func(c *conn, in inbound) { c.startDigestSweep() },
 	"clear":         func(c *conn, in inbound) { c.doClear() },
 	"compress":      func(c *conn, in inbound) { c.doCompress() },
 	"usage":         func(c *conn, in inbound) { c.doUsage(false) }, // tap: show the report, don't speak it
