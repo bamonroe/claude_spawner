@@ -1,8 +1,11 @@
 package gateway
 
 import (
+	"log"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/bam/claude_spawner/server/internal/session"
 )
@@ -99,6 +102,8 @@ func (c *conn) serveDigests() {
 	served := make([]bool, len(sessions))
 	sem := make(chan struct{}, digestSweepConcurrency)
 	var wg sync.WaitGroup
+	var hits atomic.Int64
+	started := time.Now()
 	for i, s := range sessions {
 		wg.Add(1)
 		go func(i int, s *session.Session) {
@@ -107,9 +112,12 @@ func (c *conn) serveDigests() {
 			defer func() { <-sem }()
 			// DisplayDigest, not ReadDisplayHistory: when the session's transcripts
 			// haven't moved this is a few stats instead of a full parse.
-			count, hash, err := c.srv.driver.DisplayDigest(s)
+			count, hash, cached, err := c.srv.driver.DisplayDigest(s)
 			if err != nil {
 				return // unreadable: the app keeps whatever it already cached
+			}
+			if cached {
+				hits.Add(1)
 			}
 			items[i] = digestView{Name: s.Name, SessionID: s.SessionID, Count: count, Hash: hash}
 			served[i] = true
@@ -122,6 +130,11 @@ func (c *conn) serveDigests() {
 			out = append(out, items[i])
 		}
 	}
+	// Logged because this sweep is the one operation whose cost is invisible to the
+	// user (it runs in the background) yet dominates a cold connect: the hit count
+	// is how you tell a working digest cache from one that is silently missing.
+	log.Printf("digest sweep: %d session(s), %d cached, %d recomputed in %v",
+		len(sessions), hits.Load(), int64(len(out))-hits.Load(), time.Since(started).Round(time.Millisecond))
 	c.send(msgDigests(out))
 }
 

@@ -446,7 +446,7 @@ func (d *Driver) SetDigests(c *DigestCache) { d.digests = c }
 //
 // A backend that can't describe its chain cheaply (chainSig ok=false) falls back
 // to the full read, so correctness never depends on the cache being available.
-func (d *Driver) DisplayDigest(rec *Session) (count int, hash string, err error) {
+func (d *Driver) DisplayDigest(rec *Session) (count int, hash string, cached bool, err error) {
 	// Signature FIRST, then read. If a turn writes to the transcript in between,
 	// we store a newer digest under an older signature — the next call sees a
 	// changed signature, misses, and recomputes. Reading first and statting after
@@ -455,18 +455,18 @@ func (d *Driver) DisplayDigest(rec *Session) (count int, hash string, err error)
 	sig, cacheable := d.displayChainSig(rec)
 	if cacheable {
 		if count, hash, ok := d.digests.Get(rec.SessionID, sig); ok {
-			return count, hash, nil
+			return count, hash, true, nil
 		}
 	}
 	msgs, err := d.ReadDisplayHistory(rec)
 	if err != nil {
-		return 0, "", err
+		return 0, "", false, err
 	}
 	count, hash = HistoryDigest(msgs)
 	if cacheable {
 		d.digests.Put(rec.SessionID, sig, count, hash)
 	}
-	return count, hash, nil
+	return count, hash, false, nil
 }
 
 // displayChainSig is the freshness signature of everything ReadDisplayHistory
