@@ -250,3 +250,9 @@ func (fs opencodeFS) deleteByIDs(ids []string) (int, error) {
 	}
 	return n, nil
 }
+
+// chainSig opts out: opencode has no transcript file to stat — the reader shells
+// out to opencode's own export command — so there is nothing cheap to compare
+// and the digest is recomputed every time. Explicit rather than inherited, so
+// the embedded claudeFS can't hand back a signature for unrelated files.
+func (fs opencodeFS) chainSig([]string) (string, bool) { return "", false }

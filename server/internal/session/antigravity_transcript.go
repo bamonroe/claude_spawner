@@ -356,3 +356,9 @@ func agyBrainDirFromPath(path string) string {
 	}
 	return ""
 }
+
+// chainSig stats the brain transcripts. Declared explicitly for the same reason
+// as codexFS.chainSig: the inherited claudeFS method would stat the wrong paths.
+func (fs antigravityFS) chainSig(ids []string) (string, bool) {
+	return statChainSig(fs.claudeFS, fs.findByID, ids)
+}

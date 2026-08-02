@@ -310,3 +310,12 @@ func (fs codexFS) lastUsageInFile(path string) *ContextSnapshot {
 	}
 	return last
 }
+
+// chainSig stats Codex rollout files. Declared explicitly rather than inherited
+// from the embedded claudeFS: the promoted method would resolve ids through
+// CLAUDE's layout, producing a signature for the wrong files — and a signature
+// that doesn't track the real transcripts is worse than none, because it would
+// pin a stale digest.
+func (fs codexFS) chainSig(ids []string) (string, bool) {
+	return statChainSig(fs.claudeFS, fs.findByID, ids)
+}

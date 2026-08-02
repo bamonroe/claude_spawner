@@ -505,3 +505,33 @@ func (d *Driver) claudeFSFor(host string) claudeFS {
 	}
 	return localClaudeFS
 }
+
+// statChainSig builds a chain's freshness signature from each transcript's path,
+// size and mtime — the same proxy the in-memory parse cache trusts. resolve maps
+// a chain id to its transcript path for the calling backend. An id that resolves
+// to nothing is recorded as absent rather than failing: "no transcript yet" is a
+// legitimate, stable state (a freshly rotated session id), and it must invalidate
+// as soon as the file appears. A path that exists but can't be stat'd gives up
+// (ok=false) so the caller recomputes rather than trusting an unverifiable entry.
+func statChainSig(fs claudeFS, resolve func(string) string, ids []string) (string, bool) {
+	var b strings.Builder
+	for _, id := range ids {
+		path := resolve(id)
+		if path == "" {
+			b.WriteString(id)
+			b.WriteString(":absent;")
+			continue
+		}
+		size, mod, ok := fs.stat(path)
+		if !ok {
+			return "", false
+		}
+		fmt.Fprintf(&b, "%s:%d:%d;", path, size, mod.UnixNano())
+	}
+	return b.String(), true
+}
+
+// chainSig for Claude-style transcripts: stat each id's transcript.
+func (fs claudeFS) chainSig(ids []string) (string, bool) {
+	return statChainSig(fs, fs.findByID, ids)
+}

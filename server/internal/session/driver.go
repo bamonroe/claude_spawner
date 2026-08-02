@@ -58,6 +58,10 @@ type Driver struct {
 	// relaunches the server for the app's "restart" button. Empty disables restart.
 	// See Driver.Restart.
 	RestartCmd string
+
+	// digests is the durable transcript-digest cache used by DisplayDigest. Nil is
+	// fine — every digest is then recomputed from a full parse. Set via SetDigests.
+	digests *DigestCache
 }
 
 // NewDriver returns a Driver with project defaults: a single host executor
@@ -373,6 +377,12 @@ type transcriptReader interface {
 	readTranscriptChain(ids []string) ([]Message, error)
 	lastContextUsage(ids []string) *ContextSnapshot
 	deleteByIDs(ids []string) (int, error)
+	// chainSig is a cheap freshness signature for a chain: two calls returning the
+	// same non-empty string mean readTranscriptChain would return the same
+	// messages. It's what lets a digest be cached across restarts without
+	// re-parsing (see DigestCache). ok=false means this backend can't describe the
+	// chain without doing the expensive read anyway — the caller then recomputes.
+	chainSig(ids []string) (sig string, ok bool)
 }
 
 // transcriptReaderFor selects the on-disk reader for a session's backend (agent
@@ -417,6 +427,73 @@ func (d *Driver) currentHistoryIDs(rec *Session) []string {
 // backend won't read them as context.
 func (d *Driver) ArchiveSegment(rec *Session) HistorySegment {
 	return HistorySegment{Agent: rec.Agent, Host: rec.Host, IDs: d.currentHistoryIDs(rec)}
+}
+
+// Digests is the durable cache backing DisplayDigest. Nil disables caching (the
+// digest is then recomputed from a full parse every time, as before).
+func (d *Driver) SetDigests(c *DigestCache) { d.digests = c }
+
+// DisplayDigest returns a session's display-history digest (message count +
+// content hash), reusing the cached value when every transcript in the chain is
+// byte-for-byte where it was last time.
+//
+// This is the whole point of the digest cache: the app asks for every session's
+// digest on connect to validate its offline transcript cache, and computing one
+// otherwise means parsing that session's entire transcript chain. Statting the
+// chain instead turns a multi-minute connect-time sweep into a handful of stats
+// whenever nothing has changed — including right after a restart, when the
+// in-memory parse memoization is empty and the old code was at its slowest.
+//
+// A backend that can't describe its chain cheaply (chainSig ok=false) falls back
+// to the full read, so correctness never depends on the cache being available.
+func (d *Driver) DisplayDigest(rec *Session) (count int, hash string, err error) {
+	// Signature FIRST, then read. If a turn writes to the transcript in between,
+	// we store a newer digest under an older signature — the next call sees a
+	// changed signature, misses, and recomputes. Reading first and statting after
+	// would fail the other way: a newer signature pinned to an older digest, which
+	// never invalidates and leaves the app showing a stale transcript forever.
+	sig, cacheable := d.displayChainSig(rec)
+	if cacheable {
+		if count, hash, ok := d.digests.Get(rec.SessionID, sig); ok {
+			return count, hash, nil
+		}
+	}
+	msgs, err := d.ReadDisplayHistory(rec)
+	if err != nil {
+		return 0, "", err
+	}
+	count, hash = HistoryDigest(msgs)
+	if cacheable {
+		d.digests.Put(rec.SessionID, sig, count, hash)
+	}
+	return count, hash, nil
+}
+
+// displayChainSig is the freshness signature of everything ReadDisplayHistory
+// reads: every archived segment plus the current chain, in the same order. It is
+// cacheable only if EVERY segment can describe itself — one opencode segment in
+// a session's past makes the whole digest uncacheable, which is correct: we
+// can't tell whether that segment changed.
+func (d *Driver) displayChainSig(rec *Session) (string, bool) {
+	var b strings.Builder
+	for _, seg := range rec.History {
+		sig, ok := d.transcriptReaderFor(seg.Agent, seg.Host).chainSig(seg.IDs)
+		if !ok {
+			return "", false
+		}
+		b.WriteString(seg.Agent)
+		b.WriteByte('@')
+		b.WriteString(sig)
+		b.WriteByte('|')
+	}
+	sig, ok := d.transcriptReaderFor(rec.Agent, rec.Host).chainSig(d.currentHistoryIDs(rec))
+	if !ok {
+		return "", false
+	}
+	b.WriteString(rec.Agent)
+	b.WriteByte('@')
+	b.WriteString(sig)
+	return b.String(), true
 }
 
 // ReadDisplayHistory reads a session's full cross-backend chat log for display: each

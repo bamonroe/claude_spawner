@@ -105,11 +105,12 @@ func (c *conn) serveDigests() {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			msgs, err := c.srv.driver.ReadDisplayHistory(s)
+			// DisplayDigest, not ReadDisplayHistory: when the session's transcripts
+			// haven't moved this is a few stats instead of a full parse.
+			count, hash, err := c.srv.driver.DisplayDigest(s)
 			if err != nil {
 				return // unreadable: the app keeps whatever it already cached
 			}
-			count, hash := session.HistoryDigest(msgs)
 			items[i] = digestView{Name: s.Name, SessionID: s.SessionID, Count: count, Hash: hash}
 			served[i] = true
 		}(i, s)
