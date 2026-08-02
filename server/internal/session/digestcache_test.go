@@ -1,8 +1,10 @@
 package session
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -138,5 +140,35 @@ func TestStatChainSigInvalidatesWhenAnAbsentTranscriptAppears(t *testing.T) {
 	present, _ := statChainSig(localClaudeFS, resolve, []string{"id"})
 	if present == absent {
 		t.Fatal("a transcript appearing must change the signature")
+	}
+}
+
+// The sweep Puts from several goroutines at once. Every one of them has to
+// survive to disk: marshalling under the lock but writing outside it let an
+// earlier snapshot land after a later one, silently dropping sessions from the
+// file (the first real sweep persisted 10 of 12 that way).
+func TestDigestCacheConcurrentPutsAllPersist(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "digests.json")
+	c := OpenDigestCache(path)
+
+	const n = 24
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			key := fmt.Sprintf("sess-%02d", i)
+			c.Put(key, "sig-"+key, i, "hash-"+key)
+		}(i)
+	}
+	wg.Wait()
+
+	reopened := OpenDigestCache(path)
+	for i := range n {
+		key := fmt.Sprintf("sess-%02d", i)
+		count, hash, ok := reopened.Get(key, "sig-"+key)
+		if !ok || count != i || hash != "hash-"+key {
+			t.Fatalf("%s missing from the persisted cache: (%d, %q, %v)", key, count, hash, ok)
+		}
 	}
 }

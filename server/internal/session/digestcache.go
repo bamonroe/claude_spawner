@@ -84,17 +84,22 @@ func (c *DigestCache) Put(key, sig string, count int, hash string) {
 		return
 	}
 	c.mu.Lock()
+	defer c.mu.Unlock()
 	e, found := c.entries[key]
 	if found && e.Sig == sig && e.Count == count && e.Hash == hash {
-		c.mu.Unlock()
 		return // unchanged; no need to rewrite the file
 	}
 	c.entries[key] = digestEntry{Sig: sig, Count: count, Hash: hash}
 	data, err := json.Marshal(c.entries)
-	c.mu.Unlock()
 	if err != nil || c.path == "" {
 		return
 	}
+	// Write while still holding the lock. The sweep Puts from several goroutines
+	// at once, and marshalling under the lock but writing outside it lets an
+	// earlier snapshot land after a later one — a lost update that silently drops
+	// sessions from the file. (It did: the first real sweep persisted 10 of 12.)
+	// The file is a few tens of KB and sweeps are rare, so serializing the write
+	// costs nothing worth measuring.
 	c.write(data)
 }
 
