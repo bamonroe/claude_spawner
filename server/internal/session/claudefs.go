@@ -508,11 +508,20 @@ func (d *Driver) claudeFSFor(host string) claudeFS {
 
 // statChainSig builds a chain's freshness signature from each transcript's path,
 // size and mtime — the same proxy the in-memory parse cache trusts. resolve maps
-// a chain id to its transcript path for the calling backend. An id that resolves
-// to nothing is recorded as absent rather than failing: "no transcript yet" is a
-// legitimate, stable state (a freshly rotated session id), and it must invalidate
-// as soon as the file appears. A path that exists but can't be stat'd gives up
-// (ok=false) so the caller recomputes rather than trusting an unverifiable entry.
+// a chain id to its transcript path for the calling backend.
+//
+// A transcript that isn't there — the id resolves to nothing, or the path doesn't
+// stat — is recorded as absent rather than abandoning the signature. "No
+// transcript yet" is a legitimate, stable state: a freshly rotated session id, or
+// a backend like antigravity whose resolver computes a deterministic path that
+// may not exist. It contributes no messages, and the signature changes the moment
+// the file appears, so it invalidates correctly.
+//
+// Treating a failed stat as "give up" instead made such a session permanently
+// uncacheable — it re-parsed its entire chain on every sweep, forever. A stat
+// that fails transiently is the same shape as one that fails because the file is
+// missing, and that's safe here: the entry it pins is replaced as soon as the
+// stat works again.
 func statChainSig(fs claudeFS, resolve func(string) string, ids []string) (string, bool) {
 	var b strings.Builder
 	for _, id := range ids {
@@ -524,7 +533,9 @@ func statChainSig(fs claudeFS, resolve func(string) string, ids []string) (strin
 		}
 		size, mod, ok := fs.stat(path)
 		if !ok {
-			return "", false
+			b.WriteString(path)
+			b.WriteString(":absent;")
+			continue
 		}
 		fmt.Fprintf(&b, "%s:%d:%d;", path, size, mod.UnixNano())
 	}

@@ -172,3 +172,30 @@ func TestDigestCacheConcurrentPutsAllPersist(t *testing.T) {
 		}
 	}
 }
+
+// A resolver that returns a deterministic path for a file that doesn't exist
+// (antigravity computes its brain-transcript path rather than globbing for it)
+// must still yield a usable signature. Treating the failed stat as "give up"
+// made such a session permanently uncacheable — it re-parsed its whole chain on
+// every sweep, and one archived antigravity segment did exactly that in
+// production.
+func TestStatChainSigHandlesADeterministicPathThatDoesNotExist(t *testing.T) {
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "never-created.jsonl")
+	resolve := func(string) string { return missing } // deterministic, not a glob
+
+	sig, ok := statChainSig(localClaudeFS, resolve, []string{"id"})
+	if !ok {
+		t.Fatal("a deterministic path to a missing file must still be cacheable")
+	}
+	if sig == "" {
+		t.Fatal("expected a non-empty signature")
+	}
+	// And it must stop matching once the file shows up.
+	if err := os.WriteFile(missing, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if now, _ := statChainSig(localClaudeFS, resolve, []string{"id"}); now == sig {
+		t.Fatal("the signature must change once the transcript appears")
+	}
+}
