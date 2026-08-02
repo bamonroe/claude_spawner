@@ -158,7 +158,12 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
         override fun bargeInIfAttached(id: String) {
             if (id == _attachedId.value) { cancelServerSpeech(); speaker.stop() }
         }
+        override fun showNotice(notice: ServerMsg.Notice) = noticeStore.add(notice)
     })
+
+    // Out-of-band heads-ups about sessions we're not viewing; see [NoticeStore].
+    internal val noticeStore = NoticeStore()
+    override val notices: StateFlow<List<ServerMsg.Notice>> = noticeStore.notices
 
     internal val _chat = MutableStateFlow<List<ChatMessage>>(emptyList())
     override val chat: StateFlow<List<ChatMessage>> = _chat.asStateFlow()
@@ -544,6 +549,7 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
 
     /** Dismiss the questions without answering (they stay in the transcript). */
     override fun dismissAsk() { _ask.value = null }
+    override fun dismissNotice(sessionId: String) = noticeStore.dismiss(sessionId)
 
     // --- Visual directory browser (New session) ---
     // Browsing is host-scoped: the listing is produced on `host` (its filesystem

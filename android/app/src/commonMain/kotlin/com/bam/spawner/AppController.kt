@@ -58,6 +58,11 @@ interface AppController : HostsIdentitiesController, ProfilesController, Provide
     val attachedModel: StateFlow<String>
     val discovered: StateFlow<List<DiscoveredInfo>>
     val discoverError: StateFlow<String>
+    // Out-of-band heads-ups about sessions the user is NOT viewing (the server's
+    // `notice` frame — today, eagerly-notified background jobs that finished while
+    // nothing was attached). Rendered as a dismissable banner offering a jump to
+    // the session; newest last, at most one per session.
+    val notices: StateFlow<List<ServerMsg.Notice>>
 
     // --- Hands-free / voice pipeline (platform-filled; web stubs) ------------
     val voiceState: StateFlow<VoiceState>
@@ -117,6 +122,8 @@ interface AppController : HostsIdentitiesController, ProfilesController, Provide
     fun loadOlder()
     fun submitAnswers(text: String)
     fun dismissAsk()
+    /** Drop the [notices] entry for [sessionId] (banner dismissed, or its session opened). */
+    fun dismissNotice(sessionId: String)
 
     // --- Discovery / spawn ---------------------------------------------------
     fun discover()

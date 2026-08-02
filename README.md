@@ -367,7 +367,17 @@ when no device is attached** — the job's next step runs the moment it finishes
 for you to revisit the session, which keeps the agent from sitting idle for the gap and makes the
 turn far likelier to land inside the token-cache window (the spoken reply is buffered and delivered
 when you next attach). The default (`false`) keeps the conservative behavior above and never narrates
-to an empty room. Because the ticker re-polls on a schedule, a momentary SSH hiccup no longer silently swallows a
+to an empty room.
+
+An eagerly-narrated turn speaks to a session nobody is on, so the app would otherwise learn nothing
+until you opened that session. To close that gap the server also pushes a lightweight **notice** to
+every device that is *still connected but looking at another screen*: the app shows an orange banner
+above the chat with the session's name and a one-or-two-sentence summary of what finished, and
+tapping it jumps straight to that session (the ✕ dismisses it). The banner is deliberately not a
+chat message — it's never filed into the transcript you're reading and never read aloud — and there
+is at most one per session, so a busy session replaces its banner rather than stacking them. Devices
+already attached to that session don't get it; they received the real reply. Waking an app that is
+**fully closed** still needs push infrastructure that doesn't exist yet. Because the ticker re-polls on a schedule, a momentary SSH hiccup no longer silently swallows a
 completion — the next tick just tries again. Claude can also check progress itself at any time with
 `~/.spawner-jobs/spawner-job list` / `tail <id>`. Reconcile and staging failures are swallowed and
 never block a turn. Two caveats: a **sandbox** session's jobs live only as long as its container —

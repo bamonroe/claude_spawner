@@ -114,6 +114,11 @@ class InboundRouter(
         fun turnInterruptedAttached(id: String) {}
         /** Barge-in: stop any reply being read aloud if [id] is the attached session. */
         fun bargeInIfAttached(id: String) {}
+
+        /** Surface an out-of-band heads-up about a session the user is NOT viewing
+         *  (see [onNotice]) — a dismissable banner with a jump-to-session action.
+         *  Shared by both clients; the controller owns the StateFlow it publishes to. */
+        fun showNotice(notice: ServerMsg.Notice)
     }
 
     // --- Neutral per-session state (hoisted from the web controller) ----------
@@ -297,6 +302,24 @@ class InboundRouter(
     fun onDiff(msg: ServerMsg.Diff) {
         addChat(Role.SYSTEM, "📊 diff:\n${msg.text}", key = keyOf(msg.sessionId))
         if (host.summaryOnly()) host.beep()
+    }
+
+    /**
+     * A `notice` — an out-of-band heads-up about ANOTHER session (today: a background job
+     * that finished and was eagerly narrated while nothing was attached). It is deliberately
+     * not chat: nothing is filed into any transcript and nothing is spoken, because the user
+     * is looking at a different session and this must not pollute that log. We just bump the
+     * session's recency cue (so the sidebar turns it "unread" orange) and hand the banner to
+     * the controller.
+     *
+     * The server only sends this to connections not attached to the session, but we re-check
+     * the attached gate here too: if we ARE on it, the real output already arrived and a
+     * banner on top of it would double-report.
+     */
+    fun onNotice(msg: ServerMsg.Notice) {
+        if (msg.sessionId.isNotEmpty() && msg.sessionId == host.attachedId()) return
+        host.touchDiscovered(msg.sessionId, false)
+        host.showNotice(msg)
     }
 
     fun onAsk(msg: ServerMsg.Ask) {

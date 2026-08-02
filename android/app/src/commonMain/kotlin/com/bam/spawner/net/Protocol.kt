@@ -55,6 +55,12 @@ sealed interface ServerMsg {
     // summarized under the same name); empty from an old server (meter-reset only).
     data class ContextReset(val name: String, val sessionId: String = "") : ServerMsg
     data class Renamed(val old: String, val name: String, val sessionId: String = "") : ServerMsg // attached session renamed → update title in place (matched by id)
+    // Out-of-band heads-up about ANOTHER session (today: an eagerly-notified
+    // background job that finished while nothing was attached). Only sent to
+    // connections NOT attached to sessionId, so it never duplicates that
+    // session's Output. Surface it as a badge/toast with a jump affordance —
+    // never append it to a chat log and never speak it.
+    data class Notice(val name: String, val sessionId: String, val text: String) : ServerMsg
     // usageAt (final message only) is the turn's completion unix seconds — anchors
     // the cache-warm countdown to the turn's real age even when delivered buffered.
     // turn is the opaque per-turn id shared by every frame of one turn (chunks +
@@ -124,6 +130,7 @@ sealed interface ServerMsg {
                 "detached" -> Detached
                 "context_reset" -> ContextReset(o.str("name"), o.str("session_id"))
                 "renamed" -> Renamed(o.str("old"), o.str("name"), o.str("session_id"))
+                "notice" -> Notice(o.str("name"), o.str("session_id"), o.str("text"))
                 "output" -> Output(o.str("name"), o.str("text"), o.bool("chunk", false), readUsage(o.obj("usage")), o.long("usage_at"), o.str("turn"), o.str("session_id"), readTurnStats(o))
                 "history" -> History(o.str("name"), readHist(o.arr("messages")), o.bool("more"), o.int("count", 0), o.str("hash"), o.bool("unchanged", false), o.str("session_id"))
                 "read_last" -> ReadLast(o.int("count", 1))

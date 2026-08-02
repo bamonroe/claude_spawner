@@ -160,6 +160,7 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
             prefs.lastSession = ""; prefs.lastSessionId = ""
             _status.value = "connected"; router.currentId = ""; router.publish()
         }
+        is ServerMsg.Notice -> router.onNotice(msg)
         is ServerMsg.Renamed -> {
             // Storage is id-keyed, so a rename is purely a title change — no map re-keying and
             // no per-session log/keying, so the whole (attach-title) body stays in the controller.

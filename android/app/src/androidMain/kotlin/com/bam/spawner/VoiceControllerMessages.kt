@@ -177,6 +177,7 @@ internal fun VoiceController.onMessage(msg: ServerMsg) {
         is ServerMsg.Attached -> onAttached(msg)
         is ServerMsg.Detached -> onDetached(msg)
         is ServerMsg.Renamed -> onRenamed(msg)
+        is ServerMsg.Notice -> router.onNotice(msg)
         is ServerMsg.History -> onHistory(msg)
         is ServerMsg.ReadLast -> onReadLast(msg.count)
         is ServerMsg.Discovered -> onDiscovered(msg)

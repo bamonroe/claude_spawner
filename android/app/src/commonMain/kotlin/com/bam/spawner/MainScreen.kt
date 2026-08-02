@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import com.bam.spawner.audio.AudioInput
 import com.bam.spawner.audio.AudioOutput
 import com.bam.spawner.net.DiscoveredInfo
+import com.bam.spawner.net.ServerMsg
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -150,7 +151,16 @@ fun MainScreen(
     }.toSet()
     val openSession = { d: DiscoveredInfo ->
         if (d.registered) controller.focusSession(d) else controller.adopt(d.sessionId, d.dir)
+        // Opening a session answers any heads-up we were showing for it.
+        controller.dismissNotice(d.sessionId)
         scope.launch { drawerState.close() }; Unit
+    }
+    // Heads-ups about other sessions (finished background jobs). Tapping one opens that
+    // session when we can still see it in the discovered list; otherwise it just dismisses.
+    val notices by controller.notices.collectAsState()
+    val openNotice = { n: ServerMsg.Notice ->
+        val d = discovered.firstOrNull { it.sessionId == n.sessionId }
+        if (d != null) openSession(d) else controller.dismissNotice(n.sessionId)
     }
     val voiceState by controller.voiceState.collectAsState()
     val ask by controller.ask.collectAsState()
@@ -221,6 +231,9 @@ fun MainScreen(
                 onOutputMenuOpened = onRefreshOutputs,
             )
             if (attached == null) DetachedBanner()
+            notices.forEach { n ->
+                NoticeBanner(n, onOpen = { openNotice(n) }, onDismiss = { controller.dismissNotice(n.sessionId) })
+            }
             // The status bars below the list are Column siblings: showing one shrinks
             // the list from the bottom. ChatList watches its own viewport height and
             // re-pins the newest message above the bars (and the keyboard) itself.

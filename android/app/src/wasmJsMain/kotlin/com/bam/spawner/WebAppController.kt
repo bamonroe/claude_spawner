@@ -109,7 +109,12 @@ class WebAppController(internal val prefs: Prefs) : AppController {
         override fun bargeInIfAttached(id: String) {
             if (id == _attachedId.value) stopSpeaking()
         }
+        override fun showNotice(notice: ServerMsg.Notice) = noticeStore.add(notice)
     })
+
+    // Out-of-band heads-ups about sessions we're not viewing; see [NoticeStore].
+    internal val noticeStore = NoticeStore()
+    override val notices: StateFlow<List<ServerMsg.Notice>> = noticeStore.notices
 
     internal val _chat = MutableStateFlow<List<ChatMessage>>(emptyList())
     override val chat: StateFlow<List<ChatMessage>> = _chat.asStateFlow()
@@ -347,6 +352,7 @@ class WebAppController(internal val prefs: Prefs) : AppController {
     }
     override fun submitAnswers(text: String) { _ask.value = null; sendText(text) }
     override fun dismissAsk() { _ask.value = null }
+    override fun dismissNotice(sessionId: String) = noticeStore.dismiss(sessionId)
 
     override fun discover() { client?.send(Outbound.discover()) }
     override fun adopt(sessionId: String, dir: String) { client?.send(Outbound.adopt(sessionId, dir)) }
