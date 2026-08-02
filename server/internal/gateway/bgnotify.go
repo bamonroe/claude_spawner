@@ -174,6 +174,12 @@ func (s *Server) startJobNotify(sess *session.Session, notes []string) bool {
 			badge = cx.Usage
 		}
 		j.finish(msgOutput(sess.Name, reply, turnID, false, &badge, &turnStats{Turns: res.Turns, Total: turnUsage}))
+		// The spoken outcome only reaches devices attached to THIS session. In eager
+		// mode the whole point is that nobody is attached, so also push a one-frame
+		// heads-up to every device that's connected but looking elsewhere — it
+		// surfaces the finished job without them opening the session. Devices already
+		// attached are excluded (they just got the real output above).
+		s.broadcastNotice(sess, reply)
 	}()
 	return true
 }

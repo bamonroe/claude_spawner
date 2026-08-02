@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -207,69 +208,90 @@ func (fs claudeFS) open(path string) (io.ReadCloser, error) {
 	return io.NopCloser(bytes.NewReader(out)), nil
 }
 
-// cwdHeadLines is how far into a transcript the cheap metadata reads look for the
-// `cwd` field — it's recorded on essentially every event, so the first few dozen
-// lines always carry it.
-const cwdHeadLines = 40
+// cwdHeadBytes bounds how far into a transcript the working-directory lookup
+// reads. `cwd` is recorded on essentially every event, so it's in the first line
+// or two — but a single line can be megabytes (a big tool result), which is why
+// this is a BYTE budget and not a line count. Measured against a real 286-file
+// ~560 MB projects dir: 64 KiB recovers every cwd that exists at all (the handful
+// it misses have no cwd anywhere in the file, at any budget).
+const cwdHeadBytes = 64 << 10
 
-// headsChunk caps how many paths go into one remote `head` command, keeping the
-// argument list well inside ARG_MAX.
-const headsChunk = 200
+// cwdsChunk caps how many paths go into one remote command, keeping the argument
+// list well inside ARG_MAX.
+const cwdsChunk = 200
 
-// headSep delimits path/body records in the batched remote head output. 0x1e (RS)
-// can't appear raw in a JSONL transcript — JSON escapes control characters — so it
-// is unambiguous as a framing byte.
-const headSep = 0x1e
+// cwdPattern matches a JSON `"cwd":"…"` member whose value needs no unescaping —
+// the remote extractor's grep. Values containing a backslash escape are skipped
+// rather than mis-parsed; on Linux a working directory with a quote or backslash
+// in it doesn't occur in practice, and the cost of missing one is a session
+// showing up unadopted rather than anything corrupt.
+const cwdPattern = `"cwd":"[^"\\]*"`
 
-// heads returns the first `lines` lines of each path. It exists so metadata reads
-// — which only ever need a transcript's head — can never pull whole files: over
-// SSH, `open` is a `cat`, so reading 500-odd transcripts to recover their working
-// directories moved hundreds of megabytes and made session discovery take minutes
-// (the app timed out with an empty session list). Batching turns that into a
-// handful of `head` commands. Paths that can't be read are simply absent from the
-// result.
-func (fs claudeFS) heads(paths []string, lines int) map[string][]byte {
-	out := make(map[string][]byte, len(paths))
+// cwds recovers each transcript's working directory. It is the seam that keeps
+// metadata reads cheap on BOTH backends, which the callers can't do for
+// themselves: locally it reads a bounded head and parses the JSON exactly;
+// remotely it extracts the value on the far side and ships back one short line
+// per file, because the expensive resource over SSH is bytes on the wire, not
+// commands run.
+//
+// It exists because the obvious implementations are catastrophic at real sizes.
+// Reading each transcript through `open` (a full `cat` remotely) moved ~560 MB
+// and never finished — the app connected and then sat with an empty session list.
+// Shipping back bounded heads to parse locally still moved ~40 MB at the ~1 MB/s
+// this loopback SSH channel sustains, i.e. ~44 s per sweep. Extracting remotely
+// makes the payload a few KB. Paths whose cwd can't be recovered are absent from
+// the result.
+func (fs claudeFS) cwds(paths []string) map[string]string {
+	out := make(map[string]string, len(paths))
 	if fs.remote == nil {
 		for _, p := range paths {
-			f, err := os.Open(p)
-			if err != nil {
-				continue
+			if dir := localCwd(p); dir != "" {
+				out[p] = dir
 			}
-			var buf bytes.Buffer
-			sc := newLineScanner(f)
-			for i := 0; i < lines && sc.Scan(); i++ {
-				buf.Write(sc.Bytes())
-				buf.WriteByte('\n')
-			}
-			f.Close()
-			out[p] = buf.Bytes()
 		}
 		return out
 	}
-	for start := 0; start < len(paths); start += headsChunk {
-		end := min(start+headsChunk, len(paths))
+	for start := 0; start < len(paths); start += cwdsChunk {
+		end := min(start+cwdsChunk, len(paths))
 		var cmd strings.Builder
 		cmd.WriteString("for p in")
 		for _, p := range paths[start:end] {
 			cmd.WriteString(" " + shellQuote(p))
 		}
-		cmd.WriteString(`; do printf '\036%s\036' "$p"; head -n ` + strconv.Itoa(lines) + ` "$p" 2>/dev/null; done`)
+		// One tab-separated "path<TAB>match" line per file. head bounds the read,
+		// grep -m1 stops at the first hit, and `|| true` keeps a miss (grep exits 1)
+		// from failing the whole command.
+		fmt.Fprintf(&cmd, `; do printf '%%s\t' "$p"; { head -c %d "$p" 2>/dev/null | grep -aom1 %s || true; }; echo; done`,
+			cwdHeadBytes, shellQuote(cwdPattern))
 		blob, err := fs.remote.output(cmd.String())
 		if err != nil {
 			continue
 		}
-		// Records come back as: sep path sep body sep path sep body …
-		parts := bytes.Split(blob, []byte{headSep})
-		for i := 1; i+1 < len(parts); i += 2 {
-			out[string(parts[i])] = parts[i+1]
+		for _, line := range strings.Split(string(blob), "\n") {
+			path, match, ok := strings.Cut(line, "\t")
+			if !ok {
+				continue
+			}
+			if dir := cwdFromMatch(match); dir != "" {
+				out[path] = dir
+			}
 		}
 	}
 	return out
 }
 
-// cwdFromHead pulls the first recorded `cwd` out of a transcript head.
-func cwdFromHead(head []byte) string {
+// localCwd reads a bounded head of a local transcript and returns the first `cwd`
+// it records, parsing the JSON properly (no pattern-matching needed locally).
+func localCwd(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	head, err := io.ReadAll(io.LimitReader(f, cwdHeadBytes))
+	if err != nil {
+		return ""
+	}
 	for _, line := range bytes.Split(head, []byte("\n")) {
 		var ev struct {
 			Cwd string `json:"cwd"`
@@ -279,6 +301,17 @@ func cwdFromHead(head []byte) string {
 		}
 	}
 	return ""
+}
+
+// cwdFromMatch unwraps the remote extractor's `"cwd":"…"` match into the bare
+// path. The pattern excludes escapes, so the value is literal.
+func cwdFromMatch(match string) string {
+	const prefix = `"cwd":"`
+	match = strings.TrimSpace(match)
+	if !strings.HasPrefix(match, prefix) || !strings.HasSuffix(match, `"`) {
+		return ""
+	}
+	return match[len(prefix) : len(match)-1]
 }
 
 // remove deletes a transcript file (idempotent; a missing file is not an error).
@@ -319,14 +352,14 @@ func (fs claudeFS) discoverSessions() ([]Discovered, error) {
 			paths = append(paths, ref.path)
 		}
 	}
-	headByPath := fs.heads(paths, cwdHeadLines)
+	dirByPath := fs.cwds(paths)
 	out := make([]Discovered, 0, len(refs))
 	for _, ref := range refs {
 		id := strings.TrimSuffix(filepath.Base(ref.path), ".jsonl")
 		if !looksLikeUUID(id) || seen[id] {
 			continue
 		}
-		dir := cwdFromHead(headByPath[ref.path])
+		dir := dirByPath[ref.path]
 		if dir == "" {
 			continue
 		}

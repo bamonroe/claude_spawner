@@ -27,7 +27,7 @@ func (d *Driver) DiscoverSessions(host string) ([]Discovered, error) {
 // transcriptCwd returns the first `cwd` recorded in a transcript (present on most
 // events), reading only the head of the file. Backend-neutral: local or over SSH.
 func (fs claudeFS) transcriptCwd(path string) string {
-	return cwdFromHead(fs.heads([]string{path}, cwdHeadLines)[path])
+	return fs.cwds([]string{path})[path]
 }
 
 // TranscriptCwd reads the working directory from a LOCAL transcript.

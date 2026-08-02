@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -396,6 +397,39 @@ func (s *Server) broadcastRenamed(rec *session.Session, old, newName string) {
 	msg := msgRenamed(old, newName, rec.SessionID)
 	for _, c := range cs {
 		if c.attachedSession() == rec {
+			c.send(msg)
+		}
+	}
+}
+
+// noticeMax bounds the `notice` summary. The frame is a heads-up, not a
+// transcript: a client renders it as a badge/toast, so a couple of sentences is
+// all that can be shown and all we ship.
+const noticeMax = 240
+
+// broadcastNotice pushes a `notice` to every connection that is connected but NOT
+// attached to rec — the exact set the hub's fanout misses. Devices attached to rec
+// already receive the real turn output through the session job, so sending them a
+// notice too would double-report it; devices on another screen (or detached
+// entirely) get this one frame so a finished background job surfaces without them
+// having to open the session. Best-effort, like every other broadcast.
+func (s *Server) broadcastNotice(rec *session.Session, text string) {
+	text = strings.TrimSpace(text)
+	if rec == nil || text == "" {
+		return
+	}
+	if len(text) > noticeMax {
+		text = strings.TrimSpace(text[:noticeMax]) + "…"
+	}
+	s.connsMu.Lock()
+	cs := make([]*conn, 0, len(s.conns))
+	for c := range s.conns {
+		cs = append(cs, c)
+	}
+	s.connsMu.Unlock()
+	msg := msgNotice(rec.Name, rec.SessionID, text)
+	for _, c := range cs {
+		if c.attachedSession() != rec {
 			c.send(msg)
 		}
 	}

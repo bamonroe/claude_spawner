@@ -326,6 +326,22 @@ func msgRenamed(old, name, sessionID string) map[string]any {
 	return map[string]any{"type": "renamed", "old": old, "name": name, "session_id": sessionID}
 }
 
+// msgNotice is the "you have news in another session" frame: a lightweight,
+// out-of-band heads-up pushed to a device that is CONNECTED but not attached to
+// the session the news is about. Its one use today is the eager background-job
+// notifier — when a detached job finishes and the autonomous notify turn speaks
+// the outcome, every device sitting on another screen would otherwise learn
+// nothing until it opened that session. This carries the session's `name` +
+// `session_id` and a short `text` summary so the client can surface a badge or
+// toast and offer to jump straight there.
+//
+// It is deliberately NOT session output: it never enters a chat log and is not
+// spoken, so a client viewing another session can render it without polluting
+// that session's transcript. Text is truncated by the caller.
+func msgNotice(name, sessionID, text string) map[string]any {
+	return map[string]any{"type": "notice", "name": name, "session_id": sessionID, "text": text}
+}
+
 // msgOutput carries session output for display + TTS. Live prose streams as
 // chunk=true messages; the final chunk=false message closes the turn and (only
 // then) carries the turn's token `usage`, which the app renders as a per-message
