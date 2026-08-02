@@ -33,3 +33,7 @@ deploy/tls/
 !/server/webdist/.gitkeep
 brian_notes
 __pycache__/
+
+# Ad-hoc device/emulator screenshots dropped in the repo root during testing
+/*.png
+/screenshot_*.png
