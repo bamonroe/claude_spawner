@@ -14,6 +14,19 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "context-handoff-across-backend-switch"
+title = "Context handoff across backend switch"
+description = """
+Switching a session's AI (`set_agent`, `doSetAgent` in `gateway/ops.go`) rotates to a fresh `session_id` (Claude/Codex/opencode transcripts are incompatible on disk) but no longer drops the conversation: before rotating it reads the outgoing backend's transcript via the generic `transcriptReader` (`Driver.ReadTranscriptChain`) and stashes a portable, recent-weighted, neutrally-labeled recap (`formatHandoffRecap`, budget-bounded) as `PendingSeed`, which the compress seed path (`dictate` -> `seedPreamble`) injects into the new backend's first turn — any backend with a readable transcript hands off to any other with zero per-backend code. Display history is segmented: `Session.History []HistorySegment{Agent,Host,IDs}` archives the outgoing chain (`Driver.ArchiveSegment`) and `serveHistory`/`serveDigests` read each segment with its own backend's reader, concat + globally re-index; full delete uses `Driver.DeleteSessionAll`. CONTEXT/usage reads stay current-backend. Antigravity converges via `AgyBrainIDs`. App-side switch-dialog copy updated. Docs: `docs/protocol.md` `set_agent` row.
+
+**CONFIRMED LIVE on the emulator 2026-08-03** (Codex CLI/gpt-5.5 -> Claude Code/opus, scratch session /tmp/handoff-test): the pre-switch Codex messages stay in the chat log after the switch; the Edit dialog shows the correct 'recap is carried over, old messages stay in the log' copy; the server injects '[Continuing from a compacted session — recap...]' into Claude's first turn and Claude correctly answered the marker fact set on Codex. Two cosmetic/delivery bugs found and filed separately: [[backend-switch-first-reply-after-the-switch-doesn-t-arrive-live]] and [[handoff-recap-renders-as-a-user-bubble-in-the-chat-log]]."""
+status = "finished"
+category = "feature"
+created = "2026-07-17"
+completed = 2026-08-03
+tags = []
+
+[[task]]
 id = "per-session-record-locking"
 title = "Per-session record locking"
 description = """
