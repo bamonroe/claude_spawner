@@ -21,22 +21,6 @@ finish_work = "When a task is fully finished (built, tested, documented), run `s
 scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/KMP app + web client. The historical phase roadmap stays in README.md."
 
 [[task]]
-id = "ping-a-still-connected-phone-on-an-eager-notify"
-title = "Ping a still-connected phone on an eager notify"
-description = """
-When the eager turn fires to a session
-with no attached sink, push a lightweight `notice` frame to any device still connected but
-viewing another screen, so it surfaces the finished job without opening the session. Needs a
-new wire message (Protocol.kt + docsync) + app handling + an APK test cycle. (Truly waking a
-fully-closed/backgrounded app needs FCM push infra, which does not exist yet — separate epic.)"""
-status = "active"
-category = "feature"
-urgency = "normal"
-order = 10
-created = "2026-07-01"
-tags = []
-
-[[task]]
 id = "context-handoff-across-backend-switch"
 title = "Context handoff across backend switch"
 description = """

@@ -14,6 +14,21 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "ping-a-still-connected-phone-on-an-eager-notify"
+title = "Ping a still-connected phone on an eager notify"
+description = """
+When the eager turn fires to a session
+with no attached sink, push a lightweight `notice` frame to any device still connected but
+viewing another screen, so it surfaces the finished job without opening the session. Needs a
+new wire message (Protocol.kt + docsync) + app handling + an APK test cycle. (Truly waking a
+fully-closed/backgrounded app needs FCM push infra, which does not exist yet — separate epic.)"""
+status = "finished"
+category = "feature"
+created = "2026-07-01"
+completed = 2026-08-03
+tags = []
+
+[[task]]
 id = "ssh-native-unified-execution-epic-proposed-2026-07-08-foundation-landed-2026-07-08"
 title = "SSH-native unified execution — remaining work"
 description = "Verified complete 2026-08-01. Landed: native Go SSH (`golang.org/x/crypto/ssh`, sshfs explicitly rejected), persistent per-host client pool, `SSHExecutor`/`Proc` behind the existing executor seam, tagged-process-group cancel, `Session.Host`, discovery + transcript reads over the same transport (`session/ssh_pool.go`, `ssh_exec.go`, `ssh_fs.go`, `ssh_config.go`, `ssh_hostkeys.go` + `ssh_knownhosts_test.go`), host-key verification against known-hosts, and the `SPAWNER_SSH_*` env vars. Re-containerizing the server (the stated low-priority remainder) is done too — `deploy/rebuild-container.sh` and the `spawner-server` container. App side is in place as well: host/identity management in `SettingsHostsIdentities.kt` and host-scoped browsing in `BrowseScreen.kt`. Credential propagation between hosts was always scoped as a separate later feature and remains its own open task."
