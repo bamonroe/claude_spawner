@@ -14,6 +14,16 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "plumb-the-wake-token-alias-list-command-wakephrases-through-the-same-pipeline-as-command"
+title = "Plumb the wake-token alias list (`command.wakePhrases`) through the same pipeline as command"
+description = "Superseded and DELIVERED 2026-08-03 by the app-managed spoken-token catalogue, which solves this better than the proposed commands.json route. The ask was: make wake mishearings user-editable on-device instead of a server-hardcoded list. That is live — Settings > Spoken tokens (`SettingsSpokenTokens.kt`) edits wake/end/speech-gate phrases, synced over `spoken_token_put`/`spoken_token_delete` -> `spoken_tokens` broadcast (docs/protocol.md), persisted in `SPAWNER_SPOKEN_TOKENS`, resolved per-connection by `(*conn).wakePhrases()` (gateway/conn.go) via `spoken.Phrases`. A configured catalogue fully REPLACES the built-in `command.wakePhrases`, which survives only as the first-run seed (`DefaultWakePhrases`). Deliberately NOT routed through Registry -> docs/commands.json -> generateCommands: that leg is compile-time, so it would need an APK rebuild per alias edit, whereas the catalogue is live and shared."
+status = "finished"
+category = "feature"
+created = "2026-07-01"
+completed = 2026-08-03
+tags = ["later-nice-to-have"]
+
+[[task]]
 id = "ping-a-still-connected-phone-on-an-eager-notify"
 title = "Ping a still-connected phone on an eager notify"
 description = """

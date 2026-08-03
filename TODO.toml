@@ -345,21 +345,6 @@ created = "2026-07-01"
 tags = ["server-infra"]
 
 [[task]]
-id = "plumb-the-wake-token-alias-list-command-wakephrases-through-the-same-pipeline-as-command"
-title = "Plumb the wake-token alias list (`command.wakePhrases`) through the same pipeline as command"
-description = """
-Plumb the wake-token alias list (`command.wakePhrases`) through the same pipeline as command
-aliases (→ `docs/commands.json` → `generateCommands` → app), so wake mishearings are visible
-and **editable in the app's alias editor** like regular commands. Server list is authoritative
-today; this makes it user-tunable on-device."""
-status = "active"
-category = "feature"
-urgency = "normal"
-order = 130
-created = "2026-07-01"
-tags = ["later-nice-to-have"]
-
-[[task]]
 id = "slim-the-kokoro-tts-runtime-drop-the-pytorch-vram-tax"
 title = "Slim the Kokoro TTS runtime — drop the PyTorch VRAM tax"
 description = """
