@@ -219,7 +219,18 @@ type BackgroundJob struct {
 // background job to the session that launched it — the job stamps the session_id
 // current at launch, which may since have rotated, so a single-id check isn't
 // enough.
+// It takes the record's lock — like every other exported reader on a stored
+// record — so a concurrent rotation can't be observed half-applied. Callers
+// already inside Mutate/Read use ownsIDLocked.
 func (s *Session) OwnsID(id string) bool {
+	mu := s.mutex()
+	mu.Lock()
+	defer mu.Unlock()
+	return s.ownsIDLocked(id)
+}
+
+// ownsIDLocked is OwnsID's body, for callers that already hold the record lock.
+func (s *Session) ownsIDLocked(id string) bool {
 	if id == "" {
 		return false
 	}
@@ -244,7 +255,17 @@ func (s *Session) OwnsID(id string) bool {
 // TranscriptIDs returns every session_id whose transcript belongs to this
 // session, oldest first: ids retired by "clear" followed by the current one.
 // Used to assemble the full history for display without Claude re-reading it.
+// Locks the record: PriorIDs and SessionID rotate together, and a caller must
+// never see the new id alongside the old prior list (or vice versa).
 func (s *Session) TranscriptIDs() []string {
+	mu := s.mutex()
+	mu.Lock()
+	defer mu.Unlock()
+	return s.transcriptIDsLocked()
+}
+
+// transcriptIDsLocked is TranscriptIDs' body, for lock-holding callers.
+func (s *Session) transcriptIDsLocked() []string {
 	ids := make([]string, 0, len(s.PriorIDs)+1)
 	ids = append(ids, s.PriorIDs...)
 	ids = append(ids, s.SessionID)
@@ -254,7 +275,16 @@ func (s *Session) TranscriptIDs() []string {
 // HasPriorID reports whether id is one of the session_ids this session retired via
 // a "clear"/"compress" context rotation (see PriorIDs). It does NOT match the
 // current SessionID — callers check that separately.
+// Locks the record (a clear/compress appends to PriorIDs concurrently).
 func (s *Session) HasPriorID(id string) bool {
+	mu := s.mutex()
+	mu.Lock()
+	defer mu.Unlock()
+	return s.hasPriorIDLocked(id)
+}
+
+// hasPriorIDLocked is HasPriorID's body, for lock-holding callers.
+func (s *Session) hasPriorIDLocked(id string) bool {
 	for _, prior := range s.PriorIDs {
 		if prior == id {
 			return true

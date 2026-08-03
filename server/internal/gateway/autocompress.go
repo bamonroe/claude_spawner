@@ -79,10 +79,13 @@ func (s *Server) autoCompressLoop() {
 		}
 		now := time.Now()
 		for _, sess := range s.store.List() {
-			if !sess.Started || s.isBusy(sess.SessionID) {
+			// Read this off-loop ticker's view of the record from a snapshot: the live
+			// record's fields are mutated by turn goroutines and device read loops.
+			snap := sess.Snapshot()
+			if !snap.Started || s.isBusy(snap.SessionID) {
 				continue // nothing to compress, or a turn is already running
 			}
-			cx := s.driver.LastContextUsage(sess.Agent, sess.Host, sess.TranscriptIDs())
+			cx := s.driver.LastContextUsage(snap.Agent, snap.Host, snap.TranscriptIDs())
 			if cx == nil || cx.At == 0 {
 				continue
 			}
@@ -95,11 +98,11 @@ func (s *Server) autoCompressLoop() {
 			// Auto (aggressive): fire the moment the idle session is over the limit,
 			// without waiting for the warm-cache edge.
 			if cfg.auto {
-				if s.firedAutoCompress(sess.SessionID, cx.At) {
+				if s.firedAutoCompress(snap.SessionID, cx.At) {
 					continue
 				}
 				log.Printf("auto-compress[%s]: %d ctx tokens ≥ %dk — compressing (auto)",
-					sess.Name, ctxTokens, cfg.thresholdK)
+					snap.Name, ctxTokens, cfg.thresholdK)
 				s.startCompress(sess)
 				continue
 			}
@@ -108,11 +111,11 @@ func (s *Server) autoCompressLoop() {
 			if remaining > autoCompressLead || remaining <= 0 {
 				continue // not yet in the trigger window, or the cache is already cold
 			}
-			if s.firedAutoCompress(sess.SessionID, cx.At) {
+			if s.firedAutoCompress(snap.SessionID, cx.At) {
 				continue
 			}
 			log.Printf("auto-compress[%s]: %d ctx tokens ≥ %dk, %ds to cache expiry — compressing (warm)",
-				sess.Name, ctxTokens, cfg.thresholdK, int(remaining.Seconds()))
+				snap.Name, ctxTokens, cfg.thresholdK, int(remaining.Seconds()))
 			s.startCompress(sess)
 		}
 	}

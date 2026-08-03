@@ -171,7 +171,7 @@ func (c *conn) doSpawnAt(path string, target session.Target, create bool, host, 
 	}
 	c.ensureSandbox(sess) // start the persistent container for sandbox sessions
 	if c.attached != nil {
-		c.srv.unbindJob(c, c.attached.SessionID)
+		c.srv.unbindJob(c, recID(c.attached))
 	}
 	c.setAttached(sess)
 	c.srv.bindJob(c, sess, true)   // register for live turn fan-out (fresh session: no catch-up)

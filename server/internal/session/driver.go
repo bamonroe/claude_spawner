@@ -116,7 +116,7 @@ func (d *Driver) binFor(ag *agent.Agent, t Target) string {
 // AgentFor resolves the AI backend a session runs on (its Agent id, empty/unknown
 // → the default backend). Exposed so the gateway can read a session's model
 // catalogue for the "list models" / "use model N" voice commands.
-func (d *Driver) AgentFor(s *Session) *agent.Agent { return d.agents().Resolve(s.Agent) }
+func (d *Driver) AgentFor(s *Session) *agent.Agent { return d.agents().Resolve(s.Snapshot().Agent) }
 
 // Agents returns the backend registry (never nil), so the gateway can resolve a
 // named backend at spawn and list the available backends.
@@ -180,7 +180,8 @@ func (d *Driver) executor(t Target) Executor {
 // EnsureContainer creates the session's persistent sandbox container if it isn't
 // already running (called at spawn). A no-op for host sessions, or when the
 // sandbox executor isn't registered / has no lifecycle support.
-func (d *Driver) EnsureContainer(ctx context.Context, s *Session) error {
+func (d *Driver) EnsureContainer(ctx context.Context, rec *Session) error {
+	s := rec.Snapshot() // pure reader: one locked view, no live-record field reads
 	if s.Target != TargetSandbox || s.Container == "" {
 		return nil
 	}
@@ -196,7 +197,8 @@ func (d *Driver) EnsureContainer(ctx context.Context, s *Session) error {
 
 // RemoveContainer destroys the session's persistent sandbox container (called on
 // delete). A no-op for host sessions or when there's no sandbox lifecycle.
-func (d *Driver) RemoveContainer(ctx context.Context, s *Session) error {
+func (d *Driver) RemoveContainer(ctx context.Context, rec *Session) error {
+	s := rec.Snapshot() // pure reader: one locked view
 	if s.Target != TargetSandbox || s.Container == "" {
 		return nil
 	}
@@ -428,7 +430,8 @@ func (d *Driver) currentHistoryIDs(rec *Session) []string {
 // to be appended to rec.History just before a set_agent switch rotates the backend
 // away — so the outgoing backend's messages stay in the chat log even though the new
 // backend won't read them as context.
-func (d *Driver) ArchiveSegment(rec *Session) HistorySegment {
+func (d *Driver) ArchiveSegment(live *Session) HistorySegment {
+	rec := live.Snapshot() // the agent, host and id chain must describe ONE moment
 	return HistorySegment{Agent: rec.Agent, Host: rec.Host, IDs: d.currentHistoryIDs(rec)}
 }
 
@@ -449,7 +452,8 @@ func (d *Driver) SetDigests(c *DigestCache) { d.digests = c }
 //
 // A backend that can't describe its chain cheaply (chainSig ok=false) falls back
 // to the full read, so correctness never depends on the cache being available.
-func (d *Driver) DisplayDigest(rec *Session) (count int, hash string, cached bool, err error) {
+func (d *Driver) DisplayDigest(live *Session) (count int, hash string, cached bool, err error) {
+	rec := live.Snapshot() // pure reader: one locked view for sig + read
 	// Signature FIRST, then read. If a turn writes to the transcript in between,
 	// we store a newer digest under an older signature — the next call sees a
 	// changed signature, misses, and recomputes. Reading first and statting after
@@ -506,7 +510,8 @@ func (d *Driver) displayChainSig(rec *Session) (string, bool) {
 // logged and skipped (best-effort scrollback); only the current backend's read fails
 // the call, matching pre-split behavior. With no History this equals the old
 // ReadTranscriptChain(current) exactly.
-func (d *Driver) ReadDisplayHistory(rec *Session) ([]Message, error) {
+func (d *Driver) ReadDisplayHistory(live *Session) ([]Message, error) {
+	rec := live.Snapshot() // pure reader: History/Agent/ids from one locked view
 	var all []Message
 	for _, seg := range rec.History {
 		msgs, err := d.transcriptReaderFor(seg.Agent, seg.Host).readTranscriptChain(seg.IDs)
@@ -532,7 +537,8 @@ func (d *Driver) ReadDisplayHistory(rec *Session) ([]Message, error) {
 // the current backend's chain. Use for a full session delete so a backend switched
 // away from doesn't orphan its transcripts. Returns the count removed; best-effort
 // per segment (a segment error is logged, not fatal).
-func (d *Driver) DeleteSessionAll(rec *Session) (int, error) {
+func (d *Driver) DeleteSessionAll(live *Session) (int, error) {
+	rec := live.Snapshot() // pure reader: one locked view of the whole chain
 	total := 0
 	for _, seg := range rec.History {
 		n, err := d.transcriptReaderFor(seg.Agent, seg.Host).deleteByIDs(seg.IDs)

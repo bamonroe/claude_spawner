@@ -72,8 +72,9 @@ func HookSettingsJSON(home, sessionID string) string {
 // and returns the command's combined output. Used by the background-job reconciler
 // (`spawner-job list --json`, `tail`, `reap`) and by staging; it is NOT the turn
 // path (turns stream via Driver.Turn).
-func (d *Driver) RunOnTarget(ctx context.Context, s *Session, cmd string) ([]byte, error) {
-	p, err := d.ProfileFor(s)
+func (d *Driver) RunOnTarget(ctx context.Context, live *Session, cmd string) ([]byte, error) {
+	s := live.Snapshot() // reader: target/dir/host/container from one locked view
+	p, err := d.ProfileFor(live)
 	if err != nil {
 		return nil, err
 	}
@@ -109,6 +110,7 @@ func (d *Driver) RunOnTarget(ctx context.Context, s *Session, cmd string) ([]byt
 // cheap enough to call lazily per turn/reconcile. A staging failure is returned,
 // never fatal — the caller logs and continues so it can NEVER block a turn.
 func (d *Driver) StageJobScript(ctx context.Context, s *Session, home string) error {
+	name := s.Snapshot().Name
 	dir := filepath.Join(home, jobRootRel)
 	path := JobScriptPath(home)
 	// One shell command that creates the dir, writes the script from a heredoc, and
@@ -119,7 +121,7 @@ func (d *Driver) StageJobScript(ctx context.Context, s *Session, home string) er
 		" <<'SPAWNERJOBEOF'\n" + bgjob.Script + "\nSPAWNERJOBEOF\nchmod +x " + shellQuote(path)
 	out, err := d.RunOnTarget(ctx, s, script)
 	if err != nil {
-		return fmt.Errorf("stage spawner-job on %q: %w: %s", s.Name, err, string(out))
+		return fmt.Errorf("stage spawner-job on %q: %w: %s", name, err, string(out))
 	}
 	return nil
 }

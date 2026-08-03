@@ -49,27 +49,32 @@ func (s *Server) jobReconcileLoop() {
 			// Only started sessions can have launched a job and can be --resumed for a
 			// notify turn; skip any with a turn already in flight (the one-writer
 			// invariant — reconcile must not race a running turn's store.Put).
-			if !sess.Started || s.isBusy(sess.SessionID) {
+			// Off-loop ticker: read fields from a snapshot, never the live record
+			// (turn goroutines and device read loops mutate it concurrently).
+			snap := sess.Snapshot()
+			if !snap.Started || s.isBusy(snap.SessionID) {
 				continue
 			}
 			// Poll without re-staging the wrapper (stage=false): the last turn already
 			// staged it, and re-writing it over SSH every 12s would be pure waste.
 			s.reconcileJobs(sess, false)
-			if len(sess.PendingNotes) == 0 {
+			var pending []string // re-read after reconcile: it may have staged new notes
+			sess.Read(func(r *session.Session) { pending = append([]string(nil), r.PendingNotes...) })
+			if len(pending) == 0 {
 				continue // nothing finished since we last looked
 			}
 			// In the default mode someone has to be listening for an out-loud notice to
 			// mean anything: with no attached device, leave the note in PendingNotes so
 			// the next dictation/attach surfaces it. In eager mode we fire regardless —
 			// the reply buffers to the hub's orphan slot for the next attach.
-			j := s.jobFor(sess.SessionID)
+			j := s.jobFor(snap.SessionID)
 			if !j.hasSink() && !s.cfg.EagerNotify {
 				continue
 			}
 			// Announce ALL pending notes (this scan's plus any that accumulated while no
 			// device was attached). startJobNotify clears them on success, re-checks the
 			// running flag under the lock, and is a no-op if a dictate raced in first.
-			s.startJobNotify(sess, append([]string(nil), sess.PendingNotes...))
+			s.startJobNotify(sess, pending)
 		}
 	}
 }
@@ -111,7 +116,11 @@ func (s *Server) startJobNotify(sess *session.Session, notes []string) bool {
 	if len(notes) == 0 {
 		return false
 	}
-	j := s.jobFor(sess.SessionID)
+	// One snapshot of the record's identity for this turn: Name/SessionID are read
+	// from many points below while other goroutines may rename or rotate the record.
+	var name, sessionID string
+	sess.Read(func(r *session.Session) { name, sessionID = r.Name, r.SessionID })
+	j := s.jobFor(sessionID)
 	j.mu.Lock()
 	if j.running {
 		j.mu.Unlock()
@@ -121,11 +130,11 @@ func (s *Server) startJobNotify(sess *session.Session, notes []string) bool {
 	j.beginTurn(cancel)
 	j.mu.Unlock()
 
-	s.inflight.add(sess.SessionID)
+	s.inflight.add(sessionID)
 	turnID := newTurnID()
-	log.Printf("jobnotify[%s] announcing %d finished job(s)", sess.Name, len(notes))
+	log.Printf("jobnotify[%s] announcing %d finished job(s)", name, len(notes))
 	go func() {
-		defer s.inflight.remove(sess.SessionID)
+		defer s.inflight.remove(sessionID)
 		j.flushPending() // redeliver an earlier reply whose send failed, now that we're writing again
 		j.emit(msgActivity("📣 a background job finished…"))
 		onRateLimit := func(rl session.RateLimit) {
@@ -137,7 +146,7 @@ func (s *Server) startJobNotify(sess *session.Session, notes []string) bool {
 			if strings.Contains(prose, "::ASK::") {
 				return
 			}
-			j.emit(msgOutput(sess.Name, prose, turnID, true, nil, nil))
+			j.emit(msgOutput(name, prose, turnID, true, nil, nil))
 		}
 		res, err := s.driver.Turn(ctx, sess, jobNotifyPrompt(notes), nil, onText, onRateLimit)
 		reply, turnUsage := res.Reply, res.Usage
@@ -146,34 +155,35 @@ func (s *Server) startJobNotify(sess *session.Session, notes []string) bool {
 			aborted := j.aborted
 			j.mu.Unlock()
 			if aborted {
-				log.Printf("jobnotify[%s] stopped on request", sess.Name)
-				j.finish(stampTurn(msgTurnStopped(sess.Name), turnID))
+				log.Printf("jobnotify[%s] stopped on request", name)
+				j.finish(stampTurn(msgTurnStopped(name), turnID))
 				return
 			}
 			// Leave PendingNotes intact — the next dictation still carries the update.
-			log.Printf("jobnotify[%s] error: %v", sess.Name, err)
+			log.Printf("jobnotify[%s] error: %v", name, err)
 			if spoken := spokenError["turn_failed"]; spoken != "" {
 				j.emit(msgSay(spoken))
 			}
 			j.finish(stampTurn(msgError("turn_failed", err.Error()), turnID))
 			return
 		}
-		log.Printf("jobnotify[%s] reply: %q", sess.Name, logField(reply))
+		log.Printf("jobnotify[%s] reply: %q", name, logField(reply))
 		// Success: the completion is now in this session_id's context (Claude just
 		// spoke it), so drop the pending fallback so the next dictation won't re-announce
 		// it. Only the notes we announced are cleared — any that arrived while this turn
 		// ran are left for the next pass.
 		sess.Mutate(func(sess *session.Session) { sess.PendingNotes = dropNotes(sess.PendingNotes, notes) })
 		if perr := s.store.Put(sess); perr != nil {
-			log.Printf("jobnotify[%s] persist cleared notes: %v", sess.Name, perr)
+			log.Printf("jobnotify[%s] persist cleared notes: %v", name, perr)
 		}
 		// Read the true context size the way attach/dictate do (last assistant message),
 		// not the turn's aggregate usage, so the badge matches.
 		badge := turnUsage
-		if cx := s.driver.LastContextUsage(sess.Agent, sess.Host, sess.TranscriptIDs()); cx != nil {
+		cur := sess.Snapshot() // consistent agent/host/id view for the badge read
+		if cx := s.driver.LastContextUsage(cur.Agent, cur.Host, cur.TranscriptIDs()); cx != nil {
 			badge = cx.Usage
 		}
-		j.finish(msgOutput(sess.Name, reply, turnID, false, &badge, &turnStats{Turns: res.Turns, Total: turnUsage}))
+		j.finish(msgOutput(name, reply, turnID, false, &badge, &turnStats{Turns: res.Turns, Total: turnUsage}))
 		// The spoken outcome only reaches devices attached to THIS session. In eager
 		// mode the whole point is that nobody is attached, so also push a one-frame
 		// heads-up to every device that's connected but looking elsewhere — it

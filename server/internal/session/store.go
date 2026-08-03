@@ -132,10 +132,13 @@ func (s *Store) Get(name string) *Session {
 func (s *Store) GetByDir(dir string) *Session {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	var best *Session
+	var best, bestSnap *Session
 	for _, rec := range s.byName {
-		if rec.Dir == dir && (best == nil || rec.Name < best.Name) {
-			best = rec
+		// Read the record's fields under ITS lock — the map lock says nothing about
+		// them, and Dir/Name can be rewritten by a rename while this scan runs.
+		snap := rec.Snapshot()
+		if snap.Dir == dir && (best == nil || snap.Name < bestSnap.Name) {
+			best, bestSnap = rec, snap
 		}
 	}
 	return best
@@ -150,17 +153,18 @@ func (s *Store) GetByDir(dir string) *Session {
 func (s *Store) GetByDirHost(dir, host string) *Session {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	var best *Session
+	var best, bestSnap *Session
 	for _, rec := range s.byName {
-		if rec.Dir != dir {
+		snap := rec.Snapshot() // fields under the record's own lock, not the map lock
+		if snap.Dir != dir {
 			continue
 		}
-		match := rec.Host == host && rec.Target != TargetSandbox
+		match := snap.Host == host && snap.Target != TargetSandbox
 		if host == "" {
-			match = rec.Target == TargetSandbox
+			match = snap.Target == TargetSandbox
 		}
-		if match && (best == nil || rec.Name < best.Name) {
-			best = rec
+		if match && (best == nil || snap.Name < bestSnap.Name) {
+			best, bestSnap = rec, snap
 		}
 	}
 	return best
@@ -198,19 +202,23 @@ func (s *Store) List() []*Session {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]*Session, 0, len(s.byName))
+	names := map[*Session]string{}
 	for _, rec := range s.byName {
 		out = append(out, rec)
+		rec.Read(func(r *Session) { names[rec] = r.Name }) // Name races a rename
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	sort.Slice(out, func(i, j int) bool { return names[out[i]] < names[out[j]] })
 	return out
 }
 
 // Put inserts or updates a session and persists the registry.
 func (s *Store) Put(rec *Session) error {
+	var name, id string
+	rec.Read(func(r *Session) { name, id = r.Name, r.SessionID })
 	s.mu.Lock()
-	s.byName[rec.Name] = rec
-	if rec.SessionID != "" {
-		s.byID[rec.SessionID] = rec
+	s.byName[name] = rec
+	if id != "" {
+		s.byID[id] = rec
 	}
 	s.mu.Unlock()
 	return s.flush()
@@ -220,7 +228,9 @@ func (s *Store) Put(rec *Session) error {
 func (s *Store) Delete(name string) error {
 	s.mu.Lock()
 	if rec := s.byName[name]; rec != nil {
-		delete(s.byID, rec.SessionID)
+		var id string
+		rec.Read(func(r *Session) { id = r.SessionID })
+		delete(s.byID, id)
 	}
 	delete(s.byName, name)
 	s.mu.Unlock()

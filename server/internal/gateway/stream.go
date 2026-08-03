@@ -260,7 +260,7 @@ func (c *conn) vocabBias() string {
 	if sessions := c.srv.store.List(); len(sessions) > 0 {
 		names := make([]string, 0, len(sessions))
 		for _, s := range sessions {
-			names = append(names, s.Name)
+			names = append(names, recName(s))
 		}
 		parts = append(parts, "Session names: "+strings.Join(names, ", ")+".")
 	}

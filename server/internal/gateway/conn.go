@@ -157,7 +157,7 @@ func (c *conn) send(v any) error {
 // guess from what's on screen.
 func (c *conn) currentSessionID() string {
 	if s := c.attachedSession(); s != nil {
-		return s.SessionID
+		return recID(s)
 	}
 	return ""
 }

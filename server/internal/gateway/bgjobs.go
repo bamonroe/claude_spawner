@@ -42,6 +42,9 @@ func (s *Server) reconcileJobs(sess *session.Session, stage bool) bool {
 	if sess == nil {
 		return false
 	}
+	// This runs off the read loop (idle ticker) as well as on it, so every field
+	// read below goes through a snapshot or Read — only writes touch the live record.
+	snap := sess.Snapshot()
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 
@@ -51,7 +54,7 @@ func (s *Server) reconcileJobs(sess *session.Session, stage bool) bool {
 		// Stage lazily so the script is present before Claude (or this list) needs it. A
 		// staging failure is logged and ignored — it must not block the turn.
 		if err := s.srvStageJobScript(ctx, sess, home); err != nil {
-			log.Printf("bgjobs[%s]: stage: %v", sess.Name, err)
+			log.Printf("bgjobs[%s]: stage: %v", snap.Name, err)
 			// keep going: list will just come back empty if the script truly isn't there
 		}
 	}
@@ -73,8 +76,8 @@ func (s *Server) reconcileJobs(sess *session.Session, stage bool) bool {
 	// flag and re-announcing the job forever. Drops are deferred past the loop for
 	// the same reason: rebuilding the slice mid-loop would invalidate the indexes.
 	idx := map[string]int{}
-	for i := range sess.Jobs {
-		idx[sess.Jobs[i].ID] = i
+	for i := range snap.Jobs {
+		idx[snap.Jobs[i].ID] = i
 	}
 
 	changed := false
@@ -86,7 +89,7 @@ func (s *Server) reconcileJobs(sess *session.Session, stage bool) bool {
 		// so it survives for its real owner to announce. A job stamped with an owner we
 		// don't own belongs to someone else; a job with no owner (legacy, pre-stamping)
 		// falls through and stays dir-attributed, preserving the old behaviour.
-		if r.Session != "" && !sess.OwnsID(r.Session) {
+		if r.Session != "" && !sess.OwnsID(r.Session) { // OwnsID locks the record
 			continue
 		}
 		i, ok := idx[r.ID]
@@ -101,7 +104,13 @@ func (s *Server) reconcileJobs(sess *session.Session, stage bool) bool {
 			idx[r.ID] = i
 			changed = true
 		}
-		if !r.Done || sess.Jobs[i].Notified {
+		notified := false
+		sess.Read(func(r *session.Session) {
+			if i < len(r.Jobs) {
+				notified = r.Jobs[i].Notified
+			}
+		})
+		if !r.Done || notified {
 			continue // still running, or already announced
 		}
 		// Newly finished: grab a bounded log tail and frame a note.
@@ -133,11 +142,11 @@ func (s *Server) reconcileJobs(sess *session.Session, stage bool) bool {
 
 	if changed {
 		if err := s.store.Put(sess); err != nil {
-			log.Printf("bgjobs[%s]: persist: %v", sess.Name, err)
+			log.Printf("bgjobs[%s]: persist: %v", snap.Name, err)
 		}
 	}
 	if len(breadcrumbs) > 0 {
-		j := s.jobFor(sess.SessionID)
+		j := s.jobFor(snap.SessionID)
 		for _, cmd := range breadcrumbs {
 			j.emit(msgActivity("✅ background job finished: " + logField(cmd)))
 		}

@@ -28,7 +28,8 @@ func (c *conn) doDiscover() {
 	// One row per REGISTERED session, keyed by its own session_id — no directory
 	// collapse, so multiple sessions in the same dir are each individually visible
 	// and separately renamable/deletable (this is what stops sessions hiding).
-	for _, s := range registered {
+	for _, rec := range registered {
+		s := rec.Snapshot() // one consistent row per record, not a torn live read
 		regDirs[s.Dir] = true
 		views = append(views, discoveredView{
 			Name: s.Name, Dir: s.Dir, SessionID: s.SessionID,
@@ -81,7 +82,7 @@ func (c *conn) doRenameDiscovered(sessionID, dir, newName string) {
 			return
 		}
 	}
-	c.doRename(rec.Name, newName)
+	c.doRename(recName(rec), newName)
 	c.doDiscover()
 }
 
@@ -121,7 +122,8 @@ func (c *conn) doSetAgent(sessionID, dir, agentID, modelAlias string) {
 			return
 		}
 	}
-	attachedHere := c.attached != nil && c.attached.SessionID == rec.SessionID
+	cur := rec.Snapshot() // consistent pre-switch view of the record
+	attachedHere := c.attached != nil && recID(c.attached) == cur.SessionID
 	ag := c.srv.driver.Registry().Resolve(agentID)
 	model := c.srv.driver.ProviderSettings().DefaultModel(ag)
 	if modelAlias != "" {
@@ -131,10 +133,10 @@ func (c *conn) doSetAgent(sessionID, dir, agentID, modelAlias string) {
 	}
 	// Compare resolved ids so an empty/omitted agent (== the default backend) is a
 	// no-op against a session already on that backend and doesn't force a rotation.
-	curID := c.srv.driver.Registry().Resolve(rec.Agent).ID
+	curID := c.srv.driver.Registry().Resolve(cur.Agent).ID
 	var oldID string
 	if curID != ag.ID {
-		if c.srv.isBusy(rec.SessionID) {
+		if c.srv.isBusy(cur.SessionID) {
 			c.fail("busy", "still working — switch the agent when the turn finishes")
 			return
 		}
@@ -145,8 +147,8 @@ func (c *conn) doSetAgent(sessionID, dir, agentID, modelAlias string) {
 		// here. A backend with no readable transcript (e.g. antigravity's null reader)
 		// yields an empty recap, so the switch is clean exactly as before.
 		var handoffSeed string
-		if msgs, err := c.srv.driver.ReadTranscriptChain(rec.Agent, rec.Host, rec.TranscriptIDs()); err != nil {
-			log.Printf("set_agent[%s]: read prior transcript for handoff: %v", rec.Name, err)
+		if msgs, err := c.srv.driver.ReadTranscriptChain(cur.Agent, cur.Host, cur.TranscriptIDs()); err != nil {
+			log.Printf("set_agent[%s]: read prior transcript for handoff: %v", cur.Name, err)
 		} else {
 			handoffSeed = formatHandoffRecap(msgs)
 		}
@@ -155,7 +157,7 @@ func (c *conn) doSetAgent(sessionID, dir, agentID, modelAlias string) {
 		// still point at the old backend here). Skip an un-run backend — nothing to
 		// show — so repeated no-op switches don't pile up empty segments.
 		var seg *session.HistorySegment
-		if rec.Started {
+		if cur.Started {
 			s := c.srv.driver.ArchiveSegment(rec) // reads the record — compute it outside the lock
 			seg = &s
 		}
@@ -164,7 +166,7 @@ func (c *conn) doSetAgent(sessionID, dir, agentID, modelAlias string) {
 			c.fail("internal", err.Error())
 			return
 		}
-		oldID = rec.SessionID
+		oldID = cur.SessionID
 		// One critical section for the whole rotation: a concurrent reader (another
 		// device's attach, the job reconciler) must never see the new session_id with
 		// the old backend's chain still attached.
@@ -191,7 +193,7 @@ func (c *conn) doSetAgent(sessionID, dir, agentID, modelAlias string) {
 	if oldID != "" {
 		// The session_id rotated: move the hub + id index onto the new id so an
 		// attached device still receives the next turn, and forget the old id.
-		c.srv.rekeyJob(oldID, rec.SessionID)
+		c.srv.rekeyJob(oldID, recID(rec))
 		if ferr := c.srv.store.ForgetID(oldID); ferr != nil {
 			log.Printf("forget rotated id %s: %v", oldID, ferr)
 		}
@@ -217,7 +219,7 @@ func (c *conn) doAdopt(sessionID, dir string) {
 		return
 	}
 	if s := c.srv.store.GetBySessionID(sessionID); s != nil {
-		c.doAttach(s.Name, false)
+		c.doAttach(recName(s), false)
 		return
 	}
 	// A session_id is the sole identity: adopt the requested one verbatim. A folder
@@ -229,7 +231,7 @@ func (c *conn) doAdopt(sessionID, dir string) {
 		return
 	}
 	c.sendSessionList()
-	c.doAttach(rec.Name, false)
+	c.doAttach(recName(rec), false)
 }
 
 // doDeleteDiscovered PERMANENTLY deletes a session row. A REGISTERED row is one
@@ -257,7 +259,7 @@ func (c *conn) doDeleteDiscovered(sessionID string) {
 	rec := c.srv.store.GetBySessionID(sessionID)
 	var dir string
 	if rec != nil {
-		dir = rec.Dir
+		dir = rec.Snapshot().Dir
 	} else if p := c.srv.driver.TranscriptPathByID("", sessionID); p != "" {
 		dir = c.srv.driver.TranscriptCwd("", p)
 	}
@@ -293,14 +295,15 @@ func (c *conn) doDeleteDiscovered(sessionID string) {
 		return
 	}
 	if rec != nil {
-		if c.attached != nil && c.attached.SessionID == rec.SessionID {
+		if c.attached != nil && recID(c.attached) == recID(rec) {
 			c.doDetach()
 		}
-		if derr := c.srv.store.Delete(rec.Name); derr != nil {
-			log.Printf("delete session record %s: %v", rec.Name, derr)
+		name := recName(rec)
+		if derr := c.srv.store.Delete(name); derr != nil {
+			log.Printf("delete session record %s: %v", name, derr)
 		}
 		c.removeSandbox(rec) // destroy the session's container, if any
-		c.srv.dropJob(rec.SessionID)
+		c.srv.dropJob(recID(rec))
 	}
 	c.sendSessionList()
 	c.doDiscover()

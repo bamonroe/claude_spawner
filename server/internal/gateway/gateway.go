@@ -265,7 +265,7 @@ func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
 	c.closed = true
 	c.wmu.Unlock()
 	if c.attached != nil {
-		c.srv.unbindJob(c, c.attached.SessionID)
+		c.srv.unbindJob(c, recID(c.attached))
 	}
 	c.saveState() // stash state so the next reconnect can resume
 }
@@ -305,8 +305,9 @@ func (s *Server) NotifyShutdown() {
 		if sess == nil {
 			continue
 		}
-		if j := s.job(sess.Name); j != nil && j.isRunning() {
-			c.send(msgTurnInterrupted(sess.Name, "server restarting"))
+		name := recName(sess)
+		if j := s.job(name); j != nil && j.isRunning() {
+			c.send(msgTurnInterrupted(name, "server restarting"))
 		}
 	}
 }
@@ -396,7 +397,7 @@ func (s *Server) broadcastRenamed(rec *session.Session, old, newName string) {
 		cs = append(cs, c)
 	}
 	s.connsMu.Unlock()
-	msg := msgRenamed(old, newName, rec.SessionID)
+	msg := msgRenamed(old, newName, recID(rec))
 	for _, c := range cs {
 		if c.attachedSession() == rec {
 			c.send(msg)
@@ -429,7 +430,7 @@ func (s *Server) broadcastNotice(rec *session.Session, text string) {
 		cs = append(cs, c)
 	}
 	s.connsMu.Unlock()
-	msg := msgNotice(rec.Name, rec.SessionID, text)
+	msg := msgNotice(recName(rec), recID(rec), text)
 	for _, c := range cs {
 		if c.attachedSession() != rec {
 			c.send(msg)
@@ -454,7 +455,7 @@ func (s *Server) sessionName(id string) string {
 		return ""
 	}
 	if rec := s.store.GetBySessionID(id); rec != nil {
-		return rec.Name
+		return recName(rec)
 	}
 	return ""
 }

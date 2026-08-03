@@ -1,6 +1,7 @@
 package session
 
 import (
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"sync"
@@ -126,6 +127,67 @@ func TestRenameIsLockedAgainstFieldWrites(t *testing.T) {
 				t.Errorf("rename: %v", err)
 				return
 			}
+		}
+	}()
+	wg.Wait()
+}
+
+// TestStoreReadersRaceRotation is the read-side half of the record lock (phase b):
+// every reader of a SHARED record — the store's own name/dir scans, the record's
+// id helpers, and a Snapshot taken at a handler boundary — must take the record's
+// lock, so a concurrent rename or session_id rotation can't be read half-applied.
+// Run under -race, this fails on any reader that reads the live pointer directly.
+func TestStoreReadersRaceRotation(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "sessions.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := &Session{Name: "a", SessionID: "id-0", Dir: "/tmp/a", Host: LocalHost, Target: TargetHost}
+	if err := store.Put(rec); err != nil {
+		t.Fatal(err)
+	}
+	// A second record in the SAME dir/host, so the store's scans actually compare
+	// names (the tiebreak) instead of short-circuiting on a single match — that
+	// comparison is the read that races a rename.
+	if err := store.Put(&Session{Name: "z", SessionID: "id-z", Dir: "/tmp/a", Host: LocalHost, Target: TargetHost}); err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	wg.Add(3)
+	// Writer: rotate the id chain the way clear/compress/set_agent do.
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 200; i++ {
+			rec.Mutate(func(r *Session) {
+				r.PriorIDs = append(r.PriorIDs, r.SessionID)
+				r.SessionID = fmt.Sprintf("id-%d", i+1)
+				r.Started = !r.Started
+			})
+		}
+	}()
+	// Writer: rename, which rewrites Name in place under the store lock.
+	go func() {
+		defer wg.Done()
+		names := []string{"a", "b"}
+		for i := 0; i < 200; i++ {
+			if err := store.Rename(names[i%2], names[(i+1)%2]); err != nil {
+				t.Errorf("rename: %v", err)
+				return
+			}
+		}
+	}()
+	// Reader: the paths a device's read loop takes while a turn mutates the record.
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 200; i++ {
+			store.List()
+			store.GetByDir("/tmp/a")
+			store.GetByDirHost("/tmp/a", LocalHost)
+			store.GetByAnyID("id-0")
+			rec.OwnsID("id-0")
+			rec.TranscriptIDs()
+			rec.HasPriorID("id-1")
+			_ = rec.Snapshot().Name
 		}
 	}()
 	wg.Wait()

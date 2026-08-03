@@ -99,7 +99,7 @@ func (f *fakeReaper) Start(context.Context, *Session, *ExecProfile, string, []st
 	return nil, nil
 }
 func (f *fakeReaper) Ensure(context.Context, *Session, *ExecProfile) error { return nil }
-func (f *fakeReaper) List(context.Context) ([]string, error) { return f.all, nil }
+func (f *fakeReaper) List(context.Context) ([]string, error)               { return f.all, nil }
 func (f *fakeReaper) Remove(_ context.Context, name string) error {
 	f.removed = append(f.removed, name)
 	return nil

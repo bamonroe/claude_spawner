@@ -233,7 +233,7 @@ func (c *conn) repromptDialog() {
 	case "await_attach":
 		c.send(msgDialog("await_attach", "want to attach?"))
 		if c.dlg.sess != nil {
-			c.send(msgSay("want to attach to " + c.dlg.sess.Name + "?"))
+			c.send(msgSay("want to attach to " + recName(c.dlg.sess) + "?"))
 		}
 	}
 }
@@ -329,16 +329,17 @@ func (c *conn) spawnAwaitAttach(text string) {
 		c.ensureSandbox(sess) // start the persistent container for sandbox sessions
 		c.dlg = nil
 		if c.attached != nil {
-			c.srv.unbindJob(c, c.attached.SessionID)
+			c.srv.unbindJob(c, recID(c.attached))
 		}
 		c.setAttached(sess)
 		c.srv.bindJob(c, sess, true)   // register for live turn fan-out (fresh session: no catch-up)
 		c.send(msgAttached(sess, nil)) // freshly spawned: no transcript, no context size yet
 		where := "."
-		if sess.Target == session.TargetSandbox {
+		snap := sess.Snapshot()
+		if snap.Target == session.TargetSandbox {
 			where = ", in a sandbox."
 		}
-		c.send(msgSay("attached to " + sess.Name + where))
+		c.send(msgSay("attached to " + snap.Name + where))
 	case negative(text, c.wakePhrases()):
 		sess := c.dlg.sess
 		if perr := c.srv.store.Put(sess); perr != nil {
@@ -348,7 +349,7 @@ func (c *conn) spawnAwaitAttach(text string) {
 		}
 		c.ensureSandbox(sess) // start the persistent container for sandbox sessions
 		c.dlg = nil
-		c.send(msgSay(sess.Name + " is ready when you are."))
+		c.send(msgSay(recName(sess) + " is ready when you are."))
 	default:
 		c.send(msgSay("attach? yes or no."))
 	}

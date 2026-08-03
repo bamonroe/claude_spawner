@@ -33,34 +33,39 @@ type (
 // later turns reattach with --resume. Turn flips s.Started to true on success —
 // the caller is responsible for persisting the updated record.
 func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool func(ToolUse), onText func(string), onRateLimit func(RateLimit)) (TurnResult, error) {
-	if s.SessionID == "" {
-		return TurnResult{}, fmt.Errorf("session %q has no SessionID", s.Name)
+	// Every field READ in this turn comes from one snapshot taken under the record's
+	// lock: a device's read loop can rename the session or change its model/agent
+	// while this turn builds its command line, and a half-read record would launch
+	// the wrong backend. Writes below still go to the live record via Mutate.
+	snap := s.Snapshot()
+	if snap.SessionID == "" {
+		return TurnResult{}, fmt.Errorf("session %q has no SessionID", snap.Name)
 	}
 	// The session's AI backend owns the command line and the output parsing: it
 	// turns this spec into the concrete flags (Claude's
 	// -p/--output-format/--session-id/--model, another backend's equivalents) and
 	// its ParseTurn reads the stream back. An empty/unknown Agent id resolves to
 	// the default.
-	ag := d.agents().Resolve(s.Agent)
+	ag := d.agents().Resolve(snap.Agent)
 	if ag.ParseTurn == nil {
 		return TurnResult{}, fmt.Errorf("agent %q has no turn parser", ag.ID)
 	}
 	args := ag.Args(agent.TurnSpec{
 		Prompt:    prompt,
-		SessionID: s.SessionID,
-		Resume:    s.Started,
-		Model:     s.Model,
+		SessionID: snap.SessionID,
+		Resume:    snap.Started,
+		Model:     snap.Model,
 		Bypass:    d.Bypass,
 		// The session's working directory. Most backends inherit it as the process
 		// cwd (set by the Executor) and ignore this; Antigravity ignores cwd and
 		// needs it passed explicitly (--add-dir), so it reads TurnSpec.Dir.
-		Dir: s.Dir,
+		Dir: snap.Dir,
 		// Install the PreToolUse hook that blocks background bash and redirects it to
 		// spawner-job (only the Claude backend consumes this). The wrapper is staged at
 		// this same home before the turn (reconcileJobs → StageJobScript); if staging
 		// failed the hook path is simply absent and Claude Code treats it as a
 		// non-blocking miss, degrading to the priming-instruction behaviour.
-		SettingsJSON: HookSettingsJSON(HostHome(), s.SessionID),
+		SettingsJSON: HookSettingsJSON(HostHome(), snap.SessionID),
 		// Operator context-trimming flags (SPAWNER_CLAUDE_EXTRA_ARGS); empty by default.
 		ExtraArgs: d.ClaudeExtraArgs,
 	})
@@ -73,7 +78,7 @@ func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool fun
 	if err != nil {
 		return TurnResult{}, err
 	}
-	proc, err := d.executor(s.Target).Start(ctx, s, p, d.binFor(ag, s.Target), args)
+	proc, err := d.executor(snap.Target).Start(ctx, snap, p, d.binFor(ag, snap.Target), args)
 	if err != nil {
 		return TurnResult{}, err
 	}

@@ -33,7 +33,12 @@ func (s *Server) jobFor(sessID string) *sessionJob {
 // AskPrimed so later turns omit it. primeJobs is the same for the background-job
 // instruction (marks JobsPrimed).
 func (s *Server) startTurn(sess *session.Session, text string, primeAsk, primeJobs bool) bool {
-	j := s.jobFor(sess.SessionID)
+	// Identity read once, under the record's lock: the turn goroutine below outlives
+	// this call and must not read Name/SessionID off the live record while a rename
+	// or a compress rotation runs on another goroutine.
+	var name, sessionID, dir string
+	sess.Read(func(r *session.Session) { name, sessionID, dir = r.Name, r.SessionID, r.Dir })
+	j := s.jobFor(sessionID)
 	j.mu.Lock()
 	if j.running {
 		j.mu.Unlock()
@@ -45,11 +50,11 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk, primeJo
 	j.beginTurn(cancel)
 	j.mu.Unlock()
 
-	s.inflight.add(sess.SessionID) // persist "running" so a restart can flag it interrupted
-	turnID := newTurnID()          // shared by every output frame of this turn — the client's dedup key
-	log.Printf("turn[%s] input: %q", sess.Name, logField(text))
+	s.inflight.add(sessionID) // persist "running" so a restart can flag it interrupted
+	turnID := newTurnID()     // shared by every output frame of this turn — the client's dedup key
+	log.Printf("turn[%s] input: %q", name, logField(text))
 	go func() {
-		defer s.inflight.remove(sess.SessionID)
+		defer s.inflight.remove(sessionID)
 		j.flushPending() // redeliver an earlier reply whose send failed, now that we're writing again
 		j.emit(msgActivity("🤔 thinking…"))
 		changed := map[string]bool{}
@@ -70,7 +75,7 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk, primeJo
 			if strings.Contains(prose, "::ASK::") {
 				return
 			}
-			j.emit(msgOutput(sess.Name, prose, turnID, true, nil, nil))
+			j.emit(msgOutput(name, prose, turnID, true, nil, nil))
 		}
 		// The rate_limit_event lands early in the stream; broadcast the plan's
 		// session-limit state to every attached device as soon as it arrives.
@@ -78,7 +83,8 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk, primeJo
 			s.setRateLimit(rl)
 			j.emit(msgRateLimit(rl))
 		}
-		wasStarted := sess.Started // Turn flips Started true on the first success
+		var wasStarted bool // Turn flips Started true on the first success
+		sess.Read(func(r *session.Session) { wasStarted = r.Started })
 		res, err := s.driver.Turn(ctx, sess, text, onTool, onText, onRateLimit)
 		reply, turnUsage := res.Reply, res.Usage
 		if len(changed) > 0 {
@@ -89,19 +95,21 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk, primeJo
 			aborted := j.aborted
 			j.mu.Unlock()
 			if aborted {
-				log.Printf("turn[%s] stopped on request", sess.Name)
-				j.finish(stampTurn(msgTurnStopped(sess.Name), turnID))
+				log.Printf("turn[%s] stopped on request", name)
+				j.finish(stampTurn(msgTurnStopped(name), turnID))
 				return
 			}
-			log.Printf("turn[%s] error: %v", sess.Name, err)
+			log.Printf("turn[%s] error: %v", name, err)
 			// A failed turn that nonetheless launched claude created the session on
 			// disk (Turn flips Started on launch). Persist that — and drop the seed
 			// it consumed — so the next turn resumes instead of re-attempting
 			// --session-id on an id claude already owns (which fails forever).
-			if sess.Started != wasStarted {
+			var started bool
+			sess.Read(func(r *session.Session) { started = r.Started })
+			if started != wasStarted {
 				sess.Mutate(func(sess *session.Session) { sess.PendingSeed = "" })
 				if perr := s.store.Put(sess); perr != nil {
-					log.Printf("turn[%s] persist after failed turn: %v", sess.Name, perr)
+					log.Printf("turn[%s] persist after failed turn: %v", name, perr)
 				}
 			}
 			if spoken := spokenError["turn_failed"]; spoken != "" {
@@ -110,7 +118,7 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk, primeJo
 			j.finish(stampTurn(msgError("turn_failed", err.Error()), turnID))
 			return
 		}
-		log.Printf("turn[%s] reply: %q", sess.Name, logField(reply))
+		log.Printf("turn[%s] reply: %q", name, logField(reply))
 		// The first turn flips Started false->true (for --resume); the first
 		// interactive turn primes AskPrimed so the instruction isn't re-sent. Either
 		// change means we persist; an unchanged record skips the disk rewrite.
@@ -124,10 +132,10 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk, primeJo
 				sess.JobsPrimed = true
 				changedRec = true
 			}
-		// A compress-carried seed was prepended to this turn (see dictate); the fresh
-		// session_id now holds that context via --resume, so clear it — it must not be
-		// re-injected on later turns. Cleared only on success, so a failed turn retries
-		// with the seed intact.
+			// A compress-carried seed was prepended to this turn (see dictate); the fresh
+			// session_id now holds that context via --resume, so clear it — it must not be
+			// re-injected on later turns. Cleared only on success, so a failed turn retries
+			// with the seed intact.
 			if sess.PendingSeed != "" {
 				sess.PendingSeed = ""
 				changedRec = true
@@ -135,18 +143,18 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk, primeJo
 		})
 		if changedRec {
 			if perr := s.store.Put(sess); perr != nil {
-				log.Printf("turn[%s] persist: %v", sess.Name, perr)
+				log.Printf("turn[%s] persist: %v", name, perr)
 			}
 		}
 		if len(changed) > 0 { // a compact review summary of what the turn touched
-			if d := diffSummary(sess.Dir); d != "" {
+			if d := diffSummary(dir); d != "" {
 				j.emit(msgDiff(d))
 			}
 		}
 		if qs, ok := parseAsk(reply); ok {
 			// Interactive mode: Claude wants clarification — deliver the questions
 			// for the app to render/read, not as a final answer.
-			j.finish(stampTurn(msgAsk(sess.Name, qs), turnID))
+			j.finish(stampTurn(msgAsk(name, qs), turnID))
 			return
 		}
 		// The context-size badge must reflect the CURRENT context window, not the turn's
@@ -155,13 +163,14 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk, primeJo
 		// context and bounces with tool-use count. Read the true size the way attach does
 		// — the transcript's last assistant message — so live matches on-attach.
 		badge := turnUsage
-		if cx := s.driver.LastContextUsage(sess.Agent, sess.Host, sess.TranscriptIDs()); cx != nil {
+		cur := sess.Snapshot() // consistent agent/host/id view for the badge read
+		if cx := s.driver.LastContextUsage(cur.Agent, cur.Host, cur.TranscriptIDs()); cx != nil {
 			badge = cx.Usage
 		}
 		// The closing frame also carries the turn's cycle count + aggregate usage
 		// (turnUsage is the result event's per-turn total, summed over every cycle),
 		// which the detailed badge shows next to the context snapshot.
-		j.finish(msgOutput(sess.Name, reply, turnID, false, &badge, &turnStats{Turns: res.Turns, Total: turnUsage}))
+		j.finish(msgOutput(name, reply, turnID, false, &badge, &turnStats{Turns: res.Turns, Total: turnUsage}))
 	}()
 	return true
 }
@@ -185,7 +194,11 @@ const compressPrompt = "Summarize our conversation so far into a compact but com
 // activity breadcrumb while it runs and a final `say` confirmation. Returns false
 // if a turn is already running for the session (the single-writer invariant).
 func (s *Server) startCompress(sess *session.Session) bool {
-	j := s.jobFor(sess.SessionID)
+	// Identity under the record's lock, once — the goroutine below outlives this call
+	// and rotates SessionID itself partway through.
+	var name, sessionID string
+	sess.Read(func(r *session.Session) { name, sessionID = r.Name, r.SessionID })
+	j := s.jobFor(sessionID)
 	j.mu.Lock()
 	if j.running {
 		j.mu.Unlock()
@@ -197,11 +210,11 @@ func (s *Server) startCompress(sess *session.Session) bool {
 	j.beginTurn(cancel)
 	j.mu.Unlock()
 
-	s.inflight.add(sess.SessionID)
+	s.inflight.add(sessionID)
 	turnID := newTurnID() // the compress is a turn too — its terminal frames carry an id
-	log.Printf("compress[%s] summarizing", sess.Name)
+	log.Printf("compress[%s] summarizing", name)
 	go func() {
-		defer s.inflight.remove(sess.SessionID)
+		defer s.inflight.remove(sessionID)
 		j.flushPending() // an idle compress must not swallow a reply whose send failed
 		j.emit(msgActivity("🗜️ compressing context…"))
 		onRateLimit := func(rl session.RateLimit) {
@@ -215,11 +228,11 @@ func (s *Server) startCompress(sess *session.Session) bool {
 			aborted := j.aborted
 			j.mu.Unlock()
 			if aborted {
-				log.Printf("compress[%s] stopped on request", sess.Name)
-				j.finish(stampTurn(msgTurnStopped(sess.Name), turnID))
+				log.Printf("compress[%s] stopped on request", name)
+				j.finish(stampTurn(msgTurnStopped(name), turnID))
 				return
 			}
-			log.Printf("compress[%s] error: %v", sess.Name, err)
+			log.Printf("compress[%s] error: %v", name, err)
 			if spoken := spokenError["compress_failed"]; spoken != "" {
 				j.emit(msgSay(spoken))
 			}
@@ -235,7 +248,7 @@ func (s *Server) startCompress(sess *session.Session) bool {
 			j.finish(stampTurn(msgError("internal", err.Error()), turnID))
 			return
 		}
-		oldID := sess.SessionID
+		oldID := sessionID
 		sess.Mutate(func(sess *session.Session) {
 			sess.PriorIDs = append(sess.PriorIDs, sess.SessionID)
 			sess.SessionID = newID
@@ -254,10 +267,10 @@ func (s *Server) startCompress(sess *session.Session) bool {
 		if ferr := s.store.ForgetID(oldID); ferr != nil {
 			log.Printf("forget rotated id %s: %v", oldID, ferr)
 		}
-		log.Printf("compress[%s] rotated to %s (seed %d bytes)", sess.Name, newID, len(sess.PendingSeed))
+		log.Printf("compress[%s] rotated to %s (seed %d bytes)", name, newID, len(summary))
 		// One self-describing reset carrying the rotated session_id (see doClear);
 		// the seeded next turn sets the new context size.
-		j.emit(msgContextReset(sess.Name, sess.SessionID))
+		j.emit(msgContextReset(name, newID))
 		j.finish(stampTurn(msgSay("compressed. carried a summary forward — your history is still here."), turnID))
 	}()
 	return true
@@ -305,7 +318,9 @@ func sortedKeys(m map[string]bool) []string {
 // running job sends this one connection a "still working" nudge; a finished-but-
 // undelivered job hands it the buffered result.
 func (s *Server) bindJob(c *conn, sess *session.Session, silent bool) {
-	j := s.jobFor(sess.SessionID)
+	var name, sessionID string
+	sess.Read(func(r *session.Session) { name, sessionID = r.Name, r.SessionID })
+	j := s.jobFor(sessionID)
 	// On attach, reconcile detached background jobs so a device that reconnects
 	// after a job finished gets the completion breadcrumb and the note is staged for
 	// the next dictation. Skip while a turn is running — the reconciler must not race
@@ -317,8 +332,8 @@ func (s *Server) bindJob(c *conn, sess *session.Session, silent bool) {
 	// A turn that was running when the server last restarted is dead; tell the app
 	// once so it doesn't wait on it (its result, if any, is in the transcript the
 	// app reloads on attach).
-	if s.takeInterrupted(sess.SessionID) {
-		sink(msgTurnInterrupted(sess.Name, "server restarted"))
+	if s.takeInterrupted(sessionID) {
+		sink(msgTurnInterrupted(name, "server restarted"))
 	}
 	j.mu.Lock()
 	defer j.mu.Unlock()

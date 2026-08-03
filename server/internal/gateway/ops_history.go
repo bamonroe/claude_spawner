@@ -29,7 +29,7 @@ func (c *conn) serveHistory(name string, before *int, limit int, haveHash string
 	// hash the app already holds needs no message bodies — tell it the cache is
 	// current so clicking back into an unchanged session transfers nothing.
 	if before == nil && haveHash != "" && haveHash == hash {
-		c.send(msgHistory(s.SessionID, name, nil, false, count, hash, true))
+		c.send(msgHistory(recID(s), name, nil, false, count, hash, true))
 		return
 	}
 	b := -1
@@ -54,7 +54,7 @@ func (c *conn) serveHistory(name string, before *int, limit int, haveHash string
 		}
 		kept = append(kept, page[i])
 	}
-	c.send(msgHistory(s.SessionID, name, kept, more, count, hash, false))
+	c.send(msgHistory(recID(s), name, kept, more, count, hash, false))
 }
 
 // serveDigests reports every registered session's transcript digest (message
@@ -119,7 +119,8 @@ func (c *conn) serveDigests() {
 			if cached {
 				hits.Add(1)
 			}
-			items[i] = digestView{Name: s.Name, SessionID: s.SessionID, Count: count, Hash: hash}
+			snap := s.Snapshot()
+			items[i] = digestView{Name: snap.Name, SessionID: snap.SessionID, Count: count, Hash: hash}
 			served[i] = true
 		}(i, s)
 	}

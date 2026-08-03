@@ -123,7 +123,7 @@ func (c *conn) doListModels() {
 		return
 	}
 	// An empty session Model means the backend's own default — mark that one.
-	current := c.attached.Model
+	current := c.attached.Snapshot().Model
 	if current == "" {
 		current = c.srv.driver.ProviderSettings().DefaultModel(ag)
 	}
@@ -194,11 +194,12 @@ func (c *conn) doCompress() {
 		return
 	}
 	s := c.attached
-	if !s.Started {
+	snap := s.Snapshot() // one locked view of the record we're about to act on
+	if !snap.Started {
 		c.send(msgSay("nothing to compress yet."))
 		return
 	}
-	if c.srv.isBusy(s.SessionID) {
+	if c.srv.isBusy(snap.SessionID) {
 		c.send(msgSay("still working on the last one — try compressing when it's done."))
 		return
 	}

@@ -21,7 +21,8 @@ func (c *conn) doList() {
 		return
 	}
 	byDir := map[string]string{}
-	for _, s := range c.srv.store.List() {
+	for _, rec := range c.srv.store.List() {
+		s := rec.Snapshot()
 		byDir[s.Dir] = s.Name
 	}
 	names := make([]string, 0, len(found))
@@ -65,7 +66,8 @@ func (c *conn) doList() {
 func (c *conn) sendSessionList() {
 	sessions := c.srv.store.List()
 	views := make([]sessionView, 0, len(sessions))
-	for _, s := range sessions {
+	for _, rec := range sessions {
+		s := rec.Snapshot() // one consistent row per record
 		views = append(views, sessionView{Name: s.Name, Dir: s.Dir, Target: sandboxTarget(s), Agent: s.Agent, Model: s.Model, Profile: s.Profile})
 	}
 	c.send(msgSessionList(views))
@@ -96,7 +98,7 @@ func sandboxTarget(s *session.Session) string {
 func (c *conn) doAttachBy(sessionID, name string, silent bool) {
 	if sessionID != "" {
 		if s := c.srv.store.GetBySessionID(sessionID); s != nil {
-			name = s.Name
+			name = recName(s)
 		}
 	}
 	c.doAttach(name, silent)
@@ -118,7 +120,7 @@ func (c *conn) selectClientSession(sessionID string) bool {
 	if sessionID == "" {
 		return true
 	}
-	if c.attached != nil && c.attached.SessionID == sessionID {
+	if c.attached != nil && recID(c.attached) == sessionID {
 		return true
 	}
 	// A "clear"/"compress" rotates the attached session's id and retires (ForgetID)
@@ -135,11 +137,12 @@ func (c *conn) selectClientSession(sessionID string) bool {
 		return false
 	}
 	if c.attached != nil {
-		c.prevSessionID = c.attached.SessionID
-		c.srv.unbindJob(c, c.attached.SessionID)
+		c.prevSessionID = recID(c.attached)
+		c.srv.unbindJob(c, c.prevSessionID)
 	}
 	c.setAttached(s)
-	c.send(msgAttached(s, c.srv.driver.LastContextUsage(s.Agent, s.Host, s.TranscriptIDs())))
+	att := s.Snapshot()
+	c.send(msgAttached(s, c.srv.driver.LastContextUsage(att.Agent, att.Host, att.TranscriptIDs())))
 	c.srv.bindJob(c, s, true)
 	return true
 }
@@ -160,16 +163,18 @@ func (c *conn) doAttach(name string, silent bool) {
 		// Remember the session we're leaving so "swap" can toggle back to it —
 		// but only on a genuine move to a different session (re-attaching to the
 		// same one mustn't make swap a no-op).
-		if c.attached.SessionID != s.SessionID {
-			c.prevSessionID = c.attached.SessionID
+		prevID := recID(c.attached)
+		if prevID != recID(s) {
+			c.prevSessionID = prevID
 		}
-		c.srv.unbindJob(c, c.attached.SessionID)
+		c.srv.unbindJob(c, prevID)
 	}
 	c.clearBuffer() // fresh message buffer for the new session
 	c.setAttached(s)
-	c.send(msgAttached(s, c.srv.driver.LastContextUsage(s.Agent, s.Host, s.TranscriptIDs())))
+	att2 := s.Snapshot()
+	c.send(msgAttached(s, c.srv.driver.LastContextUsage(att2.Agent, att2.Host, att2.TranscriptIDs())))
 	if !silent {
-		c.send(msgSay("attached to " + s.Name + "."))
+		c.send(msgSay("attached to " + recName(s) + "."))
 	}
 	// Catch up on a job that may still be running (or finished while we were gone).
 	c.srv.bindJob(c, s, silent)
@@ -209,7 +214,8 @@ func (c *conn) resolveSession(spoken string) *session.Session {
 		return s
 	}
 	for _, s := range c.srv.store.List() {
-		if matchKey(s.Name) == key || matchKey(filepath.Base(s.Dir)) == key {
+		snap := s.Snapshot()
+		if matchKey(snap.Name) == key || matchKey(filepath.Base(snap.Dir)) == key {
 			return s
 		}
 	}
@@ -237,8 +243,8 @@ func (c *conn) doDetach() {
 	}
 	// Detaching still leaves a "previous" session so a following "swap" jumps
 	// straight back to what you were just in.
-	c.prevSessionID = c.attached.SessionID
-	c.srv.unbindJob(c, c.attached.SessionID)
+	c.prevSessionID = recID(c.attached)
+	c.srv.unbindJob(c, c.prevSessionID)
 	c.clearBuffer()
 	c.setAttached(nil)
 	c.send(msgDetached())
@@ -269,10 +275,11 @@ func (c *conn) doSwap() {
 		c.send(msgSay("the previous session is gone."))
 		return
 	}
-	if c.attached != nil && c.attached.SessionID == prev.SessionID {
+	prevSnap := prev.Snapshot()
+	if c.attached != nil && recID(c.attached) == prevSnap.SessionID {
 		return // already there; nothing to toggle
 	}
-	c.doAttachBy(prev.SessionID, prev.Name, false)
+	c.doAttachBy(prevSnap.SessionID, prevSnap.Name, false)
 }
 
 // doClear rotates the attached session's Claude context: the current session_id is
@@ -294,11 +301,12 @@ func (c *conn) doClear() {
 		return
 	}
 	s := c.attached
-	if !s.Started {
+	snap := s.Snapshot() // one locked view of the record we're rotating
+	if !snap.Started {
 		c.send(msgSay("nothing to clear yet."))
 		return
 	}
-	if c.srv.isBusy(s.SessionID) {
+	if c.srv.isBusy(snap.SessionID) {
 		c.send(msgSay("still working on the last one — try clearing when it's done."))
 		return
 	}
@@ -307,7 +315,7 @@ func (c *conn) doClear() {
 		c.fail("internal", err.Error())
 		return
 	}
-	oldID := s.SessionID
+	oldID := snap.SessionID
 	s.Mutate(func(s *session.Session) {
 		s.PriorIDs = append(s.PriorIDs, s.SessionID)
 		s.SessionID = newID
@@ -329,7 +337,7 @@ func (c *conn) doClear() {
 	c.clearBuffer()
 	// One self-describing reset: it carries the rotated session_id, so the app
 	// re-keys and refreshes this session's rows off it — no `attached` re-emit.
-	c.send(msgContextReset(s.Name, s.SessionID))
+	c.send(msgContextReset(snap.Name, newID))
 	c.send(msgSay("cleared. starting fresh — your history is still here."))
 }
 
@@ -349,11 +357,12 @@ func (c *conn) removeSession(name string) bool {
 	// A delete now wipes the session's transcript too, so refuse while an
 	// interactive claude is live in that directory — deleting a file it's writing
 	// would corrupt it (same guard as the app's delete_discovered path).
-	if c.srv.tmuxMgr.ClaudeDirs(c.ctx)[s.Dir] {
+	snap := s.Snapshot() // the record is about to be deleted; read it once
+	if c.srv.tmuxMgr.ClaudeDirs(c.ctx)[snap.Dir] {
 		c.fail("session_active", "that session is live in a terminal — close it there first")
 		return false
 	}
-	if c.attached != nil && c.attached.Name == s.Name {
+	if c.attached != nil && recName(c.attached) == snap.Name {
 		c.setAttached(nil)
 		c.send(msgDetached())
 	}
@@ -361,14 +370,14 @@ func (c *conn) removeSession(name string) bool {
 	// state) across every backend it ran — not just the registry record — so nothing
 	// about it is left on disk. Best-effort: a purge error still drops the record below.
 	if _, err := c.srv.driver.DeleteSessionAll(s); err != nil {
-		log.Printf("delete session %s transcripts: %v", s.Name, err)
+		log.Printf("delete session %s transcripts: %v", snap.Name, err)
 	}
-	if err := c.srv.store.Delete(s.Name); err != nil {
+	if err := c.srv.store.Delete(snap.Name); err != nil {
 		c.fail("internal", err.Error())
 		return false
 	}
 	c.removeSandbox(s) // destroy the session's container, if any
-	c.srv.dropJob(s.SessionID)
+	c.srv.dropJob(snap.SessionID)
 	c.sendSessionList()
 	return true
 }
@@ -450,7 +459,7 @@ func (c *conn) doRenameCurrent(newName string) {
 		c.send(msgSay("what should I call it?"))
 		return
 	}
-	old := c.attached.Name
+	old := recName(c.attached)
 	if name == old {
 		c.send(msgSay("it's already called " + old + "."))
 		return
@@ -465,7 +474,8 @@ func (c *conn) doStatus() {
 		c.send(msgSay("you're not attached to anything."))
 		return
 	}
-	c.send(msgSay("you're attached to " + c.attached.Name + " in " + c.attached.Dir + "."))
+	att := c.attached.Snapshot()
+	c.send(msgSay("you're attached to " + att.Name + " in " + att.Dir + "."))
 }
 
 // dictate runs one Claude turn for the attached session as a background job that
@@ -515,7 +525,7 @@ func (c *conn) newSession(base, dir string, target session.Target, agentID, prof
 // block the spawn — the first turn re-runs Ensure and surfaces a hard error then.
 func (c *conn) ensureSandbox(s *session.Session) {
 	if err := c.srv.driver.EnsureContainer(c.ctx, s); err != nil {
-		log.Printf("sandbox ensure for %s: %v", s.Name, err)
+		log.Printf("sandbox ensure for %s: %v", recName(s), err)
 	}
 }
 
@@ -526,6 +536,6 @@ func (c *conn) ensureSandbox(s *session.Session) {
 // Logged, never fatal — a runtime hiccup must not block removing the record.
 func (c *conn) removeSandbox(s *session.Session) {
 	if err := c.srv.driver.RemoveContainer(c.ctx, s); err != nil {
-		log.Printf("sandbox remove for %s: %v", s.Name, err)
+		log.Printf("sandbox remove for %s: %v", recName(s), err)
 	}
 }

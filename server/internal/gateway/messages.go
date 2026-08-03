@@ -272,11 +272,36 @@ func msgDialog(state, prompt string) map[string]any {
 	return map[string]any{"type": "dialog", "state": state, "prompt": prompt}
 }
 
+// recName / recID read one field of a SHARED session record under its lock. The
+// record's fields are mutated by turn goroutines (id rotation) and by other
+// devices' read loops (rename), so even a single-field read off the live pointer
+// is a data race; these are the sanctioned one-liners for the many places that
+// just want a name or an id. Reach for Snapshot() when you need several fields
+// to agree with each other.
+func recName(rec *session.Session) string {
+	if rec == nil {
+		return ""
+	}
+	var v string
+	rec.Read(func(r *session.Session) { v = r.Name })
+	return v
+}
+
+func recID(rec *session.Session) string {
+	if rec == nil {
+		return ""
+	}
+	var v string
+	rec.Read(func(r *session.Session) { v = r.SessionID })
+	return v
+}
+
 // msgAttached confirms the attach. When the session already has an on-disk
 // transcript, it carries the last turn's `usage` (the current context size) and
 // `usage_at` (that turn's unix time) so the app shows the context meter — and the
 // cache-warm state — immediately, without waiting for a live turn to complete.
-func msgAttached(s *session.Session, cx *session.ContextSnapshot) map[string]any {
+func msgAttached(rec *session.Session, cx *session.ContextSnapshot) map[string]any {
+	s := rec.Snapshot() // one consistent view: a turn may rotate the id mid-frame
 	m := map[string]any{"type": "attached", "name": s.Name, "session_id": s.SessionID}
 	// The backend + current model, so the app can show which AI (and which model)
 	// this session runs. Empty for records predating backend selection.

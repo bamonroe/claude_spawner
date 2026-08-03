@@ -133,9 +133,28 @@ explicit parameter of `Executor.Start`/`SandboxLifecycle.Ensure` — it used to 
 shared `Session`, where a turn and the job reconciler launching at once overwrote each other's
 profile. `go test -race ./...` is the check that keeps all of this honest.
 
+**Reads follow the same rule.** A single-field read off a live shared record is a data race too, so
+nothing reads a stored record's fields directly:
+
+- **Pure readers snapshot at the boundary.** A function that only reads a record takes
+  `rec.Snapshot()` once at entry and works off that — `Driver.Turn` (which then hands the snapshot
+  to the executor), `ReadDisplayHistory`/`DisplayDigest`/`ArchiveSegment`/`DeleteSessionAll`,
+  `RunOnTarget`, `msgAttached`, the session/discovered list builders, and the off-loop tickers
+  (`jobReconcileLoop`, `autoCompressLoop`, `reconcileJobs`). One snapshot also means the fields
+  *agree with each other*: an agent, its host and its id chain all describe one moment.
+- **One-field reads use `recName(rec)` / `recID(rec)`** (gateway) — the locked one-liners for the
+  many places that just want a name or a session_id.
+- **A turn's identity is read once**, before the goroutine starts: `startTurn`/`startCompress`/
+  `startJobNotify` capture name + session_id under the lock and use those for the turn's whole life,
+  rather than re-reading a record they themselves rotate.
+- **The record's own helpers lock** — `OwnsID`, `TranscriptIDs`, `HasPriorID` (with unexported
+  `…Locked` bodies for callers already inside `Mutate`/`Read`).
+
+`TestStoreReadersRaceRotation` in `record_lock_test.go` drives a rename and an id rotation against
+those readers concurrently, so an unlocked read reintroduced later fails `go test -race ./...`.
+
 This is the field-level complement to the "one active writer per session" rule above, not a
-replacement for it. (Read-side coverage is not yet exhaustive — the remaining audit of unlocked
-field *reads* in the gateway is tracked in `TODO.toml`.)
+replacement for it.
 
 ## Per-session execution target (host vs sandbox)
 

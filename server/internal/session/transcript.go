@@ -104,10 +104,10 @@ type Message struct {
 	// rewritten on every clear/compress rotation and cross-backend re-index — ID
 	// is stable across rotations, so the app reconciles live↔history rows by it
 	// (falling back to Index/text when absent). Omitted from the wire when empty.
-	ID    string `json:"id,omitempty"`
-	Role  string `json:"role"`
-	Text  string `json:"text"`
-	Ts    int64  `json:"ts"` // unix seconds from the transcript line's timestamp (0 if absent)
+	ID   string `json:"id,omitempty"`
+	Role string `json:"role"`
+	Text string `json:"text"`
+	Ts   int64  `json:"ts"` // unix seconds from the transcript line's timestamp (0 if absent)
 	// Usage is the token accounting for a "claude" turn, carried so the per-message
 	// context/cache badge survives a reattach or server restart. Set only on the
 	// final assistant line of a turn (matching the live badge, which lands on the
