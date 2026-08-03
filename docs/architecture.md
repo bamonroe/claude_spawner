@@ -107,6 +107,36 @@ terminal. `internal/tmux` exposes just `ClaudeDirs` — the set of directories w
 human is editing live. (An earlier design had the server itself open a "babysit" pane via a
 `Babysit`/`List`/`Exists`/`Close` API; that was dropped — the server never creates panes now.)
 
+### Record locking: mutate a `Session` only through `Mutate`
+
+The store hands out **shared `*Session` pointers** — the same record is held by a running turn's
+goroutine, by every attached device's read loop, and by the background-job reconciler — so field
+writes are concurrent by construction (a turn stamping `Started`/`PendingSeed` against another
+device's `set_agent`/`set_model`/kill-job). `Store`'s own mutex protects only the name/id **index
+maps**, not the records' fields.
+
+So each record carries its own lock (`Session.mu`, lazily created) and three seams:
+
+- **`Session.Mutate(fn)`** — the only sanctioned way to write a stored record's fields. Group a
+  multi-field change (a `clear`/`compress`/`set_agent` session_id rotation) into **one** `Mutate`
+  so no observer sees the record half-rotated. Not reentrant; do no I/O and don't call `Store.Put`
+  inside it.
+- **`Session.Read(fn)`** — a consistent read of a few fields (used by `Driver.ProfileFor`, which
+  runs on the turn path while `Store.Rename` may be rewriting `Name`).
+- **`Session.Snapshot()`** — a deep copy taken under the lock, every slice cloned. `Store.flush`
+  marshals **snapshots**, never the live pointers: encoding a shared record raced any in-place
+  `PriorIDs`/`Jobs` append. A reflection-driven test (`record_lock_test.go`) fails if a newly added
+  slice field isn't cloned, so the invariant can't quietly rot.
+
+Related: per-launch scratch does **not** live on the record. The resolved `*ExecProfile` is an
+explicit parameter of `Executor.Start`/`SandboxLifecycle.Ensure` — it used to be stashed on the
+shared `Session`, where a turn and the job reconciler launching at once overwrote each other's
+profile. `go test -race ./...` is the check that keeps all of this honest.
+
+This is the field-level complement to the "one active writer per session" rule above, not a
+replacement for it. (Read-side coverage is not yet exhaustive — the remaining audit of unlocked
+field *reads* in the gateway is tracked in `TODO.toml`.)
+
 ## Per-session execution target (host vs sandbox)
 
 Status: **implemented** (`internal/session/executor.go`). Goal: let each spawned Claude session run

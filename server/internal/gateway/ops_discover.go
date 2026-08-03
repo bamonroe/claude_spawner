@@ -154,8 +154,10 @@ func (c *conn) doSetAgent(sessionID, dir, agentID, modelAlias string) {
 		// the chat log after the rotation drops them from context (rec.Agent/host/ids
 		// still point at the old backend here). Skip an un-run backend — nothing to
 		// show — so repeated no-op switches don't pile up empty segments.
+		var seg *session.HistorySegment
 		if rec.Started {
-			rec.History = append(rec.History, c.srv.driver.ArchiveSegment(rec))
+			s := c.srv.driver.ArchiveSegment(rec) // reads the record — compute it outside the lock
+			seg = &s
 		}
 		newID, err := session.NewSessionID()
 		if err != nil {
@@ -163,15 +165,25 @@ func (c *conn) doSetAgent(sessionID, dir, agentID, modelAlias string) {
 			return
 		}
 		oldID = rec.SessionID
-		rec.SessionID = newID
-		rec.Started = false
-		rec.AskPrimed = false
-		rec.JobsPrimed = false        // re-prime the background-job instruction on the new backend
-		rec.PriorIDs = nil            // don't chain the old backend's transcripts into the new one
-		rec.PendingSeed = handoffSeed // ...carry a recap of them across the switch instead
+		// One critical section for the whole rotation: a concurrent reader (another
+		// device's attach, the job reconciler) must never see the new session_id with
+		// the old backend's chain still attached.
+		rec.Mutate(func(rec *session.Session) {
+			if seg != nil {
+				rec.History = append(rec.History, *seg)
+			}
+			rec.SessionID = newID
+			rec.Started = false
+			rec.AskPrimed = false
+			rec.JobsPrimed = false        // re-prime the background-job instruction on the new backend
+			rec.PriorIDs = nil            // don't chain the old backend's transcripts into the new one
+			rec.PendingSeed = handoffSeed // ...carry a recap of them across the switch instead
+		})
 	}
-	rec.Agent = ag.ID
-	rec.Model = model
+	rec.Mutate(func(rec *session.Session) {
+		rec.Agent = ag.ID
+		rec.Model = model
+	})
 	if err := c.srv.store.Put(rec); err != nil {
 		c.fail("internal", err.Error())
 		return

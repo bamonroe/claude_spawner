@@ -241,7 +241,7 @@ func (s *Store) Rename(old, newName string) error {
 		return fmt.Errorf("name %q is already taken", newName)
 	}
 	delete(s.byName, old)
-	rec.Name = newName
+	rec.Mutate(func(r *Session) { r.Name = newName })
 	s.byName[newName] = rec
 	s.mu.Unlock()
 	return s.flush()
@@ -261,11 +261,20 @@ func (s *Store) ForgetID(oldID string) error {
 // flush writes the registry atomically (temp file + rename).
 func (s *Store) flush() error {
 	s.mu.RLock()
-	list := make([]*Session, 0, len(s.byName))
+	recs := make([]*Session, 0, len(s.byName))
 	for _, rec := range s.byName {
-		list = append(list, rec)
+		recs = append(recs, rec)
 	}
 	s.mu.RUnlock()
+	// Marshal COPIES, not the live records: the store's map lock says nothing about
+	// a record's fields, so encoding a shared pointer races any concurrent field
+	// write (an in-place PriorIDs/Jobs append can corrupt the encoder mid-walk).
+	// Each snapshot is taken under that record's own lock and released before we
+	// encode, so flush never holds a record lock while doing I/O.
+	list := make([]*Session, 0, len(recs))
+	for _, rec := range recs {
+		list = append(list, rec.Snapshot())
+	}
 	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
 
 	data, err := json.MarshalIndent(list, "", "  ")

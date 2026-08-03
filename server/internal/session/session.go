@@ -11,6 +11,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/bam/claude_spawner/server/internal/agent"
 )
@@ -23,6 +24,14 @@ var newLineScanner = agent.NewLineScanner
 // Session is a durable record. There is no long-lived process: the conversation
 // state lives on disk under SessionID and is reattached via `claude --resume`.
 type Session struct {
+	// mu guards every mutable field below. The store hands the SAME *Session to
+	// every caller (a running turn's goroutine, each device's read loop, the job
+	// reconciler), so field writes are concurrent by construction: mutate only
+	// inside Mutate, and read a consistent copy with Snapshot. It is a pointer,
+	// lazily created by mutex(), so a plain &Session{...} literal (spawn, tests,
+	// json.Unmarshal) stays valid and copying a record copies no lock.
+	mu *sync.Mutex
+
 	Name      string `json:"name"`       // human/voice handle, e.g. "claude-claude"
 	Dir       string `json:"dir"`        // working directory for the session
 	SessionID string `json:"session_id"` // claude session uuid (generated at spawn)
@@ -69,9 +78,6 @@ type Session struct {
 	// Profile is the execution-environment profile name. Empty means the built-in
 	// default profile, preserving records written before profiles existed.
 	Profile string `json:"profile,omitempty"`
-	// ResolvedProfile is set by Driver immediately before launching a turn or
-	// sandbox lifecycle command. It is deliberately not persisted.
-	ResolvedProfile *ExecProfile `json:"-"`
 	// Jobs mirrors the detached background jobs Claude launched for this session via
 	// the spawner-job wrapper (see internal/session/bgjob). The reconciler diffs the
 	// on-target registry against this list at turn boundaries; a job that just
@@ -111,6 +117,71 @@ type Session struct {
 	// clear/compress rotation chain of the current backend. Empty for a session that
 	// has never switched backends (behaves exactly as before).
 	History []HistorySegment `json:"history,omitempty"`
+}
+
+// recordLockInit serializes the lazy creation of per-record mutexes. A record is
+// born unshared (a literal, or a fresh unmarshal in OpenStore) and only later
+// escapes to several goroutines via the store, so the one moment its mu pointer
+// is written must itself be guarded — this global does that, and is held only for
+// the pointer assignment, never across the record's critical section.
+var recordLockInit sync.Mutex
+
+// mutex returns this record's lock, creating it on first use.
+func (s *Session) mutex() *sync.Mutex {
+	recordLockInit.Lock()
+	defer recordLockInit.Unlock()
+	if s.mu == nil {
+		s.mu = &sync.Mutex{}
+	}
+	return s.mu
+}
+
+// Mutate runs fn with this record's fields locked. EVERY write to a stored
+// record's fields goes through it — a turn goroutine stamping Started/PendingSeed
+// races a device's read loop changing the model or killing a job, and both race
+// the store's flush marshalling the record. Group a multi-field change (e.g. a
+// session_id rotation) into ONE Mutate so no observer sees the record half-rotated.
+// fn must not call back into Mutate/Snapshot on the same record (the lock is not
+// reentrant) or into Store.Put (which flushes, and flush takes record locks).
+func (s *Session) Mutate(fn func(*Session)) {
+	mu := s.mutex()
+	mu.Lock()
+	defer mu.Unlock()
+	fn(s)
+}
+
+// Read runs fn with this record's fields locked, for a caller that needs a
+// consistent read of a few fields without copying the whole record (Snapshot's
+// job). Same rule as Mutate: fn must not re-enter Mutate/Read/Snapshot on this
+// record, and must not do I/O — the lock is held throughout.
+func (s *Session) Read(fn func(*Session)) {
+	mu := s.mutex()
+	mu.Lock()
+	defer mu.Unlock()
+	fn(s)
+}
+
+// Snapshot returns a deep copy of the record taken under its lock: a stable,
+// unshared view safe to marshal or read field-by-field while other goroutines keep
+// mutating the live record. Every slice is cloned, so an in-place append on the
+// live record can't write through into the copy (which is what made Store.flush
+// race with a PriorIDs/Jobs append). The copy carries no lock of its own — it is
+// not a stored record and must not be handed back to the store.
+func (s *Session) Snapshot() *Session {
+	mu := s.mutex()
+	mu.Lock()
+	defer mu.Unlock()
+	cp := *s
+	cp.mu = nil
+	cp.PriorIDs = append([]string(nil), s.PriorIDs...)
+	cp.PendingNotes = append([]string(nil), s.PendingNotes...)
+	cp.AgyBrainIDs = append([]string(nil), s.AgyBrainIDs...)
+	cp.Jobs = append([]BackgroundJob(nil), s.Jobs...)
+	cp.History = append([]HistorySegment(nil), s.History...)
+	for i := range cp.History {
+		cp.History[i].IDs = append([]string(nil), cp.History[i].IDs...)
+	}
+	return &cp
 }
 
 // HistorySegment is one previous backend's slice of a session's display history:

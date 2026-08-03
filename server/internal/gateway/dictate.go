@@ -34,7 +34,7 @@ func (c *conn) dictate(text string) {
 	// stored history so the echoed view stays clean.
 	if len(c.attached.PendingNotes) > 0 {
 		prompt = jobNotesPreamble(c.attached.PendingNotes) + prompt
-		c.attached.PendingNotes = nil
+		c.attached.Mutate(func(s *session.Session) { s.PendingNotes = nil })
 		if err := c.srv.store.Put(c.attached); err != nil {
 			log.Printf("dictate[%s]: persist cleared notes: %v", c.attached.Name, err)
 		}

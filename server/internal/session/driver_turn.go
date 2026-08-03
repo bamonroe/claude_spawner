@@ -73,8 +73,7 @@ func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool fun
 	if err != nil {
 		return TurnResult{}, err
 	}
-	s.ResolvedProfile = p
-	proc, err := d.executor(s.Target).Start(ctx, s, d.binFor(ag, s.Target), args)
+	proc, err := d.executor(s.Target).Start(ctx, s, p, d.binFor(ag, s.Target), args)
 	if err != nil {
 		return TurnResult{}, err
 	}
@@ -88,7 +87,7 @@ func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool fun
 	// has no id yet — it's adopted from the TurnResult below and Started flips
 	// then. The caller persists this even on the error path (see gateway/jobs.go).
 	if !ag.SelfAssignsID {
-		s.Started = true
+		s.Mutate(func(s *Session) { s.Started = true })
 	}
 
 	// The agent owns its output shape: ParseTurn reads the stream into the clean
@@ -105,8 +104,10 @@ func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool fun
 	// persists s regardless — so a first turn that fails mid-way is still
 	// resumable rather than re-created.
 	if res.SessionID != "" {
-		s.SessionID = res.SessionID
-		s.Started = true
+		s.Mutate(func(s *Session) {
+			s.SessionID = res.SessionID
+			s.Started = true
+		})
 	}
 	if werr := proc.Wait(); werr != nil {
 		return TurnResult{}, fmt.Errorf("%s exited: %w", ag.ID, werr)
@@ -124,19 +125,21 @@ func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool fun
 		// history reader can later replay the session's turns — agy won't let us find
 		// them by our own id. Skip a repeat of the last id (a retry matching the same
 		// dir) so the chain stays one entry per turn. The caller persists s.
-		if brainID != "" && (len(s.AgyBrainIDs) == 0 || s.AgyBrainIDs[len(s.AgyBrainIDs)-1] != brainID) {
-			s.AgyBrainIDs = append(s.AgyBrainIDs, brainID)
-		}
-		// agy assigns the conversation id and announces it nowhere in its output — the
-		// brain dir IS the conversation (--conversation <brain id> resumes it). Adopt
-		// it as the session id the way a streaming self-assigning backend adopts
-		// TurnResult.SessionID, so the next turn resumes this conversation instead of
-		// starting a fresh one. Re-adopt if it ever drifts (a failed resume makes agy
-		// mint a new conversation; follow the one that actually holds the history).
-		if brainID != "" && brainID != s.SessionID {
-			s.SessionID = brainID
-			s.Started = true
-		}
+		s.Mutate(func(s *Session) {
+			if brainID != "" && (len(s.AgyBrainIDs) == 0 || s.AgyBrainIDs[len(s.AgyBrainIDs)-1] != brainID) {
+				s.AgyBrainIDs = append(s.AgyBrainIDs, brainID)
+			}
+			// agy assigns the conversation id and announces it nowhere in its output — the
+			// brain dir IS the conversation (--conversation <brain id> resumes it). Adopt
+			// it as the session id the way a streaming self-assigning backend adopts
+			// TurnResult.SessionID, so the next turn resumes this conversation instead of
+			// starting a fresh one. Re-adopt if it ever drifts (a failed resume makes agy
+			// mint a new conversation; follow the one that actually holds the history).
+			if brainID != "" && brainID != s.SessionID {
+				s.SessionID = brainID
+				s.Started = true
+			}
+		})
 	}
 	return res, nil
 }
@@ -182,7 +185,7 @@ func (d *Driver) Usage(ctx context.Context) (string, error) {
 	// Account-global probe: run it on the loopback host explicitly (the SSH executor
 	// no longer defaults a hostless session). A purely remote deployment with no
 	// reachable local box can't run /usage; that's an accepted limitation.
-	proc, err := d.executor(TargetHost).Start(ctx, &Session{Name: "usage", Dir: dir, Host: LocalHost}, "", args)
+	proc, err := d.executor(TargetHost).Start(ctx, &Session{Name: "usage", Dir: dir, Host: LocalHost}, nil, "", args)
 	if err != nil {
 		return "", err
 	}

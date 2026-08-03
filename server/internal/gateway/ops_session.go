@@ -308,12 +308,14 @@ func (c *conn) doClear() {
 		return
 	}
 	oldID := s.SessionID
-	s.PriorIDs = append(s.PriorIDs, s.SessionID)
-	s.SessionID = newID
-	s.Started = false
-	s.AskPrimed = false  // fresh context: re-prime the ask instruction on the next turn
-	s.JobsPrimed = false // ditto for the background-job instruction (Jobs/PendingNotes survive: a bg job outlives a clear)
-	s.PendingSeed = ""   // a clear means truly empty context — drop any compress seed
+	s.Mutate(func(s *session.Session) {
+		s.PriorIDs = append(s.PriorIDs, s.SessionID)
+		s.SessionID = newID
+		s.Started = false
+		s.AskPrimed = false  // fresh context: re-prime the ask instruction on the next turn
+		s.JobsPrimed = false // ditto for the background-job instruction (Jobs/PendingNotes survive: a bg job outlives a clear)
+		s.PendingSeed = ""   // a clear means truly empty context — drop any compress seed
+	})
 	if err := c.srv.store.Put(s); err != nil {
 		c.fail("internal", err.Error())
 		return

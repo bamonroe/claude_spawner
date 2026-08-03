@@ -92,10 +92,12 @@ func (s *Server) reconcileJobs(sess *session.Session, stage bool) bool {
 		i, ok := idx[r.ID]
 		if !ok {
 			// A job we hadn't recorded (Claude launched it this or a prior turn) — adopt it.
-			sess.Jobs = append(sess.Jobs, session.BackgroundJob{
-				ID: r.ID, Cmd: r.Cmd, Started: r.Started, Done: r.Done, ExitCode: r.Exit, Session: r.Session,
+			sess.Mutate(func(sess *session.Session) {
+				sess.Jobs = append(sess.Jobs, session.BackgroundJob{
+					ID: r.ID, Cmd: r.Cmd, Started: r.Started, Done: r.Done, ExitCode: r.Exit, Session: r.Session,
+				})
+				i = len(sess.Jobs) - 1
 			})
-			i = len(sess.Jobs) - 1
 			idx[r.ID] = i
 			changed = true
 		}
@@ -107,10 +109,14 @@ func (s *Server) reconcileJobs(sess *session.Session, stage bool) bool {
 		if t, terr := s.driver.RunOnTarget(ctx, sess, shellQuoteArg(script)+" tail "+shellQuoteArg(r.ID)); terr == nil {
 			tail = capTail(string(t))
 		}
-		sess.PendingNotes = append(sess.PendingNotes, jobNote(r.Cmd, tail))
-		sess.Jobs[i].Done = true
-		sess.Jobs[i].Notified = true
-		sess.Jobs[i].ExitCode = r.Exit
+		// One critical section per job update — the surrounding loop shells out to the
+		// target between iterations, so the lock is never held across that I/O.
+		sess.Mutate(func(sess *session.Session) {
+			sess.PendingNotes = append(sess.PendingNotes, jobNote(r.Cmd, tail))
+			sess.Jobs[i].Done = true
+			sess.Jobs[i].Notified = true
+			sess.Jobs[i].ExitCode = r.Exit
+		})
 		changed = true
 		breadcrumbs = append(breadcrumbs, r.Cmd)
 		// Reap so logs don't accumulate on the target.
@@ -119,9 +125,11 @@ func (s *Server) reconcileJobs(sess *session.Session, stage bool) bool {
 		}
 	}
 	// Drop reaped jobs from our view — their work is done and announced.
-	for _, id := range reaped {
-		sess.Jobs = dropJobByID(sess.Jobs, id)
-	}
+	sess.Mutate(func(sess *session.Session) {
+		for _, id := range reaped {
+			sess.Jobs = dropJobByID(sess.Jobs, id)
+		}
+	})
 
 	if changed {
 		if err := s.store.Put(sess); err != nil {
@@ -240,7 +248,7 @@ func (c *conn) doKillJob(n int) {
 		return
 	}
 	// Drop it from the server's mirror so a stale entry doesn't linger.
-	c.attached.Jobs = dropJobByID(c.attached.Jobs, target.ID)
+	c.attached.Mutate(func(s *session.Session) { s.Jobs = dropJobByID(s.Jobs, target.ID) })
 	if err := c.srv.store.Put(c.attached); err != nil {
 		log.Printf("bgjobs[%s]: persist after kill: %v", c.attached.Name, err)
 	}

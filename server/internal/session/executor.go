@@ -46,7 +46,14 @@ type Executor interface {
 	// agent; an empty bin defers to the executor's own configured binary, so a
 	// Claude session (bin "") keeps using each target's SPAWNER_*_CLAUDE_BIN. The
 	// caller reads Proc.Stdout to EOF, then calls Proc.Wait.
-	Start(ctx context.Context, s *Session, bin string, args []string) (Proc, error)
+	//
+	// prof is the session's resolved execution profile (its env). It is an explicit
+	// PARAMETER, not a field on s: the store hands the same *Session to every
+	// goroutine, so stashing per-launch scratch on the record made two concurrent
+	// launches (a turn and the job reconciler) overwrite each other's profile — a
+	// real data race the race detector caught. Pass it down the call, never through
+	// the shared record.
+	Start(ctx context.Context, s *Session, prof *ExecProfile, bin string, args []string) (Proc, error)
 }
 
 // containerPrefix names every sandbox SESSION container this server manages, so
@@ -62,8 +69,9 @@ const containerPrefix = "spawner-sbx-"
 // RemoveContainer call these at the spawn/delete hooks.
 type SandboxLifecycle interface {
 	// Ensure makes sure the named container exists and is running for a session
-	// rooted at dir, creating it if absent. Idempotent.
-	Ensure(ctx context.Context, sess *Session) error
+	// rooted at dir, creating it if absent, with prof supplying the container's
+	// environment. Idempotent.
+	Ensure(ctx context.Context, sess *Session, prof *ExecProfile) error
 	// Remove force-deletes the named container (no error if it's already gone).
 	Remove(ctx context.Context, name string) error
 }
@@ -97,11 +105,11 @@ type HostExecutor struct {
 	Bin string
 }
 
-func (h HostExecutor) Start(ctx context.Context, s *Session, bin string, args []string) (Proc, error) {
+func (h HostExecutor) Start(ctx context.Context, s *Session, prof *ExecProfile, bin string, args []string) (Proc, error) {
 	if bin == "" {
 		bin = h.Bin
 	}
-	return startProcEnv(ctx, bin, args, s.Dir, "start turn", s.ResolvedProfile.envList())
+	return startProcEnv(ctx, bin, args, s.Dir, "start turn", prof.envList())
 }
 
 // SandboxExecutor runs a session's turns inside a persistent, isolated container
@@ -198,11 +206,11 @@ func (s SandboxExecutor) bin() string {
 // Start runs one turn by exec'ing claude inside the session's persistent
 // container, (re)creating the container first if it isn't running (so a turn
 // survives a server restart or a manually-removed container).
-func (s SandboxExecutor) Start(ctx context.Context, sess *Session, bin string, turnArgs []string) (Proc, error) {
+func (s SandboxExecutor) Start(ctx context.Context, sess *Session, prof *ExecProfile, bin string, turnArgs []string) (Proc, error) {
 	if sess.Container == "" {
 		return nil, fmt.Errorf("sandbox session %q has no container name", sess.Name)
 	}
-	if err := s.Ensure(ctx, sess); err != nil {
+	if err := s.Ensure(ctx, sess, prof); err != nil {
 		return nil, err
 	}
 	if bin == "" {
@@ -223,7 +231,7 @@ func (s SandboxExecutor) Start(ctx context.Context, sess *Session, bin string, t
 // Ensure creates and starts the session's long-lived container if it isn't
 // already running. The container just idles (`sleep infinity`); turns run via
 // exec. A stale stopped container of the same name is removed first.
-func (s SandboxExecutor) Ensure(ctx context.Context, sess *Session) error {
+func (s SandboxExecutor) Ensure(ctx context.Context, sess *Session, prof *ExecProfile) error {
 	name, dir := sess.Container, sess.Dir
 	if name == "" {
 		return fmt.Errorf("sandbox session %q has no container name", sess.Name)
@@ -232,7 +240,7 @@ func (s SandboxExecutor) Ensure(ctx context.Context, sess *Session) error {
 		return nil
 	}
 	_ = s.Remove(ctx, name) // clear a stopped leftover so the name is free
-	if out, err := s.ctl(ctx, s.createArgsFor(name, dir, sess.ResolvedProfile)); err != nil {
+	if out, err := s.ctl(ctx, s.createArgsFor(name, dir, prof)); err != nil {
 		return fmt.Errorf("create sandbox %s: %w: %s", name, err, strings.TrimSpace(out))
 	}
 	return nil

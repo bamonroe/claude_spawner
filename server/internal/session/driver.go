@@ -149,9 +149,13 @@ func (d *Driver) ProfileFor(s *Session) (*ExecProfile, error) {
 	name := ""
 	ctx := RenderContext{Home: d.Home}
 	if s != nil {
-		name = s.Profile
-		ctx.Session = s.Name
-		ctx.Dir = s.Dir
+		// Locked: this runs on the turn/reconcile path while another connection may be
+		// renaming the record (Store.Rename writes Name in place).
+		s.Read(func(s *Session) {
+			name = s.Profile
+			ctx.Session = s.Name
+			ctx.Dir = s.Dir
+		})
 	}
 	p := d.ProfileRegistry().Resolve(name)
 	ctx.Vars = mergeVars(d.GlobalVars, p.Vars)
@@ -185,8 +189,7 @@ func (d *Driver) EnsureContainer(ctx context.Context, s *Session) error {
 		if err != nil {
 			return err
 		}
-		s.ResolvedProfile = p
-		return lc.Ensure(ctx, s)
+		return lc.Ensure(ctx, s, p)
 	}
 	return nil
 }

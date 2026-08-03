@@ -220,11 +220,11 @@ type fakeSandbox struct {
 	removed []string
 }
 
-func (f *fakeSandbox) Start(context.Context, *session.Session, string, []string) (session.Proc, error) {
+func (f *fakeSandbox) Start(context.Context, *session.Session, *session.ExecProfile, string, []string) (session.Proc, error) {
 	return nil, nil // turns aren't exercised in the lifecycle test
 
 }
-func (f *fakeSandbox) Ensure(_ context.Context, sess *session.Session) error {
+func (f *fakeSandbox) Ensure(_ context.Context, sess *session.Session, _ *session.ExecProfile) error {
 	if f.ensured == nil {
 		f.ensured = map[string]string{}
 	}

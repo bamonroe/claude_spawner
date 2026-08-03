@@ -77,7 +77,6 @@ func (d *Driver) RunOnTarget(ctx context.Context, s *Session, cmd string) ([]byt
 	if err != nil {
 		return nil, err
 	}
-	s.ResolvedProfile = p
 	switch e := d.executor(s.Target).(type) {
 	case SandboxExecutor:
 		if s.Container == "" {
@@ -93,11 +92,11 @@ func (d *Driver) RunOnTarget(ctx context.Context, s *Session, cmd string) ([]byt
 			host = LocalHost
 		}
 		// Run in the session Dir so the registry key (pwd) matches the turn's.
-		return e.Pool.Run(ctx, host, "cd "+shellQuote(s.Dir)+" && "+shellEnvCommand(s.ResolvedProfile.envList(), cmd))
+		return e.Pool.Run(ctx, host, "cd "+shellQuote(s.Dir)+" && "+shellEnvCommand(p.envList(), cmd))
 	default: // HostExecutor (or any direct-fork executor)
 		c := exec.CommandContext(ctx, "sh", "-c", cmd)
 		c.Dir = s.Dir
-		if env := s.ResolvedProfile.envList(); len(env) > 0 {
+		if env := p.envList(); len(env) > 0 {
 			c.Env = append(c.Environ(), env...)
 		}
 		out, err := c.CombinedOutput()

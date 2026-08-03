@@ -224,8 +224,31 @@ concurrency fixes below.
     race-freedom additionally needs the gateway's `sess.Name`/`sess.SessionID` routing reads to
     lock too — the large half — so land it as: (a) mutex + flush-snapshot + wrap writers
     (closes the corruption/two-writer races), verified with `go test -race ./...`; then (b)
-    audit read-side field access. Do it in a session where a live deploy can validate."""
-status = "active"
+    audit read-side field access. Do it in a session where a live deploy can validate.
+- [x] 2026-08-03 — **Write side DONE (verified with `go test -race ./...`).** Shipped: a per-record
+  `Session.mu` (lazy `*sync.Mutex`, so `&Session{...}` literals and json.Unmarshal stay valid) with
+  three seams — `Mutate(fn)` (the only sanctioned field write; multi-field rotations are one critical
+  section), `Read(fn)` (consistent multi-field read), and `Snapshot()` (deep copy under the lock,
+  every slice cloned). `Store.flush` now marshals **snapshots**, never the live pointers, so encoding
+  can no longer race a `PriorIDs`/`Jobs` append; `Store.Rename` writes `Name` through `Mutate`. All
+  ~20 mutation sites wrapped (driver_turn, turns.go startTurn/compress, doClear, set_agent, doSetModel,
+  doKillJob, reconcileJobs, bgnotify, dictate) — including the three previously unguarded
+  turn-vs-ops races (doSetModel, doKillJob, the model-only set_agent path), now correct WITHOUT a
+  blunt isBusy guard, so killing a runaway bg job mid-turn still works.
+  Also removed `Session.ResolvedProfile`: per-launch scratch on a shared record let a turn and the
+  job reconciler overwrite each other's profile (a real race the detector caught), so the resolved
+  `*ExecProfile` is now an explicit parameter of `Executor.Start`/`SandboxLifecycle.Ensure`.
+  Tests: `session/record_lock_test.go` — a reflection-driven test that fails if a NEW slice field
+  isn't cloned by Snapshot (so the invariant can't rot), plus concurrent mutate-vs-flush and
+  rename-vs-mutate races. `go build`, `go vet`, `go test ./... -count=1` and `go test -race ./...`
+  all green — the race suite previously failed on a pre-existing Rename-vs-ProfileFor race, now fixed.
+  Documented in `docs/architecture.md` ("Record locking").
+- [ ] **Remaining: the read-side audit** (phase b of the plan). Unlocked field READS on other
+  goroutines — the gateway's `sess.Name`/`sess.SessionID` routing and logging reads — are still
+  unsynchronized against `Rename`/rotation. `Driver.ProfileFor` (the one the race detector caught on
+  the turn path) is fixed via `Read`; the rest wants a sweep, ideally converting hot readers to
+  `Snapshot()` at the boundary. Not live-verified on-device yet."""
+status = "in-progress"
 category = "feature"
 urgency = "normal"
 order = 60

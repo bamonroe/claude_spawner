@@ -99,7 +99,7 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk, primeJo
 			// it consumed — so the next turn resumes instead of re-attempting
 			// --session-id on an id claude already owns (which fails forever).
 			if sess.Started != wasStarted {
-				sess.PendingSeed = ""
+				sess.Mutate(func(sess *session.Session) { sess.PendingSeed = "" })
 				if perr := s.store.Put(sess); perr != nil {
 					log.Printf("turn[%s] persist after failed turn: %v", sess.Name, perr)
 				}
@@ -115,22 +115,24 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk, primeJo
 		// interactive turn primes AskPrimed so the instruction isn't re-sent. Either
 		// change means we persist; an unchanged record skips the disk rewrite.
 		changedRec := !wasStarted
-		if primeAsk && !sess.AskPrimed {
-			sess.AskPrimed = true
-			changedRec = true
-		}
-		if primeJobs && !sess.JobsPrimed {
-			sess.JobsPrimed = true
-			changedRec = true
-		}
+		sess.Mutate(func(sess *session.Session) {
+			if primeAsk && !sess.AskPrimed {
+				sess.AskPrimed = true
+				changedRec = true
+			}
+			if primeJobs && !sess.JobsPrimed {
+				sess.JobsPrimed = true
+				changedRec = true
+			}
 		// A compress-carried seed was prepended to this turn (see dictate); the fresh
 		// session_id now holds that context via --resume, so clear it — it must not be
 		// re-injected on later turns. Cleared only on success, so a failed turn retries
 		// with the seed intact.
-		if sess.PendingSeed != "" {
-			sess.PendingSeed = ""
-			changedRec = true
-		}
+			if sess.PendingSeed != "" {
+				sess.PendingSeed = ""
+				changedRec = true
+			}
+		})
 		if changedRec {
 			if perr := s.store.Put(sess); perr != nil {
 				log.Printf("turn[%s] persist: %v", sess.Name, perr)
@@ -234,12 +236,14 @@ func (s *Server) startCompress(sess *session.Session) bool {
 			return
 		}
 		oldID := sess.SessionID
-		sess.PriorIDs = append(sess.PriorIDs, sess.SessionID)
-		sess.SessionID = newID
-		sess.Started = false
-		sess.AskPrimed = false  // fresh context: re-prime the ask instruction on the next turn
-		sess.JobsPrimed = false // ditto for the background-job instruction (Jobs/PendingNotes survive a compress)
-		sess.PendingSeed = strings.TrimSpace(summary)
+		sess.Mutate(func(sess *session.Session) {
+			sess.PriorIDs = append(sess.PriorIDs, sess.SessionID)
+			sess.SessionID = newID
+			sess.Started = false
+			sess.AskPrimed = false  // fresh context: re-prime the ask instruction on the next turn
+			sess.JobsPrimed = false // ditto for the background-job instruction (Jobs/PendingNotes survive a compress)
+			sess.PendingSeed = strings.TrimSpace(summary)
+		})
 		if err := s.store.Put(sess); err != nil {
 			j.finish(stampTurn(msgError("internal", err.Error()), turnID))
 			return

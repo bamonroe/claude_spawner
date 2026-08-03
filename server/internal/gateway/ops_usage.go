@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/bam/claude_spawner/server/internal/session"
 )
 
 // doUsage runs `/usage` (a full but lightweight claude invocation) in the
@@ -161,7 +163,7 @@ func (c *conn) doUseModel(n int) {
 		return
 	}
 	m := models[n-1]
-	c.attached.Model = m.Alias
+	c.attached.Mutate(func(s *session.Session) { s.Model = m.Alias })
 	if err := c.srv.store.Put(c.attached); err != nil {
 		c.fail("internal", err.Error())
 		return

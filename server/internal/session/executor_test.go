@@ -15,7 +15,7 @@ type fakeExecutor struct {
 	launched bool
 }
 
-func (f *fakeExecutor) Start(ctx context.Context, s *Session, bin string, args []string) (Proc, error) {
+func (f *fakeExecutor) Start(ctx context.Context, s *Session, _ *ExecProfile, bin string, args []string) (Proc, error) {
 	f.launched, f.gotDir, f.gotArgs = true, s.Dir, args
 	line := `{"type":"result","subtype":"success","result":"` + f.id + `"}` + "\n"
 	return &fakeProc{r: strings.NewReader(line)}, nil
@@ -95,10 +95,10 @@ type fakeReaper struct {
 	removed []string
 }
 
-func (f *fakeReaper) Start(context.Context, *Session, string, []string) (Proc, error) {
+func (f *fakeReaper) Start(context.Context, *Session, *ExecProfile, string, []string) (Proc, error) {
 	return nil, nil
 }
-func (f *fakeReaper) Ensure(context.Context, *Session) error { return nil }
+func (f *fakeReaper) Ensure(context.Context, *Session, *ExecProfile) error { return nil }
 func (f *fakeReaper) List(context.Context) ([]string, error) { return f.all, nil }
 func (f *fakeReaper) Remove(_ context.Context, name string) error {
 	f.removed = append(f.removed, name)

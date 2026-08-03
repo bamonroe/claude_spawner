@@ -163,7 +163,7 @@ func (s *Server) startJobNotify(sess *session.Session, notes []string) bool {
 		// spoke it), so drop the pending fallback so the next dictation won't re-announce
 		// it. Only the notes we announced are cleared — any that arrived while this turn
 		// ran are left for the next pass.
-		sess.PendingNotes = dropNotes(sess.PendingNotes, notes)
+		sess.Mutate(func(sess *session.Session) { sess.PendingNotes = dropNotes(sess.PendingNotes, notes) })
 		if perr := s.store.Put(sess); perr != nil {
 			log.Printf("jobnotify[%s] persist cleared notes: %v", sess.Name, perr)
 		}

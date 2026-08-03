@@ -28,7 +28,7 @@ type SSHExecutor struct {
 // Start opens a channel on the session's host connection and runs claude there. If
 // the cached connection has died since the last turn, it drops it and re-dials once
 // before failing, so a link that dropped between turns heals transparently.
-func (e SSHExecutor) Start(ctx context.Context, s *Session, bin string, args []string) (Proc, error) {
+func (e SSHExecutor) Start(ctx context.Context, s *Session, prof *ExecProfile, bin string, args []string) (Proc, error) {
 	host := s.Host
 	if host == "" {
 		// SSH-native execution never defaults to the local box: a host-target
@@ -49,7 +49,7 @@ func (e SSHExecutor) Start(ctx context.Context, s *Session, bin string, args []s
 	if err != nil {
 		return nil, err
 	}
-	proc, err := e.run(ctx, client, s, bin, args)
+	proc, err := e.run(ctx, client, s, prof, bin, args)
 	if err != nil {
 		// The pooled connection may have died since the last turn; evict and re-dial
 		// once. A fresh client that still fails is a real error.
@@ -58,7 +58,7 @@ func (e SSHExecutor) Start(ctx context.Context, s *Session, bin string, args []s
 		if derr != nil {
 			return nil, err
 		}
-		proc, err = e.run(ctx, client, s, bin, args)
+		proc, err = e.run(ctx, client, s, prof, bin, args)
 	}
 	return proc, err
 }
@@ -66,8 +66,8 @@ func (e SSHExecutor) Start(ctx context.Context, s *Session, bin string, args []s
 // run opens one SSH session (channel) on client, launches the remote claude in the
 // session's directory, and wires ctx-cancel to stop it. The returned Proc streams
 // the remote stdout and Waits on the remote exit.
-func (e SSHExecutor) run(ctx context.Context, client *ssh.Client, s *Session, bin string, args []string) (Proc, error) {
-	return streamRemote(ctx, client, remoteCommand(s.Dir, bin, args, s.ResolvedProfile.envList()))
+func (e SSHExecutor) run(ctx context.Context, client *ssh.Client, s *Session, prof *ExecProfile, bin string, args []string) (Proc, error) {
+	return streamRemote(ctx, client, remoteCommand(s.Dir, bin, args, prof.envList()))
 }
 
 // streamRemote launches `inner` (a POSIX-sh command) on client, wrapped so an abort
