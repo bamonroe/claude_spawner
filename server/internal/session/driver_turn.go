@@ -127,6 +127,16 @@ func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool fun
 		if brainID != "" && (len(s.AgyBrainIDs) == 0 || s.AgyBrainIDs[len(s.AgyBrainIDs)-1] != brainID) {
 			s.AgyBrainIDs = append(s.AgyBrainIDs, brainID)
 		}
+		// agy assigns the conversation id and announces it nowhere in its output — the
+		// brain dir IS the conversation (--conversation <brain id> resumes it). Adopt
+		// it as the session id the way a streaming self-assigning backend adopts
+		// TurnResult.SessionID, so the next turn resumes this conversation instead of
+		// starting a fresh one. Re-adopt if it ever drifts (a failed resume makes agy
+		// mint a new conversation; follow the one that actually holds the history).
+		if brainID != "" && brainID != s.SessionID {
+			s.SessionID = brainID
+			s.Started = true
+		}
 	}
 	return res, nil
 }

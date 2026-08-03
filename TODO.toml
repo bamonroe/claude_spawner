@@ -115,13 +115,16 @@ Added Google's Gemini-powered `agy` CLI as the
       few brain transcripts against the stdout blob — which also guards the rewrite: only line breaks
       change, never wording, and it falls back to the stdout reply on any miss. Unit tests + full
       `go test ./...` green.
-- [ ] **Follow-up: agy ignores `--conversation` → turns don't actually resume.** Recent `agy` logs
-      "conversation … not found, ignoring --conversation flag" and creates a fresh conversation
-      (keyed by its own internal id) every turn, so an antigravity session has NO cross-turn memory
-      despite the code passing our uuid. Fix by capturing the id agy creates (e.g. from a pinned
-      `--log-file`'s `Print mode: conversation=<id>` line) and passing THAT back as `--conversation`
-      next turn — which would also give a stable id to key a real history reader on. The comments in
-      `antigravity.go` are corrected to say resume is a no-op today.
+- [x] 2026-08-03 — **Follow-up: agy ignores `--conversation` → turns don't actually resume.** FIXED.
+      Root cause pinned live: `agy --conversation` can only *resume* an id agy itself created, so our
+      caller-minted uuid was rejected ("not found, ignoring") and every turn started a fresh
+      conversation — no cross-turn memory. Antigravity is therefore a **`SelfAssignsID`** backend now:
+      the first turn passes no `--conversation`, and since agy announces the new id nowhere in its
+      output, `Turn` adopts the **brain-dir id** already recovered by `reconstructAgyReply` as the
+      session id (the brain id *is* the conversation id — verified live: turn 1 stored a secret word,
+      turn 2 with `--conversation <brain id>` recalled it). Later turns resume with it; re-adopted if
+      it ever drifts. Docs (`architecture.md`, `config.md`, `README.md`) corrected; unit tests updated;
+      full `go test ./... -count=1` green.
 - [x] 2026-07-29 — **Follow-up: real antigravity history reader.** Done — `TranscriptAntigravity`
       now routes to `antigravityFS` (below), so reattach replays agy history. (It was never actually
       blocked on the `--conversation` resume bug: the brain-id capture foundation gave us the stable

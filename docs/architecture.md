@@ -184,13 +184,17 @@ sessions in a SQLite DB rather than flat files, so its transcript reader shells 
 commands (see below). *Antigravity* (Google's Gemini-powered `agy` CLI) is the outlier: it has **no
 machine-readable stream mode**, so it's driven with `agy --prompt` (non-interactive "print" mode) and
 its `ParseTurn` reads the plain-prose stdout as the whole reply — no live tool breadcrumbs and **no
-token accounting** (agy exposes none). Like Claude it takes a **caller-supplied** id (`--conversation
-<uuid>`, created on the first turn and resumed on later ones, so `SelfAssignsID` is false), and unlike
+token accounting** (agy exposes none). It **mints its own conversation id** (`--conversation` can only
+*resume* an id agy created — a caller-supplied uuid is rejected with "not found, ignoring"), so
+`SelfAssignsID` is true; and unlike
 every other backend it **ignores the process cwd** — it works in its own scratch project unless the
 workspace is named, so `Turn` threads the session directory through `TurnSpec.Dir` and the build passes
-`--add-dir`. agy **ignores** the `--conversation` id we pass and keys its store by internal *brain-dir*
-ids of its own, so we can't look a transcript up by our session id; instead each turn's brain id is
-captured as the reply is reconstructed (`reconstructAgyReply` → `Session.AgyBrainIDs`), and that ordered
+`--add-dir`. agy keys its store by internal *brain-dir*
+ids and announces the new id nowhere in its output, so the first turn runs with no `--conversation` and
+the brain id is recovered as the reply is reconstructed (`reconstructAgyReply`); `Turn` **adopts it as
+the session id** — which is what makes later turns resume the same conversation (`--conversation <brain
+id>`) and gives agy sessions cross-turn memory. Each turn's brain id is also recorded in order
+(`Session.AgyBrainIDs`), and that ordered
 list is what `antigravityFS` (`internal/session/antigravity_transcript.go`) replays on reattach — one
 user row + one joined assistant row per brain transcript. agy still exposes **no token accounting**, so
 an agy session simply carries no context badge. (A richer live turn — tool breadcrumbs / usage — stays

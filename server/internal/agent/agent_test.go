@@ -126,14 +126,14 @@ func TestAntigravityArgs(t *testing.T) {
 	if a.Bin != "agy" {
 		t.Errorf("antigravity Bin = %q, want agy", a.Bin)
 	}
-	if a.SelfAssignsID {
-		t.Error("antigravity should take a caller-supplied conversation id (SelfAssignsID false)")
+	if !a.SelfAssignsID {
+		t.Error("antigravity mints its own conversation id (SelfAssignsID true)")
 	}
 
-	// The caller-supplied conversation id rides every turn (create and resume look
-	// identical to agy); the workspace goes via --add-dir, model pinned, prompt in
-	// =form so a leading-dash dictation can't be misparsed as a flag.
-	got := a.Args(TurnSpec{Prompt: "-rf be careful", SessionID: "conv-1", Dir: "/work", Model: "gemini-flash-low", Bypass: true})
+	// A resuming turn carries the adopted conversation id; the workspace goes via
+	// --add-dir, model pinned, prompt in =form so a leading-dash dictation can't be
+	// misparsed as a flag.
+	got := a.Args(TurnSpec{Prompt: "-rf be careful", SessionID: "conv-1", Resume: true, Dir: "/work", Model: "gemini-flash-low", Bypass: true})
 	want := []string{
 		"--conversation", "conv-1", "--add-dir", "/work",
 		"--dangerously-skip-permissions", "--model", "Gemini 3.5 Flash (Low)",
@@ -150,6 +150,11 @@ func TestAntigravityArgs(t *testing.T) {
 	}
 	if slices.Contains(got, "--dangerously-skip-permissions") {
 		t.Errorf("no bypass should omit skip-permissions, got %v", got)
+	}
+	// A first turn (Resume false) must NOT pass --conversation: agy can only resume
+	// an id it created itself, and rejects a caller-minted one.
+	if slices.Contains(got, "--conversation") {
+		t.Errorf("first turn should omit --conversation, got %v", got)
 	}
 }
 

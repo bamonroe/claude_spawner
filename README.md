@@ -470,7 +470,8 @@ declares how to invoke it and how to read its output, so they share one interfac
     pair so it's never empty.
 - **Antigravity** (Google's Gemini-powered `agy` CLI) — `agy --prompt` in its non-interactive
   "print" mode. It offers the Gemini 3.x models (Pro and Flash, plus hosted Claude/GPT-OSS options);
-  like Claude the server supplies the conversation id (`--conversation`) and resumes it turn to turn.
+  agy mints its own conversation id, so the server lets the first turn create one, discovers it from
+  agy's on-disk store, and resumes it with `--conversation` on every later turn.
   Needs `agy` installed and signed in on the host (host turns run over SSH, so set `SPAWNER_SSH_AGY_BIN`
   if `agy` isn't on the host's `PATH`, and `SPAWNER_SANDBOX_AGY_BIN` for the sandbox). **Caveat:** agy
   has no machine-readable output mode yet, so the server captures only the final spoken reply —

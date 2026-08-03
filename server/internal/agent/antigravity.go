@@ -29,13 +29,15 @@ import (
 // this just keeps agy from self-aborting a long turn before we do.
 const agyPrintTimeout = "45m"
 
-// antigravity builds the Antigravity backend entry. NOTE: the --conversation resume
-// below is currently a no-op — recent agy ignores a caller-supplied conversation id
-// ("not found, ignoring --conversation flag") and keys its store by an internal id
-// of its own, so turns do NOT actually resume the same conversation and there is no
-// stable id to key a history reader on (see TODO.toml; reconstructAgyReply works
-// around this by content-matching the transcript instead of by id). SelfAssignsID
-// stays false regardless. agy ignores the process cwd and
+// antigravity builds the Antigravity backend entry. agy MINTS its own conversation
+// id: --conversation can only *resume* an id agy already created ("Resume a previous
+// conversation by ID"), and a caller-supplied uuid is rejected with "not found,
+// ignoring --conversation flag". So this is a SelfAssignsID backend — the first turn
+// runs with no --conversation, and the driver adopts the id agy created (recovered
+// from the on-disk brain dir the reply was matched to, see
+// session.reconstructAgyReply — agy prints it nowhere) as the session id; every later
+// turn resumes it with --conversation, which is what gives an antigravity session
+// cross-turn memory. agy ignores the process cwd and
 // works in its own scratch project unless a workspace is named, so every turn
 // passes the session's directory via --add-dir. Models are agy's display strings
 // (what `agy --model` accepts verbatim), fronted by short spoken aliases.
@@ -45,7 +47,8 @@ func antigravity() *Agent {
 		Name:         "Antigravity",
 		Bin:          "agy",
 		Transcript:   TranscriptAntigravity,
-		DefaultModel: "gemini-pro",
+		SelfAssignsID: true,
+		DefaultModel:  "gemini-pro",
 		Models: []Model{
 			// Flags are agy's exact `agy models` display strings — the value agy's
 			// --model accepts. Aliases/spoken forms keep them sayable over voice; the
@@ -58,11 +61,15 @@ func antigravity() *Agent {
 			{Alias: "gemini-flash-low", Flag: "Gemini 3.5 Flash (Low)", Spoken: []string{"flash low", "fast"}},
 		},
 		build: func(a *Agent, s TurnSpec, m Model) []string {
-			// --conversation carries our own id on every turn: the first creates it,
-			// later turns resume it (agy has no separate "resume" verb). agy works in
-			// its private scratch project unless we name the workspace, so --add-dir
+			// --conversation only RESUMES an id agy itself created, so it appears from
+			// the second turn on, carrying the id the driver adopted after turn one.
+			// The first turn passes none and lets agy mint one. agy works in its
+			// private scratch project unless we name the workspace, so --add-dir
 			// points it at the session directory.
-			args := []string{"--conversation", s.SessionID}
+			var args []string
+			if s.Resume && s.SessionID != "" {
+				args = append(args, "--conversation", s.SessionID)
+			}
 			if s.Dir != "" {
 				args = append(args, "--add-dir", s.Dir)
 			}
