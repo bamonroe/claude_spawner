@@ -181,21 +181,12 @@ Context tokens are the main cost here, so default to the frugal path:
   be installed on a physical device, run a clean build (for this app, `:app:clean :app:assembleDebug`)
   or install the exact same APK already tap-tested on the emulator; Kotlin Multiplatform incremental
   builds can otherwise ship stale shared-module dex.
-- **Promote stable builds to the phone.** Iterate on the Dockerized emulator (fast, disposable),
-  but once a feature is shown to be quite stable there, also install the APK on the physical
-  **Pixel 8a** over adb so it's running on real hardware. The two adb worlds and the exact install
-  commands are in the `android-dev` skill (its home is `/data/android`, where it's a
-  directory-scoped skill); the emulator is for iteration, the phone is where a settled feature lands.
-  - **Finish Android work by installing on the phone.** The Pixel 8a is the live self-hosting
-    client, so a shippable APK isn't "done" until it's on the phone — the last step of any Android
-    change is `adb -s <phone> install -r` (see the `android-dev` skill). This is doubly required
-    when the phone is where the feature's *final* verification has to happen (anything the emulator
-    can't validate — real mic/hands-free, real turns, hardware) or when the emulator run left the
-    feature only partly checked: don't stop at the emulator and leave the phone on the old build.
-    Install it before reporting the work complete.
-  - **Installing on the phone never interrupts a turn** — `adb install -r` swaps the APK without
-    touching the running WebSocket/session. So there's no "good moment" to wait for: whenever a
-    phone-side feature is stable and ready to deploy, just push it to the phone. Don't ask first.
+- **Iterate on the emulator; the BAM store handles the phone.** Verify Android changes on the
+  Dockerized emulator (fast, disposable) using the `android-dev` skill (its home is
+  `/data/android`, where it's a directory-scoped skill). You do **not** install on the physical
+  Pixel 8a as a final step — shippable builds now go to the **BAM store** automatically via the
+  Android tooling, which is what puts them on the phone. Finish Android work at a clean,
+  emulator-verified build; don't hand-push APKs over adb unless the user explicitly asks.
 - When you change the architecture or make a design decision (e.g. the headless-vs-TUI capture
   question in `docs/architecture.md`), record it in the owning doc and the README so it isn't
   re-litigated.
