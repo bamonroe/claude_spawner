@@ -18,6 +18,13 @@ func (c *conn) authenticate() bool {
 		c.fail("unauthorized", "bad or missing token")
 		return false
 	}
+	// Registered the moment the token checks out, BEFORE the hello_ok + catalogue
+	// push below. Registration is what makes a connection visible to every
+	// server-side broadcast (notice, sessions, shutdown); doing it after the push
+	// left an authenticated, connected device invisible for the whole handshake, so
+	// a broadcast landing in that window silently missed it. From here on
+	// authenticate always returns true, so HandleWS's deferred unregister pairs.
+	c.srv.register(c)
 	c.clientID = in.ClientID
 	c.brief = in.Brief
 	c.interactive = in.Interactive

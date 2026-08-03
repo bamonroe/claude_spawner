@@ -232,7 +232,9 @@ func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
 	if !c.authenticate() {
 		return
 	}
-	s.register(c)
+	// authenticate registers the connection itself, as soon as the token checks
+	// out — see the note there. It only returns true once that has happened, so
+	// this deferred unregister is correctly paired.
 	defer s.unregister(c)
 	if s.tts != nil {
 		// One worker per connection drains speak requests in order; closing the
