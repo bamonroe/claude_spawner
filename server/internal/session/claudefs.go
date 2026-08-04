@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -114,12 +115,58 @@ func (fs claudeFS) listAllTranscripts() ([]transcriptRef, error) {
 	return refs, nil
 }
 
+// The id→path resolution is memoized per host. A session_id's transcript lives at
+// exactly one path for the life of that transcript — the project-dir encoding is
+// derived from the working directory and neither moves — so this mapping is stable,
+// while recomputing it is an SSH round trip (`ls`) paid before every stat, every
+// read, and once per id in every chain signature.
+//
+// The entry is dropped the moment a resolved path stops working (a failed stat, a
+// missing file, a delete), so an out-of-band removal or a project-dir rename
+// self-heals on the next call rather than pinning a path that no longer exists.
+var (
+	transcriptPathMu    sync.Mutex
+	transcriptPathCache = map[string]string{}
+)
+
+// forgetPath drops a memoized id→path entry so the next findByID re-resolves.
+func (fs claudeFS) forgetPath(sessionID string) {
+	transcriptPathMu.Lock()
+	delete(transcriptPathCache, fs.cacheKey(sessionID))
+	transcriptPathMu.Unlock()
+}
+
 // findByID returns the transcript path for a session_id (globbed across the opaque
-// project-dir encoding), or "" if not found.
+// project-dir encoding), or "" if not found. A successful resolution is memoized;
+// see transcriptPathCache.
 func (fs claudeFS) findByID(sessionID string) string {
 	if sessionID == "" {
 		return ""
 	}
+	if fs.remote == nil {
+		// Local resolution is a filepath.Glob — cheap, and relative to $HOME, which
+		// is not part of the cache key. Only the remote backend (an SSH round trip
+		// per lookup) is worth memoizing, and it is the one that hurt.
+		return fs.resolveByID(sessionID)
+	}
+	key := fs.cacheKey(sessionID)
+	transcriptPathMu.Lock()
+	cached, hit := transcriptPathCache[key]
+	transcriptPathMu.Unlock()
+	if hit {
+		return cached
+	}
+	path := fs.resolveByID(sessionID)
+	if path != "" {
+		transcriptPathMu.Lock()
+		transcriptPathCache[key] = path
+		transcriptPathMu.Unlock()
+	}
+	return path
+}
+
+// resolveByID is findByID's uncached lookup: the actual glob on the target host.
+func (fs claudeFS) resolveByID(sessionID string) string {
 	if fs.remote == nil {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -477,6 +524,7 @@ func (fs claudeFS) purgeSessionState(id string) error {
 // existed, so callers can count real deletions.
 func (fs claudeFS) purgeByID(id string) (bool, error) {
 	had := false
+	defer fs.forgetPath(id) // the path is about to stop existing
 	if p := fs.findByID(id); p != "" {
 		// Transcript and sidecar share a stem: projects/<dir>/<id>.jsonl and
 		// projects/<dir>/<id>/. Deriving the sidecar from the found path hits the
@@ -575,6 +623,16 @@ func statChainSig(fs claudeFS, resolve func(string) string, ids []string) (strin
 		}
 		size, mod, ok := fs.stat(path)
 		if !ok {
+			// The memoized path no longer stats: re-resolve once before believing
+			// the file is gone, so a project-dir rename or an out-of-band move
+			// recovers immediately instead of reporting a permanently absent chain.
+			fs.forgetPath(id)
+			if again := resolve(id); again != "" && again != path {
+				if size, mod, ok = fs.stat(again); ok {
+					fmt.Fprintf(&b, "%s:%d:%d;", again, size, mod.UnixNano())
+					continue
+				}
+			}
 			b.WriteString(path)
 			b.WriteString(":absent;")
 			continue

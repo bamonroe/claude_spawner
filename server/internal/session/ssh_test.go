@@ -88,6 +88,71 @@ func TestLiveSSHClaudeFSMatchesLocal(t *testing.T) {
 	}
 }
 
+// TestLiveSSHTailAndPathMemo covers the two remote-only halves of the bounded-read
+// work: `tail -c` must agree byte-for-byte with the local ReadAt, and the memoized
+// id→path resolution must survive a forget. Gated on SPAWNER_SSH_LIVE=1.
+func TestLiveSSHTailAndPathMemo(t *testing.T) {
+	if os.Getenv("SPAWNER_SSH_LIVE") != "1" {
+		t.Skip("set SPAWNER_SSH_LIVE=1 to run the live claudeFS test")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	projects := filepath.Join(home, ".claude", "projects")
+	dir, err := os.MkdirTemp(projects, "spawner-ssh-tail-*")
+	if err != nil {
+		t.Skipf("cannot write a test transcript under %s: %v", projects, err)
+	}
+	defer os.RemoveAll(dir)
+
+	id, err := NewSessionID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, id+".jsonl")
+	lines := []string{
+		`{"type":"user","cwd":"/tmp","timestamp":"2026-08-01T00:00:00Z","message":{"content":"` + strings.Repeat("x", 4096) + `"}}`,
+		`{"type":"assistant","cwd":"/tmp","timestamp":"2026-08-01T00:00:01Z","message":{"content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":4242,"output_tokens":7,"cache_read_input_tokens":11,"cache_creation_input_tokens":0}}}`,
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	pool, err := NewSSHPool(SSHConfig{}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewSSHPool: %v", err)
+	}
+	defer pool.Close()
+	remote := claudeFS{remote: &sshFS{pool: pool, host: "localhost"}}
+
+	for _, n := range []int64{64, 512, 1 << 20} {
+		rd, rWhole, rErr := remote.tailBytes(path, n)
+		ld, lWhole, lErr := localClaudeFS.tailBytes(path, n)
+		if rErr != nil || lErr != nil {
+			t.Fatalf("tailBytes(%d): remote err=%v local err=%v", n, rErr, lErr)
+		}
+		if string(rd) != string(ld) || rWhole != lWhole {
+			t.Errorf("tailBytes(%d) mismatch: remote %d bytes whole=%v, local %d bytes whole=%v",
+				n, len(rd), rWhole, len(ld), lWhole)
+		}
+	}
+
+	// The bounded tail must still find the usage on the final line.
+	snap := remote.lastUsageInFile(path)
+	if snap == nil || snap.Usage.Input != 4242 || snap.Usage.CacheRead != 11 {
+		t.Errorf("remote lastUsageInFile = %+v, want input 4242 / cache_read 11", snap)
+	}
+
+	if got := remote.findByID(id); got != path {
+		t.Fatalf("remote findByID = %q, want %q", got, path)
+	}
+	remote.forgetPath(id) // memo dropped: the next lookup must re-resolve, not fail
+	if got := remote.findByID(id); got != path {
+		t.Errorf("remote findByID after forgetPath = %q, want %q", got, path)
+	}
+}
+
 func TestShellQuote(t *testing.T) {
 	cases := map[string]string{
 		"":                 "''",

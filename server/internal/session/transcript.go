@@ -305,9 +305,22 @@ func ReadTranscriptChain(ids []string) ([]Message, error) {
 func (fs claudeFS) readTranscriptChain(ids []string) ([]Message, error) {
 	var all []Message
 	for _, id := range ids {
-		msgs, err := fs.readTranscript(fs.findByID(id))
+		path := fs.findByID(id)
+		msgs, err := fs.readTranscript(path)
 		if err != nil {
 			return nil, err
+		}
+		// Nothing there can mean the memoized path went stale (the transcript moved
+		// or was replaced out of band) rather than "this id has no messages yet".
+		// Re-resolve once before accepting the empty answer; a genuinely empty
+		// transcript is cheap to re-check and rare.
+		if len(msgs) == 0 && path != "" {
+			fs.forgetPath(id)
+			if again := fs.findByID(id); again != path {
+				if msgs, err = fs.readTranscript(again); err != nil {
+					return nil, err
+				}
+			}
 		}
 		all = append(all, msgs...)
 	}
