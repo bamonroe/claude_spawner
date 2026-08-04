@@ -147,44 +147,88 @@ func formatHandoffRecap(msgs []session.Message) string {
 }
 
 // stripInjected removes the server-appended prompt scaffolding — the brief-reply
-// nudge, the interactive-mode ask instruction, and any compress recap preamble —
-// from a stored user message, so history shows exactly the text the user spoke.
-// This keeps the history view consistent with the live echo (which never carried
-// the scaffolding) and lets the app dedupe a replayed turn against its live copy.
-
-// stripInjected removes the server-appended prompt scaffolding — the brief-reply
-// nudge, the interactive-mode ask instruction, and any compress recap preamble —
-// from a stored user message, so history shows exactly the text the user spoke.
-// This keeps the history view consistent with the live echo (which never carried
-// the scaffolding) and lets the app dedupe a replayed turn against its live copy.
+// nudge, the interactive-mode ask instruction, the background-job notes and
+// instruction, and any compress/handoff recap preamble — from a stored user
+// message, so history shows exactly the text the user spoke. This keeps the
+// history view consistent with the live echo (which never carried the
+// scaffolding) and lets the app dedupe a replayed turn against its live copy.
+//
+// Order matters, and not for cosmetic reasons. The PREPENDED framed blocks come
+// off first, because a recap is a verbatim transcript of earlier turns and those
+// turns' prompts carried this very scaffolding — so the recap's interior contains
+// perfectly real-looking copies of the suffix markers. Removing the self-delimited
+// blocks first takes that quoted scaffolding with them, leaving only our own
+// genuinely-trailing copies for the suffix trims to find.
 func stripInjected(text string) string {
+	// Job-completion notes and the compress/handoff recap are prepended as framed
+	// open…close blocks; cut each back out wherever it sits.
+	text = cutFramed(text, jobNotesOpen, jobNotesClose)
+	text = cutFramed(text, seedRecapOpen, seedRecapClose)
 	// The background-job instruction is a suffix like askInstruction but carries a
-	// dynamic script path, so strip from its marker to the end rather than by exact
-	// match. Do this before the fixed-suffix trims (it may sit after them).
-	if i := strings.Index(text, jobsInstructionMark); i >= 0 {
-		text = text[:i]
+	// dynamic script path, so cut from its marker to the end rather than by exact
+	// match — from the LAST occurrence, since it's appended last and any earlier one
+	// is text the user (or a quoted turn) actually wrote. Do this before the
+	// fixed-suffix trims: it may sit after them.
+	if i := strings.LastIndex(text, strings.TrimSpace(jobsInstructionMark)); i >= 0 {
+		text = strings.TrimRight(text[:i], " \t\r\n")
 	}
-	text = strings.TrimSuffix(text, askInstruction)
-	text = strings.TrimSuffix(text, briefSuffix)
-	// Job-completion notes are prepended (parallel to the seed recap); strip that
-	// framed block back off stored history.
-	if strings.HasPrefix(text, jobNotesOpen) {
-		if i := strings.Index(text, jobNotesClose); i >= 0 {
-			text = text[i+len(jobNotesClose):]
-		}
-	}
-	if strings.HasPrefix(text, seedRecapOpen) {
-		if i := strings.Index(text, seedRecapClose); i >= 0 {
-			text = text[i+len(seedRecapClose):]
-		}
-	}
+	text = trimInjectedSuffix(text, askInstruction)
+	text = trimInjectedSuffix(text, briefSuffix)
 	// The autonomous job-completion turn (bgnotify) is WHOLLY synthetic — envelope +
 	// notes + instruction, with no user words to preserve. Unlike the cases above,
 	// which trim scaffolding off a real dictation, strip the entire row to empty so
 	// history matches the live view (where the autonomous prompt shows no user bubble
 	// at all); serveHistory then drops the now-empty row.
-	if strings.HasPrefix(text, jobNotifyMark) {
+	if strings.HasPrefix(strings.TrimSpace(text), strings.TrimSpace(jobNotifyMark)) {
 		return ""
+	}
+	return text
+}
+
+// cutFramed removes one server-injected `open`…`close` block from a stored user
+// message, wherever in the text it sits.
+//
+// Both markers are matched on their bracketed sentence ALONE — with the blank
+// lines they're declared with trimmed off — because the text comes back to us
+// through a backend's transcript reader, and those readers reshape whitespace:
+// opencode rejoins a message's text parts with its own separator, antigravity
+// trims its <USER_REQUEST> envelope, and any of them may normalize newlines. The
+// old prefix-anchored match ("does this start with exactly open?") missed as soon
+// as a single byte of surrounding whitespace differed, and a missed strip doesn't
+// degrade quietly: the entire recap — thousands of characters of prior
+// conversation — renders in the chat log as if the user had spoken it.
+//
+// Matching the distinctive sentence instead makes the removal an invariant of the
+// marker rather than of the exact bytes around it. If the closing marker is absent
+// the text is returned untouched: without it there's no way to tell where the
+// injected block ends and the user's own words begin, and dropping their message
+// is worse than leaking ours.
+func cutFramed(text, open, close string) string {
+	o, c := strings.TrimSpace(open), strings.TrimSpace(close)
+	i := strings.Index(text, o)
+	if i < 0 {
+		return text
+	}
+	rest := text[i+len(o):]
+	j := strings.Index(rest, c)
+	if j < 0 {
+		return text
+	}
+	head := strings.TrimRight(text[:i], " \t\r\n")
+	tail := strings.TrimLeft(rest[j+len(c):], " \t\r\n")
+	if head != "" && tail != "" {
+		return head + "\n\n" + tail
+	}
+	return head + tail
+}
+
+// trimInjectedSuffix drops a trailing scaffolding block, ignoring any whitespace
+// drift the transcript round-trip introduced around it (same reasoning as
+// cutFramed).
+func trimInjectedSuffix(text, suffix string) string {
+	s := strings.TrimSpace(suffix)
+	if t := strings.TrimRight(text, " \t\r\n"); strings.HasSuffix(t, s) {
+		return strings.TrimRight(t[:len(t)-len(s)], " \t\r\n")
 	}
 	return text
 }
