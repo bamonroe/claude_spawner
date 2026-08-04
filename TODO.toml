@@ -255,14 +255,3 @@ urgency = "low"
 order = 170
 created = 2026-08-01
 tags = []
-
-[[task]]
-id = "handoff-recap-renders-as-a-user-bubble-in-the-chat-log"
-title = "Handoff recap renders as a user bubble in the chat log"
-description = "Live emulator test 2026-08-03: the handoff seed preamble ('[Continuing from a compacted session — recap of the conversation so far:] User: ... Assistant: ...') is displayed in the app as a normal outgoing user message. It's machine-generated plumbing, not something the user said, and it duplicates messages already visible above it from the archived segment. Either suppress the seeded preamble from display history or render it as a collapsed system note."
-status = "active"
-category = "bug"
-urgency = "low"
-order = 190
-created = 2026-08-03
-tags = ["handoff", "ui"]
