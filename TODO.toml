@@ -24,6 +24,7 @@ scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/K
 id = "dedicated-wake-word-end-token-detector-via-livekit-epic-proposed-2026-07-14"
 title = "Dedicated wake-word / end-token detector via LiveKit (epic — proposed 2026-07-14)"
 description = """
+
 Replace Whisper-as-keyword-spotter with a purpose-built keyword-spotting model. Today all live
 hands-free detection funnels through `gatedChunk` (`internal/gateway/stream.go`): each VAD clip is
 fast-transcribed by the resident Whisper server and the wake word ("hey buddy") and end token are
@@ -39,11 +40,13 @@ synthetic Piper TTS data is commercially unrestricted (the CC-BY-NC restriction 
 openWakeWord's *distributed* pre-trained models, not on self-trained weights or the Apache-2.0 Google
 embedding backbone). Its flagship conv-attention ONNX is **not** openWakeWord-loadable (only its
 fallback `dnn`→TFLite head is), so we commit to LiveKit's own runtime end-to-end rather than straddle.
-Accurate full transcription on commit stays on Whisper, untouched."""
+Accurate full transcription on commit stays on Whisper, untouched.
+
+Deprioritized 2026-08-04 — user is not convinced this is worth it at this point. The detector plumbing already runs live, and the A/B measurement and positional-detection follow-ups were descoped the same day. Do not pick this up as "next"; it needs a fresh case for its value before any further work."""
 status = "active"
 category = "feature"
-urgency = "normal"
-order = 70
+urgency = "low"
+order = 200
 created = "2026-07-14"
 tags = ["dedicated-wake-word-end-token-detector-v", "epic"]
 
