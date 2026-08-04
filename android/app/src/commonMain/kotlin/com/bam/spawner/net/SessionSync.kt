@@ -1,6 +1,7 @@
 package com.bam.spawner.net
 
 import com.bam.spawner.ChatMessage
+import com.bam.spawner.orderByTimestamp
 
 /**
  * The single, shared reconciliation point for the app's SESSION + CHAT state — the
@@ -16,6 +17,8 @@ import com.bam.spawner.ChatMessage
  *  - **is a transcript current** — every `history` reply feeds [recordSynced], and
  *    [requestFreshHistory] sends that held digest as `have_hash` so the server answers
  *    `unchanged` (no bodies) when nothing moved;
+ *  - **how a history page folds into the held transcript** ([mergeHistory]) — the keep/drop
+ *    rule, the chronological ordering, the paging cursor and the reconnect gap-fill watermark;
  *  - **index-aware chat de-dup** ([dedupe]) — the *one true* de-dup, keyed on the stable
  *    server `index` (live rows carry `index == -1`; server history rows carry a real index),
  *    falling back to text only for the still-live rows;
@@ -27,10 +30,9 @@ import com.bam.spawner.ChatMessage
  * attach-rotation guard: those existed only to chase a name-keyed store, which is gone.)
  *
  * What deliberately stays in each controller (behind [Host]) is the platform-specific side
- * effect: the StateFlow/settings wiring and the chat-log *storage* + *merge* strategy, which
- * genuinely differ (Android is disk-backed with a timestamp merge + reconnect gap-fill; the
- * web is in-memory with an index sort). Those talk to this reconciler through [Host] rather
- * than duplicating its decisions.
+ * effect only: the StateFlow/settings wiring and where the transcript is *stored* (Android
+ * is disk-backed, the web is in-memory). The merge itself no longer differs — both clients
+ * fold a history page through [mergeHistory] and act on the same decisions.
  *
  * [Host.send] is the platform's socket writer (`client?.send(...)`); a null/closed client
  * simply drops the frame, matching the prior `client?.send(...)` behavior.
@@ -213,6 +215,67 @@ class SessionSync(private val host: Host) {
             if (keep) out.add(m)
         }
         return out
+    }
+
+    // --- History-page merge --------------------------------------------------
+
+    /**
+     * The outcome of folding one server history page into a held transcript: the merged
+     * rows plus the paging decisions that follow from them. Pure data — the caller applies
+     * it to its own store and performs the platform side effects (persist, refetch).
+     */
+    data class HistoryMerge(
+        /** The merged, chronologically-ordered, de-duplicated transcript. */
+        val messages: List<ChatMessage>,
+        /** The new oldest-index cursor, or null when the page was empty (leave it alone). */
+        val oldest: Int?,
+        /** Whether the server says older pages remain. */
+        val hasMore: Boolean,
+        /**
+         * The reconnect gap-fill watermark: the highest index we already held when a *top*
+         * page landed that starts above it, leaving a hole. The caller keeps paging older
+         * until its cursor reaches this. Null when there is no gap.
+         */
+        val gapTarget: Int?,
+    )
+
+    /**
+     * The one true history-page merge, shared by both clients (Android and web) so the two
+     * can't drift. Given what we [existing]ly hold and an inbound [page]:
+     *
+     *  - a **top page** (an attach/reattach refresh, `loadOlder == false`) is the authoritative
+     *    tail: existing rows it re-serves are dropped — indexed ones by `index`, live
+     *    (`index < 0`) ones by `(role, text)` — but everything it does *not* cover survives.
+     *    That preservation is load-bearing: indexed rows from older pages already paged in stay,
+     *    as does a live row for a turn still streaming, and a backend with no readable transcript
+     *    (Antigravity always answers with an empty page) keeps the only copy of its conversation
+     *    instead of being wiped on every reconnect.
+     *  - a **load-older page** leaves live rows untouched and only drops indexed rows the page
+     *    itself re-serves.
+     *  - the result is ordered by timestamp, not concatenated: a surviving live row may be
+     *    *older* than the page, and `page + existing` would strand it at the bottom.
+     *  - finally [dedupe] collapses anything the two views of the same row share.
+     */
+    fun mergeHistory(
+        existing: List<ChatMessage>,
+        page: List<ChatMessage>,
+        loadOlder: Boolean,
+        hasMore: Boolean,
+    ): HistoryMerge {
+        val heldMax = existing.mapNotNull { it.index.takeIf { i -> i >= 0 } }.maxOrNull()
+        val pageIdx = page.mapNotNull { m -> m.index.takeIf { i -> i >= 0 } }.toSet()
+        val pageTexts = if (loadOlder) emptySet() else page.map { it.role to it.text }.toSet()
+        val kept = existing.filter {
+            (it.index < 0 && (it.role to it.text) !in pageTexts) || (it.index >= 0 && it.index !in pageIdx)
+        }
+        val pageOldest = page.firstOrNull()?.index
+        val gap = if (!loadOlder && heldMax != null && pageOldest != null && pageOldest > heldMax + 1) heldMax else null
+        return HistoryMerge(
+            messages = dedupe(orderByTimestamp(page + kept)),
+            oldest = pageOldest,
+            hasMore = hasMore,
+            gapTarget = gap,
+        )
     }
 
     // --- Spoken-reply de-dup (hands-free TTS) --------------------------------

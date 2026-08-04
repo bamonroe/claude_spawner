@@ -61,7 +61,13 @@ class WebAppController(internal val prefs: Prefs) : AppController {
     // true index-aware chat de-dup are reconciled through one shared commonMain point
     // (sibling to CatalogueSync) so this controller and the Android controller can't drift.
     // It owns the digest caches and the previous-session bookkeeping; this controller keeps
-    // the in-memory log storage, StateFlow wiring, and index-sorted history merge (below).
+    // the in-memory log storage and StateFlow wiring; the history merge itself is shared
+    // (SessionSync.mergeHistory), so both clients keep, order and de-dup pages identically.
+    //
+    // Reconnect gap-fill watermarks, keyed by session id: when a reattach's top page starts
+    // above the highest index we still held, the merge hands back that watermark and we keep
+    // paging older until the hole is closed (the phone's behavior, now the web's too).
+    internal val bridgeTo = mutableMapOf<String, Int>()
     internal val session = SessionSync(object : SessionSync.Host {
         override fun send(frame: String) { client?.send(frame) }
         override fun discovered() = _discovered.value

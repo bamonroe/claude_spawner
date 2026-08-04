@@ -391,27 +391,13 @@ internal fun VoiceController.onHistory(msg: ServerMsg.History) {
         return
     }
     val wasLoadOlder = key in loadingOlder // else it's the top page (on (re)attach)
-    // Highest transcript index we already held before applying this page — the
-    // watermark a reconnect must page back down to so no middle stays missing.
-    val heldMax = (router.logs[key] ?: emptyList()).mapNotNull { it.index.takeIf { i -> i >= 0 } }.maxOrNull()
     val hist = msg.messages.map { ChatMessage(roleOf(it.role), it.text, it.index, usage = it.usage, ts = it.ts, id = it.id, turnStats = it.turnStats) }
-    val histIdx = hist.mapNotNull { if (it.index >= 0) it.index else null }.toSet()
-    // On a top reload (an attach/reattach), the history page is the authoritative
-    // tail of the conversation: drop any live (index < 0) copy whose text now
-    // appears in it, so refetching on reattach doesn't duplicate a reply we'd
-    // already streamed. Live messages absent from the page (a turn still streaming,
-    // not yet persisted) are kept. A load-older page leaves live messages untouched.
-    val histTexts = if (wasLoadOlder) emptySet() else hist.map { it.role to it.text }.toSet()
-    val existing = (router.logs[key] ?: emptyList()).filter {
-        (it.index < 0 && (it.role to it.text) !in histTexts) || (it.index >= 0 && it.index !in histIdx)
-    }
-    // Merge by timestamp, not by concatenation: a surviving live message (e.g. a
-    // mid-turn breadcrumb not present in the fetched page) may be OLDER than the
-    // history block, so `hist + existing` would strand it at the bottom, out of
-    // order. Ordering by ts drops it back into its true chronological slot.
-    router.logs[key] = session.dedupe(orderByTimestamp(hist + existing))
-    if (msg.messages.isNotEmpty()) router.oldest[key] = msg.messages.first().index
-    router.hasMore[key] = msg.more
+    // The shared merge (keep-rule, chronological order, de-dup, cursor, gap watermark) —
+    // identical on both clients; only the storage side effects below are Android's.
+    val merged = session.mergeHistory(router.logs[key] ?: emptyList(), hist, wasLoadOlder, msg.more)
+    router.logs[key] = merged.messages
+    merged.oldest?.let { router.oldest[key] = it }
+    router.hasMore[key] = merged.hasMore
     loadingOlder.remove(key)
     // Record the chain digest this page belongs to and persist the merged log, so
     // the cache is current on disk and a later reattach can short-circuit the fetch.
@@ -419,13 +405,10 @@ internal fun VoiceController.onHistory(msg: ServerMsg.History) {
     persist(key)
     // Reconnect gap-fill: the reattach top page is only the newest slice, so if the
     // session advanced by more than a page while we were away, a hole is left between
-    // what we still held (heldMax) and this page's oldest index. Mark the watermark,
-    // then keep paging older until we reconnect with it (or hit the start) so the
+    // what we still held and this page's oldest index. The shared merge marks the
+    // watermark; keep paging older until we reconnect with it (or hit the start) so the
     // whole gap backfills instead of only the newest page.
-    if (!wasLoadOlder && heldMax != null) {
-        val pageOldest = msg.messages.firstOrNull()?.index
-        if (pageOldest != null && pageOldest > heldMax + 1) bridgeTo[key] = heldMax
-    }
+    merged.gapTarget?.let { bridgeTo[key] = it }
     bridgeTo[key]?.let { target ->
         val oldest = router.oldest[key]
         if (oldest != null && oldest > target + 1 && router.hasMore[key] == true) {

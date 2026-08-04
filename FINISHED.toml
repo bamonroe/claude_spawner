@@ -14,6 +14,16 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "history-merge-parity-between-android-and-web-clients-optional"
+title = "History-merge parity between Android and web clients (optional)"
+description = "Split out 2026-08-01 when the unified versioned sync-layer epic was archived to FINISHED.toml — this was its one remaining, deliberately-deferred box. The history-merge algorithm is still per-client by design: Android merges by timestamp with reconnect gap-fill, web replaces by index; only the dedup primitive (`SessionSync.dedupe`) is shared. Unifying them is a behavior change, not a drift gap, so it is optional. Revisit only if full parity is actually wanted."
+status = "finished"
+category = "refactor"
+created = 2026-08-01
+completed = 2026-08-04
+tags = []
+
+[[task]]
 id = "investigate-attach-switch-lag-and-inter-turn-latency"
 title = "Investigate attach-switch lag and inter-turn latency"
 description = """

@@ -117,6 +117,7 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
                 val wasViewing = router.currentId == oldId
                 if (wasViewing) router.currentId = msg.sessionId
                 router.dropSessionCache(oldId) // retired id's transcript wiped/summarized: forget rows + digests
+                bridgeTo.remove(oldId) // no gap left to bridge on a retired id
                 if (wasViewing) router.publish() // reflect the fresh (empty) new-id view
                 session.requestFreshHistory(msg.sessionId, msg.name)
             }
@@ -226,12 +227,20 @@ internal fun WebAppController.onReadLast(count: Int) {
     _scrollTick.value = _scrollTick.value + 1
 }
 
-// onHistory merges an inbound history page into the router's in-memory transcript store.
-// This in-memory merge is the web's platform-specific strategy (Android's is disk-backed with
-// reconnect gap-fill), so it stays in the controller and drives the shared router state
-// directly rather than moving into InboundRouter. Both platforms order the merged rows the
-// same way — chronologically, via the shared orderByTimestamp — so a live (unindexed) row
-// interleaves by its arrival ts instead of being stranded at the bottom.
+// onHistory folds an inbound history page into the router's in-memory transcript store. The
+// merge itself — the keep/drop rule, the chronological ordering, the de-dup, the paging cursor
+// and the reconnect gap-fill watermark — is the shared SessionSync.mergeHistory, identical to
+// the phone's; only the storage (in memory here, disk-backed there) is platform-specific.
+/** Request the page of history just older than what we hold for session [id] — the web's
+ *  counterpart to the phone's fetchOlder, driving the reconnect gap-fill in onHistory. The
+ *  cursors are id-keyed; the history request itself is addressed by [name]. */
+internal fun WebAppController.fetchOlder(id: String, name: String) {
+    if (id.isEmpty() || router.hasMore[id] != true || router.loadingOlder) return
+    val before = router.oldest[id] ?: return
+    router.loadingOlder = true
+    client?.send(Outbound.history(name, before))
+}
+
 internal fun WebAppController.onHistory(msg: ServerMsg.History) {
     val key = msg.sessionId.ifEmpty { router.currentId } // file the page under the stable id
     // `unchanged` answers a top-page freshness check whose have_hash still matched:
@@ -240,41 +249,36 @@ internal fun WebAppController.onHistory(msg: ServerMsg.History) {
     if (msg.unchanged) {
         if (msg.hash.isNotEmpty()) session.recordSynced(key, msg.count, msg.hash)
         router.loadingOlder = false
+        // Re-run the shared de-dup over what we hold (as the phone does): the held log may
+        // carry a live copy of a row that has since settled, and no page is coming to fold it.
+        router.logs[key]?.let { held ->
+            router.logs[key] = session.dedupe(held)
+            if (key == router.currentId) router.publish()
+        }
         return
     }
+    val wasLoadOlder = router.loadingOlder // else it's the top page (on (re)attach)
     val hist = msg.messages.map { ChatMessage(roleOf(it.role), it.text, it.index, usage = it.usage, ts = it.ts, id = it.id, turnStats = it.turnStats) }
-    val existing = router.logs[key] ?: emptyList()
-    router.logs[key] = if (router.loadingOlder) {
-        // Prepend older page, keeping the live tail; the shared index-aware de-dup
-        // collapses any live chunk already landed as an indexed history row. Order by
-        // ts (not index): a live row — a system ack, a still-streaming reply — has no
-        // index, and an index-only sort would strand every one of them at the bottom.
-        session.dedupe(orderByTimestamp(hist + existing.filter { it.index < 0 || it.index > (hist.lastOrNull()?.index ?: -1) }))
-    } else {
-        // The top page is the authoritative transcript tail — but PRESERVE what it
-        // doesn't cover, like the Android client: indexed rows from older pages we
-        // already loaded, and live (index < 0) rows whose text isn't in the page
-        // yet (a turn still streaming — or a backend with NO readable transcript,
-        // e.g. Antigravity, whose pages are always empty; a naked replace here
-        // wiped the only copy of those conversations on every reconnect).
-        val histIdx = hist.mapNotNull { m -> m.index.takeIf { i -> i >= 0 } }.toSet()
-        val histTexts = hist.map { it.role to it.text }.toSet()
-        val kept = existing.filter {
-            (it.index < 0 && (it.role to it.text) !in histTexts) ||
-                (it.index >= 0 && it.index !in histIdx)
-        }
-        // Order by ts, matching Android: a surviving live row (an old "cleared, starting
-        // fresh"/"stopping that" ack, a mid-turn breadcrumb) drops into its true
-        // chronological slot instead of being sorted to Int.MAX_VALUE — the bottom —
-        // and re-popping below the whole transcript on every reattach.
-        session.dedupe(orderByTimestamp(hist + kept))
-    }
+    val merged = session.mergeHistory(router.logs[key] ?: emptyList(), hist, wasLoadOlder, msg.more)
+    router.logs[key] = merged.messages
     router.loadingOlder = false
-    router.oldest[key] = hist.firstOrNull()?.index ?: (router.oldest[key] ?: 0)
-    router.hasMore[key] = msg.more
+    merged.oldest?.let { router.oldest[key] = it }
+    router.hasMore[key] = merged.hasMore
     // Record the chain digest this page belongs to so a later reattach can
     // short-circuit the fetch when the server hash still matches what we hold.
     if (msg.hash.isNotEmpty()) session.recordSynced(key, msg.count, msg.hash)
+    // Reconnect gap-fill (parity with the phone): a reattach top page is only the newest
+    // slice, so if the session advanced by more than a page while we were away, keep paging
+    // older until we reconnect with what we still held — or reach the start of the transcript.
+    merged.gapTarget?.let { bridgeTo[key] = it }
+    bridgeTo[key]?.let { target ->
+        val oldest = router.oldest[key]
+        if (oldest != null && oldest > target + 1 && router.hasMore[key] == true) {
+            fetchOlder(key, msg.name) // still a hole above the watermark — keep paging
+        } else {
+            bridgeTo.remove(key) // reconnected with what we had (or reached the start)
+        }
+    }
     if (key == router.currentId) { router.publish(); _scrollTick.value = _scrollTick.value + 1 }
 }
 

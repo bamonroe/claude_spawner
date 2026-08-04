@@ -19,14 +19,3 @@ add_proposed_work = "Add proposed features and tests as new tasks rather than lo
 remove_dropped_items = "Remove dropped items with a one-line why (`scripts/todo.sh remove <id> --reason`)."
 finish_work = "When a task is fully finished (built, tested, documented), run `scripts/todo.sh done <id>` to move it to FINISHED.toml — in the same commit that completes the work."
 scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/KMP app + web client. The historical phase roadmap stays in README.md."
-
-[[task]]
-id = "history-merge-parity-between-android-and-web-clients-optional"
-title = "History-merge parity between Android and web clients (optional)"
-description = "Split out 2026-08-01 when the unified versioned sync-layer epic was archived to FINISHED.toml — this was its one remaining, deliberately-deferred box. The history-merge algorithm is still per-client by design: Android merges by timestamp with reconnect gap-fill, web replaces by index; only the dedup primitive (`SessionSync.dedupe`) is shared. Unifying them is a behavior change, not a drift gap, so it is optional. Revisit only if full parity is actually wanted."
-status = "active"
-category = "refactor"
-urgency = "low"
-order = 170
-created = 2026-08-01
-tags = []
