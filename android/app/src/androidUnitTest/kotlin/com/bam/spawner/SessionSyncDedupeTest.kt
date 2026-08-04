@@ -116,4 +116,26 @@ class SessionSyncDedupeTest {
         val out = sync().dedupe(listOf(claudeId("hi", id = "u1", index = 4), claude("hi")))
         assertEquals(listOf(claudeId("hi", id = "u1", index = 4)), out)
     }
+
+    // Attach → detach → attach back mid-turn: the server replays the frames the
+    // connection missed, and a replayed block never sits adjacent to the copies already
+    // held (A B C A B C), so the adjacency rule alone left the in-flight rows showing
+    // two and three times over until the turn landed in history. The frame's wire
+    // identity (`<turn>:<seq>`) collapses them wherever they sit.
+    @Test
+    fun replayedLiveRowsCollapseByWireKey() {
+        val a = live("step one", "t1:1")
+        val b = live("step two", "t1:2")
+        assertEquals(listOf(a, b), sync().dedupe(listOf(a, b, a, b, a, b)))
+    }
+
+    // Same text at two different points of a turn is two real rows — the key, not the
+    // text, decides, so a genuine repeat isn't swallowed.
+    @Test
+    fun distinctWireKeysWithSameTextAreKept() {
+        val out = sync().dedupe(listOf(live("thinking…", "t1:1"), claude("x"), live("thinking…", "t1:4")))
+        assertEquals(3, out.size)
+    }
+
+    private fun live(text: String, key: String) = ChatMessage(Role.CLAUDE, text, liveKey = key)
 }

@@ -12,6 +12,9 @@ enum class VoiceState { OFF, LISTENING, CAPTURING, TRANSCRIBING, THINKING, SPEAK
 /** One line in the chat log. `id` is the row's durable backend identity (stable
  *  across clear/compress rotation; empty for live rows and id-less backends);
  *  `index` ties a live row back to its server-history slot positionally;
+ *  `liveKey` is a live row's wire identity — `"<turn>:<seq>"` from the `output`
+ *  frame that produced it — so a frame the server replays to a mid-turn re-attach
+ *  is recognised as the copy we already hold instead of being appended again;
  *  `usage` carries the per-turn token badge; `turnStats` the agentic-loop rollup
  *  (cycle count + aggregate) shown in the detailed badge; `ts` is unix seconds (0
  *  for history). */
@@ -23,6 +26,7 @@ data class ChatMessage(
     val ts: Long = 0L,
     val id: String = "",
     val turnStats: TurnStats? = null,
+    val liveKey: String = "",
 )
 
 /**

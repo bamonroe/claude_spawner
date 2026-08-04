@@ -365,10 +365,12 @@ func (s *Server) bindJob(c *conn, sess *session.Session, silent bool) {
 		// Catch up just this new connection (not a fan-out). First replay the streamed
 		// prose this turn has produced so far — a device that attached or reconnected
 		// mid-turn has none of it, and the in-flight steps aren't in the on-disk
-		// transcript yet, so a history refetch can't backfill them. The client dedups
-		// replayed frames it already holds (by turn id / text), and once the turn
-		// finishes the whole reply lands in history and collapses any live overlap.
-		j.replayInFlight(sink)
+		// transcript yet, so a history refetch can't backfill them. Frames this
+		// connection already received are skipped (its `seq` watermark), and the ones
+		// it does get carry the same `(turn, seq)` they did live so the client drops
+		// any it still holds by key; once the turn finishes the whole reply lands in
+		// history and collapses any live overlap.
+		j.replayInFlight(c, sink)
 		// Then the "still working" breadcrumb. Silent reconnect auto-attach gets a quiet
 		// one (so the app knows the turn survived and its interruption watchdog resets);
 		// a voice attach gets a spoken nudge.

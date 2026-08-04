@@ -158,11 +158,11 @@ class InboundRouter(
      * Deliberate "jump to the bottom" scrolls (attach/switch/typed-send/history/read-last) are
      * driven by the controllers' own explicit scroll tick, not from here.
      */
-    fun addChat(role: Role, text: String, usage: TokenUsage? = null, key: String = currentId, turnStats: TurnStats? = null) {
+    fun addChat(role: Role, text: String, usage: TokenUsage? = null, key: String = currentId, turnStats: TurnStats? = null, liveKey: String = "") {
         if (text.isBlank()) return // never file an empty bubble (a blank say/output/transcript)
         val now = nowEpochSeconds()
         logs[key] = session.dedupe(
-            (logs[key] ?: emptyList()) + ChatMessage(role, text, usage = usage, ts = now, turnStats = turnStats)
+            (logs[key] ?: emptyList()) + ChatMessage(role, text, usage = usage, ts = now, turnStats = turnStats, liveKey = liveKey)
         ).takeLast(2000)
         if (key == currentId) publish()
     }
@@ -231,7 +231,10 @@ class InboundRouter(
             host.turnLive()
             streamedSessions.add(sid)
             session.noteChunk(sid, msg.turn)
-            addChat(Role.CLAUDE, msg.text, key = sid)
+            // Carry the frame's wire identity onto the row: a mid-turn re-attach can be
+            // replayed frames we already hold, and only this key catches them (the replay
+            // arrives as a block, so nothing is adjacent to its twin).
+            addChat(Role.CLAUDE, msg.text, key = sid, liveKey = msg.liveKey())
             if (sid == currentId) {
                 if (summaryOnly) {
                     // Speak the first N replies of the turn aloud; beep the rest.

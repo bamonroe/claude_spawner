@@ -200,14 +200,26 @@ class SessionSync(private val host: Host) {
      *     in flight, so a real repeat always has a reply/ask/error row between the two. Live
      *     rows with no adjacent twin are kept (a turn still streaming, a legitimate repeat).
      */
+    /** Records [key] as seen, answering false only when it is a non-empty key we already
+     *  hold. An empty key (a live row with no wire identity) is never a duplicate here —
+     *  it falls through to the adjacency rule below. */
+    private fun MutableSet<String>.addIfKeyed(key: String): Boolean = key.isEmpty() || add(key)
+
     fun dedupe(messages: List<ChatMessage>): List<ChatMessage> {
         val seenIds = mutableSetOf<String>()
         val seenIndexes = mutableSetOf<Int>()
+        val seenLive = mutableSetOf<String>()
         val out = ArrayList<ChatMessage>(messages.size)
         for (m in messages) {
             val keep = when {
                 m.id.isNotEmpty() -> seenIds.add(m.id)
                 m.index >= 0 -> seenIndexes.add(m.index)
+                // A live row with a wire identity (`<turn>:<seq>` off its `output` frame)
+                // is deduped by KEY, not adjacency — the server replays a mid-turn attach
+                // the frames it missed, and a block replay never sits adjacent to the copies
+                // already held. Both checks apply: the key kills a replayed twin anywhere in
+                // the log, the adjacency rule still folds a live draft into its settled twin.
+                !seenLive.addIfKeyed(m.liveKey) -> false
                 out.isNotEmpty() && out.last().role == m.role &&
                     out.last().text.trim() == m.text.trim() -> false
                 else -> true

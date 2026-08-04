@@ -186,12 +186,35 @@ func TestMidTurnAttachReplaysStreamedOutput(t *testing.T) {
 	}
 	// A device attaches mid-turn: replayInFlight must hand it every streamed step.
 	late := &recorder{ok: true}
-	j.replayInFlight(late.sink)
+	lateConn := &conn{}
+	j.replayInFlight(lateConn, late.sink)
 	j.mu.Unlock()
 
 	if !late.gotOutput("step one") || !late.gotOutput("step two") {
 		t.Fatal("mid-turn attach was not caught up on the turn's streamed output")
 	}
+
+	// …but only ONCE. Detaching and re-attaching mid-turn used to replay the turn from
+	// frame 0 every time, so the app showed the in-flight rows two and three times over
+	// (they aren't adjacent after a block replay, so nothing collapsed them until the
+	// turn landed in history). The per-connection seq watermark makes replay incremental.
+	again := &recorder{ok: true}
+	j.mu.Lock()
+	j.replayInFlight(lateConn, again.sink)
+	j.mu.Unlock()
+	if again.gotOutput("step one") || again.gotOutput("step two") {
+		t.Fatal("re-attach mid-turn replayed frames the connection already had")
+	}
+
+	// A frame streamed after it re-attached still reaches it, and carries a stable
+	// (turn, seq) identity so a client can key its own dedup on it.
+	j.emit(msgOutput("cpt", "step three", "t1", true, nil, nil))
+	j.mu.Lock()
+	third := j.turnFrames[len(j.turnFrames)-1]
+	if seq, _ := third["seq"].(int); seq != 3 {
+		t.Fatalf("want seq 3 stamped on the third streamed frame, got %v", third["seq"])
+	}
+	j.mu.Unlock()
 
 	// The turn ends; a NEW turn resets the buffer so last turn's prose isn't replayed
 	// to someone attaching later (they get history + any buffered terminal reply).

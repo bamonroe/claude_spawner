@@ -68,7 +68,14 @@ sealed interface ServerMsg {
     // guaranteed ("" from a pre-turn-id server).
     // turnStats (closing frame only) is the agentic-loop rollup: how many API
     // cycles ran and their aggregate token total — shown in the detailed badge.
-    data class Output(val name: String, val text: String, val chunk: Boolean, val usage: TokenUsage? = null, val usageAt: Long = 0, val turn: String = "", val sessionId: String = "", val turnStats: TurnStats? = null) : ServerMsg
+    // seq is the frame's 1-based position in its turn; `<turn>:<seq>` is the frame's
+    // stable identity across a mid-turn replay, and becomes the live row's liveKey.
+    data class Output(val name: String, val text: String, val chunk: Boolean, val usage: TokenUsage? = null, val usageAt: Long = 0, val turn: String = "", val sessionId: String = "", val turnStats: TurnStats? = null, val seq: Long = 0) : ServerMsg {
+        /** This frame's live-row dedup key: its turn plus its position in that turn. Empty
+         *  when the server sent no `seq` (older server) — callers then fall back to the
+         *  adjacency rule in SessionSync.dedupe. */
+        fun liveKey(): String = if (seq > 0 && turn.isNotEmpty()) "$turn:$seq" else ""
+    }
     data class History(val name: String, val messages: List<HistMsg>, val more: Boolean, val count: Int = 0, val hash: String = "", val unchanged: Boolean = false, val sessionId: String = "") : ServerMsg
     data class ReadLast(val count: Int) : ServerMsg
     data class Discovered(val sessions: List<DiscoveredInfo>) : ServerMsg
@@ -131,7 +138,7 @@ sealed interface ServerMsg {
                 "context_reset" -> ContextReset(o.str("name"), o.str("session_id"))
                 "renamed" -> Renamed(o.str("old"), o.str("name"), o.str("session_id"))
                 "notice" -> Notice(o.str("name"), o.str("session_id"), o.str("text"))
-                "output" -> Output(o.str("name"), o.str("text"), o.bool("chunk", false), readUsage(o.obj("usage")), o.long("usage_at"), o.str("turn"), o.str("session_id"), readTurnStats(o))
+                "output" -> Output(o.str("name"), o.str("text"), o.bool("chunk", false), readUsage(o.obj("usage")), o.long("usage_at"), o.str("turn"), o.str("session_id"), readTurnStats(o), o.long("seq"))
                 "history" -> History(o.str("name"), readHist(o.arr("messages")), o.bool("more"), o.int("count", 0), o.str("hash"), o.bool("unchanged", false), o.str("session_id"))
                 "read_last" -> ReadLast(o.int("count", 1))
                 "discovered" -> Discovered(readDiscovered(o.arr("sessions")))

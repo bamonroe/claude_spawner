@@ -117,6 +117,18 @@ type sessionJob struct {
 	// capped at maxTurnFrames (oldest dropped; the tail is what a late joiner needs,
 	// and the whole turn lands in history once it finishes).
 	turnFrames []map[string]any
+	// turnSeq numbers this turn's streamed `output` frames, 1-based, stamped onto
+	// each frame as `seq`. Together with the turn id it is the frame's STABLE
+	// identity: a replayed frame carries the same `(turn, seq)` it did live, so a
+	// client that already holds it drops the copy by key instead of guessing from
+	// text adjacency (which a whole-turn replay defeats — the copies aren't
+	// adjacent). Reset at each turn's start.
+	turnSeq int
+	// replayedTo records, per connection, the highest `seq` of this turn that
+	// connection has already been sent — so a detach/reattach mid-turn replays only
+	// the frames it actually missed instead of the turn from frame 0. Reset at each
+	// turn's start (the seq space is per-turn).
+	replayedTo map[*conn]int
 }
 
 // maxTurnFrames bounds the per-turn replay buffer so a very long agentic turn
@@ -181,9 +193,18 @@ func (j *sessionJob) emit(msg map[string]any) {
 	// replays it). Only `output` frames carry chat content; ephemeral activity /
 	// pending / rate-limit frames aren't worth replaying.
 	if j.running && msg["type"] == "output" {
+		j.turnSeq++
+		stampSeq(msg, j.turnSeq) // stamped before the fan-out: live and replayed copies share it
 		j.turnFrames = append(j.turnFrames, msg)
 		if len(j.turnFrames) > maxTurnFrames {
 			j.turnFrames = j.turnFrames[len(j.turnFrames)-maxTurnFrames:]
+		}
+		// Everyone attached right now is about to receive it — don't replay it to them.
+		if j.replayedTo == nil {
+			j.replayedTo = map[*conn]int{}
+		}
+		for c := range j.sinks {
+			j.replayedTo[c] = j.turnSeq
 		}
 	}
 	j.broadcast(msg)
@@ -192,10 +213,22 @@ func (j *sessionJob) emit(msg map[string]any) {
 // replayInFlight sends the current turn's streamed `output` frames to a single
 // freshly-bound sink, catching a mid-turn attach/reconnect up on reply prose that
 // isn't in the on-disk transcript yet (so a history refetch can't backfill it).
-// Call with j.mu held.
-func (j *sessionJob) replayInFlight(sink func(any) bool) {
+// Only frames this connection hasn't already been sent are replayed: `replayedTo`
+// is its watermark in the turn's `seq` space, so attach → detach → attach back
+// mid-turn no longer re-sends the whole turn (which showed up as triplicated
+// in-flight rows in the app). Call with j.mu held.
+func (j *sessionJob) replayInFlight(c *conn, sink func(any) bool) {
 	for _, f := range j.turnFrames {
-		sink(f)
+		seq, _ := f["seq"].(int)
+		if seq > 0 && seq <= j.replayedTo[c] {
+			continue
+		}
+		if sink(f) && seq > j.replayedTo[c] {
+			if j.replayedTo == nil {
+				j.replayedTo = map[*conn]int{}
+			}
+			j.replayedTo[c] = seq
+		}
 	}
 }
 
@@ -267,4 +300,6 @@ func (j *sessionJob) beginTurn(cancel context.CancelFunc) {
 	j.aborted = false
 	j.cancel = cancel
 	j.turnFrames = nil // fresh replay buffer for this turn's streamed output
+	j.turnSeq = 0      // …and a fresh per-turn seq space, with every watermark cleared
+	j.replayedTo = nil
 }

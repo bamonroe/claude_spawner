@@ -390,6 +390,17 @@ type turnStats struct {
 	Total session.Usage
 }
 
+// stampSeq numbers a streamed `output` frame within its turn. `(turn, seq)` is the
+// frame's stable wire identity: the same frame replayed to a client that attaches
+// mid-turn carries the same seq, so the client drops a copy it already holds by key
+// rather than by text adjacency (which a block replay defeats). Assigned by
+// sessionJob.emit, which owns the per-turn counter; the key lives here with the rest
+// of the wire vocabulary.
+func stampSeq(m map[string]any, seq int) map[string]any {
+	m["seq"] = seq
+	return m
+}
+
 func msgOutput(name, text, turn string, chunk bool, usage *session.Usage, stats *turnStats) map[string]any {
 	m := map[string]any{"type": "output", "name": name, "text": text, "chunk": chunk, "turn": turn}
 	if usage != nil {
