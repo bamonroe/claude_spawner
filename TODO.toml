@@ -127,3 +127,21 @@ urgency = "low"
 order = 170
 created = 2026-08-01
 tags = []
+
+[[task]]
+id = "investigate-attach-switch-lag-and-inter-turn-latency"
+title = "Investigate attach-switch lag and inter-turn latency"
+description = """
+Scoped investigation, no fix required up front — measure and report.
+
+1. Session switching (attach): when the user switches which session is attached in the app/web client, there is a noticeable lag. Determine whether switching does a round trip to the server (and from there, over SSH to the host) or whether it is purely local client state. Expectation is that it should be local — the client already holds the session list and transcript, so attaching ought to be a UI/state change plus at most a lightweight subscribe message. Trace the actual path: client attach action -> WebSocket message(s) -> server handling -> any SSH work -> response, and time each hop.
+
+2. Inter-turn latency: there seems to be a lot of dead time between turns. Check whether we are shipping unnecessary data over SSH on every single turn — e.g. re-reading the whole transcript/history, re-listing sessions, re-establishing an SSH connection or spawning a fresh remote process per turn, or re-sending state that could be cached or streamed incrementally.
+
+Deliverable: a written finding — where the time actually goes (with rough measurements), what is redundant, and a proposed fix at the right structural seam. Do not band-aid; if a round trip is unnecessary, say what interface change removes it."""
+status = "active"
+category = "refactor"
+urgency = "critical"
+order = 5
+created = 2026-08-04
+tags = ["performance", "latency", "ssh", "investigation"]
