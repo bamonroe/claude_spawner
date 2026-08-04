@@ -19,19 +19,27 @@ func (c *conn) serveHistory(name string, before *int, limit int, haveHash string
 		c.fail("no_session", "no such session: "+name)
 		return
 	}
+	// Cache-validation fast path: a top-page request (before == nil) carrying the
+	// hash the app already holds needs no message bodies — tell it the cache is
+	// current so clicking back into an unchanged session transfers nothing.
+	//
+	// This runs BEFORE the full read, via DisplayDigest, which answers from a few
+	// stats when the chain hasn't moved. Doing the read first made this "fast path"
+	// no faster than a miss: every attach parsed the session's whole transcript
+	// chain (tens of megabytes, over SSH) only to discard it — and because the
+	// gateway dispatches serially, it blocked every other request on the connection.
+	if before == nil && haveHash != "" {
+		if count, hash, _, err := c.srv.driver.DisplayDigest(s); err == nil && hash == haveHash {
+			c.send(msgHistory(recID(s), name, nil, false, count, hash, true))
+			return
+		}
+	}
 	msgs, err := c.srv.driver.ReadDisplayHistory(s)
 	if err != nil {
 		c.fail("history_failed", err.Error())
 		return
 	}
 	count, hash := session.HistoryDigest(msgs)
-	// Cache-validation fast path: a top-page request (before == nil) carrying the
-	// hash the app already holds needs no message bodies — tell it the cache is
-	// current so clicking back into an unchanged session transfers nothing.
-	if before == nil && haveHash != "" && haveHash == hash {
-		c.send(msgHistory(recID(s), name, nil, false, count, hash, true))
-		return
-	}
 	b := -1
 	if before != nil {
 		b = *before
