@@ -137,7 +137,8 @@ func TestAntigravityArgs(t *testing.T) {
 	want := []string{
 		"--conversation", "conv-1", "--add-dir", "/work",
 		"--dangerously-skip-permissions", "--model", "Gemini 3.5 Flash (Low)",
-		"--print-timeout", agyPrintTimeout, "--prompt=-rf be careful",
+		"--print-timeout", agyPrintTimeout, "--output-format", "stream-json",
+		"--prompt=-rf be careful",
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("antigravity args\n got %v\nwant %v", got, want)
@@ -158,27 +159,93 @@ func TestAntigravityArgs(t *testing.T) {
 	}
 }
 
-func TestParseAgyText(t *testing.T) {
-	// Clean stdout is the whole reply, trimmed; OnText fires once with it.
-	var streamed string
-	res, err := parseAgyText(strings.NewReader("  the answer is 42\n"), TurnCallbacks{
-		OnText: func(s string) { streamed = s },
+// agyStream is a real two-message agy turn, trimmed to the fields we parse and
+// keeping the live event shape: the id in init, a thinking-only agent_response,
+// a tool step reported ACTIVE then DONE, and a prose agent_response whose text
+// arrives split across its ACTIVE and DONE sightings.
+const agyStream = `{"event":"init","conversation_id":"5e9cd790-1af2-4d2f-9cf7-050c03e5bab2","init":{"cwd":"/tmp","tools":["view_file"]}}
+{"event":"step_update","step_update":{"step_index":0,"state":"DONE","step_type":"user_input"}}
+{"event":"step_update","step_update":{"step_index":2,"state":"DONE","step_type":"agent_response","usage":{"input_tokens":9859,"output_tokens":695}}}
+{"event":"step_update","step_update":{"step_index":3,"state":"ACTIVE","step_type":"tool","tool_name":"view_file","tool_info":{"name":"view_file","parameters":{"AbsolutePath":"/tmp/hello.txt"}}}}
+{"event":"step_update","step_update":{"step_index":3,"state":"DONE","step_type":"tool","tool_name":"view_file","tool_info":{"name":"view_file","parameters":{"AbsolutePath":"/tmp/hello.txt"},"output":"hi"}}}
+{"event":"step_update","step_update":{"step_index":4,"state":"DONE","step_type":"tool","tool_name":"run_command","tool_info":{"name":"run_command","parameters":{"CommandLine":"ls -l"}}}}
+{"event":"step_update","step_update":{"step_index":5,"state":"ACTIVE","step_type":"agent_response","text_delta":"Here is what "}}
+{"event":"step_update","step_update":{"step_index":5,"state":"DONE","step_type":"agent_response","text_delta":"was done.\n"}}
+{"event":"result","result":{"conversation_id":"5e9cd790-1af2-4d2f-9cf7-050c03e5bab2","status":"SUCCESS","response":"Here is what was done.\n","num_turns":1,"usage":{"input_tokens":12516,"output_tokens":1162,"thinking_tokens":948,"cache_read_tokens":16278}}}
+`
+
+func TestParseAgyStream(t *testing.T) {
+	var texts []string
+	var tools []ToolUse
+	res, err := parseAgyStream(strings.NewReader(agyStream), TurnCallbacks{
+		OnText: func(s string) { texts = append(texts, s) },
+		OnTool: func(tu ToolUse) { tools = append(tools, tu) },
 	})
 	if err != nil {
-		t.Fatalf("parseAgyText: %v", err)
+		t.Fatalf("parseAgyStream: %v", err)
 	}
-	if res.Reply != "the answer is 42" {
-		t.Errorf("reply = %q, want trimmed prose", res.Reply)
+	// The result event's response is the reply, paragraph breaks intact.
+	if res.Reply != "Here is what was done." {
+		t.Errorf("reply = %q", res.Reply)
 	}
-	if streamed != "the answer is 42" {
-		t.Errorf("OnText got %q, want the reply", streamed)
+	// The init event's conversation id is adopted as the session id.
+	if res.SessionID != "5e9cd790-1af2-4d2f-9cf7-050c03e5bab2" {
+		t.Errorf("session id = %q", res.SessionID)
 	}
-	if res.Usage != (Usage{}) {
-		t.Errorf("agy reports no usage, got %+v", res.Usage)
+	// A step's deltas accumulate across ACTIVE and DONE, and flush once, as one
+	// message. The thinking-only step emits nothing.
+	if len(texts) != 1 || texts[0] != "Here is what was done." {
+		t.Errorf("OnText = %q, want one joined message", texts)
+	}
+	// Two agent_response steps completed = two model cycles, not agy's num_turns
+	// (which counts the single user message).
+	if res.Turns != 2 {
+		t.Errorf("turns = %d, want 2 model cycles", res.Turns)
+	}
+	// A tool fires one breadcrumb despite two sightings; the file tool carries its
+	// path, run_command carries none.
+	want := []ToolUse{
+		{Name: "view_file", FilePath: "/tmp/hello.txt"},
+		{Name: "run_command"},
+	}
+	if !slices.Equal(tools, want) {
+		t.Errorf("tools = %+v, want %+v", tools, want)
+	}
+	// Usage comes from the result's summed totals; thinking is a portion of
+	// output, not an addition, and agy reports no cache writes.
+	if got := (Usage{Input: 12516, Output: 1162, CacheRead: 16278}); res.Usage != got {
+		t.Errorf("usage = %+v, want %+v", res.Usage, got)
+	}
+}
+
+func TestParseAgyStreamErrors(t *testing.T) {
+	// A stream that ends before the result event is a failed turn — but it still
+	// carries the id, so the caller can resume rather than re-create.
+	truncated := strings.SplitAfter(agyStream, "\n")[0]
+	res, err := parseAgyStream(strings.NewReader(truncated), TurnCallbacks{})
+	if err == nil {
+		t.Error("truncated stream should error")
+	}
+	if res.SessionID != "5e9cd790-1af2-4d2f-9cf7-050c03e5bab2" {
+		t.Errorf("failed turn must still report the id, got %q", res.SessionID)
 	}
 
-	// Empty stdout on a clean exit is a failed turn.
-	if _, err := parseAgyText(strings.NewReader("   \n"), TurnCallbacks{}); err == nil {
-		t.Error("empty agy output should error")
+	// A non-SUCCESS result is a failed turn, reported with agy's status.
+	failed := `{"event":"init","conversation_id":"abc","init":{"cwd":"/tmp"}}
+{"event":"result","result":{"status":"ERROR","response":""}}
+`
+	res, err = parseAgyStream(strings.NewReader(failed), TurnCallbacks{})
+	if err == nil || !strings.Contains(err.Error(), "ERROR") {
+		t.Errorf("failed status should error with the status, got %v", err)
+	}
+	if res.SessionID != "abc" {
+		t.Errorf("failed turn must still report the id, got %q", res.SessionID)
+	}
+
+	// A clean stream whose result carries no text is a failed turn.
+	empty := `{"event":"result","result":{"status":"SUCCESS","response":"  "}}
+`
+	if _, err := parseAgyStream(strings.NewReader(empty), TurnCallbacks{}); err == nil {
+		t.Error("empty response should error")
 	}
 }

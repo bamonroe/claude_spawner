@@ -39,12 +39,12 @@ const (
 	// a path (see opencode_transcript.go).
 	TranscriptOpencode TranscriptKind = "opencode-db"
 	// TranscriptAntigravity is the Antigravity (agy) layout: conversations live in
-	// per-id SQLite databases plus a brain/<internal-id>/.system_generated/logs/
-	// transcript.jsonl, keyed by an internal id we don't hold (agy maps our
-	// caller-supplied --conversation uuid to it). No reader is wired yet, so this
-	// kind routes to the null transcript reader — agy's spoken reply streams live
-	// off stdout, but past-turn history replay/context/deletion are not backed by
-	// its on-disk store. See antigravity.go and null_transcript.go.
+	// per-id SQLite databases plus a
+	// brain/<conversation-id>/.system_generated/logs/transcript.jsonl, keyed by the
+	// conversation id agy mints and announces in its stream (which the session
+	// adopts as its own id). session.antigravityFS replays it. Deletion is a no-op
+	// (the brain dirs are agy's store, not ours to reap) and agy reports no
+	// context-window snapshot. See antigravity.go and antigravity_transcript.go.
 	TranscriptAntigravity TranscriptKind = "antigravity"
 )
 

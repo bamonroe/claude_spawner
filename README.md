@@ -469,15 +469,16 @@ declares how to invoke it and how to read its output, so they share one interfac
     fails (opencode unreachable), the picker falls back to a built-in `qwen2.5-coder` / `llama3.1`
     pair so it's never empty.
 - **Antigravity** (Google's Gemini-powered `agy` CLI) — `agy --prompt` in its non-interactive
-  "print" mode. It offers the Gemini 3.x models (Pro and Flash, plus hosted Claude/GPT-OSS options);
-  agy mints its own conversation id, so the server lets the first turn create one, discovers it from
-  agy's on-disk store, and resumes it with `--conversation` on every later turn.
+  "print" mode, with `--output-format stream-json` for the machine-readable event stream (a real
+  flag, just missing from `agy --help`). It offers the Gemini 3.x models (Pro and Flash, plus hosted
+  Claude/GPT-OSS options); agy mints its own conversation id, which it announces at the top of the
+  stream, so the server lets the first turn create one, adopts it, and resumes it with
+  `--conversation` on every later turn. You get live tool breadcrumbs, per-message replies,
+  per-turn token counts, and history replay on reattach.
   Needs `agy` installed and signed in on the host (host turns run over SSH, so set `SPAWNER_SSH_AGY_BIN`
   if `agy` isn't on the host's `PATH`, and `SPAWNER_SANDBOX_AGY_BIN` for the sandbox). **Caveat:** agy
-  has no machine-readable output mode yet, so the server captures only the final spoken reply —
-  there are **no live tool breadcrumbs, no token/context accounting, and no history replay on
-  reattach** (its on-disk store isn't wired up). Everything else — spoken answers, model switching,
-  and turn-to-turn resume — works. When Google ships a JSON output mode these gaps close.
+  reports cache *reads* but no cache-write count, and exposes no context-window size — so an agy
+  session shows token counts per turn but no cache-warm indicator and no context-remaining badge.
 
 Pick the backend when you spawn — by **voice**, "hey buddy, spawn a codex session" (or "…on
 opencode") creates that backend's session; a plain spawn uses Claude. In the **visual New-session picker** (the app or

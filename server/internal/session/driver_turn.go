@@ -120,29 +120,16 @@ func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool fun
 	if perr != nil {
 		return TurnResult{}, perr
 	}
-	// Antigravity's stdout collapses a turn's several messages into one blank-line-less
-	// blob; rebuild the paragraph breaks from agy's on-disk transcript (best-effort —
-	// falls back to the stdout reply on any miss). See antigravity_transcript.go.
-	if ag.Transcript == agent.TranscriptAntigravity {
-		var brainID string
-		res.Reply, brainID = d.reconstructAgyReply(ctx, s, res.Reply)
-		// Record the brain dir this turn wrote (when we could pin it down) so the
-		// history reader can later replay the session's turns — agy won't let us find
-		// them by our own id. Skip a repeat of the last id (a retry matching the same
-		// dir) so the chain stays one entry per turn. The caller persists s.
+	// An antigravity conversation id IS the name of agy's on-disk brain directory,
+	// which is what the history reader replays. The generic self-assigning-backend
+	// block above already adopted it as the session id; record it in the session's
+	// brain chain too, so a session that spans several agy conversations (a failed
+	// resume makes agy mint a fresh one) replays all of them. Skip a repeat of the
+	// last id so the chain stays one entry per conversation. The caller persists s.
+	if ag.Transcript == agent.TranscriptAntigravity && res.SessionID != "" {
 		s.Mutate(func(s *Session) {
-			if brainID != "" && (len(s.AgyBrainIDs) == 0 || s.AgyBrainIDs[len(s.AgyBrainIDs)-1] != brainID) {
-				s.AgyBrainIDs = append(s.AgyBrainIDs, brainID)
-			}
-			// agy assigns the conversation id and announces it nowhere in its output — the
-			// brain dir IS the conversation (--conversation <brain id> resumes it). Adopt
-			// it as the session id the way a streaming self-assigning backend adopts
-			// TurnResult.SessionID, so the next turn resumes this conversation instead of
-			// starting a fresh one. Re-adopt if it ever drifts (a failed resume makes agy
-			// mint a new conversation; follow the one that actually holds the history).
-			if brainID != "" && brainID != s.SessionID {
-				s.SessionID = brainID
-				s.Started = true
+			if len(s.AgyBrainIDs) == 0 || s.AgyBrainIDs[len(s.AgyBrainIDs)-1] != res.SessionID {
+				s.AgyBrainIDs = append(s.AgyBrainIDs, res.SessionID)
 			}
 		})
 	}

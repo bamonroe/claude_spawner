@@ -56,9 +56,10 @@ just a pointer to this file.)
   user's `~/.config/opencode/opencode.jsonc`, which must point at the running Ollama server.
   Antigravity's (Google's Gemini-powered `agy` CLI) per-target binaries are `SPAWNER_SSH_AGY_BIN`
   (host/SSH, default `agy`) and `SPAWNER_SANDBOX_AGY_BIN` (sandbox, default `agy`). Antigravity is
-  driven non-interactively via `agy --prompt` — it has no machine-readable stream mode, so only the
-  final spoken reply is captured (no live tool events or token accounting). agy mints its own
-  conversation id; the server discovers it after the first turn and resumes with `--conversation`.
+  driven non-interactively via `agy --prompt --output-format stream-json`, whose event stream carries
+  live tool breadcrumbs, per-message text, and token usage (cache reads, no cache-write count). agy
+  mints its own conversation id and announces it in the stream's `init` event; the server adopts it
+  and resumes with `--conversation`.
 - Background-job notifier: `SPAWNER_EAGER_NOTIFY` (`false`; when true, the idle notifier drives its
   autonomous "your background job finished" turn the moment a detached job is detected **even with
   no device attached**, instead of holding the note until the next attach/dictation — so the agent
