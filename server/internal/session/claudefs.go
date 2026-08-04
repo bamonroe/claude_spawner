@@ -208,6 +208,48 @@ func (fs claudeFS) open(path string) (io.ReadCloser, error) {
 	return io.NopCloser(bytes.NewReader(out)), nil
 }
 
+// tailBytes returns the last n bytes of a transcript, and whether that span
+// covers the WHOLE file (so the caller knows the first line isn't truncated and
+// that there is nothing earlier left to look at).
+//
+// It is the tail-side counterpart of cwdHeadBytes' bounded head read, and exists
+// for the same reason: the expensive resource here is bytes on the wire. The
+// last-context-usage lookup only ever needs the end of the file, but transcripts
+// reach tens of megabytes, and reading one through `open` is a full `cat` over
+// SSH — paid once per turn, right in the critical path, on a file the turn just
+// grew (so the parse cache is guaranteed cold).
+func (fs claudeFS) tailBytes(path string, n int64) (data []byte, whole bool, err error) {
+	if n <= 0 {
+		return nil, false, nil
+	}
+	if fs.remote == nil {
+		f, err := os.Open(path)
+		if err != nil {
+			return nil, false, err
+		}
+		defer f.Close()
+		fi, err := f.Stat()
+		if err != nil {
+			return nil, false, err
+		}
+		off, size := int64(0), fi.Size()
+		if size > n {
+			off = size - n
+		}
+		buf := make([]byte, size-off)
+		if _, err := io.ReadFull(io.NewSectionReader(f, off, size-off), buf); err != nil && err != io.EOF {
+			return nil, false, err
+		}
+		return buf, off == 0, nil
+	}
+	out, err := fs.remote.output(fmt.Sprintf("tail -c %d %s", n, shellQuote(path)))
+	if err != nil {
+		return nil, false, errRemoteMissing
+	}
+	// Short of the budget means we got everything there was.
+	return out, int64(len(out)) < n, nil
+}
+
 // cwdHeadBytes bounds how far into a transcript the working-directory lookup
 // reads. `cwd` is recorded on essentially every event, so it's in the first line
 // or two — but a single line can be megabytes (a big tool result), which is why

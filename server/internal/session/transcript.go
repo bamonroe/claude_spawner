@@ -1,6 +1,7 @@
 package session
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -335,8 +336,22 @@ func (fs claudeFS) lastContextUsage(ids []string) *ContextSnapshot {
 	return nil
 }
 
-// lastUsageInFile scans one transcript for the last assistant line reporting a
-// non-zero prompt size, returning its usage + timestamp (nil if none/unreadable).
+// usageTailBudgets are the byte windows lastUsageInFile reads from the END of a
+// transcript, smallest first, until it finds a usage-bearing assistant line.
+//
+// The answer is almost always in the final line or two, so the first window
+// settles it; the escalation only pays off on a transcript whose tail is a run of
+// enormous tool-result lines. A single line CAN be megabytes, which is why these
+// are byte budgets rather than line counts — the same reasoning as cwdHeadBytes,
+// from the other end of the file.
+var usageTailBudgets = []int64{256 << 10, 4 << 20, 32 << 20}
+
+// lastUsageInFile finds the last assistant line reporting a non-zero prompt size,
+// returning its usage + timestamp (nil if none/unreadable). It reads BACKWARD over
+// a bounded tail rather than scanning the whole file forward: this runs at the end
+// of every turn (the context meter) and on every attach, against a file the turn
+// just appended to — so the parse cache never helps and the full read was paid in
+// full, every time.
 func (fs claudeFS) lastUsageInFile(path string) *ContextSnapshot {
 	if path == "" {
 		return nil
@@ -348,35 +363,56 @@ func (fs claudeFS) lastUsageInFile(path string) *ContextSnapshot {
 			return snap
 		}
 	}
-	f, err := fs.open(path)
-	if err != nil {
-		return nil
+	for _, budget := range usageTailBudgets {
+		data, whole, err := fs.tailBytes(path, budget)
+		if err != nil {
+			return nil
+		}
+		if !whole {
+			// The window opened mid-line; that fragment isn't parseable JSON, and
+			// an earlier complete copy of it is out of reach anyway.
+			if _, rest, ok := bytes.Cut(data, []byte("\n")); ok {
+				data = rest
+			} else {
+				data = nil // one partial line filled the whole window
+			}
+		}
+		snap := lastUsageInLines(data)
+		if snap == nil && !whole {
+			continue // nothing in this window; widen it
+		}
+		if statOK {
+			putCachedSnap(key, size, mod, snap)
+		}
+		return snap
 	}
-	defer f.Close()
+	return nil
+}
 
-	sc := newLineScanner(f)
-	var last *ContextSnapshot
-	for sc.Scan() {
+// lastUsageInLines scans a block of transcript lines from the END, returning the
+// first (i.e. latest) assistant line that carries aggregate token usage.
+func lastUsageInLines(data []byte) *ContextSnapshot {
+	for len(data) > 0 {
+		line := data
+		if i := bytes.LastIndexByte(data, '\n'); i >= 0 {
+			line, data = data[i+1:], data[:i]
+		} else {
+			data = nil
+		}
 		var l transcriptLine
-		if json.Unmarshal(sc.Bytes(), &l) != nil || l.Type != "assistant" {
+		if json.Unmarshal(line, &l) != nil || l.Type != "assistant" {
 			continue
 		}
 		u := l.Message.Usage
 		if u.Input+u.CacheRead+u.CacheWrite == 0 {
 			continue // no aggregate usage on this line (e.g. tool-only sub-turn)
 		}
-		last = &ContextSnapshot{
+		return &ContextSnapshot{
 			Usage: Usage{Input: u.Input, Output: u.Output, CacheWrite: u.CacheWrite, CacheRead: u.CacheRead},
 			At:    parseTs(l.Timestamp),
 		}
 	}
-	if err := sc.Err(); err != nil {
-		return last // don't cache a partial read
-	}
-	if statOK {
-		putCachedSnap(key, size, mod, last)
-	}
-	return last
+	return nil
 }
 
 // extractText pulls prose from a message.content that may be a plain string
