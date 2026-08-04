@@ -273,6 +273,32 @@ Codex, opencode, or antigravity session's past turns replay on reattach much lik
 (These persisted records are *not* the live `--json` streams the agents' `ParseTurn` consume during a
 turn.)
 
+**Transcript reads are bounded and incremental, because these files get huge.** A real
+`~/.claude/projects` here is ~900 MB, with single transcripts of 20–26 MB (sometimes only a few
+hundred lines — one tool result can be megabytes), and every read of a *remote* session goes over
+SSH. Three rules keep attach and inter-turn latency off that cliff, all enforced at the `claudeFS`
+seam rather than at the call sites:
+
+- **Read the end, not the file.** The context badge (`lastContextUsage`) needs only the newest
+  usage-bearing assistant line, so it scans *backward* over a bounded tail (`tailBytes`, widening
+  only if a run of giant tool-result lines fills the window) — the mirror of the bounded *head* read
+  `cwds` uses for the working directory. This runs at the end of every turn, on a file the turn just
+  grew, so a cache can never help it.
+- **Parse only what was appended.** These transcripts are append-only, so the message parse is
+  *resumable* (`claudeParse`): messages so far, the byte offset they cover, and the still-open
+  dictation's turn rollup. A later read re-reads only the new bytes — plus a small overlap of the
+  already-parsed region, compared byte-for-byte, so "append-only" is **verified**, not assumed; a
+  rewritten or truncated file falls back to a full re-parse. The older all-or-nothing (size, mtime)
+  cache remains for the context snapshot and the other backends' readers.
+- **Resolve a session id to its path once.** The project-dir encoding follows the working directory,
+  so a transcript's path is fixed for its lifetime; the remote lookup is memoized per host, and the
+  entry is dropped whenever a resolved path stops working, so a move or delete self-heals.
+
+The same reasoning drives the callers: a `history` request that carries the hash the app already
+holds is answered from `DisplayDigest` (a few stats) *before* any full read, because gateway handlers
+are dispatched serially off one inbound loop — a needless multi-megabyte parse there blocks every
+other request on the connection.
+
 **A turn *in flight* isn't on disk yet — so mid-turn (re)attach is caught up from a live replay
 buffer, not history.** A turn's streamed prose is only written to the on-disk transcript when it
 finishes, so a device that attaches or reconnects *while* a turn is running can't recover the
