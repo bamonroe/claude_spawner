@@ -14,6 +14,84 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "antigravity-agy-backend"
+title = "Antigravity (`agy`) backend"
+description = """
+Added Google's Gemini-powered `agy` CLI as the
+    fourth AI backend (`server/internal/agent/antigravity.go`), registered in `agent.Default()`.
+    Driven non-interactively via `agy --prompt` (its only headless mode — verified live: no
+    machine-readable stream, plain-prose stdout is the reply). Caller-supplied `--conversation`
+    uuid (created then resumed, like Claude, so `SelfAssignsID` false — verified resume recalls
+    prior context). agy ignores the process cwd, so a new `TurnSpec.Dir` threads the session
+    directory into `--add-dir`. Per-target binaries `SPAWNER_SSH_AGY_BIN` / `SPAWNER_SANDBOX_AGY_BIN`.
+    Gemini 3.x Pro/Flash model catalogue with spoken aliases. Its on-disk store isn't wired to a
+    reader (keyed by an internal id we don't hold, no usage recorded), so it routes to a new
+    `nullTranscript` reader — reply streams live, but no history replay/context/deletion. Unit tests
+    for args + parser; full `go test ./...` green.
+- [x] 2026-07-17 — **Antigravity reply paragraph reconstruction.** `agy --print` concatenates a
+      turn's several assistant messages into one blank-line-less blob on stdout, so multi-message
+      turns rendered as a single wall-of-text paragraph in the app. After each antigravity turn the
+      driver now reads agy's on-disk `brain/<id>/…/transcript.jsonl`, pulls the ordered
+      `PLANNER_RESPONSE` messages, and rejoins them with blank lines
+      (`session/antigravity_transcript.go`, `reconstructAgyReply`). Since agy ignores our
+      `--conversation` id (see below), the right transcript is found by content-matching the newest
+      few brain transcripts against the stdout blob — which also guards the rewrite: only line breaks
+      change, never wording, and it falls back to the stdout reply on any miss. Unit tests + full
+      `go test ./...` green.
+- [x] 2026-08-03 — **Follow-up: agy ignores `--conversation` → turns don't actually resume.** FIXED.
+      Root cause pinned live: `agy --conversation` can only *resume* an id agy itself created, so our
+      caller-minted uuid was rejected ("not found, ignoring") and every turn started a fresh
+      conversation — no cross-turn memory. Antigravity is therefore a **`SelfAssignsID`** backend now:
+      the first turn passes no `--conversation`, and since agy announces the new id nowhere in its
+      output, `Turn` adopts the **brain-dir id** already recovered by `reconstructAgyReply` as the
+      session id (the brain id *is* the conversation id — verified live: turn 1 stored a secret word,
+      turn 2 with `--conversation <brain id>` recalled it). Later turns resume with it; re-adopted if
+      it ever drifts. Docs (`architecture.md`, `config.md`, `README.md`) corrected; unit tests updated;
+      full `go test ./... -count=1` green.
+- [x] 2026-07-29 — **Follow-up: real antigravity history reader.** Done — `TranscriptAntigravity`
+      now routes to `antigravityFS` (below), so reattach replays agy history. (It was never actually
+      blocked on the `--conversation` resume bug: the brain-id capture foundation gave us the stable
+      our-session → agy-brain mapping the reader needed, independent of whether agy resumes.)
+  - [x] 2026-07-17 — **Foundation: capture the per-turn brain id (the missing mapping).** Since agy
+        ignores our `--conversation` id and files every turn under a fresh internal brain id, we now
+        build the mapping ourselves: `agyBrainScript` emits each transcript's path, `matchAgyParagraphs`
+        returns the matched block's brain id, and `Driver.Turn` records it in turn order on the new
+        `Session.AgyBrainIDs` field (deduped against the last, rides through clear/compress). Read path
+        unchanged (still `nullTranscript`), so zero regression — this just starts recording the data the
+        reader needs. Unit tests in `antigravity_transcript_test.go`. Needs live agy turns to confirm
+        the ids populate on real hardware.
+  - [x] 2026-07-29 — **Wired the `antigravityFS` reader over `AgyBrainIDs`.** Given a session's
+        `AgyBrainIDs`, it reads each `brain/<id>/…/transcript.jsonl` and assembles `[]Message`
+        (USER_INPUT → user turn, unwrapped from the `<USER_REQUEST>` envelope; PLANNER_RESPONSE steps →
+        one joined reply, mirroring `reconstructAgyReply`). The interface seam was already solved:
+        `currentHistoryIDs`/`transcriptReaderFor` route `AgyBrainIDs` + host to the reader (the
+        backend-aware `HistoryIDs()` this item anticipated already existed). `deleteByIDs` is a no-op
+        (brain dirs are agy's store, not ours to reap) and `lastContextUsage` returns nil (agy has no
+        token counts). Durable brain-scoped row ids; `nullTranscript` removed; docs updated.
+- [x] 2026-08-04 — **Rich agy turns via the JSON stream.** DONE — it turned out not to be gated on
+      Google at all: `agy --output-format stream-json` already exists, just undocumented in
+      `agy --help` (the binary's own flag table names `text, json, stream-json`). `parseAgyStream`
+      replaces `parseAgyText` and reads the real event stream: the `init` event's conversation id
+      (adopted as the session id, so a turn dying mid-stream stays resumable), `step_update` events
+      for live tool breadcrumbs and per-message assistant text (`text_delta` chunks accumulate per
+      `step_index` across the ACTIVE/DONE sightings), and the final `result` event for the
+      authoritative reply, model-cycle count, and token usage. Since the reply now carries its own
+      paragraph breaks and the id is announced rather than inferred, the entire reconstruction
+      workaround was deleted (`reconstructAgyReply`, `matchAgyParagraphs`, the brain-listing shell
+      script and its content matching); the conversation id IS the brain-dir name, so
+      `Session.AgyBrainIDs` is recorded straight from the stream and the history reader is unchanged.
+      Verified live: id in `init`, tool params (`view_file`→AbsolutePath, `write_to_file`→TargetFile),
+      and a two-turn resume recalling context under the same id. Remaining agy limits are agy's own —
+      it reports cache *reads* but no cache-write count (so no cache-warm indicator) and no
+      context-window size (so no context-remaining badge). Docs updated; `go test ./... -count=1`
+      green."""
+status = "finished"
+category = "feature"
+created = "2026-07-15"
+completed = 2026-08-04
+tags = []
+
+[[task]]
 id = "handoff-recap-renders-as-a-user-bubble-in-the-chat-log"
 title = "Handoff recap renders as a user bubble in the chat log"
 description = "Live emulator test 2026-08-03: the handoff seed preamble ('[Continuing from a compacted session — recap of the conversation so far:] User: ... Assistant: ...') is displayed in the app as a normal outgoing user message. It's machine-generated plumbing, not something the user said, and it duplicates messages already visible above it from the archived segment. Either suppress the seeded preamble from display history or render it as a collapsed system note."
