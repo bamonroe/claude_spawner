@@ -14,6 +14,16 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "backend-switch-first-reply-after-the-switch-doesn-t-arrive-live"
+title = "Backend switch: first reply after the switch doesn't arrive live"
+description = "Live emulator test 2026-08-03 (Codex->Claude on /tmp/handoff-test): after set_agent rotates the session_id, the next turn's user message reaches the server and Claude answers correctly (server log shows the seeded recap and the reply), but the attached client never renders the assistant bubble. Reopening the session from the sidebar refetches history and the reply appears. So it's a live push/routing gap, not a history bug — most likely the assistant/turn-complete frame is keyed to the pre-rotation session_id (or the client's attached id isn't updated by the refreshed 'attached' message), so the app drops it. Fix at the seam that emits per-turn frames so the rotated id is authoritative."
+status = "finished"
+category = "bug"
+created = 2026-08-03
+completed = 2026-08-03
+tags = ["handoff", "set_agent"]
+
+[[task]]
 id = "context-handoff-across-backend-switch"
 title = "Context handoff across backend switch"
 description = """

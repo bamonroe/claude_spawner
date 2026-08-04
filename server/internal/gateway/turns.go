@@ -86,6 +86,10 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk, primeJo
 		var wasStarted bool // Turn flips Started true on the first success
 		sess.Read(func(r *session.Session) { wasStarted = r.Started })
 		res, err := s.driver.Turn(ctx, sess, text, onTool, onText, onRateLimit)
+		// A self-assigning backend (codex/opencode/antigravity) mints its own session
+		// id and Turn adopts it mid-turn, so the record's id has just rotated out from
+		// under this hub. Re-key before anything else is fanned out — see adoptTurnID.
+		s.adoptTurnID(sess, sessionID, j)
 		reply, turnUsage := res.Reply, res.Usage
 		if len(changed) > 0 {
 			j.emit(msgFiles(sortedKeys(changed))) // persistent "edited: …" chip
@@ -440,6 +444,34 @@ func (s *Server) cancelTurn(sessID string) bool {
 	j.aborted = true
 	j.cancel()
 	return true
+}
+
+// adoptTurnID reconciles the job hub (and the attached devices) with a session id
+// that ROTATED during a turn. A self-assigning backend (codex, opencode,
+// antigravity) mints its own id and driver.Turn adopts it into the record, so the
+// hub — keyed by the id the turn STARTED with — is suddenly filed under a dead key.
+// Everything downstream then misses: the next turn calls jobFor(newID) and gets a
+// FRESH hub with no sinks (so its reply reaches no device live), and a later
+// rotation (set_agent, clear, compress) re-keys from the new id and finds nothing.
+// The other rotation paths already do exactly this; this is the one that happens
+// inside a turn rather than in a command handler.
+//
+// The refreshed `attached` is fanned to the hub's sinks — every device attached to
+// this session — because frames are stamped with the hub's id: without it the
+// client keeps filing this session's output under the retired id and the turn's
+// reply never renders (it only reappears when the session is reopened and history
+// refetched). Emitted BEFORE the turn's remaining frames so they land re-keyed.
+//
+// The retired id is deliberately left in the store's id index (unlike clear /
+// compress, which retire a genuinely-dead context): it was never a real id on the
+// backend's disk, just the handle a client may still be routing by, so keeping it
+// resolving to this record is the same leniency PriorIDs gives elsewhere.
+func (s *Server) adoptTurnID(sess *session.Session, oldID string, j *sessionJob) {
+	if newID := sess.Snapshot().SessionID; newID != oldID && newID != "" {
+		log.Printf("turn: session id rotated %s -> %s (backend self-assigned)", oldID, newID)
+		s.rekeyJob(oldID, newID)
+		j.emit(msgAttached(sess, nil))
+	}
 }
 
 // dropJob forgets a session's job (e.g. when the session is deleted).

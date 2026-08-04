@@ -172,7 +172,10 @@ prompts, session-op readbacks, transcription failures) is stamped at the send
 seam with the connection's **attached** session — the session it's acting on,
 which the server knows at send time and the viewing client can only guess. So no
 session frame leaves without it. It survives a context rotation
-(`clear`/`compress` mint a fresh id, announced by `context_reset`). Connection- and
+(`clear`/`compress` mint a fresh id, announced by `context_reset`; a self-assigning
+backend — Codex, OpenCode, Antigravity — adopts its own id **during** a turn, and
+that rotation is announced by a refreshed `attached` emitted before the turn's
+remaining frames, so the reply lands under the id it is stamped with). Connection- and
 catalogue-level frames (`hello_ok`, `agents`, `whisper_*`, `rate_limit`, host/
 identity lists, …) are global and carry no `session_id`. Empty/omitted (an older
 server) → the client falls back to keying by the current view or `name`.
