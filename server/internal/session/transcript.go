@@ -6,19 +6,24 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"io"
+	"os"
 	"strings"
 	"sync"
 	"time"
 )
 
-// Transcript parses are memoized per file, keyed by the file's size+modtime.
-// Claude transcripts are append-only, so a matching stat means a cached parse is
-// still current — this avoids re-reading and re-parsing a whole (ever-growing)
-// transcript on every attach (LastContextUsage) and history page
-// (ReadTranscriptChain). A turn appending to the file changes its size/mtime,
-// which invalidates the entry on the next lookup, so no explicit invalidation is
-// needed. Entries are keyed by absolute path; the working set is the handful of
+// Transcript parses are memoized per file, keyed by the file's size+modtime: a
+// matching stat means the cached value is still current, and a turn appending to
+// the file changes the stat, so no explicit invalidation is needed. Entries are
+// keyed by absolute path (namespaced by host); the working set is the handful of
 // on-disk sessions, so the map stays small.
+//
+// This is the all-or-nothing cache, still used for the context snapshot and by
+// the other backends' readers. The Claude message parse itself uses the
+// RESUMABLE claudeParseCache below, because invalidating a whole 26 MB parse
+// every time a turn appends three lines is precisely the wrong behavior.
 type transcriptCacheEntry struct {
 	size    int64
 	modTime time.Time
@@ -78,6 +83,182 @@ func putCachedSnap(path string, size int64, mod time.Time, snap *ContextSnapshot
 	e := cacheEntryFresh(path, size, mod)
 	e.snap, e.snapSet = snap, true
 	transcriptCache[path] = e
+}
+
+// claudeParseCache holds the resumable parse per transcript (namespaced by host,
+// like transcriptCache). Unlike that map's entries, an entry here stays USEFUL
+// after the file changes — that's the whole point: it is the base a later append
+// is parsed on top of. Entries are replaced, never invalidated.
+var (
+	claudeParseMu    sync.Mutex
+	claudeParseCache = map[string]*claudeParse{}
+)
+
+func getCachedParse(key string) (*claudeParse, bool) {
+	claudeParseMu.Lock()
+	defer claudeParseMu.Unlock()
+	p, ok := claudeParseCache[key]
+	return p, ok
+}
+
+func putCachedParse(key string, p *claudeParse) {
+	claudeParseMu.Lock()
+	claudeParseCache[key] = p
+	claudeParseMu.Unlock()
+}
+
+// claudeParse is a RESUMABLE parse of one Claude transcript: the messages
+// produced so far, how many bytes of the file they cover, and the mid-scan state
+// needed to continue as if the scan had never stopped.
+//
+// It exists because these transcripts are APPEND-ONLY and ever-growing, while the
+// old cache was all-or-nothing on (size, mtime): every turn appended a few lines
+// and thereby invalidated the entire cached parse of a file that reaches tens of
+// megabytes. So the reads that matter — the history the app asks for right after
+// a turn, and the digest sweep — were the ones guaranteed to miss.
+type claudeParse struct {
+	size int64     // stat at the time of the parse: the exact-hit key
+	mod  time.Time //  "
+	msgs []Message
+	// parsed is how many bytes of the file msgs covers, always ending on a line
+	// boundary — a trailing partial line (a turn mid-write) is left unconsumed so
+	// it gets parsed whole on the next read.
+	parsed int64
+	// overlap is the tail of the parsed region, re-read and compared on every
+	// extension to prove the file really was only appended to.
+	overlap []byte
+	// Mid-scan agentic-loop rollup for the dictation currently open: every
+	// assistant line counts as one cycle (tool-only ones too, which never become
+	// messages), and their usages sum the way the live stream's `result` event
+	// does. It is flushed onto the run's last claude message when the NEXT user
+	// message starts a new dictation — which may be in a later append, so it stays
+	// pending here rather than being baked into msgs.
+	idx        int
+	curTurns   int
+	lastClaude int
+	curTotal   Usage
+}
+
+// overlapBytes is how much of the already-parsed region an extension re-reads to
+// verify the file was only appended to. It rides along in the same read, so the
+// only cost is these bytes; a few hundred is plenty to catch a rewrite.
+const overlapBytes = 512
+
+// newClaudeParse starts an empty parse (lastClaude = -1: no dictation open yet).
+func newClaudeParse() *claudeParse { return &claudeParse{lastClaude: -1} }
+
+// clone copies a parse so an extension never mutates the cached base (which other
+// goroutines may be reading).
+func (p *claudeParse) clone() *claudeParse {
+	c := *p
+	c.msgs = append([]Message(nil), p.msgs...)
+	c.overlap = append([]byte(nil), p.overlap...)
+	return &c
+}
+
+// consume parses the next chunk of the file, which must begin on a line boundary.
+// A trailing partial line is not consumed.
+func (p *claudeParse) consume(data []byte) {
+	rest := data
+	consumed := 0
+	for {
+		i := bytes.IndexByte(rest, '\n')
+		if i < 0 {
+			break // partial line: leave it for the next read
+		}
+		p.line(rest[:i])
+		rest = rest[i+1:]
+		consumed += i + 1
+	}
+	p.parsed += int64(consumed)
+	// Keep the tail of what we just parsed as the next extension's proof.
+	full := data[:consumed]
+	if len(full) >= overlapBytes {
+		p.overlap = append([]byte(nil), full[len(full)-overlapBytes:]...)
+	} else {
+		keep := append(p.overlap, full...)
+		if len(keep) > overlapBytes {
+			keep = keep[len(keep)-overlapBytes:]
+		}
+		p.overlap = append([]byte(nil), keep...)
+	}
+}
+
+// line folds one transcript JSONL line into the parse.
+func (p *claudeParse) line(raw []byte) {
+	var l transcriptLine
+	if json.Unmarshal(raw, &l) != nil {
+		return
+	}
+	var role string
+	switch l.Type {
+	case "user":
+		role = "user"
+	case "assistant":
+		role = "claude"
+	default:
+		return
+	}
+	if role == "claude" {
+		// Count the cycle before the text filter — a tool-only assistant line is a
+		// real API round-trip even though it never becomes a bubble.
+		u := l.Message.Usage
+		p.curTurns++
+		p.curTotal.Input += u.Input
+		p.curTotal.Output += u.Output
+		p.curTotal.CacheWrite += u.CacheWrite
+		p.curTotal.CacheRead += u.CacheRead
+	}
+	text := extractText(l.Message.Content)
+	if strings.TrimSpace(text) == "" {
+		return // tool-only turn, tool_result, etc.
+	}
+	if role == "user" {
+		p.flush(p.msgs) // a new dictation begins; close out the previous run
+	}
+	m := Message{ID: l.UUID, Index: p.idx, Role: role, Text: text, Ts: parseTs(l.Timestamp)}
+	if role == "claude" {
+		if u := l.Message.Usage; u.Input+u.CacheRead+u.CacheWrite > 0 {
+			m.Usage = &Usage{Input: u.Input, Output: u.Output, CacheWrite: u.CacheWrite, CacheRead: u.CacheRead}
+		}
+	}
+	p.msgs = append(p.msgs, m)
+	if role == "claude" {
+		p.lastClaude = len(p.msgs) - 1
+	}
+	p.idx++
+}
+
+// flush writes the open run's rollup onto its closing claude message in `into`
+// and resets the counters. `into` is the caller's slice so messages() can flush
+// the STILL-OPEN run onto its private copy without disturbing the cached parse.
+func (p *claudeParse) flush(into []Message) {
+	if p.lastClaude >= 0 && p.curTurns > 0 && p.lastClaude < len(into) {
+		total := p.curTotal
+		into[p.lastClaude].Turns, into[p.lastClaude].TurnTotal = p.curTurns, &total
+	}
+	p.curTurns, p.lastClaude, p.curTotal = 0, -1, Usage{}
+}
+
+// messages returns the parse's result: a private copy (callers re-index and
+// mutate Text) with the still-open dictation's rollup applied. That last flush
+// happens on the copy, not the cached state, because a later append can still add
+// assistant lines to the same run.
+func (p *claudeParse) messages() []Message {
+	out := append([]Message(nil), p.msgs...)
+	if p.lastClaude >= 0 && p.curTurns > 0 && p.lastClaude < len(out) {
+		total := p.curTotal
+		out[p.lastClaude].Turns, out[p.lastClaude].TurnTotal = p.curTurns, &total
+	}
+	// A dictation turn can span several assistant text lines (text interleaved with
+	// tool calls); the live badge lands only on the turn's closing message. Match
+	// that: keep usage on the last claude line of each run, clearing earlier ones.
+	for i := 0; i+1 < len(out); i++ {
+		if out[i].Role == "claude" && out[i+1].Role == "claude" {
+			out[i].Usage = nil
+		}
+	}
+	return out
 }
 
 // parseTs converts a transcript line's ISO-8601 timestamp to unix seconds,
@@ -199,93 +380,88 @@ func (fs claudeFS) readTranscript(path string) ([]Message, error) {
 	}
 	key := fs.cacheKey(path)
 	size, mod, statOK := fs.stat(path)
-	if statOK {
-		if m, hit := getCachedMsgs(key, size, mod); hit {
-			return append([]Message(nil), m...), nil // copy: callers re-index / mutate Text
+	base, hasBase := getCachedParse(key)
+	if statOK && hasBase && base.size == size && base.mod.Equal(mod) {
+		return base.messages(), nil // unchanged since the last parse
+	}
+	// Grown since the last parse: read and parse only the appended bytes.
+	if statOK && hasBase && size > base.parsed {
+		if st, ok := fs.extendParse(path, base); ok {
+			st.size, st.mod = size, mod
+			putCachedParse(key, st)
+			return st.messages(), nil
 		}
 	}
-	f, err := fs.open(path)
+	data, err := fs.readAll(path)
 	if err != nil {
 		if fs.isMissing(err) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	defer f.Close()
-
-	sc := newLineScanner(f)
-	var out []Message
-	idx := 0
-	// Agentic-loop rollup for the dictation currently being scanned: every assistant
-	// line counts as one cycle (tool-only ones too, which never become messages), and
-	// their usages sum the way the live stream's `result` event does. Flushed onto the
-	// run's last claude message when the next user message starts a new dictation.
-	curTurns, lastClaude := 0, -1
-	var curTotal Usage
-	flushTurnStats := func() {
-		if lastClaude >= 0 && curTurns > 0 {
-			total := curTotal
-			out[lastClaude].Turns, out[lastClaude].TurnTotal = curTurns, &total
-		}
-		curTurns, lastClaude, curTotal = 0, -1, Usage{}
-	}
-	for sc.Scan() {
-		var l transcriptLine
-		if json.Unmarshal(sc.Bytes(), &l) != nil {
-			continue
-		}
-		var role string
-		switch l.Type {
-		case "user":
-			role = "user"
-		case "assistant":
-			role = "claude"
-		default:
-			continue
-		}
-		if role == "claude" {
-			// Count the cycle before the text filter — a tool-only assistant line is a
-			// real API round-trip even though it never becomes a bubble.
-			u := l.Message.Usage
-			curTurns++
-			curTotal.Input += u.Input
-			curTotal.Output += u.Output
-			curTotal.CacheWrite += u.CacheWrite
-			curTotal.CacheRead += u.CacheRead
-		}
-		text := extractText(l.Message.Content)
-		if strings.TrimSpace(text) == "" {
-			continue // tool-only turn, tool_result, etc.
-		}
-		if role == "user" {
-			flushTurnStats() // a new dictation begins; close out the previous run
-		}
-		m := Message{ID: l.UUID, Index: idx, Role: role, Text: text, Ts: parseTs(l.Timestamp)}
-		if role == "claude" {
-			if u := l.Message.Usage; u.Input+u.CacheRead+u.CacheWrite > 0 {
-				m.Usage = &Usage{Input: u.Input, Output: u.Output, CacheWrite: u.CacheWrite, CacheRead: u.CacheRead}
-			}
-		}
-		out = append(out, m)
-		if role == "claude" {
-			lastClaude = len(out) - 1
-		}
-		idx++
-	}
-	flushTurnStats() // the trailing dictation
-	// A dictation turn can span several assistant text lines (text interleaved with
-	// tool calls); the live badge lands only on the turn's closing message. Match
-	// that: keep usage on the last claude line of each run, clearing earlier ones.
-	for i := 0; i+1 < len(out); i++ {
-		if out[i].Role == "claude" && out[i+1].Role == "claude" {
-			out[i].Usage = nil
-		}
-	}
-	if err := sc.Err(); err != nil {
-		return out, err // don't cache a partial read
-	}
+	st := newClaudeParse()
+	st.consume(data)
 	if statOK {
-		putCachedMsgs(key, size, mod, out)
+		st.size, st.mod = size, mod
+		putCachedParse(key, st)
+	}
+	return st.messages(), nil
+}
+
+// readAll returns a transcript's whole contents. (The remote backend's `open`
+// already buffers the file in memory, so this costs nothing extra there.)
+func (fs claudeFS) readAll(path string) ([]byte, error) {
+	f, err := fs.open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return io.ReadAll(f)
+}
+
+// extendParse continues a cached parse over the bytes appended since it ran,
+// returning the extended state. ok is false when the extension can't be trusted
+// (the overlap check failed, or the read errored) and the caller must re-parse
+// the whole file.
+func (fs claudeFS) extendParse(path string, base *claudeParse) (*claudeParse, bool) {
+	off := base.parsed - int64(len(base.overlap))
+	data, err := fs.readFrom(path, off)
+	if err != nil || int64(len(data)) < int64(len(base.overlap)) {
+		return nil, false
+	}
+	// The append-only invariant is an assumption about how Claude Code writes, not
+	// something we control — a rewritten or truncated-and-replaced transcript would
+	// otherwise be silently mis-parsed. Re-reading a little of the ALREADY-parsed
+	// region and checking it byte-for-byte is what makes the assumption verified
+	// rather than trusted, and it rides along in the same read, so it's free.
+	if !bytes.Equal(data[:len(base.overlap)], base.overlap) {
+		return nil, false
+	}
+	st := base.clone()
+	st.consume(data[len(base.overlap):])
+	return st, true
+}
+
+// readFrom returns a transcript's bytes from off to EOF.
+func (fs claudeFS) readFrom(path string, off int64) ([]byte, error) {
+	if off <= 0 {
+		return fs.readAll(path)
+	}
+	if fs.remote == nil {
+		f, err := os.Open(path)
+		if err != nil {
+			return nil, err
+		}
+		defer f.Close()
+		if _, err := f.Seek(off, io.SeekStart); err != nil {
+			return nil, err
+		}
+		return io.ReadAll(f)
+	}
+	// `tail -c +N` is 1-based on the byte offset.
+	out, err := fs.remote.output(fmt.Sprintf("tail -c +%d %s", off+1, shellQuote(path)))
+	if err != nil {
+		return nil, errRemoteMissing
 	}
 	return out, nil
 }
