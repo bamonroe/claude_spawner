@@ -54,6 +54,9 @@ func (c *conn) authenticate() bool {
 	// its own (so two clients don't bounce it), and changes it via set_whisper_model.
 	model, fastModel := c.srv.currentWhisperModels()
 	c.send(msgHelloOK("ws", model, fastModel, c.srv.catalogWhisperModels(), c.srv.availableWhisperModels(), c.srv.tts != nil, c.srv.denoiser != nil))
+	// Baseline the gate indicator on connect: a fresh client has no idea whether the
+	// gate is even active for it, and setGate only speaks on transitions.
+	c.send(msgSpeechGate(c.gateActive(), c.gateOpen))
 	// Per-catalogue digest fast path (skip-if-equal): the app presents a digest of
 	// each cached catalogue in `hello`; we re-send only the ones whose digest differs
 	// from ours, so an unchanged catalogue costs nothing on connect (Phase 2a LWW

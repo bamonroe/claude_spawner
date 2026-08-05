@@ -231,6 +231,9 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
     internal val _voiceState = MutableStateFlow(VoiceState.OFF)
     override val voiceState: StateFlow<VoiceState> = _voiceState.asStateFlow()
 
+    internal val _speechGate = MutableStateFlow<ServerMsg.SpeechGate?>(null)
+    override val speechGate: StateFlow<ServerMsg.SpeechGate?> = _speechGate.asStateFlow()
+
     // Live hands-free draft: what's captured but not yet committed (via end token).
     internal val _pending = MutableStateFlow("")
     override val pending: StateFlow<String> = _pending.asStateFlow()

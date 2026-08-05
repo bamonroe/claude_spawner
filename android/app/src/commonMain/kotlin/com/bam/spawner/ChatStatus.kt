@@ -228,6 +228,29 @@ fun DraftLine(text: String) {
     }
 }
 
+/**
+ * Speech-gate pill: whether the pipeline's front door is open. With the gate shut
+ * nothing you say is transcribed or shown at all, so without this the user can't
+ * tell "ignoring you" from "heard nothing". Renders nothing when the gate is off.
+ */
+@Composable
+fun SpeechGatePill(gate: com.bam.spawner.net.ServerMsg.SpeechGate?) {
+    if (gate == null || !gate.active) return
+    val (label, dot) =
+        if (gate.open) "gate open — capturing" to Color(0xFF4CAF50)
+        else "gate shut — say the gate phrase" to Color(0xFF757575)
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(8.dp).background(dot, CircleShape))
+        Text(
+            "  $label", style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
 /** Compact hands-free status pill: Listening / Capturing / Transcribing / Thinking / Speaking. */
 @Composable
 fun VoiceStatePill(state: VoiceState) {

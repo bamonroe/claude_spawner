@@ -14,6 +14,16 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "client-visible-speech-gate-state"
+title = "Client-visible speech-gate state"
+description = "The speech gate is now the pipeline front door, so a missed gate discards the audio with no transcript to show what was heard — today the only trace is a server-side 'speech gate:' log line. Add a client-visible indicator (gate open/closed) so the user can see whether the machine is listening. Needs a wire field or message plus app + web client UI."
+status = "finished"
+category = "feature"
+created = 2026-08-05
+completed = 2026-08-05
+tags = ["speech-gate", "ui"]
+
+[[task]]
 id = "speech-gate-as-a-pipeline-front-door"
 title = "Speech gate as a pipeline front door"
 description = "Move the speech gate from a post-transcription text filter to the entry condition for the whole hands-free pipeline: while closed, score each clip for the gate phrase and retain nothing (no PCM buffer, no draft, no transcript bubble, no accurate pass); on open, capture behaves as today until the end token, then re-closes. Full scope, risks and open decisions in docs/scopes/speech-gate-front-door.md. Two decisions need the user: (1) whether 'hey buddy' commands also require the gate (proposed yes, with barge-in stop staying ungated), (2) a client-visible gate-closed indicator, since a missed gate now discards the audio with no transcript to show what was heard. Touches gateway/stream.go + conn.go, stream_test.go, and README/architecture docs."

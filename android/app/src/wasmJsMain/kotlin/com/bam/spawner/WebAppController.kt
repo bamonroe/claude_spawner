@@ -150,6 +150,8 @@ class WebAppController(internal val prefs: Prefs) : AppController {
     // the VAD + TTS (see the hands-free section); push-to-talk leaves it OFF.
     internal val _voiceState = MutableStateFlow(VoiceState.OFF)
     override val voiceState: StateFlow<VoiceState> = _voiceState.asStateFlow()
+    internal val _speechGate = MutableStateFlow<ServerMsg.SpeechGate?>(null)
+    override val speechGate: StateFlow<ServerMsg.SpeechGate?> = _speechGate.asStateFlow()
     internal val _speaking = MutableStateFlow(false)
     override val speaking: StateFlow<Boolean> = _speaking.asStateFlow()
 

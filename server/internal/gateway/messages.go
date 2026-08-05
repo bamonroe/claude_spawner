@@ -252,6 +252,17 @@ func msgTranscribing() map[string]any {
 	return map[string]any{"type": "transcribing"}
 }
 
+// msgSpeechGate reports the live state of the speech gate: open true means the
+// gate phrase fired and capture is running, false means the front door is shut
+// and everything heard is scored-and-dropped with no transcript to show for it.
+// active false means the gate is off entirely for this connection, so the app
+// should show no gate indicator at all rather than a permanently-shut one.
+// Emitted on every gate transition (and on connect), so the user can see whether
+// the machine is listening instead of guessing from a server-side log line.
+func msgSpeechGate(active, open bool) map[string]any {
+	return map[string]any{"type": "speech_gate", "active": active, "open": open}
+}
+
 // msgFiles lists the files Claude changed during the turn (basenames).
 func msgFiles(files []string) map[string]any {
 	return map[string]any{"type": "files", "files": files}

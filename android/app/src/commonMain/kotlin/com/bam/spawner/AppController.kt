@@ -66,6 +66,10 @@ interface AppController : HostsIdentitiesController, ProfilesController, Provide
 
     // --- Hands-free / voice pipeline (platform-filled; web stubs) ------------
     val voiceState: StateFlow<VoiceState>
+    // Live speech-gate state from the server (null until it says). When the gate is
+    // active but shut, the pipeline drops everything heard with no transcript at all,
+    // so this is the only way the user can tell listening from ignoring.
+    val speechGate: StateFlow<ServerMsg.SpeechGate?>
     val speaking: StateFlow<Boolean>
     val activity: StateFlow<String>
 

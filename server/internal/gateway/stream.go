@@ -166,9 +166,21 @@ func sharesModel(a, b []string) bool {
 // strip in commitMessage drops everything up to and including the phrase, so the
 // audio boundary can be sloppy while the dictated text stays exact.
 func (c *conn) armGate() {
-	c.gateOpen = true
 	c.gateOpenedAt = time.Now()
+	c.setGate(true)
 	log.Printf("speech gate: opened — capturing until the end token")
+}
+
+// setGate is the ONLY place c.gateOpen changes. Making the state transition and
+// the client notification one operation is what keeps the app's indicator honest:
+// there is no way to open or shut the front door without the user being told, so
+// a new close path can't silently desync the UI. Sends only on a real change.
+func (c *conn) setGate(open bool) {
+	if c.gateOpen == open {
+		return
+	}
+	c.gateOpen = open
+	c.send(msgSpeechGate(c.gateActive(), open))
 }
 
 // endTokenFired reports whether this clip's audio trips the end-token detector.
@@ -221,7 +233,7 @@ func (c *conn) commitMessage() {
 	audio := c.audioPCM
 	sessionID := c.bufferSessionID
 	gated := c.gateOpen
-	c.gateOpen = false // every commit re-closes the gate: one utterance per opening
+	c.setGate(false) // every commit re-closes the gate: one utterance per opening
 	c.buffer = nil
 	c.audioPCM = nil
 	c.bufferSessionID = ""
@@ -389,7 +401,7 @@ func (c *conn) vocabBias() string {
 func (c *conn) clearBuffer() {
 	c.buffer = nil
 	c.audioPCM = nil
-	c.gateOpen = false
+	c.setGate(false)
 	c.send(msgPending(""))
 }
 

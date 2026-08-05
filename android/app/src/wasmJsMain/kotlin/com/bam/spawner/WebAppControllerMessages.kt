@@ -124,6 +124,7 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
         }
         is ServerMsg.Activity -> router.onActivity(msg)
         is ServerMsg.Transcribing -> _micText.value = "transcribing…" // committed clip being re-transcribed
+        is ServerMsg.SpeechGate -> _speechGate.value = msg
         is ServerMsg.Files -> router.onFiles(msg)
         is ServerMsg.Diff -> router.onDiff(msg)
         is ServerMsg.RateLimit -> _rateLimit.value = msg.info

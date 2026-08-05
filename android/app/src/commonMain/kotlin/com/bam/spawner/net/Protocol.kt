@@ -44,6 +44,10 @@ sealed interface ServerMsg {
     data class Calibration(val text: String) : ServerMsg // what the detection model heard for a sample
     data class Activity(val text: String, val sessionId: String = "") : ServerMsg // live "Claude is thinking / editing X" indicator (sessionId = the turn's session)
     data object Transcribing : ServerMsg // committed hands-free clip is being re-transcribed accurately
+    // Live speech-gate state: active=false means the gate is off for this connection
+    // (show nothing); open=true means the gate phrase fired and capture is running,
+    // false means the front door is shut and anything said is dropped unheard.
+    data class SpeechGate(val active: Boolean, val open: Boolean) : ServerMsg
     data class Files(val files: List<String>, val sessionId: String = "") : ServerMsg // files changed this turn (sessionId = the turn's session)
     data class Dialog(val state: String, val prompt: String) : ServerMsg
     // usage/usageAt seed the context meter from the transcript's last turn on
@@ -131,6 +135,7 @@ sealed interface ServerMsg {
                 "calibration" -> Calibration(o.str("text"))
                 "activity" -> Activity(o.str("text"), o.str("session_id"))
                 "transcribing" -> Transcribing
+                "speech_gate" -> SpeechGate(o.bool("active"), o.bool("open"))
                 "files" -> Files(readStrings(o.arr("files")), o.str("session_id"))
                 "dialog" -> Dialog(o.str("state"), o.str("prompt"))
                 "attached" -> Attached(o.str("name"), o.str("session_id"), readUsage(o.obj("usage")), o.long("usage_at"), o.str("agent"), o.str("model"), o.str("profile"))

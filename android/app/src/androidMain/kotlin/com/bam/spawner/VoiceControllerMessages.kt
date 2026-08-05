@@ -157,6 +157,7 @@ internal fun VoiceController.onMessage(msg: ServerMsg) {
         is ServerMsg.ContextReset -> onContextReset(msg)
         is ServerMsg.Activity -> router.onActivity(msg)
         is ServerMsg.Transcribing -> onTranscribing(msg)
+        is ServerMsg.SpeechGate -> _speechGate.value = msg
         is ServerMsg.Files -> router.onFiles(msg)
         is ServerMsg.Diff -> router.onDiff(msg)
         is ServerMsg.RateLimit -> _rateLimit.value = msg.info // plan session-limit readout (sidebar)

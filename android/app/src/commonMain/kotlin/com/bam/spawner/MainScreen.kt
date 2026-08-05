@@ -150,6 +150,7 @@ fun MainScreen(
         if (d != null) openSession(d) else controller.dismissNotice(n.sessionId)
     }
     val voiceState by controller.voiceState.collectAsState()
+    val speechGate by controller.speechGate.collectAsState()
     val ask by controller.ask.collectAsState()
     val speaking by controller.speaking.collectAsState()
     val pending by controller.pending.collectAsState()
@@ -259,6 +260,7 @@ fun MainScreen(
             if (activity.isNotBlank()) ActivityIndicator(activity, onAbort = controller::abortTurn)
             if (pending.isNotBlank()) DraftLine(pending)
             if (handsFree) VoiceStatePill(voiceState)
+            SpeechGatePill(speechGate)
             if (micLocked) {
                 Text(
                     "🔴 mic locked — tap the mic to send",

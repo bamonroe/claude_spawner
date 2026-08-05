@@ -19,14 +19,3 @@ add_proposed_work = "Add proposed features and tests as new tasks rather than lo
 remove_dropped_items = "Remove dropped items with a one-line why (`scripts/todo.sh remove <id> --reason`)."
 finish_work = "When a task is fully finished (built, tested, documented), run `scripts/todo.sh done <id>` to move it to FINISHED.toml — in the same commit that completes the work."
 scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/KMP app + web client. The historical phase roadmap stays in README.md."
-
-[[task]]
-id = "client-visible-speech-gate-state"
-title = "Client-visible speech-gate state"
-description = "The speech gate is now the pipeline front door, so a missed gate discards the audio with no transcript to show what was heard — today the only trace is a server-side 'speech gate:' log line. Add a client-visible indicator (gate open/closed) so the user can see whether the machine is listening. Needs a wire field or message plus app + web client UI."
-status = "active"
-category = "feature"
-urgency = "normal"
-order = 10
-created = 2026-08-05
-tags = ["speech-gate", "ui"]

@@ -103,6 +103,11 @@ bound to both — the sidecar only reports that the sound happened, not which br
 that case the opening clip's hit counts as the opening, and the close comes from the next clip or
 from a second occurrence in the transcript.
 
+**A pill above the input bar shows the gate's live state** — "gate shut — say the gate phrase" or
+"gate open — capturing" — so you can see at a glance whether the machine is listening to you or
+dropping what it hears. It appears only while the gate is on, in both the app and the web client, and
+the server pushes every transition (including on connect), so it can't drift out of sync.
+
 The trade-off to know: a *missed* gate now loses the audio too, so there's no transcript showing what
 was heard (the server logs `speech gate:` lines when it opens or times out). Leave the switch off (or
 the speak token blank) to dictate everything as before. The speak token is comma-separated, so you
