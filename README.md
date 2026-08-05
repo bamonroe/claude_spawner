@@ -815,11 +815,11 @@ restored automatically on load). The browser speaks to the OS default output sin
 between devices, so the audio-output button offers the two states that matter: **Speaker** (voice
 on) or **Mute** (voice off, which also stops any reply already being spoken); the choice is saved.
 
-The layout is **responsive**: in a **wide** window (a desktop browser, a tablet, an unfolded phone —
-≥840 px) the sessions sidebar is **pinned permanently** beside the chat instead of hiding in the
-swipe-in drawer, and the ☰ menu button disappears; narrow the window (or run on a phone) and it
-collapses back to the drawer. Both layouts render the exact same shared composables — only the
-container differs.
+The sessions sidebar is a **modal drawer at every width** — it is never pinned open beside the chat
+and never opens on a swipe. The **☰ button in the top bar is the only way to show it**, at any window
+size; tapping outside it, swiping it left, or pressing back closes it again. The chat therefore keeps
+the whole window until you ask for the session list. (The right-to-left swipe on the chat still
+swaps sessions — that gesture is unchanged.)
 
 > **Secure context required.** The client only connects from a **secure context** — https, or
 > `localhost`/`127.0.0.1`. Served over plain http from a real hostname the browser marks the origin

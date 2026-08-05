@@ -68,8 +68,8 @@ fun TopBar(
             Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Wide/desktop layouts pin a persistent sidebar and pass null here, so the
-            // ☰ toggle disappears (there's no drawer to open).
+            // The ☰ toggle is the only way to open the sessions drawer, at every width.
+            // A null onMenu means a caller with no drawer at all, so no button.
             if (onMenu != null) IconButton(onClick = onMenu) { Icon(Icons.Filled.Menu, contentDescription = "Menu") }
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)

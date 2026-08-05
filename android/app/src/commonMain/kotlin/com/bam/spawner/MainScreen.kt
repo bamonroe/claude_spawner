@@ -27,8 +27,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.PermanentDrawerSheet
-import androidx.compose.material3.PermanentNavigationDrawer
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
@@ -300,32 +298,21 @@ fun MainScreen(
         }
     }
 
-    // Responsive layout: on a wide window (desktop browser, tablet, unfolded) the
-    // sidebar is pinned permanently beside the chat; on a narrow one (phone) it lives
-    // in a swipe-in modal drawer. Same composables, different container. 840.dp is the
-    // Material "expanded" width breakpoint.
+    // The sidebar is a modal drawer at every width — never pinned open, never
+    // swipe-opened. The ☰ button in the top bar is the one and only way it appears,
+    // so the chat keeps the full window until the user asks for the session list.
     BoxWithConstraints(Modifier.fillMaxSize()) {
       val containerWidth = maxWidth
-      if (containerWidth >= 840.dp) {
-        PermanentNavigationDrawer(
-            drawerContent = {
-                PermanentDrawerSheet(Modifier.width(320.dp)) { sidebar {} }
-            },
-        ) {
-            chatColumn(null)
-        }
-      } else {
-        ModalNavigationDrawer(
-            drawerState = drawerState,
-            // Opened by the ☰ button or a left-edge swipe (a narrow strip on the far
-            // left, see below). We keep the drawer's own gestures limited to when it's
-            // already open (swipe-to-close) rather than enabling them for the whole
-            // content, which would let any horizontal drag across the chat open it.
-            gesturesEnabled = drawerState.isOpen,
-            drawerContent = {
-                ModalDrawerSheet { sidebar { scope.launch { drawerState.close() } } }
-            },
-        ) {
+      ModalNavigationDrawer(
+          drawerState = drawerState,
+          // Opened only by the ☰ button. The drawer's own gestures stay limited to
+          // when it's already open (swipe-to-close); enabling them for the whole
+          // content would let any horizontal drag across the chat open it.
+          gesturesEnabled = drawerState.isOpen,
+          drawerContent = {
+              ModalDrawerSheet { sidebar { scope.launch { drawerState.close() } } }
+          },
+      ) {
           Box(Modifier.fillMaxSize()) {
             chatColumn { scope.launch { drawerState.open() } }
             // Edge-swipe strips stay in the chat area. They are transparent boxes
@@ -335,25 +322,6 @@ fun MainScreen(
             val edgeGestureBottomInset = 144.dp
             val swapStripWidth = if (containerWidth >= 600.dp) 72.dp else 28.dp
             val swapDragThreshold = if (containerWidth >= 600.dp) 48.dp else 64.dp
-            // Left-edge swipe to open the drawer: a narrow strip pinned to the far left
-            // edge that opens the drawer on a rightward drag. Kept thin (and on the left,
-            // away from the mic button on the right) so it doesn't steal normal touches.
-            Box(
-                Modifier.align(Alignment.CenterStart)
-                    .fillMaxHeight()
-                    .imePadding()
-                    .padding(top = edgeGestureTopInset, bottom = edgeGestureBottomInset)
-                    .width(24.dp)
-                    .pointerInput(Unit) {
-                        val threshold = 24.dp.toPx()
-                        var dx = 0f
-                        detectHorizontalDragGestures(
-                            onDragStart = { dx = 0f },
-                            onHorizontalDrag = { _, delta -> dx += delta },
-                            onDragEnd = { if (dx >= threshold) scope.launch { drawerState.open() } },
-                        )
-                    },
-            )
             // Right-edge swipe (right→left) to "swap" back to the previously attached
             // session — the gesture twin of the voice "swap" command. A thin strip on the
             // far right that captures a leftward drag; a generous threshold avoids accidental
@@ -375,7 +343,6 @@ fun MainScreen(
                     },
             )
           }
-        }
       }
       // The radial menu. While the mic is locked the ring *is* the recording control —
       // send (centre) and cancel (above it), nothing implicit closes it — so the clip can

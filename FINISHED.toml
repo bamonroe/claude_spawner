@@ -14,6 +14,16 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "sidebar-only-from-a-top-bar-hamburger-toggle"
+title = "Sidebar only from a top-bar hamburger toggle"
+description = "The session sidebar should never appear on its own — no swipe-open, no pinned-open wide layout. Add a hamburger button to the top title bar that toggles it, and make that the only way it shows."
+status = "finished"
+category = "feature"
+created = 2026-08-05
+completed = 2026-08-05
+tags = []
+
+[[task]]
 id = "configurable-radial-menu-with-submenus"
 title = "Configurable radial menu with submenus"
 description = "Settings → Radial menu edits the double-tap ring as a tree: built-in actions, nested submenus that open in place (same origin/geometry, centre becomes Back), and live rings (Sessions) that can be a submenu or spliced inline. Persisted as JSON in Prefs.radialMenu, shared by app and web client."
