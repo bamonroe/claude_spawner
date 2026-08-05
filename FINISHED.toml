@@ -14,6 +14,16 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "radial-palette-parity-in-the-web-client"
+title = "Radial palette parity in the web client"
+description = "Make sure the palette works in the Compose Multiplatform browser client: gesture equivalent for double-tap (double-click), pointer/hover behavior, and layout at desktop window sizes. Keep the composable and MRU state in commonMain so there's one implementation; see docs/web-client.md."
+status = "finished"
+category = "feature"
+created = 2026-08-05
+completed = 2026-08-05
+tags = ["android", "ui", "radial-menu"]
+
+[[task]]
 id = "document-the-radial-palette-menu"
 title = "Document the radial palette menu"
 description = "Document the feature as part of shipping it: README user-facing section covering the double-tap, the mic lock toggle, the recency ordering of the ring, and the orange active-message indicator. Update docs/protocol.md or docs/config.md only if the attach-history work adds wire messages or env vars."
