@@ -99,7 +99,7 @@ func TestGateFrontDoor(t *testing.T) {
 	// Same connection, now the clip carries the gate phrase: the gate opens and the
 	// straddling clip's audio is kept whole.
 	stt.text = "take a note fix the bug"
-	if !cn.openGate([]byte{1, 2}) {
+	if opened, _ := cn.openGate([]byte{1, 2}); !opened {
 		t.Fatal("gate phrase did not open the gate")
 	}
 	if !cn.gateOpen {
@@ -123,7 +123,7 @@ func TestGateClosedSkipsWhisperWithDetector(t *testing.T) {
 	}
 	// Detector fires → gate opens, still without a Whisper pass to decide it.
 	cn.srv.detector = stubDetector{scores: detect.Scores{gateModelKey: 0.99}}
-	if !cn.openGate([]byte{1, 2}) || !cn.gateOpen {
+	if opened, _ := cn.openGate([]byte{1, 2}); !opened || !cn.gateOpen {
 		t.Fatal("detector above threshold did not open the gate")
 	}
 }
@@ -164,6 +164,10 @@ func TestGateAndEndSharePhrase(t *testing.T) {
 	}
 	if len(cn.audioPCM) == 0 || len(cn.buffer) == 0 {
 		t.Fatal("opening clip was not retained")
+	}
+	// The opening clip is fast-transcribed ONCE: openGate's pass is reused as the draft.
+	if stt.calls != 1 {
+		t.Fatalf("opening clip transcribed %d times, want 1", stt.calls)
 	}
 	// The draft the client sees has the opening bracket stripped.
 	if got := draftText(cn); got != "fix the parser bug" {

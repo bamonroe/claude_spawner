@@ -25,14 +25,15 @@ const gateIdleTimeout = 90 * time.Second
 // never reaches the app. OPEN (from the gate phrase to the end token): exactly
 // the behaviour below. Gate off ⇒ always open, i.e. today's pipeline.
 func (c *conn) gatedChunk(pcm []byte) {
-	justOpened := false
+	justOpened, opening := false, "" // opening = the fast transcript openGate already paid for
 	if c.gateActive() {
 		if c.gateOpen && time.Since(c.gateOpenedAt) > gateIdleTimeout {
 			log.Printf("speech gate: idle %s with no end token — re-closing, discarding buffer", gateIdleTimeout)
 			c.clearBuffer() // also re-closes the gate
 		}
 		if !c.gateOpen {
-			if !c.openGate(pcm) {
+			var opened bool
+			if opened, opening = c.openGate(pcm); !opened {
 				return // pre-gate speech: scored and dropped, nothing retained
 			}
 			justOpened = true
@@ -65,9 +66,20 @@ func (c *conn) gatedChunk(pcm []byte) {
 		detFired, detOK = false, false
 	}
 
-	chunk, err := c.fastTranscriber().Transcribe(c.ctx, transcribe.PCM16WAV(pcm, audioSampleRate, audioChannels),
-		transcribe.Options{Mode: "fixed", Model: "tiny", Prompt: c.detectBias()})
-	if err == nil && strings.TrimSpace(chunk) != "" {
+	// The clip that opened the gate was already fast-transcribed by openGate looking
+	// for the phrase — reuse that text rather than paying for the same pass twice.
+	// (Empty when the detector opened the gate without any Whisper pass, in which
+	// case we transcribe here as usual, since the draft still needs the words.)
+	chunk := opening
+	if chunk == "" {
+		var err error
+		chunk, err = c.fastTranscriber().Transcribe(c.ctx, transcribe.PCM16WAV(pcm, audioSampleRate, audioChannels),
+			transcribe.Options{Mode: "fixed", Model: "tiny", Prompt: c.detectBias()})
+		if err != nil {
+			chunk = ""
+		}
+	}
+	if strings.TrimSpace(chunk) != "" {
 		c.buffer = append(c.buffer, chunk)
 	}
 	// Everything downstream looks at the draft with the gate phrase already removed
@@ -113,23 +125,26 @@ func (c *conn) gatedChunk(pcm []byte) {
 // There are NO exceptions: nothing — not even barge-in "hey buddy stop" — is
 // matched while the gate is shut. The gate is the front door, and a door with a
 // side entrance isn't one. Say the gate phrase first, then stop it.
-func (c *conn) openGate(pcm []byte) bool {
+// It returns the fast transcript it computed (empty on the detector path, which
+// never transcribes) so the caller can reuse it as the opening clip's draft
+// instead of running the same tiny pass a second time.
+func (c *conn) openGate(pcm []byte) (opened bool, text string) {
 	if fired, ok := c.detectorFired(pcm, c.gateModels()); ok {
 		if fired {
 			c.armGate()
 		}
-		return fired // the detector spoke — no Whisper pass at all
+		return fired, "" // the detector spoke — no Whisper pass at all
 	}
 	text, err := c.fastTranscriber().Transcribe(c.ctx, transcribe.PCM16WAV(pcm, audioSampleRate, audioChannels),
 		transcribe.Options{Mode: "fixed", Model: "tiny", Prompt: c.detectBias()})
 	if err != nil {
-		return false
+		return false, ""
 	}
 	if _, _, found := command.SplitOn(text, c.speakPhrases()); found {
 		c.armGate()
-		return true
+		return true, text
 	}
-	return false
+	return false, ""
 }
 
 // sharesModel reports whether two sets of detector model keys overlap — i.e. the
