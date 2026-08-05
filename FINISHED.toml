@@ -14,6 +14,16 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "mic-lock-center-toggle-that-holds-tap-to-speak-open"
+title = "Mic lock: center toggle that holds tap-to-speak open"
+description = "The palette's center button toggles a locked-open microphone: tap to lock the mic on, tap again to release. Not hands-free/wake-word — it just holds the existing tap-to-speak capture path open. Wire into VoiceController's push-to-talk state, show clear locked-on affordance, and define what happens if the palette closes, the app backgrounds, or attachment changes while locked."
+status = "finished"
+category = "feature"
+created = 2026-08-05
+completed = 2026-08-05
+tags = ["android", "ui", "radial-menu"]
+
+[[task]]
 id = "radial-palette-menu-composable-layout-animation-dismiss"
 title = "Radial palette menu composable (layout, animation, dismiss)"
 description = "Build the radial menu itself in commonMain so Android and the web client share it: a center button plus up to 8 slots around a ring. Layout math places slot 0 directly above center (most recent) and continues clockwise/right-handed for older entries; handle fewer than 8 entries gracefully. Includes open/close animation from the tap point, scrim, dismiss on outside tap/back, per-slot labels that fit, and touch targets sized for a thumb."

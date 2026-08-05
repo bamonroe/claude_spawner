@@ -78,6 +78,8 @@ fun InputBar(
     trayCommandNames: Set<String>,
     handsFree: Boolean,
     onToggleHandsFree: (Boolean) -> Unit,
+    micLocked: Boolean = false,
+    onReleaseMicLock: () -> Unit = { },
     onTalkStart: () -> Unit,
     onTalkStop: () -> Unit,
     onTalkCancel: () -> Unit,
@@ -104,8 +106,9 @@ fun InputBar(
     var expanded by remember { mutableStateOf(false) }
     // Baseline pixel height of the empty single-line field, captured on first measure.
     var singleLineHeightPx by remember { mutableStateOf(0) }
-    // While hands-free owns the mic, push-to-talk is disabled.
-    val pushToTalkEnabled = !handsFree
+    // While hands-free owns the mic — or the mic lock is holding a capture open —
+    // the hold-to-talk gesture is disabled.
+    val pushToTalkEnabled = !handsFree && !micLocked
     val micLive = connected && pushToTalkEnabled
     // While the button is a live mic, reserve its rect (grown generously down into the
     // nav-bar zone, left along the cancel track, and right across the row inset to the
@@ -295,6 +298,7 @@ fun InputBar(
             Surface(
                 color = when {
                     talking -> MaterialTheme.colorScheme.error
+                    micLocked -> MaterialTheme.colorScheme.error // locked open = live mic
                     handsFree -> MaterialTheme.colorScheme.error // hands-free = live mic; red headset
                     hasText && connected -> MaterialTheme.colorScheme.primary
                     micLive -> MaterialTheme.colorScheme.primary
@@ -306,7 +310,7 @@ fun InputBar(
                 // the primary voice control, worth the extra hit area.
                 modifier = Modifier.size(56.dp)
                     .pttGestureExclusion(active = micLive, leftPx = exclLeftPx, rightPx = exclRightPx, bottomPx = exclBottomPx)
-                    .pointerInput(hasText, handsFree, connected) {
+                    .pointerInput(hasText, handsFree, micLocked, connected) {
                     // Distance the finger must travel upward for a hold to be
                     // reinterpreted as switching into hands-free instead of push-to-talk.
                     // Deliberately long so a small drift never trips it.
@@ -316,6 +320,9 @@ fun InputBar(
                             onTap = { if (connected) { onSend(draft); draft = ""; expanded = false } },
                             onLongPress = { draft = ""; expanded = false }, // hold clears the box
                         )
+                        // Mic locked open by the palette: a tap releases it (and sends
+                        // the clip), so you never have to reopen the ring to stop.
+                        micLocked -> detectTapGestures(onTap = { onReleaseMicLock() })
                         // Hands-free on: a single tap on the headset turns it off.
                         handsFree -> detectTapGestures(onTap = { onToggleHandsFree(false) })
                         // Empty box + connected + hands-free off: hold to talk, and
@@ -385,11 +392,13 @@ fun InputBar(
                     Icon(
                         when {
                             hasText -> Icons.AutoMirrored.Filled.Send
+                            micLocked -> Icons.Filled.Mic
                             !pushToTalkEnabled -> Icons.Filled.Headphones
                             else -> Icons.Filled.Mic
                         },
                         contentDescription = when {
                             hasText -> "Send"
+                            micLocked -> "Mic locked on — tap to release"
                             !pushToTalkEnabled -> "Hands-free on"
                             else -> "Hold to talk"
                         },

@@ -54,12 +54,16 @@ data class PaletteSlot(
  * [origin] — the point that was double-tapped — clamped so it always lands fully
  * on-screen. Tapping the scrim or pressing back dismisses it.
  *
+ * The centre is a toggle rather than a navigation target; [centerHighlighted] paints it
+ * in the error colour to show the toggle is currently on (today: the mic lock).
+ *
  * Lives in commonMain so Android and the web client share one implementation.
  */
 @Composable
 fun RadialPalette(
     slots: List<PaletteSlot>,
     centerLabel: String,
+    centerHighlighted: Boolean = false,
     origin: Offset?,
     onSlot: (PaletteSlot) -> Unit,
     onCenter: () -> Unit,
@@ -108,8 +112,10 @@ fun RadialPalette(
             y = center.second - CenterSize / 2,
             size = CenterSize,
             progress = progress,
-            container = MaterialTheme.colorScheme.primaryContainer,
-            content = MaterialTheme.colorScheme.onPrimaryContainer,
+            container = if (centerHighlighted) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.primaryContainer,
+            content = if (centerHighlighted) MaterialTheme.colorScheme.onError
+                      else MaterialTheme.colorScheme.onPrimaryContainer,
             label = centerLabel,
             onClick = onCenter,
         )

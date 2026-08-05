@@ -181,6 +181,25 @@ fun MainScreen(
     var paletteOpen by remember { mutableStateOf(false) }
     // Where the double-tap landed, in root coordinates — the ring blooms from there.
     var paletteAt by remember { mutableStateOf<Offset?>(null) }
+    // Mic lock: the palette's centre button holds the ordinary tap-to-speak capture
+    // open, so you can talk without keeping a finger down. Same path as a hold — it
+    // just doesn't end until you release the lock. Not hands-free: no wake word, no
+    // VAD, one clip that ends when the lock does.
+    var micLocked by remember { mutableStateOf(false) }
+    // Release the lock and send what's been captured so far. Safe to call when unlocked.
+    val releaseMicLock: () -> Unit = { if (micLocked) { micLocked = false; onTalkStop() } }
+    // Drop the lock and throw the clip away (used when the capture can no longer be
+    // delivered as recorded: the socket dropped, or hands-free is taking the mic).
+    val abandonMicLock: () -> Unit = { if (micLocked) { micLocked = false; onTalkCancel() } }
+    // The lock outlives the palette (closing the ring leaves it recording) but never
+    // outlives the screen being visible: leaving the app ends the clip and sends it.
+    PlatformBackgroundEffect { releaseMicLock() }
+    // Losing the socket makes the clip undeliverable — drop it rather than leave a
+    // dead lock on screen. Switching sessions ends the clip too, so the capture lands
+    // in the session it was started in (the slot path stops before it attaches; this
+    // catches every other route to a new focus — sidebar, notice, voice command).
+    LaunchedEffect(connected) { if (!connected) abandonMicLock() }
+    LaunchedEffect(attachedId) { releaseMicLock() }
 
     // The sessions sidebar. Reused verbatim by both layouts — [onNavigated] closes the
     // drawer in the narrow layout (a no-op in the wide one, which pins it open).
@@ -254,6 +273,14 @@ fun MainScreen(
             if (activity.isNotBlank()) ActivityIndicator(activity, onAbort = controller::abortTurn)
             if (pending.isNotBlank()) DraftLine(pending)
             if (handsFree) VoiceStatePill(voiceState)
+            if (micLocked) {
+                Text(
+                    "🔴 mic locked — tap the mic to send",
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            }
             if (mic.isNotEmpty()) {
                 Text(
                     mic, color = MaterialTheme.colorScheme.primary,
@@ -269,7 +296,10 @@ fun MainScreen(
                 // While hands-free owns the mic, push-to-talk is disabled — but the
                 // button still accepts a swipe-up to toggle hands-free back off.
                 handsFree = handsFree,
-                onToggleHandsFree = { on -> handsFree = on; onToggleHandsFree(on) },
+                // Hands-free takes the mic, so it can't coexist with a held-open clip.
+                onToggleHandsFree = { on -> if (on) abandonMicLock(); handsFree = on; onToggleHandsFree(on) },
+                micLocked = micLocked,
+                onReleaseMicLock = releaseMicLock,
                 onTalkStart = onTalkStart,
                 onTalkStop = onTalkStop,
                 onTalkCancel = onTalkCancel,
@@ -358,7 +388,7 @@ fun MainScreen(
         }
       }
       // The radial session palette. Its slots are the attach-history ring (most recent
-      // first); the centre is the session you're on, and tapping it just closes.
+      // first); the centre toggles the mic lock (see [micLocked]) and closes the ring.
       if (paletteOpen) {
           val ring = remember(discovered, attachedId) {
               controller.paletteSessions().map {
@@ -371,13 +401,26 @@ fun MainScreen(
           }
           RadialPalette(
               slots = ring,
-              centerLabel = attached ?: "detached",
+              centerLabel = if (micLocked) "unlock mic" else "lock mic",
+              centerHighlighted = micLocked,
               origin = paletteAt,
               onSlot = { slot ->
+                  // End any locked capture first so the clip is sent against the
+                  // session it was spoken into, not the one we're switching to.
+                  releaseMicLock()
                   discovered.firstOrNull { it.sessionId.ifBlank { it.dir } == slot.id }?.let(openSession)
                   paletteOpen = false
               },
-              onCenter = { paletteOpen = false },
+              // The centre toggles the mic lock. Locking needs the same preconditions
+              // as a hold — connected, and hands-free not already owning the mic.
+              onCenter = {
+                  when {
+                      micLocked -> releaseMicLock()
+                      connected && !handsFree -> { micLocked = true; onTalkStart() }
+                      else -> {}
+                  }
+                  paletteOpen = false
+              },
               onDismiss = { paletteOpen = false },
           )
       }

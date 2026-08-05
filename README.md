@@ -160,6 +160,21 @@ switch into **hands-free**, or drag **left** the same distance to **discard** th
 hold ever cuts on its own, turn on **Settings → Debug** (see below) to see the drag thresholds drawn
 as boxes and log why each hold ended.
 
+**Mic lock (hands stay free, wake word stays off).** Holding the mic gets tiring for a long
+dictation, so the **radial palette** (double-tap the transcript) has a **centre button that locks
+the mic open**: tap `lock mic` and recording starts and *keeps* running with no finger down; the
+palette closes, the centre turns red while locked, a red **mic locked** line appears above the
+message box, and the mic button itself goes red. Tap the mic button — or reopen the palette and tap
+`unlock mic` — to end the clip and send it. This is *not* hands-free: there's no wake word and no
+voice-activity detection, it's exactly the ordinary tap-to-speak capture held open, so the whole
+locked stretch is one clip.
+
+Locking needs the same conditions as a hold — connected, and hands-free off — and the lock releases
+itself rather than recording into the void: **leaving the app** (or hiding the browser tab) ends the
+clip and sends it, **switching sessions** ends it first so it lands in the session you actually spoke
+into, and **losing the connection** or **turning hands-free on** drops the clip (it could not be
+delivered as recorded). While locked, hold-to-talk is disabled so the two paths can't fight.
+
 **Debug overlays (Settings → Debug).** A developer toggle, off by default. It draws translucent boxes
 over the normally-invisible push-to-talk zones — the red **discard** zone (drag left) and amber
 **hands-free** zone (drag up) — with a live readout of your finger's drift and hold time while you
