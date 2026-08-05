@@ -160,6 +160,21 @@ switch into **hands-free**, or drag **left** the same distance to **discard** th
 hold ever cuts on its own, turn on **Settings → Debug** (see below) to see the drag thresholds drawn
 as boxes and log why each hold ended.
 
+**The radial session palette (double-tap the transcript).** Double-tap anywhere on the chat
+transcript and a ring of session buttons blooms out from where you tapped (clamped so it stays
+on-screen). The double-tap only *observes* your touches, so it never steals them: a double-tap on a
+bubble, a link, or the jump-to-latest button still does that thing *and* opens the ring. Dismiss it
+by tapping the dimmed background, pressing **back**, or tapping any button in it.
+
+The ring holds up to **eight** sessions, ordered by **attach history** — the one you were on most
+recently sits straight up from the centre, and the rest run clockwise into the past, so switching
+back and forth is always the same short flick. The session you're currently attached to is left out
+(you're already there), as is anything the server no longer knows about, and the list survives app
+restarts. On a fresh install, with no history yet, the ring falls back to last-active order so it's
+never empty. Each slot is labelled with the session's name, or the last part of its directory if it
+hasn't got one. That same most-recent-first order also drives the left-edge swap gesture. The
+**centre** of the ring isn't a session — it's the mic lock.
+
 **Mic lock (hands stay free, wake word stays off).** Holding the mic gets tiring for a long
 dictation, so the **radial palette** (double-tap the transcript) has a **centre button that locks
 the mic open**: tap `lock mic` and recording starts and *keeps* running with no finger down; the

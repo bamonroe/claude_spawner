@@ -30,14 +30,3 @@ urgency = "low"
 order = 90
 created = 2026-08-05
 tags = ["android", "ui", "radial-menu"]
-
-[[task]]
-id = "document-the-radial-palette-menu"
-title = "Document the radial palette menu"
-description = "Document the feature as part of shipping it: README user-facing section covering the double-tap, the mic lock toggle, the recency ordering of the ring, and the orange active-message indicator. Update docs/protocol.md or docs/config.md only if the attach-history work adds wire messages or env vars."
-status = "active"
-category = "docs"
-urgency = "normal"
-order = 80
-created = 2026-08-05
-tags = ["android", "ui", "radial-menu"]

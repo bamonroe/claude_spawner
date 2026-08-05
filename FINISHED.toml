@@ -14,6 +14,16 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "document-the-radial-palette-menu"
+title = "Document the radial palette menu"
+description = "Document the feature as part of shipping it: README user-facing section covering the double-tap, the mic lock toggle, the recency ordering of the ring, and the orange active-message indicator. Update docs/protocol.md or docs/config.md only if the attach-history work adds wire messages or env vars."
+status = "finished"
+category = "docs"
+created = 2026-08-05
+completed = 2026-08-05
+tags = ["android", "ui", "radial-menu"]
+
+[[task]]
 id = "show-the-sidebar-s-orange-active-message-state-on-ring-slots"
 title = "Show the sidebar's orange active-message state on ring slots"
 description = "Sessions in the ring that have an active/unread message should render in the same orange the sidebar uses. Lift the unread/active computation currently done in MainScreen (the seen-marks map compared against discovered lastActive) into shared state both the sidebar and the palette read, rather than duplicating the logic. Keep one definition of the color."
