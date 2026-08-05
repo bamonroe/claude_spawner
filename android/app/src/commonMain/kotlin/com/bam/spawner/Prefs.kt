@@ -28,6 +28,10 @@ interface Prefs {
      *  order, and lives here so the order survives an app restart. */
     var attachHistory: String
 
+    /** The radial menu's configured tree, JSON-encoded ("" = [DefaultRadialMenu]).
+     *  Read it through [parseRadialMenu]; see `RadialMenuConfig.kt`. */
+    var radialMenu: String
+
     /** Theme preference: "system" | "light" | "dark". */
     var themeMode: String
     /** Per-message token-usage badge detail: "off" | "compact" | "detailed". */

@@ -14,6 +14,16 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "configurable-radial-menu-with-submenus"
+title = "Configurable radial menu with submenus"
+description = "Settings → Radial menu edits the double-tap ring as a tree: built-in actions, nested submenus that open in place (same origin/geometry, centre becomes Back), and live rings (Sessions) that can be a submenu or spliced inline. Persisted as JSON in Prefs.radialMenu, shared by app and web client."
+status = "finished"
+category = "feature"
+created = 2026-08-05
+completed = 2026-08-05
+tags = []
+
+[[task]]
 id = "client-visible-speech-gate-state"
 title = "Client-visible speech-gate state"
 description = "The speech gate is now the pipeline front door, so a missed gate discards the audio with no transcript to show what was heard — today the only trace is a server-side 'speech gate:' log line. Add a client-visible indicator (gate open/closed) so the user can see whether the machine is listening. Needs a wire field or message plus app + web client UI."

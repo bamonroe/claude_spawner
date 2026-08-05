@@ -43,6 +43,11 @@ class SettingsStore(context: Context) : Prefs {
         get() = prefs.getString("attach_history", "") ?: ""
         set(v) = prefs.edit().putString("attach_history", v).apply()
 
+    /** The radial menu tree, JSON — see [Prefs.radialMenu]. */
+    override var radialMenu: String
+        get() = prefs.getString("radial_menu", "") ?: ""
+        set(v) = prefs.edit().putString("radial_menu", v).apply()
+
     /** Theme preference: "system" | "light" | "dark". */
     override var themeMode: String
         get() = prefs.getString("theme_mode", Prefs.DEFAULT_THEME_MODE) ?: Prefs.DEFAULT_THEME_MODE

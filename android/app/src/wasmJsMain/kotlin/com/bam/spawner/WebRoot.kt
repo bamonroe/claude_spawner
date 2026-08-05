@@ -57,6 +57,7 @@ fun WebRoot() {
                 )
                 "set_commands" -> CommandsSettings(prefs, onAliasesChanged = reconnect, onSttChanged = reconnect, onBack = { screen = "settings" })
                 "set_spoken_tokens" -> SpokenTokensSettings(controller, onBack = { screen = "settings" })
+                "set_radial" -> RadialMenuSettings(prefs, onBack = { screen = "settings" })
                 "set_about" -> AboutSettings(onBack = { screen = "settings" })
                 "browse" -> BrowseScreen(
                     controller,
@@ -78,6 +79,7 @@ fun WebRoot() {
                     badgeMode = prefs.tokenBadge,
                     showCacheTimer = prefs.cacheWarmTimer,
                     trayCommandNames = prefs.trayCommandNames().toSet(),
+                    radialMenu = parseRadialMenu(prefs.radialMenu),
                     // Push-to-talk, SpeechSynthesis TTS, and VAD-gated hands-free are all live
                     // (M5). Browsers speak to the OS default sink and expose no routing, so the
                     // output control is Speaker (voice on) vs Mute (voice off).

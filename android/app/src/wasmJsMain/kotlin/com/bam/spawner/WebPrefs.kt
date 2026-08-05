@@ -55,6 +55,10 @@ class WebPrefs : Prefs {
         get() = str("attach_history", "")
         set(v) = putStr("attach_history", v)
 
+    override var radialMenu: String
+        get() = str("radial_menu", "")
+        set(v) = putStr("radial_menu", v)
+
     override var themeMode: String
         get() = str("theme_mode", Prefs.DEFAULT_THEME_MODE)
         set(v) = putStr("theme_mode", v)

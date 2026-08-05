@@ -197,7 +197,22 @@ pointer, and since a browser has no back button, **Escape** is the way out (the 
 still works too). The ring, its attach-history order and the mic-lock centre are one shared
 implementation, so the two clients can't drift apart.
 
-The ring holds up to **eight** sessions, ordered by **attach history** — the one you were on most
+**The ring is configurable, and it has submenus (Settings → Radial menu).** What the ring shows
+is a **tree** you edit yourself: each entry is either a **built-in action** (lock mic, new session,
+swap, detach, hands-free, stop speaking, check usage, settings, close), a **submenu**, or a **live
+ring** built from app state (today: **Sessions**). Tapping a submenu opens it **in place** — the ring
+does not move, re-bloom, or change geometry; only its contents swap. Inside a submenu the centre
+button becomes **Back**, and the dimmed background, **back** and **Escape** pop one level instead of
+closing, so the ring only ever disappears from the top level. Nesting is unlimited.
+
+The centre button of the top-level ring is bound to an action of your choice (the mic lock by
+default). A live ring can either be a **button that opens the sessions submenu** (the default) or be
+**spliced straight into the ring** it sits in — that switch reproduces the flat session ring the
+palette had before submenus existed. The editor drills down exactly like the menu does, and
+**Reset to default** puts the stock menu back. Config is stored per-client and shared by the Android
+app and the browser client.
+
+The **Sessions** ring holds up to **eight** sessions, ordered by **attach history** — the one you were on most
 recently sits straight up from the centre, and the rest run clockwise into the past, so switching
 back and forth is always the same short flick. The session you're currently attached to is left out
 (you're already there), as is anything the server no longer knows about, and the list survives app

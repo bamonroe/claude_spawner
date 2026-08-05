@@ -72,6 +72,8 @@ fun MainScreen(
     badgeMode: String,
     showCacheTimer: Boolean,
     trayCommandNames: Set<String>,
+    /** The configured radial-menu tree — see `RadialMenuConfig.kt`. */
+    radialMenu: RadialMenuConfig = DefaultRadialMenu,
     debugOverlays: Boolean = false,
     mic: String,
     audioOutput: AudioOutput,
@@ -375,49 +377,67 @@ fun MainScreen(
           }
         }
       }
-      // The radial session palette. Its slots are the attach-history ring (most recent
-      // first); the centre toggles the mic lock (see [micLocked]) and closes the ring.
-      if (paletteOpen) {
-          val ring = remember(discovered, attachedId, unread) {
-              controller.paletteSessions().map {
-                  PaletteSlot(
-                      id = sessionKey(it),
-                      label = it.name.ifBlank { it.dir.substringAfterLast('/') },
-                      highlighted = needsAttention(it, attachedId, unread),
-                  )
+      // The radial menu. While the mic is locked the ring *is* the recording control —
+      // send (centre) and cancel (above it), nothing implicit closes it — so the clip can
+      // only end by an explicit tap. Otherwise it shows the configured menu tree.
+      if (paletteOpen && micLocked) {
+          RadialPalette(
+              slots = emptyList(),
+              centerLabel = "Send",
+              centerIcon = Icons.Filled.Mic,
+              centerHighlighted = true,
+              cancelLabel = "Cancel",
+              onCancel = { abandonMicLock(); paletteOpen = false },
+              dismissible = false,
+              origin = paletteAt,
+              onSlot = { },
+              onCenter = { releaseMicLock(); paletteOpen = false },
+              onDismiss = { },
+          )
+      } else if (paletteOpen) {
+          // The one live source today: the attach-history ring, most recent first.
+          val sessionEntries: (String) -> List<RadialDynamicEntry> = { source ->
+              if (source != RadialSources.SESSIONS) emptyList() else controller.paletteSessions().map { d ->
+                  RadialDynamicEntry(
+                      PaletteSlot(
+                          id = sessionKey(d),
+                          label = d.name.ifBlank { d.dir.substringAfterLast('/') },
+                          highlighted = needsAttention(d, attachedId, unread),
+                      ),
+                  ) {
+                      // End any locked capture first so the clip is sent against the
+                      // session it was spoken into, not the one we're switching to.
+                      releaseMicLock()
+                      openSession(d)
+                      paletteOpen = false
+                  }
               }
           }
-          RadialPalette(
-              // While locked the palette *is* the recording control: the ring of sessions
-              // gives way to send (centre) and cancel (above it), and nothing implicit
-              // closes it, so the clip can only end by an explicit tap.
-              slots = if (micLocked) emptyList() else ring,
-              centerLabel = if (micLocked) "Send" else "lock mic",
-              centerIcon = if (micLocked) Icons.Filled.Mic else null,
-              centerHighlighted = micLocked,
-              cancelLabel = if (micLocked) "Cancel" else null,
-              onCancel = { abandonMicLock(); paletteOpen = false },
-              dismissible = !micLocked,
+          RadialMenuHost(
+              config = radialMenu,
               origin = paletteAt,
-              onSlot = { slot ->
-                  // End any locked capture first so the clip is sent against the
-                  // session it was spoken into, not the one we're switching to.
-                  releaseMicLock()
-                  discovered.firstOrNull { it.sessionId.ifBlank { it.dir } == slot.id }?.let(openSession)
-                  paletteOpen = false
-              },
-              // The centre toggles the mic lock. Locking needs the same preconditions
-              // as a hold — connected, and hands-free not already owning the mic.
-              // Locking keeps the palette up so the centre stays under the thumb as the
-              // send button; tapping it again sends the clip and closes.
-              onCenter = {
-                  when {
-                      micLocked -> { releaseMicLock(); paletteOpen = false }
-                      connected && !handsFree -> { micLocked = true; onTalkStart() }
+              dynamic = sessionEntries,
+              onDismiss = { paletteOpen = false },
+              onAction = { action ->
+                  // Locking the mic keeps the ring up so the centre stays under the thumb
+                  // as the send button; every other action closes it.
+                  when (action) {
+                      RadialActions.MIC_LOCK ->
+                          if (connected && !handsFree) { micLocked = true; onTalkStart() }
+                          else paletteOpen = false
+                      RadialActions.NEW_SESSION -> { onNewSession(); paletteOpen = false }
+                      RadialActions.SWAP -> { releaseMicLock(); controller.swap(); paletteOpen = false }
+                      RadialActions.DETACH -> { releaseMicLock(); controller.detach(); paletteOpen = false }
+                      RadialActions.HANDS_FREE -> {
+                          abandonMicLock()
+                          handsFree = !handsFree; onToggleHandsFree(handsFree); paletteOpen = false
+                      }
+                      RadialActions.STOP_SPEAKING -> { onStopSpeaking(); paletteOpen = false }
+                      RadialActions.USAGE -> { controller.requestUsage(); paletteOpen = false }
+                      RadialActions.SETTINGS -> { releaseMicLock(); onOpenSettings(); paletteOpen = false }
                       else -> paletteOpen = false
                   }
               },
-              onDismiss = { paletteOpen = false },
           )
       }
     }
