@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/bam/claude_spawner/server/internal/detect"
+	"github.com/bam/claude_spawner/server/internal/session"
 	"github.com/bam/claude_spawner/server/internal/spoken"
+	"github.com/bam/claude_spawner/server/internal/transcribe"
 )
 
 // stubDetector returns canned scores (or an error) for endTokenFired tests.
@@ -53,7 +56,93 @@ func TestEndTokenFired(t *testing.T) {
 	}
 }
 
-func TestGateDictation(t *testing.T) {
+// gateModelKey is the detector model a speech-gate token is bound to in these
+// tests (no trained gate model ships yet — the code path just has to accept one).
+const gateModelKey = "speech_gate"
+
+// stubTranscriber returns a canned transcript for every clip, and counts calls so
+// a test can assert the closed gate never reached Whisper.
+type stubTranscriber struct {
+	text  string
+	calls int
+}
+
+func (s *stubTranscriber) Transcribe(context.Context, []byte, transcribe.Options) (string, error) {
+	s.calls++
+	return s.text, nil
+}
+
+// gateTokens is the catalogue a gated connection runs with: a speech-gate phrase
+// carrying a detector model, plus the default wake/end tokens.
+func gateTokens(t *testing.T) *session.SpokenTokenStore {
+	t.Helper()
+	return tokensSeed(t, []*spoken.Token{
+		{Name: "wake", Phrase: "hey buddy", Action: spoken.ActionWake},
+		{Name: "end", Phrase: "all set", Action: spoken.ActionEnd},
+		{Name: "note", Phrase: "take a note", Action: spoken.ActionSpeechGate, Model: gateModelKey},
+	})
+}
+
+// TestGateFrontDoor: while the gate is closed, a clip is scored and NOTHING is
+// retained — no PCM, no draft buffer. The gate phrase opens it, and from there
+// capture behaves as it always has.
+func TestGateFrontDoor(t *testing.T) {
+	stt := &stubTranscriber{text: "just people talking nearby"}
+	cn := &conn{ctx: context.Background(), dictationGate: true,
+		srv: &Server{stt: stt, tokens: gateTokens(t)}}
+	cn.gatedChunk([]byte{1, 2, 3, 4})
+	if len(cn.audioPCM) != 0 || len(cn.buffer) != 0 || cn.gateOpen {
+		t.Fatalf("closed gate retained state: pcm=%d buffer=%v open=%v", len(cn.audioPCM), cn.buffer, cn.gateOpen)
+	}
+	// Same connection, now the clip carries the gate phrase: the gate opens and the
+	// straddling clip's audio is kept whole.
+	stt.text = "take a note fix the bug"
+	if !cn.openGate([]byte{1, 2}) {
+		t.Fatal("gate phrase did not open the gate")
+	}
+	if !cn.gateOpen {
+		t.Fatal("gate not marked open")
+	}
+}
+
+// With a gate detector configured, a closed gate never calls Whisper at all —
+// that's the cost win the front door exists for.
+func TestGateClosedSkipsWhisperWithDetector(t *testing.T) {
+	stt := &stubTranscriber{text: "chatter"}
+	cn := &conn{ctx: context.Background(), dictationGate: true, wakeService: "detector",
+		srv: &Server{stt: stt, tokens: gateTokens(t), wakeThreshold: 0.5,
+			detector: stubDetector{scores: detect.Scores{gateModelKey: 0.01}}}}
+	cn.gatedChunk([]byte{1, 2, 3, 4})
+	if stt.calls != 0 {
+		t.Fatalf("closed gate called whisper %d times, want 0", stt.calls)
+	}
+	if cn.gateOpen {
+		t.Fatal("gate opened on a below-threshold score")
+	}
+	// Detector fires → gate opens, still without a Whisper pass to decide it.
+	cn.srv.detector = stubDetector{scores: detect.Scores{gateModelKey: 0.99}}
+	if !cn.openGate([]byte{1, 2}) || !cn.gateOpen {
+		t.Fatal("detector above threshold did not open the gate")
+	}
+}
+
+// An open gate that never sees an end token re-closes on the idle timeout, so a
+// detector false positive can't leave capture live on the room.
+func TestGateIdleTimeoutRecloses(t *testing.T) {
+	stt := &stubTranscriber{text: "chatter"}
+	cn := &conn{ctx: context.Background(), dictationGate: true,
+		srv: &Server{stt: stt, tokens: gateTokens(t)}}
+	cn.gateOpen = true
+	cn.gateOpenedAt = time.Now().Add(-2 * gateIdleTimeout)
+	cn.audioPCM = []byte{9, 9}
+	cn.buffer = []string{"stale"}
+	cn.gatedChunk([]byte{1, 2, 3, 4}) // clearBuffer sends msgPending — needs a ws, so stop before that
+	if cn.gateOpen || len(cn.audioPCM) != 0 || len(cn.buffer) != 0 {
+		t.Fatalf("idle gate not re-closed: open=%v pcm=%d buffer=%v", cn.gateOpen, len(cn.audioPCM), cn.buffer)
+	}
+}
+
+func TestStripGate(t *testing.T) {
 	// Speech-gate tokens as they now live in the catalogue: "take a note" / "dictate".
 	speak := []*spoken.Token{
 		{Name: "note", Phrase: "take a note", Action: spoken.ActionSpeechGate},
@@ -68,19 +157,20 @@ func TestGateDictation(t *testing.T) {
 	}{
 		// Gate off: text passes through verbatim (current behavior).
 		{"off", false, speak, "some ambient chatter", "some ambient chatter"},
-		// Gate on, speak token present: only the bracketed remainder dictates.
+		// Gate on, phrase present: everything up to and including it is trimmed.
 		{"bracketed", true, speak, "radio noise take a note fix the bug", "fix the bug"},
 		{"variant", true, speak, "blah dictate ship it", "ship it"},
-		// Gate on, no speak token in the utterance: discard it all.
-		{"chatter", true, speak, "just people talking nearby", ""},
+		// Gate on, no phrase in the text: the detector opened the gate, so there is
+		// nothing to trim — pass it through rather than swallow the utterance.
+		{"detector-opened", true, speak, "fix the bug", "fix the bug"},
 		// Gate on but no speak token configured: fail safe — pass through, don't
 		// silently swallow everything.
 		{"no-token", true, nil, "still dictate this", "still dictate this"},
 	}
 	for _, c := range cases {
 		cn := &conn{dictationGate: c.gate, srv: &Server{tokens: tokensSeed(t, c.tokens)}}
-		if got := cn.gateDictation(c.in); got != c.want {
-			t.Errorf("%s: gateDictation(%q) = %q, want %q", c.name, c.in, got, c.want)
+		if got := cn.stripGate(c.in); got != c.want {
+			t.Errorf("%s: stripGate(%q) = %q, want %q", c.name, c.in, got, c.want)
 		}
 	}
 }

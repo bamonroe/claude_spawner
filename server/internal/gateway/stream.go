@@ -3,16 +3,38 @@ package gateway
 import (
 	"log"
 	"strings"
+	"time"
 
 	"github.com/bam/claude_spawner/server/internal/command"
 	"github.com/bam/claude_spawner/server/internal/transcribe"
 )
 
+// gateIdleTimeout re-closes a speech gate that opened but never reached an end
+// token — a detector false-positive on background speech would otherwise leave
+// capture live indefinitely, dictating the room.
+const gateIdleTimeout = 90 * time.Second
+
 // gatedChunk buffers a hands-free clip's audio and fast-transcribes it (tiny
 // model) just to show a live draft and watch for the end token. Nothing commits
 // until the end token — then the WHOLE buffered audio is re-transcribed at once
 // (with the user's chosen model) so whisper sees full context, not fragments.
+//
+// With the speech gate on, this runs in two modes. CLOSED: the clip is only
+// scored for the gate phrase and retains nothing — no PCM, no draft, no
+// transcript bubble, no accurate pass — so ambient chatter costs nothing and
+// never reaches the app. OPEN (from the gate phrase to the end token): exactly
+// the behaviour below. Gate off ⇒ always open, i.e. today's pipeline.
 func (c *conn) gatedChunk(pcm []byte) {
+	if c.gateActive() {
+		if c.gateOpen && time.Since(c.gateOpenedAt) > gateIdleTimeout {
+			log.Printf("speech gate: idle %s with no end token — re-closing, discarding buffer", gateIdleTimeout)
+			c.clearBuffer() // also re-closes the gate
+		}
+		if !c.gateOpen && !c.openGate(pcm) {
+			return // pre-gate speech: scored and dropped, nothing retained
+		}
+	}
+
 	target := strings.TrimSpace(c.audioSessionID)
 	if target != c.bufferSessionID && (len(c.audioPCM) > 0 || len(c.buffer) > 0) {
 		c.buffer = nil
@@ -44,9 +66,7 @@ func (c *conn) gatedChunk(pcm []byte) {
 	if before, after, found := c.splitWake(joined); found && strings.TrimSpace(before) == "" {
 		if command.Parse(command.ApplyAliases(after, c.aliases)).Kind == command.Stop {
 			c.send(msgStopSpeaking())
-			c.buffer = nil
-			c.audioPCM = nil
-			c.send(msgPending(""))
+			c.clearBuffer()
 			return
 		}
 	}
@@ -60,14 +80,70 @@ func (c *conn) gatedChunk(pcm []byte) {
 		_, _, end = command.SplitOn(joined, c.endPhrases())
 	}
 	if !end {
-		// Draft only what would actually be dictated: with the dictation gate on,
-		// suppress pre-speak-token ambient speech so the note stays empty until the
-		// gate opens (and can't grow unbounded from background chatter). Gate off:
-		// gateDictation returns the text unchanged, so the draft is the full buffer.
-		c.send(msgPending(c.gateDictation(joined)))
+		// Draft only what will actually be sent: pre-gate speech never reaches the
+		// buffer at all now, so this only trims the ambient tail sharing the clip
+		// that opened the gate. Gate off: the draft is the full buffer.
+		c.send(msgPending(c.stripGate(joined)))
 		return
 	}
 	c.commitMessage()
+}
+
+// openGate scores a single clip against the speech gate while the gate is closed
+// and reports whether it opened. Nothing about the clip is retained either way —
+// with a gate detector configured the closed state never calls Whisper at all,
+// which is the whole cost win; with no detector it falls back to the tiny fast
+// pass used purely as a matcher whose transcript is thrown away.
+//
+// The one thing that stays ungated is barge-in: while TTS is playing, a pure
+// "hey buddy stop" halts it without the gate phrase, because being unable to stop
+// runaway speech without first addressing the machine is a trap. That costs the
+// fast pass only while something is actually being spoken.
+func (c *conn) openGate(pcm []byte) bool {
+	fired, ok := c.detectorFired(pcm, c.gateModels())
+	if ok && fired {
+		c.armGate()
+		return true
+	}
+	speaking := c.speaking()
+	if ok && !speaking {
+		return false // detector spoke, gate stayed shut, nothing to barge in on — no Whisper
+	}
+	text, err := c.fastTranscriber().Transcribe(c.ctx, transcribe.PCM16WAV(pcm, audioSampleRate, audioChannels),
+		transcribe.Options{Mode: "fixed", Model: "tiny", Prompt: c.detectBias()})
+	if err != nil {
+		return false
+	}
+	if speaking {
+		if before, after, found := c.splitWake(text); found && strings.TrimSpace(before) == "" {
+			if command.Parse(command.ApplyAliases(after, c.aliases)).Kind == command.Stop {
+				c.send(msgStopSpeaking())
+				return false
+			}
+		}
+	}
+	if _, _, found := command.SplitOn(text, c.speakPhrases()); found {
+		c.armGate()
+		return true
+	}
+	return false
+}
+
+// armGate opens the gate for the utterance in flight. The clip that opened it is
+// kept whole — it also holds the first words after the phrase — and the text-level
+// strip in commitMessage drops everything up to and including the phrase, so the
+// audio boundary can be sloppy while the dictated text stays exact.
+func (c *conn) armGate() {
+	c.gateOpen = true
+	c.gateOpenedAt = time.Now()
+	log.Printf("speech gate: opened — capturing until the end token")
+}
+
+// speaking reports whether TTS synthesis is in flight (the barge-in window).
+func (c *conn) speaking() bool {
+	c.speakMu.Lock()
+	defer c.speakMu.Unlock()
+	return c.speakCancel != nil
 }
 
 // endTokenFired reports whether this clip's audio trips the end-token detector.
@@ -76,6 +152,15 @@ func (c *conn) gatedChunk(pcm []byte) {
 // gracefully (the A/B safety net). Detection is the ONLY job here; the accurate
 // transcription still happens in commitMessage.
 func (c *conn) endTokenFired(pcm []byte) (fired, ok bool) {
+	return c.detectorFired(pcm, c.endModels())
+}
+
+// detectorFired scores this clip's audio against the given detector model keys —
+// the shared path behind both the end token and the speech gate. ok=false means
+// no detector is configured for this client, none of these tokens carries a
+// model, or the sidecar errored; the caller then falls back to the Whisper
+// string-match, so a missing or flaky sidecar degrades gracefully.
+func (c *conn) detectorFired(pcm []byte, models []string) (fired, ok bool) {
 	// The trained sidecar is opt-in per client: only score it when this connection
 	// asked for the "detector" service. The default (and every other value, incl.
 	// empty from an older client) stays on the always-present Whisper string-match —
@@ -84,10 +169,8 @@ func (c *conn) endTokenFired(pcm []byte) (fired, ok bool) {
 	if c.wakeService != "detector" || c.srv.detector == nil {
 		return false, false
 	}
-	// The detector model keys come from the end-token tokens in the catalogue (a
-	// token with no model is Whisper-only, so it doesn't participate here). No
-	// end-token model configured ⇒ nothing to score, fall back to the string-match.
-	models := c.endModels()
+	// A token with no model is Whisper-only, so it doesn't participate here. No
+	// model configured ⇒ nothing to score, fall back to the string-match.
 	if len(models) == 0 {
 		return false, false
 	}
@@ -112,6 +195,8 @@ func (c *conn) endTokenFired(pcm []byte) (fired, ok bool) {
 func (c *conn) commitMessage() {
 	audio := c.audioPCM
 	sessionID := c.bufferSessionID
+	gated := c.gateOpen
+	c.gateOpen = false // every commit re-closes the gate: one utterance per opening
 	c.buffer = nil
 	c.audioPCM = nil
 	c.bufferSessionID = ""
@@ -131,6 +216,14 @@ func (c *conn) commitMessage() {
 		return
 	}
 	msg, _, _ := command.SplitOn(full, c.endPhrases()) // drop the end token (+ any trailing)
+	// The clip that opened the gate straddles the phrase, so the accurate transcript
+	// still carries the tail of the pre-gate speech. Strip everything up to and
+	// including the phrase here, once — after this the message is exactly what was
+	// said to the machine, and commands and dictation route the same way ungated
+	// speech always has.
+	if gated {
+		msg = c.stripGate(msg)
+	}
 	msg = strings.TrimSpace(msg)
 	if msg == "" {
 		c.send(msgPending("")) // nothing recognized — clear the "transcribing…" state
@@ -162,9 +255,7 @@ func (c *conn) commitMessage() {
 			}
 			return
 		}
-		if dict := c.gateDictation(msg); dict != "" { // attached: pure dictation (gated if enabled)
-			c.dictate(dict)
-		}
+		c.dictate(msg) // attached: pure dictation (already past the gate)
 		return
 	}
 	// "<dictation> hey buddy <cmd> hey buddy <cmd> …": each wake starts a command.
@@ -192,9 +283,7 @@ func (c *conn) commitMessage() {
 	// "<dictation> hey buddy attach" dictates into the *old* session, not the newly
 	// attached one — spoken order wins.)
 	if before = strings.TrimSpace(before); before != "" && c.attached != nil {
-		if dict := c.gateDictation(before); dict != "" {
-			c.dictate(dict)
-		}
+		c.dictate(before)
 	}
 	for _, intent := range intents {
 		c.runCommand(intent)
@@ -267,10 +356,13 @@ func (c *conn) vocabBias() string {
 	return strings.Join(parts, " ")
 }
 
-// clearBuffer discards the pending message + audio and clears the draft.
+// clearBuffer discards the pending message + audio, clears the draft, and
+// re-closes the speech gate — an abandoned utterance must not leave the front
+// door standing open for the next thing said in the room.
 func (c *conn) clearBuffer() {
 	c.buffer = nil
 	c.audioPCM = nil
+	c.gateOpen = false
 	c.send(msgPending(""))
 }
 

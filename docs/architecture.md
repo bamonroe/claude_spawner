@@ -53,6 +53,20 @@ you don't need it for most turns. High-level "what it is" and the behavioral rul
   safety net). The audio source is unchanged — still bounded VAD/push-to-talk clips, no always-on
   stream (the sidecar left-pads short clips to its 2s window). The sidecar's `GET /stream` WebSocket
   exists for a possible future mid-word-latency path but is **not** used by the gateway today.
+- **Speech gate (the pipeline's front door)**: when a client enables it (`hello.dictation_gate` plus
+  a `speech_gate` token in the spoken-token catalogue), the gate phrase is the **entry condition for
+  hands-free capture**, not a filter on the resulting text. `gatedChunk` runs closed until it fires:
+  each clip goes to `openGate` (`internal/gateway/stream.go`) and is scored — by the same detector
+  path as the end token when the token carries a model, otherwise by the tiny fast pass used purely
+  as a matcher — and then **discarded whole**. Nothing is appended to `audioPCM` or the draft buffer,
+  no `pending`/`transcript` is sent, and `commitMessage`'s accurate pass never runs, so ambient
+  chatter costs at most one tiny pass (zero, with a detector) and is invisible to the app. On a hit
+  the gate opens and the clip that opened it is kept **whole** — it also holds the first words spoken
+  after the phrase — with `stripGate` trimming the pre-gate tail at the *text* level on the accurate
+  transcript, so the audio boundary can be sloppy while the message stays exact. Every commit
+  re-closes the gate, as do `clearBuffer` and a `gateIdleTimeout` (90s) that stops a detector false
+  positive from leaving capture live. Commands are gated like dictation; barge-in `hey buddy stop` is
+  the deliberate exception and is matched while closed whenever TTS is actually playing.
 - **Transport**: a single WebSocket per app session carries audio up and transcripts/session
   output down. Use REST only for stateless control actions if needed.
 - **Session control**: the server shells out to `claude` headless (see below). Input is the prompt

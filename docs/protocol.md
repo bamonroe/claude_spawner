@@ -111,11 +111,14 @@ hands_free = true    → streaming: APPEND the transcript to the per-connection 
 `hello` also carries optional flags: `end_token` (the word that commits a hands-free message),
 `wake_token` (custom wake word(s), **comma-separated** for several misheard variants, accepted
 alongside the built-in "hey buddy"; empty = built-in only), `speak_token` + `dictation_gate` (the
-**dictation gate**: when `dictation_gate` is true and `speak_token` is set, hands-free speech is
-only dictated to Claude when it follows the speak token — a comma-separated start marker — up to the
-end token; un-bracketed speech is discarded, so ambient chatter/radio never reaches the session.
-Commands ("hey buddy …") are never gated. Empty `speak_token`, or `dictation_gate` false, disables
-the gate), `stt_mode`/`stt_model`/`whisper_model` (transcription), `wake_service` (which
+**speech gate**: when `dictation_gate` is true and `speak_token` is set, the speak token — a
+comma-separated start marker — is the entry condition for the whole hands-free pipeline. Until it is
+heard each clip is only scored for it and nothing is retained: no buffered audio, no `pending` draft,
+no `transcript`, no accurate transcription pass, so ambient chatter/radio never reaches the session
+or the app. From the token to the end token, capture behaves as it does ungated; committing
+re-closes the gate, as does a 90s idle timeout. Commands ("hey buddy …") are gated too; the one
+exception is barge-in — a pure "hey buddy stop" while TTS is playing still fires `speak_stop`.
+Empty `speak_token`, or `dictation_gate` false, disables the gate), `stt_mode`/`stt_model`/`whisper_model` (transcription), `wake_service` (which
 backend scores the live wake/end tokens: `whisper` — the default — string-matches the fast transcript,
 which is always available; `detector` opts this client into the purpose-trained `SPAWNER_WAKEWORD_URL`
 sidecar. The detector is opt-in per client, so a server with the sidecar configured never routes a

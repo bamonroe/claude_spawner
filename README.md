@@ -79,13 +79,26 @@ buddy" (blank keeps "hey buddy" only). It's **comma-separated**, so you can list
 wake phrase in a noisy room. Pick words Whisper transcribes cleanly: a custom word has no curated
 mis-hear alias list the way "hey buddy" does, though the server does bias transcription toward it.
 
-**Dictation gate for noisy rooms (Settings → Commands).** In hands-free mode with a lot of ambient
+**Speech gate for noisy rooms (Settings → Commands).** In hands-free mode with a lot of ambient
 chatter — other people, a radio, a recording — you don't want all of it dictated into your session.
-Turn on **Require a speak token** and set a **speak token** (e.g. "take a note"). Then only speech
-that *follows* the speak token, up to your end token, is sent to Claude ("take a note, fix the parser
-bug, beep"); everything else is discarded. Commands still work with no speak token needed, so "hey
-buddy, stop" always interrupts. Leave the switch off (or the speak token blank) to dictate everything
-as before. The speak token is comma-separated too, so you can give it a couple of variants.
+Turn on **Require a speak token** and set a **speak token** (e.g. "take a note"). The token then
+becomes the **front door to the whole pipeline**, not a filter applied at the end: until you say it,
+each clip is only scored for the phrase and *nothing is kept* — no audio buffered, no live draft, no
+transcript bubble on the phone, and no second (accurate) Whisper pass. Say it and capture starts,
+running exactly as ungated hands-free does until your end token, which commits the message and closes
+the gate again: "take a note, fix the parser bug, beep".
+
+Because the gate is the front door, **commands are gated too** — "take a note, hey buddy attach to
+spawner, beep". The single exception is barge-in: while the server is speaking, "hey buddy stop"
+always interrupts with no speak token needed, since needing a password to stop runaway speech would
+be a trap. A gate that opens but never hears an end token re-closes itself after 90 seconds, so a
+misfire can't leave the mic live on the room. Push-to-talk and mic lock are unaffected — a held mic
+is already an explicit front door.
+
+The trade-off to know: a *missed* gate now loses the audio too, so there's no transcript showing what
+was heard (the server logs `speech gate:` lines when it opens or times out). Leave the switch off (or
+the speak token blank) to dictate everything as before. The speak token is comma-separated, so you
+can give it a couple of variants.
 
 **Wake/end-token detection backend (Settings → Commands).** By default the live hands-free wake and
 end tokens are recognized by string-matching the fast Whisper transcript — always available, no extra

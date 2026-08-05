@@ -73,7 +73,9 @@ type conn struct {
 	bufferSessionID string            // app-declared target session for the hands-free buffer
 	brief           bool              // append a "reply briefly for TTS" hint to dictation
 	interactive     bool              // let Claude ask clarifying questions mid-task
-	dictationGate   bool              // discard un-bracketed speech instead of dictating it (needs a speech-gate token configured)
+	dictationGate   bool              // speech gate on: hands-free capture only starts at the gate phrase (needs a speech-gate token configured)
+	gateOpen        bool              // the speech gate has fired for the utterance in flight — capture is live
+	gateOpenedAt    time.Time         // when it opened, for the idle timeout that re-closes a misfired gate
 	sttMode         string            // "dynamic" | "fixed" whisper model selection
 	sttModel        string            // fixed-mode model: "tiny" | "base" | "small"
 	wakeService     string            // live wake/end-token backend: "whisper" (default string-match) | "detector" (the SPAWNER_WAKEWORD_URL sidecar)
@@ -143,6 +145,9 @@ func (c *conn) send(v any) error {
 	c.stampSession(v)
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
+	if c.ws == nil {
+		return nil // no socket (unit-test conn) — nothing to write
+	}
 	_ = c.ws.SetWriteDeadline(time.Now().Add(writeWait))
 	if err := c.ws.WriteJSON(v); err != nil {
 		log.Printf("ws write: %v", err)
@@ -309,6 +314,20 @@ func (c *conn) endPhrases() [][]string { return spoken.Phrases(c.srv.tokens.List
 // scored against the wakeword sidecar when the detector service is on.
 func (c *conn) endModels() []string { return spoken.Models(c.srv.tokens.List(), spoken.ActionEnd) }
 
+// gateModels are the detector (ONNX) model keys bound to speech-gate tokens. With
+// one configured, the closed gate is scored on raw audio and never calls Whisper —
+// the point of making the gate a front door rather than a text filter.
+func (c *conn) gateModels() []string {
+	return spoken.Models(c.srv.tokens.List(), spoken.ActionSpeechGate)
+}
+
+// gateActive reports whether the speech gate is the front door for this
+// connection: the per-device flag is on AND a speech-gate phrase is configured.
+// No phrase ⇒ inert (fail safe: never swallow everything).
+func (c *conn) gateActive() bool {
+	return c.dictationGate && len(c.speakPhrases()) > 0
+}
+
 // stripWake / splitWake are the connection-scoped wake matchers: they match the
 // configured wake phrases (c.wakePhrases()). Use these instead of the package-level
 // command.StripWake / command.SplitWake anywhere a *conn is in scope.
@@ -328,20 +347,13 @@ func (c *conn) splitWakeAll(text string) (before string, commands []string) {
 	return command.SplitWakeAllWith(text, c.wakePhrases())
 }
 
-// gateDictation applies the dictation gate to a would-be dictation string. When
-// the gate is on (and a speak token is configured), only the text following the
-// speak token is dictated (the token stripped); text with no speak token returns
-// "" so the caller drops it as ambient chatter. Gate off — or no speak token —
-// passes text through unchanged, preserving the ungated behavior. Commands are
-// never routed through here, so "hey buddy stop" always works regardless.
-
-// gateDictation applies the dictation gate to a would-be dictation string. When
-// the gate is on (and a speak token is configured), only the text following the
-// speak token is dictated (the token stripped); text with no speak token returns
-// "" so the caller drops it as ambient chatter. Gate off — or no speak token —
-// passes text through unchanged, preserving the ungated behavior. Commands are
-// never routed through here, so "hey buddy stop" always works regardless.
-func (c *conn) gateDictation(text string) string {
+// stripGate drops everything up to and including the speech-gate phrase. The gate
+// is a front door now, not a text filter: pre-gate audio is discarded before it is
+// ever buffered (see conn.openGate), so all this does is trim the tail of ambient
+// speech that shared the clip which opened the gate. No phrase in the text — the
+// gate was opened by the detector, or it's off entirely — returns the text
+// unchanged, so nothing is ever silently swallowed here.
+func (c *conn) stripGate(text string) string {
 	speak := c.speakPhrases()
 	if !c.dictationGate || len(speak) == 0 {
 		return text
@@ -349,7 +361,7 @@ func (c *conn) gateDictation(text string) string {
 	if _, after, found := command.SplitOn(text, speak); found {
 		return strings.TrimSpace(after)
 	}
-	return ""
+	return text
 }
 
 // handleUtterance routes a transcribed utterance to the active dialog, to a
