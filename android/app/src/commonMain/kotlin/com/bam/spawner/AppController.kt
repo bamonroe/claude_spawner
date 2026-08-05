@@ -118,6 +118,11 @@ interface AppController : HostsIdentitiesController, ProfilesController, Provide
     fun detach()
     /** Toggle back to the app's previously focused session; falls back to server swap if unknown. */
     fun swap()
+    /**
+     * The sessions the radial palette rings, most-recently-attached first and excluding the
+     * current focus. See `SessionSync.attachHistory` for the ordering and fallback rules.
+     */
+    fun paletteSessions(limit: Int = PALETTE_SLOTS): List<DiscoveredInfo>
     fun abortTurn()
     fun loadOlder()
     fun submitAnswers(text: String)

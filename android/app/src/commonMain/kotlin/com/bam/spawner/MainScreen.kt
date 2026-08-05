@@ -43,6 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
@@ -175,6 +176,11 @@ fun MainScreen(
     // The command tray (swipe up on the message box). Hoisted here so a tap
     // anywhere outside it — the chat, the bars, the text field — can dismiss it.
     var trayOpen by rememberSaveable { mutableStateOf(false) }
+    // The radial session palette, opened by double-tapping the transcript. Hoisted so
+    // both layouts share one state; the ring itself renders over the whole screen.
+    var paletteOpen by remember { mutableStateOf(false) }
+    // Where the double-tap landed, in root coordinates — the ring blooms from there.
+    var paletteAt by remember { mutableStateOf<Offset?>(null) }
 
     // The sessions sidebar. Reused verbatim by both layouts — [onNavigated] closes the
     // drawer in the narrow layout (a no-op in the wide one, which pins it open).
@@ -238,7 +244,11 @@ fun MainScreen(
             // the list from the bottom. ChatList watches its own viewport height and
             // re-pins the newest message above the bars (and the keyboard) itself.
             val showWarmBar = showCacheTimer && lastUsage != null
-            ChatList(chat, hasMoreHistory, scrollTick, badgeMode, controller::loadOlder, Modifier.weight(1f).fillMaxWidth())
+            ChatList(
+                chat, hasMoreHistory, scrollTick, badgeMode, controller::loadOlder,
+                Modifier.weight(1f).fillMaxWidth(),
+                onDoubleTap = { at -> trayOpen = false; paletteAt = at; paletteOpen = true },
+            )
             if (showWarmBar) lastUsage?.let { CacheWarmBar(it) }
             if (speaking) SpeakingBar(onStop = onStopSpeaking)
             if (activity.isNotBlank()) ActivityIndicator(activity, onAbort = controller::abortTurn)
@@ -346,6 +356,30 @@ fun MainScreen(
             )
           }
         }
+      }
+      // The radial session palette. Its slots are the attach-history ring (most recent
+      // first); the centre is the session you're on, and tapping it just closes.
+      if (paletteOpen) {
+          val ring = remember(discovered, attachedId) {
+              controller.paletteSessions().map {
+                  PaletteSlot(
+                      id = it.sessionId.ifBlank { it.dir },
+                      label = it.name.ifBlank { it.dir.substringAfterLast('/') },
+                      highlighted = it.busy || it.sessionId.ifBlank { it.dir } in unread,
+                  )
+              }
+          }
+          RadialPalette(
+              slots = ring,
+              centerLabel = attached ?: "detached",
+              origin = paletteAt,
+              onSlot = { slot ->
+                  discovered.firstOrNull { it.sessionId.ifBlank { it.dir } == slot.id }?.let(openSession)
+                  paletteOpen = false
+              },
+              onCenter = { paletteOpen = false },
+              onDismiss = { paletteOpen = false },
+          )
       }
     }
 

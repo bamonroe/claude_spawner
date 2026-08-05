@@ -39,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.dp
@@ -61,6 +62,7 @@ fun ChatList(
     badgeMode: String,
     onLoadOlder: () -> Unit,
     modifier: Modifier,
+    onDoubleTap: ((Offset) -> Unit)? = null,
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -132,7 +134,11 @@ fun ChatList(
     // distorted the Column's height and pushed the input bar off-screen). Selection
     // is per-bubble instead — long-press a message to select/copy it. The Box only
     // overlays a jump-to-latest button; it keeps the same weight the LazyColumn had.
-    Box(modifier) {
+    // The double-tap watcher lives here, on the transcript viewport itself, so the
+    // active region is exactly the message area — never the top bar, status bars or
+    // input bar — on both the narrow and the wide layout. It consumes nothing, so
+    // scroll, single tap, long-press select and the edge swipes are unaffected.
+    Box(modifier.observeDoubleTap(onDoubleTap != null) { at -> onDoubleTap?.invoke(at) }) {
         LazyColumn(Modifier.fillMaxSize(), state = listState) {
             if (hasMore) item {
                 TextButton(onClick = onLoadOlder, modifier = Modifier.fillMaxWidth()) {

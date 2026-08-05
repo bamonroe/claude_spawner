@@ -320,6 +320,7 @@ class WebAppController(internal val prefs: Prefs) : AppController {
         client?.send(Outbound.utterance(t, sessionId = _attachedId.value))
     }
     override fun focusSession(session: DiscoveredInfo) = focusKnownSession(session, syncServer = true)
+    override fun paletteSessions(limit: Int) = session.attachHistory(limit)
     override fun attachTo(name: String) {
         _discovered.value.firstOrNull { it.registered && it.name == name }?.let {
             focusKnownSession(it, syncServer = true)

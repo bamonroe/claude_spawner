@@ -496,6 +496,7 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
         client?.send(Outbound.setAgent(sessionId, dir, agent, model)).let {}
 
     override fun focusSession(session: DiscoveredInfo) = focusKnownSession(session, syncServer = true)
+    override fun paletteSessions(limit: Int) = session.attachHistory(limit)
 
     override fun attachTo(name: String) {
         _discovered.value.firstOrNull { it.registered && it.name == name }?.let {

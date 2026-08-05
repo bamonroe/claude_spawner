@@ -21,28 +21,6 @@ finish_work = "When a task is fully finished (built, tested, documented), run `s
 scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/KMP app + web client. The historical phase roadmap stays in README.md."
 
 [[task]]
-id = "double-tap-gesture-on-the-message-screen-to-open-the-palette"
-title = "Double-tap gesture on the message screen to open the palette"
-description = "Detect a double-tap in the middle of the message/transcript area and open the radial palette. Must not break existing pointer handling: scroll, single-tap, long-press, and the left/right edge swipe gestures in MainScreen. Choose the detection point (message list vs an overlay box), define the active region, and make sure a double-tap on a message bubble or link still does the right thing."
-status = "active"
-category = "feature"
-urgency = "normal"
-order = 30
-created = 2026-08-05
-tags = ["android", "ui", "radial-menu"]
-
-[[task]]
-id = "radial-palette-menu-composable-layout-animation-dismiss"
-title = "Radial palette menu composable (layout, animation, dismiss)"
-description = "Build the radial menu itself in commonMain so Android and the web client share it: a center button plus up to 8 slots around a ring. Layout math places slot 0 directly above center (most recent) and continues clockwise/right-handed for older entries; handle fewer than 8 entries gracefully. Includes open/close animation from the tap point, scrim, dismiss on outside tap/back, per-slot labels that fit, and touch targets sized for a thumb."
-status = "active"
-category = "feature"
-urgency = "normal"
-order = 40
-created = 2026-08-05
-tags = ["android", "ui", "radial-menu"]
-
-[[task]]
 id = "mic-lock-center-toggle-that-holds-tap-to-speak-open"
 title = "Mic lock: center toggle that holds tap-to-speak open"
 description = "The palette's center button toggles a locked-open microphone: tap to lock the mic on, tap again to release. Not hands-free/wake-word — it just holds the existing tap-to-speak capture path open. Wire into VoiceController's push-to-talk state, show clear locked-on affordance, and define what happens if the palette closes, the app backgrounds, or attachment changes while locked."
@@ -71,7 +49,7 @@ description = "Make sure the palette works in the Compose Multiplatform browser 
 status = "active"
 category = "feature"
 urgency = "low"
-order = 70
+order = 90
 created = 2026-08-05
 tags = ["android", "ui", "radial-menu"]
 
