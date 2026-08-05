@@ -21,20 +21,78 @@ finish_work = "When a task is fully finished (built, tested, documented), run `s
 scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/KMP app + web client. The historical phase roadmap stays in README.md."
 
 [[task]]
-id = "scope-radial-palette-menu-double-tap-with-mic-lock-recent-session-ring"
-title = "Scope: radial palette menu (double-tap) with mic lock + recent-session ring"
-description = """
-SCOPING TASK: break this feature into concrete sub-tasks before implementing.
+id = "track-an-ordered-attach-history-mru-of-sessions"
+title = "Track an ordered attach-history (MRU) of sessions"
+description = "Keep an ordered most-recently-attached list of sessions so the radial palette ring can show the last 8 in attach-recency order. Today MainScreen only tracks the single previously-attached session (used by the right-edge swap gesture); generalize that into an MRU list. Decide client-only (persisted in app prefs, shared commonMain so the web client gets it too) vs server-side; client-side persistence is likely enough. Must survive app restart, dedupe, drop dead/ended sessions, and cap at a sensible length (>=8). Reuse it for the existing swap-back gesture instead of the ad-hoc previous-session field."
+status = "active"
+category = "feature"
+urgency = "high"
+order = 20
+created = 2026-08-05
+tags = ["android", "ui", "radial-menu"]
 
-Desired feature: double-tapping the middle of the message screen opens a radial 'palette' menu.
-- Center: a microphone button that TOGGLES a locked-open tap-to-speak (tap to lock the mic open, tap again to close). Not hands-free, just a mic lock.
-- Ring: the last 8 sessions attached to, ordered by attach recency. Right-handed layout: the slot directly above center is the most-recently-attached session; going clockwise (to the right) is progressively older.
-- Sessions in the ring that have an active/unread message show in the same orange used in the sidebar.
-
-Known pieces to enumerate as separate tasks: (1) persist an ordered attach-history (MRU) of sessions, client and/or server side; (2) double-tap gesture detection on the message screen without breaking existing scroll/tap handling; (3) the radial menu composable itself (layout math, animation, dismiss); (4) mic-lock toggle state wired into the existing tap-to-speak path; (5) reuse the sidebar's active-message/orange indicator state in the ring; (6) web-client parity via the shared Compose UI; (7) docs (README + any protocol/config changes)."""
+[[task]]
+id = "double-tap-gesture-on-the-message-screen-to-open-the-palette"
+title = "Double-tap gesture on the message screen to open the palette"
+description = "Detect a double-tap in the middle of the message/transcript area and open the radial palette. Must not break existing pointer handling: scroll, single-tap, long-press, and the left/right edge swipe gestures in MainScreen. Choose the detection point (message list vs an overlay box), define the active region, and make sure a double-tap on a message bubble or link still does the right thing."
 status = "active"
 category = "feature"
 urgency = "normal"
-order = 10
+order = 30
 created = 2026-08-05
-tags = ["android", "ui", "scoping"]
+tags = ["android", "ui", "radial-menu"]
+
+[[task]]
+id = "radial-palette-menu-composable-layout-animation-dismiss"
+title = "Radial palette menu composable (layout, animation, dismiss)"
+description = "Build the radial menu itself in commonMain so Android and the web client share it: a center button plus up to 8 slots around a ring. Layout math places slot 0 directly above center (most recent) and continues clockwise/right-handed for older entries; handle fewer than 8 entries gracefully. Includes open/close animation from the tap point, scrim, dismiss on outside tap/back, per-slot labels that fit, and touch targets sized for a thumb."
+status = "active"
+category = "feature"
+urgency = "normal"
+order = 40
+created = 2026-08-05
+tags = ["android", "ui", "radial-menu"]
+
+[[task]]
+id = "mic-lock-center-toggle-that-holds-tap-to-speak-open"
+title = "Mic lock: center toggle that holds tap-to-speak open"
+description = "The palette's center button toggles a locked-open microphone: tap to lock the mic on, tap again to release. Not hands-free/wake-word — it just holds the existing tap-to-speak capture path open. Wire into VoiceController's push-to-talk state, show clear locked-on affordance, and define what happens if the palette closes, the app backgrounds, or attachment changes while locked."
+status = "active"
+category = "feature"
+urgency = "normal"
+order = 50
+created = 2026-08-05
+tags = ["android", "ui", "radial-menu"]
+
+[[task]]
+id = "show-the-sidebar-s-orange-active-message-state-on-ring-slots"
+title = "Show the sidebar's orange active-message state on ring slots"
+description = "Sessions in the ring that have an active/unread message should render in the same orange the sidebar uses. Lift the unread/active computation currently done in MainScreen (the seen-marks map compared against discovered lastActive) into shared state both the sidebar and the palette read, rather than duplicating the logic. Keep one definition of the color."
+status = "active"
+category = "feature"
+urgency = "normal"
+order = 60
+created = 2026-08-05
+tags = ["android", "ui", "radial-menu"]
+
+[[task]]
+id = "radial-palette-parity-in-the-web-client"
+title = "Radial palette parity in the web client"
+description = "Make sure the palette works in the Compose Multiplatform browser client: gesture equivalent for double-tap (double-click), pointer/hover behavior, and layout at desktop window sizes. Keep the composable and MRU state in commonMain so there's one implementation; see docs/web-client.md."
+status = "active"
+category = "feature"
+urgency = "low"
+order = 70
+created = 2026-08-05
+tags = ["android", "ui", "radial-menu"]
+
+[[task]]
+id = "document-the-radial-palette-menu"
+title = "Document the radial palette menu"
+description = "Document the feature as part of shipping it: README user-facing section covering the double-tap, the mic lock toggle, the recency ordering of the ring, and the orange active-message indicator. Update docs/protocol.md or docs/config.md only if the attach-history work adds wire messages or env vars."
+status = "active"
+category = "docs"
+urgency = "normal"
+order = 80
+created = 2026-08-05
+tags = ["android", "ui", "radial-menu"]
