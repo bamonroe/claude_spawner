@@ -19,3 +19,22 @@ add_proposed_work = "Add proposed features and tests as new tasks rather than lo
 remove_dropped_items = "Remove dropped items with a one-line why (`scripts/todo.sh remove <id> --reason`)."
 finish_work = "When a task is fully finished (built, tested, documented), run `scripts/todo.sh done <id>` to move it to FINISHED.toml — in the same commit that completes the work."
 scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/KMP app + web client. The historical phase roadmap stays in README.md."
+
+[[task]]
+id = "scope-radial-palette-menu-double-tap-with-mic-lock-recent-session-ring"
+title = "Scope: radial palette menu (double-tap) with mic lock + recent-session ring"
+description = """
+SCOPING TASK: break this feature into concrete sub-tasks before implementing.
+
+Desired feature: double-tapping the middle of the message screen opens a radial 'palette' menu.
+- Center: a microphone button that TOGGLES a locked-open tap-to-speak (tap to lock the mic open, tap again to close). Not hands-free, just a mic lock.
+- Ring: the last 8 sessions attached to, ordered by attach recency. Right-handed layout: the slot directly above center is the most-recently-attached session; going clockwise (to the right) is progressively older.
+- Sessions in the ring that have an active/unread message show in the same orange used in the sidebar.
+
+Known pieces to enumerate as separate tasks: (1) persist an ordered attach-history (MRU) of sessions, client and/or server side; (2) double-tap gesture detection on the message screen without breaking existing scroll/tap handling; (3) the radial menu composable itself (layout math, animation, dismiss); (4) mic-lock toggle state wired into the existing tap-to-speak path; (5) reuse the sidebar's active-message/orange indicator state in the ring; (6) web-client parity via the shared Compose UI; (7) docs (README + any protocol/config changes)."""
+status = "active"
+category = "feature"
+urgency = "normal"
+order = 10
+created = 2026-08-05
+tags = ["android", "ui", "scoping"]
