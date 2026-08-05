@@ -14,6 +14,16 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "track-an-ordered-attach-history-mru-of-sessions"
+title = "Track an ordered attach-history (MRU) of sessions"
+description = "Keep an ordered most-recently-attached list of sessions so the radial palette ring can show the last 8 in attach-recency order. Today MainScreen only tracks the single previously-attached session (used by the right-edge swap gesture); generalize that into an MRU list. Decide client-only (persisted in app prefs, shared commonMain so the web client gets it too) vs server-side; client-side persistence is likely enough. Must survive app restart, dedupe, drop dead/ended sessions, and cap at a sensible length (>=8). Reuse it for the existing swap-back gesture instead of the ad-hoc previous-session field."
+status = "finished"
+category = "feature"
+created = 2026-08-05
+completed = 2026-08-05
+tags = ["android", "ui", "radial-menu"]
+
+[[task]]
 id = "history-merge-parity-between-android-and-web-clients-optional"
 title = "History-merge parity between Android and web clients (optional)"
 description = "Split out 2026-08-01 when the unified versioned sync-layer epic was archived to FINISHED.toml — this was its one remaining, deliberately-deferred box. The history-merge algorithm is still per-client by design: Android merges by timestamp with reconnect gap-fill, web replaces by index; only the dedup primitive (`SessionSync.dedupe`) is shared. Unifying them is a behavior change, not a drift gap, so it is optional. Revisit only if full parity is actually wanted."

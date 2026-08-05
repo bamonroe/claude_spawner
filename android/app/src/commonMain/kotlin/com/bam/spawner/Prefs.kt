@@ -23,6 +23,11 @@ interface Prefs {
     /** The last-attached session's stable id — preferred for re-attach (survives renames). */
     var lastSessionId: String
 
+    /** The attach history: session ids in most-recently-attached order, comma-separated.
+     *  Owned by `SessionSync`; it feeds the swap gesture and the radial palette's ring
+     *  order, and lives here so the order survives an app restart. */
+    var attachHistory: String
+
     /** Theme preference: "system" | "light" | "dark". */
     var themeMode: String
     /** Per-message token-usage badge detail: "off" | "compact" | "detailed". */
@@ -148,6 +153,15 @@ interface Prefs {
     /** Run the platform noise suppressor on the headset/media capture path too
      *  (default off — it can attenuate far-field voice). */
     var headsetNoiseSuppression: Boolean
+
+    /** The stored attach history as session ids, most-recent first. */
+    fun attachHistoryIds(): List<String> =
+        attachHistory.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+
+    /** Persist the attach history (most-recent first). */
+    fun setAttachHistoryIds(ids: List<String>) {
+        attachHistory = ids.joinToString(",")
+    }
 
     /** Parse the alias lines into a misheard->canonical map. */
     fun aliasMap(): Map<String, String> = commandAliases.lines().mapNotNull { line ->

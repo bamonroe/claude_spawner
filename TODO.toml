@@ -21,17 +21,6 @@ finish_work = "When a task is fully finished (built, tested, documented), run `s
 scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/KMP app + web client. The historical phase roadmap stays in README.md."
 
 [[task]]
-id = "track-an-ordered-attach-history-mru-of-sessions"
-title = "Track an ordered attach-history (MRU) of sessions"
-description = "Keep an ordered most-recently-attached list of sessions so the radial palette ring can show the last 8 in attach-recency order. Today MainScreen only tracks the single previously-attached session (used by the right-edge swap gesture); generalize that into an MRU list. Decide client-only (persisted in app prefs, shared commonMain so the web client gets it too) vs server-side; client-side persistence is likely enough. Must survive app restart, dedupe, drop dead/ended sessions, and cap at a sensible length (>=8). Reuse it for the existing swap-back gesture instead of the ad-hoc previous-session field."
-status = "active"
-category = "feature"
-urgency = "high"
-order = 20
-created = 2026-08-05
-tags = ["android", "ui", "radial-menu"]
-
-[[task]]
 id = "double-tap-gesture-on-the-message-screen-to-open-the-palette"
 title = "Double-tap gesture on the message screen to open the palette"
 description = "Detect a double-tap in the middle of the message/transcript area and open the radial palette. Must not break existing pointer handling: scroll, single-tap, long-press, and the left/right edge swipe gestures in MainScreen. Choose the detection point (message list vs an overlay box), define the active region, and make sure a double-tap on a message bubble or link still does the right thing."

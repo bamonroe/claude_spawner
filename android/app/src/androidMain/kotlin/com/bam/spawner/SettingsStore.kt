@@ -38,6 +38,11 @@ class SettingsStore(context: Context) : Prefs {
         get() = prefs.getString("last_session_id", "") ?: ""
         set(v) = prefs.edit().putString("last_session_id", v).apply()
 
+    /** Attach history (session ids, most-recent first) — see [Prefs.attachHistory]. */
+    override var attachHistory: String
+        get() = prefs.getString("attach_history", "") ?: ""
+        set(v) = prefs.edit().putString("attach_history", v).apply()
+
     /** Theme preference: "system" | "light" | "dark". */
     override var themeMode: String
         get() = prefs.getString("theme_mode", Prefs.DEFAULT_THEME_MODE) ?: Prefs.DEFAULT_THEME_MODE

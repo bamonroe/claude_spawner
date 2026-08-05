@@ -51,6 +51,10 @@ class WebPrefs : Prefs {
         get() = str("last_session_id", "")
         set(v) = putStr("last_session_id", v)
 
+    override var attachHistory: String
+        get() = str("attach_history", "")
+        set(v) = putStr("attach_history", v)
+
     override var themeMode: String
         get() = str("theme_mode", Prefs.DEFAULT_THEME_MODE)
         set(v) = putStr("theme_mode", v)

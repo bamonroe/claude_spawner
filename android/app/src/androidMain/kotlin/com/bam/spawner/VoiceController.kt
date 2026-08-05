@@ -106,6 +106,8 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
         override fun attachedName() = _attachedName.value
         override fun attachedAgent() = _attachedAgent.value
         override fun attachedModel() = _attachedModel.value
+        override fun loadAttachHistory() = settings.attachHistoryIds()
+        override fun saveAttachHistory(ids: List<String>) = settings.setAttachHistoryIds(ids)
     })
 
     // The shared commonMain inbound-message router (sibling to SessionSync/CatalogueSync): it

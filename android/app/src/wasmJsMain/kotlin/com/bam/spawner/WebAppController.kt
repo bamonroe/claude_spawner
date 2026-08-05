@@ -75,6 +75,8 @@ class WebAppController(internal val prefs: Prefs) : AppController {
         override fun attachedName() = _attachedName.value
         override fun attachedAgent() = _attachedAgent.value
         override fun attachedModel() = _attachedModel.value
+        override fun loadAttachHistory() = prefs.attachHistoryIds()
+        override fun saveAttachHistory(ids: List<String>) = prefs.setAttachHistoryIds(ids)
     })
 
     // The shared commonMain inbound-message router (sibling to SessionSync/CatalogueSync): it

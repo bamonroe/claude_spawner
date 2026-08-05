@@ -13,7 +13,8 @@ import com.bam.spawner.orderByTimestamp
  * What lives here is the decision logic every session/chat reconcile branch shares:
  *  - **which session am I focused on** ([currentFocusedSession]) and the previous-session
  *    bookkeeping the swap gesture reads ([rememberPrevious], [rememberPreviousIfSwitching],
- *    [rememberPreviousOnAttach], [swapTarget]);
+ *    [rememberPreviousOnAttach], [swapTarget]) — one persisted most-recently-attached list
+ *    ([attachHistory]) serves both the swap gesture and the radial palette's ring order;
  *  - **is a transcript current** — every `history` reply feeds [recordSynced], and
  *    [requestFreshHistory] sends that held digest as `have_hash` so the server answers
  *    `unchanged` (no bodies) when nothing moved;
@@ -52,6 +53,11 @@ class SessionSync(private val host: Host) {
         fun attachedAgent(): String
         /** The attached session's model alias (for the focus snapshot fallback). */
         fun attachedModel(): String
+        /** The persisted attach-history (most-recent first) faulted in at startup.
+         *  Defaults to empty so tests and non-persisting hosts need not implement it. */
+        fun loadAttachHistory(): List<String> = emptyList()
+        /** Persist the attach-history after it changes (most-recent first). */
+        fun saveAttachHistory(ids: List<String>) {}
     }
 
     // The digest of the transcript we currently hold, per session id. Sent as `have_hash`
@@ -59,8 +65,33 @@ class SessionSync(private val host: Host) {
     // when nothing moved — the authoritative, bodies-free freshness check.
     private val digestHeld = mutableMapOf<String, Pair<Int, String>>()
 
-    // The session we were focused on before the current one — the swap gesture's target.
-    private var previousFocusedSession: DiscoveredInfo? = null
+    // The attach history: session ids in most-recently-*departed* order. The front is the
+    // session we were focused on before the current one (the swap gesture's target), and the
+    // whole list — with the current focus prepended — is the radial palette's attach-recency
+    // ring order. Ids only: names/dirs are re-resolved against discovery on read, so a rename
+    // or a dead session never leaves a stale row. Faulted in from persistence on first use so
+    // the order survives an app restart.
+    private var attachHistory: List<String>? = null
+
+    private fun history(): List<String> =
+        attachHistory ?: host.loadAttachHistory().distinct().take(ATTACH_HISTORY_CAP)
+            .also { attachHistory = it }
+
+    /** Push [id] to the front of the attach history (de-duped, capped, persisted). */
+    private fun pushHistory(id: String) {
+        if (id.isBlank()) return
+        val next = (listOf(id) + history().filter { it != id }).take(ATTACH_HISTORY_CAP)
+        if (next == attachHistory) return
+        attachHistory = next
+        host.saveAttachHistory(next)
+    }
+
+    private fun forgetHistory(id: String) {
+        val next = history().filter { it != id }
+        if (next == attachHistory) return
+        attachHistory = next
+        host.saveAttachHistory(next)
+    }
 
     // --- Focus / previous-session tracking -----------------------------------
 
@@ -87,13 +118,13 @@ class SessionSync(private val host: Host) {
 
     /** Remember the current focus as the swap target (detach / plain re-focus). */
     fun rememberPrevious() {
-        currentFocusedSession()?.let { previousFocusedSession = it }
+        currentFocusedSession()?.let { pushHistory(it.sessionId) }
     }
 
     /** Remember the current focus only when actually switching to a different id. */
     fun rememberPreviousIfSwitching(newId: String) {
         val current = currentFocusedSession()
-        if (current?.sessionId != newId) current?.let { previousFocusedSession = it }
+        if (current?.sessionId != newId) current?.let { pushHistory(it.sessionId) }
     }
 
     /** The `attached` branch's rule: remember the outgoing focus when the incoming attach
@@ -101,8 +132,27 @@ class SessionSync(private val host: Host) {
     fun rememberPreviousOnAttach(name: String, sessionId: String) {
         val sameLogicalSession = host.attachedName() == name
         if (host.attachedId().isNotEmpty() && host.attachedId() != sessionId && !sameLogicalSession) {
-            currentFocusedSession()?.let { previousFocusedSession = it }
+            currentFocusedSession()?.let { pushHistory(it.sessionId) }
         }
+    }
+
+    /**
+     * The attach-history ring order the radial palette shows: the sessions we most recently
+     * attached to, newest first, resolved fresh against discovery. The currently focused
+     * session is excluded (it's the ring's centre, not a slot), as is anything discovery no
+     * longer knows about — an ended/dead session drops out instead of showing a dead slot.
+     * Falls back to plain last-active order when we have no history yet (a fresh install),
+     * so the ring is never empty when sessions exist.
+     */
+    fun attachHistory(limit: Int = 8): List<DiscoveredInfo> {
+        val current = host.attachedId()
+        val discovered = host.discovered()
+        val byId = discovered.associateBy { it.sessionId }
+        val ordered = history().filter { it != current }.mapNotNull { byId[it] }
+        val filler = discovered
+            .filter { it.sessionId != current && ordered.none { o -> o.sessionId == it.sessionId } }
+            .sortedByDescending { it.lastActive }
+        return (ordered + filler).take(limit)
     }
 
     /** What the swap gesture should do, resolved against the remembered previous session. */
@@ -116,15 +166,16 @@ class SessionSync(private val host: Host) {
     }
 
     fun swapTarget(): SwapTarget {
-        val target = previousFocusedSession
-        if (target == null || target.sessionId.isBlank()) return SwapTarget.Server
+        val target = history().firstOrNull { it != host.attachedId() } ?: return SwapTarget.Server
         val discovered = host.discovered()
-        val refreshed = discovered.firstOrNull { it.sessionId == target.sessionId }
-        if (refreshed == null && discovered.isNotEmpty()) {
-            previousFocusedSession = null
+        val refreshed = discovered.firstOrNull { it.sessionId == target }
+        if (refreshed == null) {
+            // Discovery hasn't landed yet: keep the entry and let the server swap decide.
+            if (discovered.isEmpty()) return SwapTarget.Server
+            forgetHistory(target)
             return SwapTarget.Gone
         }
-        return SwapTarget.Focus(refreshed ?: target)
+        return SwapTarget.Focus(refreshed)
     }
 
     // --- Digest cache + history-freshness decision ---------------------------
@@ -409,7 +460,11 @@ class SessionSync(private val host: Host) {
         return true
     }
 
-    private companion object {
+    companion object {
+        /** How many attached sessions the history remembers — comfortably above the
+         *  radial palette's 8 slots, so slots refill as dead sessions drop out. */
+        const val ATTACH_HISTORY_CAP = 16
+
         private val whitespace = Regex("\\s+")
     }
 }
