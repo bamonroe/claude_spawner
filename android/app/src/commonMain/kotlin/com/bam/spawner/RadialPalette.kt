@@ -3,6 +3,7 @@ package com.bam.spawner
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -14,13 +15,22 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -52,7 +62,8 @@ data class PaletteSlot(
  * continue clockwise into the past; with fewer than [PALETTE_SLOTS] entries they spread
  * evenly around the whole circle rather than leaving a gap. The ring grows out of
  * [origin] — the point that was double-tapped — clamped so it always lands fully
- * on-screen. Tapping the scrim or pressing back dismisses it.
+ * on-screen. Tapping the scrim, pressing back, or pressing Escape dismisses it — the
+ * browser has no back button to intercept, so Escape is the web client's way out.
  *
  * The centre is a toggle rather than a navigation target; [centerHighlighted] paints it
  * in the error colour to show the toggle is currently on (today: the mic lock).
@@ -72,10 +83,20 @@ fun RadialPalette(
     PlatformBackHandler(enabled = true) { onDismiss() }
     // One animation drives scale and fade, so the ring blooms from the tap point.
     val progress by animateFloatAsState(1f, tween(durationMillis = 140), label = "palette")
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focus.requestFocus() }
     BoxWithConstraints(
         Modifier.fillMaxSize()
             .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.55f * progress))
-            .pointerInput(Unit) { detectTapGestures { onDismiss() } },
+            .pointerInput(Unit) { detectTapGestures { onDismiss() } }
+            .focusRequester(focus)
+            .focusable()
+            .onPreviewKeyEvent { e ->
+                if (e.type == KeyEventType.KeyDown && e.key == Key.Escape) {
+                    onDismiss()
+                    true
+                } else false
+            },
     ) {
         val density = androidx.compose.ui.platform.LocalDensity.current
         // Keep the whole ring (slot centres plus half a slot) inside the viewport.

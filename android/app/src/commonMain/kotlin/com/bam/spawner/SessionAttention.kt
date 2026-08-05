@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
+import com.bam.spawner.net.DiscoveredInfo
 
 /**
  * One definition of "this session wants your attention" — the orange cue — shared by every
@@ -45,9 +46,11 @@ fun rememberUnreadSessions(discovered: List<DiscoveredInfo>, attachedId: String)
             if (prev == null || id == attachedId) seen[id] = maxOf(prev ?: 0L, d.lastActive)
         }
     }
-    return discovered.mapNotNull { d ->
+    val unread = mutableSetOf<String>()
+    discovered.forEach { d: DiscoveredInfo ->
         val id = sessionKey(d)
         val mark = seen[id]
-        if (d.sessionId != attachedId && mark != null && d.lastActive > mark) id else null
-    }.toSet()
+        if (d.sessionId != attachedId && mark != null && d.lastActive > mark) unread += id
+    }
+    return unread
 }

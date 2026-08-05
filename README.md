@@ -164,7 +164,12 @@ as boxes and log why each hold ended.
 transcript and a ring of session buttons blooms out from where you tapped (clamped so it stays
 on-screen). The double-tap only *observes* your touches, so it never steals them: a double-tap on a
 bubble, a link, or the jump-to-latest button still does that thing *and* opens the ring. Dismiss it
-by tapping the dimmed background, pressing **back**, or tapping any button in it.
+by tapping the dimmed background, pressing **back** or **Escape**, or tapping any button in it.
+
+It works the same in the **browser client**: double-*click* the transcript opens the ring at the
+pointer, and since a browser has no back button, **Escape** is the way out (the dimmed background
+still works too). The ring, its attach-history order and the mic-lock centre are one shared
+implementation, so the two clients can't drift apart.
 
 The ring holds up to **eight** sessions, ordered by **attach history** — the one you were on most
 recently sits straight up from the centre, and the rest run clockwise into the past, so switching

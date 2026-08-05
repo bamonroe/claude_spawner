@@ -56,6 +56,10 @@ fun Modifier.observeDoubleTap(enabled: Boolean = true, onDoubleTap: (Offset) -> 
  * Awaits one tap on the Initial pass: a down and a matching up, with no extra pointer,
  * no movement past touch slop, and no long press. Returns where it landed, or null if
  * the gesture was anything else.
+ *
+ * A mouse (the web client) also emits hover moves with no button held — between the two
+ * clicks of a double-click there is almost always one. Those are skipped rather than
+ * treated as a failed tap, so a double-click reads the same as a double-tap.
  */
 private suspend fun AwaitPointerEventScope.awaitCleanTap(): Offset? {
     var down: Offset? = null
@@ -68,7 +72,8 @@ private suspend fun AwaitPointerEventScope.awaitCleanTap(): Offset? {
             val change = changes.firstOrNull() ?: return@withTimeoutOrNull null
             val start = down
             if (start == null) {
-                if (!change.pressed) return@withTimeoutOrNull null
+                // Not pressed yet: a hover move on the way to the button going down.
+                if (!change.pressed) continue
                 down = change.position
             } else {
                 if ((change.position - start).getDistance() > slop) return@withTimeoutOrNull null
