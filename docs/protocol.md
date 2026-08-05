@@ -116,9 +116,11 @@ comma-separated start marker — is the entry condition for the whole hands-free
 heard each clip is only scored for it and nothing is retained: no buffered audio, no `pending` draft,
 no `transcript`, no accurate transcription pass, so ambient chatter/radio never reaches the session
 or the app. From the token to the end token, capture behaves as it does ungated; committing
-re-closes the gate, as does a 90s idle timeout. Commands ("hey buddy …") are gated too; the one
-exception is barge-in — a pure "hey buddy stop" while TTS is playing still fires `speak_stop`.
-Empty `speak_token`, or `dictation_gate` false, disables the gate), `stt_mode`/`stt_model`/`whisper_model` (transcription), `wake_service` (which
+re-closes the gate, as does a 90s idle timeout. Everything is gated — commands ("hey buddy …") and
+barge-in included; nothing whatsoever is matched while the gate is shut. The gate phrase is stripped
+from the front of the draft as soon as it opens, so `speak_token` and `end_token` may be the SAME
+word ("pickle … pickle"): the first occurrence opens, the second closes. Empty `speak_token`, or
+`dictation_gate` false, disables the gate), `stt_mode`/`stt_model`/`whisper_model` (transcription), `wake_service` (which
 backend scores the live wake/end tokens: `whisper` — the default — string-matches the fast transcript,
 which is always available; `detector` opts this client into the purpose-trained `SPAWNER_WAKEWORD_URL`
 sidecar. The detector is opt-in per client, so a server with the sidecar configured never routes a

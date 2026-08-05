@@ -62,11 +62,17 @@ you don't need it for most turns. High-level "what it is" and the behavioral rul
   no `pending`/`transcript` is sent, and `commitMessage`'s accurate pass never runs, so ambient
   chatter costs at most one tiny pass (zero, with a detector) and is invisible to the app. On a hit
   the gate opens and the clip that opened it is kept **whole** — it also holds the first words spoken
-  after the phrase — with `stripGate` trimming the pre-gate tail at the *text* level on the accurate
-  transcript, so the audio boundary can be sloppy while the message stays exact. Every commit
-  re-closes the gate, as do `clearBuffer` and a `gateIdleTimeout` (90s) that stops a detector false
-  positive from leaving capture live. Commands are gated like dictation; barge-in `hey buddy stop` is
-  the deliberate exception and is matched while closed whenever TTS is actually playing.
+  after the phrase — with `stripGate` trimming the pre-gate tail at the *text* level, so the audio
+  boundary can be sloppy while the message stays exact. `stripGate` runs on the **joined draft**, not
+  just at commit, which is the load-bearing detail: every downstream matcher (end token, wake word,
+  dictation) sees text with the opening bracket already gone, so **one phrase can serve as both
+  brackets** — "pickle … pickle" opens on the first occurrence and ends on the second. `commitMessage`
+  strips in the same order (gate, then end token). The exception is a *shared detector model* bound to
+  both actions: an acoustic hit can't be attributed to one bracket, so `sharesModel` suppresses the
+  end-token score on the clip that just opened the gate. Every commit re-closes the gate, as do
+  `clearBuffer` and a `gateIdleTimeout` (90s) that stops a detector false positive from leaving
+  capture live. There are **no ungated paths** — commands and barge-in `hey buddy stop` are gated
+  like dictation, because a front door with a side entrance isn't one.
 - **Transport**: a single WebSocket per app session carries audio up and transcripts/session
   output down. Use REST only for stateless control actions if needed.
 - **Session control**: the server shells out to `claude` headless (see below). Input is the prompt

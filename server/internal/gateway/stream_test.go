@@ -3,9 +3,11 @@ package gateway
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/bam/claude_spawner/server/internal/command"
 	"github.com/bam/claude_spawner/server/internal/detect"
 	"github.com/bam/claude_spawner/server/internal/session"
 	"github.com/bam/claude_spawner/server/internal/spoken"
@@ -140,6 +142,44 @@ func TestGateIdleTimeoutRecloses(t *testing.T) {
 	if cn.gateOpen || len(cn.audioPCM) != 0 || len(cn.buffer) != 0 {
 		t.Fatalf("idle gate not re-closed: open=%v pcm=%d buffer=%v", cn.gateOpen, len(cn.audioPCM), cn.buffer)
 	}
+}
+
+// One phrase, both brackets: "pickle …message… pickle". The first occurrence opens
+// the gate and is stripped from the draft, which leaves the second free to match as
+// the end token — so the utterance commits instead of closing the instant it opened.
+func TestGateAndEndSharePhrase(t *testing.T) {
+	tokens := tokensSeed(t, []*spoken.Token{
+		{Name: "wake", Phrase: "hey buddy", Action: spoken.ActionWake},
+		{Name: "gate", Phrase: "pickle", Action: spoken.ActionSpeechGate},
+		{Name: "end", Phrase: "pickle", Action: spoken.ActionEnd},
+	})
+	stt := &stubTranscriber{text: "pickle fix the parser bug"}
+	cn := &conn{ctx: context.Background(), dictationGate: true, srv: &Server{stt: stt, tokens: tokens}}
+
+	// Opening clip: gate opens, and the leading "pickle" must NOT read as the end
+	// token — nothing commits yet.
+	cn.gatedChunk([]byte{1, 2, 3, 4})
+	if !cn.gateOpen {
+		t.Fatal("shared phrase did not open the gate")
+	}
+	if len(cn.audioPCM) == 0 || len(cn.buffer) == 0 {
+		t.Fatal("opening clip was not retained")
+	}
+	// The draft the client sees has the opening bracket stripped.
+	if got := draftText(cn); got != "fix the parser bug" {
+		t.Fatalf("draft = %q, want the gate phrase stripped", got)
+	}
+	// A second "pickle" — here in the same clip — is what closes it.
+	cn.buffer = []string{"pickle yes lets do that pickle"}
+	if _, _, found := command.SplitOn(draftText(cn), cn.endPhrases()); !found {
+		t.Fatal("second occurrence did not match as the end token")
+	}
+}
+
+// draftText is the draft text gatedChunk would send: the joined buffer past the
+// gate phrase — the same value every downstream matcher sees.
+func draftText(cn *conn) string {
+	return cn.stripGate(strings.Join(cn.buffer, " "))
 }
 
 func TestStripGate(t *testing.T) {

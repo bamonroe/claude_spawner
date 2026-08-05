@@ -25,13 +25,17 @@ const gateIdleTimeout = 90 * time.Second
 // never reaches the app. OPEN (from the gate phrase to the end token): exactly
 // the behaviour below. Gate off ⇒ always open, i.e. today's pipeline.
 func (c *conn) gatedChunk(pcm []byte) {
+	justOpened := false
 	if c.gateActive() {
 		if c.gateOpen && time.Since(c.gateOpenedAt) > gateIdleTimeout {
 			log.Printf("speech gate: idle %s with no end token — re-closing, discarding buffer", gateIdleTimeout)
 			c.clearBuffer() // also re-closes the gate
 		}
-		if !c.gateOpen && !c.openGate(pcm) {
-			return // pre-gate speech: scored and dropped, nothing retained
+		if !c.gateOpen {
+			if !c.openGate(pcm) {
+				return // pre-gate speech: scored and dropped, nothing retained
+			}
+			justOpened = true
 		}
 	}
 
@@ -52,13 +56,27 @@ func (c *conn) gatedChunk(pcm []byte) {
 	// renders as empty must still trip the gate, so the detector can't sit behind a
 	// non-empty-transcript guard. ok=false ⇒ no detector / it errored.
 	detFired, detOK := c.endTokenFired(pcm)
+	// …with one carve-out: when the SAME detector model backs both the gate and the
+	// end token (one phrase used for both brackets), the hit on the clip that just
+	// opened the gate IS the opening — scoring it as the close too would commit an
+	// empty message the instant you addressed the machine. The close then comes from
+	// the next clip, or from the second occurrence in this clip's transcript below.
+	if justOpened && sharesModel(c.gateModels(), c.endModels()) {
+		detFired, detOK = false, false
+	}
 
 	chunk, err := c.fastTranscriber().Transcribe(c.ctx, transcribe.PCM16WAV(pcm, audioSampleRate, audioChannels),
 		transcribe.Options{Mode: "fixed", Model: "tiny", Prompt: c.detectBias()})
 	if err == nil && strings.TrimSpace(chunk) != "" {
 		c.buffer = append(c.buffer, chunk)
 	}
-	joined := strings.Join(c.buffer, " ")
+	// Everything downstream looks at the draft with the gate phrase already removed
+	// from the front — the phrase has done its job the moment it opened the gate, and
+	// leaving it in the text would make every later matcher (end token, wake word,
+	// dictation) see it. Stripping here rather than at commit is what lets ONE phrase
+	// bracket both ends of an utterance: "pickle fix the bug pickle" strips the first
+	// occurrence, and the second is then free to match as the end token.
+	joined := c.stripGate(strings.Join(c.buffer, " "))
 	// Instant barge-in: a pure "hey buddy stop" (nothing dictated before it) halts
 	// the TTS the moment it shows up in the live draft — no end token required.
 	// Guarded to a pure command so "…hey buddy stop the build" (dictation) isn't
@@ -80,10 +98,7 @@ func (c *conn) gatedChunk(pcm []byte) {
 		_, _, end = command.SplitOn(joined, c.endPhrases())
 	}
 	if !end {
-		// Draft only what will actually be sent: pre-gate speech never reaches the
-		// buffer at all now, so this only trims the ambient tail sharing the clip
-		// that opened the gate. Gate off: the draft is the full buffer.
-		c.send(msgPending(c.stripGate(joined)))
+		c.send(msgPending(joined))
 		return
 	}
 	c.commitMessage()
@@ -95,36 +110,38 @@ func (c *conn) gatedChunk(pcm []byte) {
 // which is the whole cost win; with no detector it falls back to the tiny fast
 // pass used purely as a matcher whose transcript is thrown away.
 //
-// The one thing that stays ungated is barge-in: while TTS is playing, a pure
-// "hey buddy stop" halts it without the gate phrase, because being unable to stop
-// runaway speech without first addressing the machine is a trap. That costs the
-// fast pass only while something is actually being spoken.
+// There are NO exceptions: nothing — not even barge-in "hey buddy stop" — is
+// matched while the gate is shut. The gate is the front door, and a door with a
+// side entrance isn't one. Say the gate phrase first, then stop it.
 func (c *conn) openGate(pcm []byte) bool {
-	fired, ok := c.detectorFired(pcm, c.gateModels())
-	if ok && fired {
-		c.armGate()
-		return true
-	}
-	speaking := c.speaking()
-	if ok && !speaking {
-		return false // detector spoke, gate stayed shut, nothing to barge in on — no Whisper
+	if fired, ok := c.detectorFired(pcm, c.gateModels()); ok {
+		if fired {
+			c.armGate()
+		}
+		return fired // the detector spoke — no Whisper pass at all
 	}
 	text, err := c.fastTranscriber().Transcribe(c.ctx, transcribe.PCM16WAV(pcm, audioSampleRate, audioChannels),
 		transcribe.Options{Mode: "fixed", Model: "tiny", Prompt: c.detectBias()})
 	if err != nil {
 		return false
 	}
-	if speaking {
-		if before, after, found := c.splitWake(text); found && strings.TrimSpace(before) == "" {
-			if command.Parse(command.ApplyAliases(after, c.aliases)).Kind == command.Stop {
-				c.send(msgStopSpeaking())
-				return false
-			}
-		}
-	}
 	if _, _, found := command.SplitOn(text, c.speakPhrases()); found {
 		c.armGate()
 		return true
+	}
+	return false
+}
+
+// sharesModel reports whether two sets of detector model keys overlap — i.e. the
+// same trained model backs both actions, so one acoustic hit can't be attributed
+// to one of them over the other.
+func sharesModel(a, b []string) bool {
+	for _, x := range a {
+		for _, y := range b {
+			if x == y {
+				return true
+			}
+		}
 	}
 	return false
 }
@@ -137,13 +154,6 @@ func (c *conn) armGate() {
 	c.gateOpen = true
 	c.gateOpenedAt = time.Now()
 	log.Printf("speech gate: opened — capturing until the end token")
-}
-
-// speaking reports whether TTS synthesis is in flight (the barge-in window).
-func (c *conn) speaking() bool {
-	c.speakMu.Lock()
-	defer c.speakMu.Unlock()
-	return c.speakCancel != nil
 }
 
 // endTokenFired reports whether this clip's audio trips the end-token detector.
@@ -215,15 +225,17 @@ func (c *conn) commitMessage() {
 		c.fail("transcribe_failed", err.Error())
 		return
 	}
-	msg, _, _ := command.SplitOn(full, c.endPhrases()) // drop the end token (+ any trailing)
-	// The clip that opened the gate straddles the phrase, so the accurate transcript
-	// still carries the tail of the pre-gate speech. Strip everything up to and
-	// including the phrase here, once — after this the message is exactly what was
-	// said to the machine, and commands and dictation route the same way ungated
-	// speech always has.
+	// Order matters: strip the OPENING bracket first, then the closing one. The clip
+	// that opened the gate straddles the phrase, so the accurate transcript still
+	// carries the tail of the pre-gate speech; dropping everything up to and including
+	// the gate phrase leaves exactly what was said to the machine. Doing it in this
+	// order is also what lets one phrase serve as both brackets — strip the leading
+	// "pickle" and the trailing one is still there to be found as the end token.
+	msg := full
 	if gated {
 		msg = c.stripGate(msg)
 	}
+	msg, _, _ = command.SplitOn(msg, c.endPhrases()) // drop the end token (+ any trailing)
 	msg = strings.TrimSpace(msg)
 	if msg == "" {
 		c.send(msgPending("")) // nothing recognized — clear the "transcribing…" state

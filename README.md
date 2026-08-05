@@ -88,12 +88,20 @@ transcript bubble on the phone, and no second (accurate) Whisper pass. Say it an
 running exactly as ungated hands-free does until your end token, which commits the message and closes
 the gate again: "take a note, fix the parser bug, beep".
 
-Because the gate is the front door, **commands are gated too** — "take a note, hey buddy attach to
-spawner, beep". The single exception is barge-in: while the server is speaking, "hey buddy stop"
-always interrupts with no speak token needed, since needing a password to stop runaway speech would
-be a trap. A gate that opens but never hears an end token re-closes itself after 90 seconds, so a
-misfire can't leave the mic live on the room. Push-to-talk and mic lock are unaffected — a held mic
-is already an explicit front door.
+Because the gate is the front door, **everything is gated** — including commands ("take a note, hey
+buddy attach to spawner, beep") and including barge-in. There are no side entrances: while the gate
+is shut nothing at all is matched, so stopping runaway speech means "take a note, hey buddy stop".
+A gate that opens but never hears an end token re-closes itself after 90 seconds, so a misfire can't
+leave the mic live on the room. Push-to-talk and mic lock are unaffected — a held mic is already an
+explicit front door.
+
+**You can use the same phrase for both brackets.** Set the speak token and the end token to the same
+word and it works as you'd say it: "pickle, fix the parser bug, pickle". The first occurrence opens
+the gate and is stripped off the front of the message immediately, which leaves the second free to
+match as the end token. The one combination that can't work is the same *trained detector model*
+bound to both — the sidecar only reports that the sound happened, not which bracket it was — so in
+that case the opening clip's hit counts as the opening, and the close comes from the next clip or
+from a second occurrence in the transcript.
 
 The trade-off to know: a *missed* gate now loses the audio too, so there's no transcript showing what
 was heard (the server logs `speech gate:` lines when it opens or times out). Leave the switch off (or
