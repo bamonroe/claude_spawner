@@ -91,6 +91,8 @@ doesn't need any.
 
 - When you finish a task (built, tested, documented), run **`done <id>`** in the
   same commit that completes the work — don't leave shipped items in `TODO.toml`.
+  Don't wait on a build to finish first: commit the code and mark it done, kick
+  the build off in the background, and `add` a new task if that build later fails.
 - When you notice the next thing to build, **`add`** it rather than losing it.
 - Prefer the CLI over hand-editing so metadata and ordering stay consistent; if
   you do hand-edit, run **`validate`** afterward.

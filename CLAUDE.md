@@ -250,7 +250,11 @@ answers "how many tasks / bugs are left" (`scripts/todo.sh stats`).
   features/tests with `scripts/todo.sh add …`; drop descoped ones with
   `scripts/todo.sh remove <id> --reason "…"`.
 - **When a task is fully finished** (built, tested, documented), run `scripts/todo.sh done <id>`
-  to move it into `FINISHED.toml`, dated. A **partial** epic stays in `TODO.toml` (status
+  to move it into `FINISHED.toml`, dated. **Don't wait on a build to do it.** The moment the code
+  and its docs are written, commit them *and* run `done <id>` in that same commit — kick the APK
+  or image build off in the background and move on. If the build later fails, that's a **new**
+  task (`scripts/todo.sh add …`), not a reason the finished one stayed open. Never end a turn with
+  completed work sitting uncommitted and its task still active. A **partial** epic stays in `TODO.toml` (status
   `in-progress`) with its done sub-items in the description for context, and only migrates once
   every part is done. `FINISHED.toml` is history, never a worklist — nothing open belongs there.
 - A stale `TODO.toml`/`FINISHED.toml` means the change isn't done — same rule as the docs. Run
