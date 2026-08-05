@@ -175,6 +175,12 @@ clip and sends it, **switching sessions** ends it first so it lands in the sessi
 into, and **losing the connection** or **turning hands-free on** drops the clip (it could not be
 delivered as recorded). While locked, hold-to-talk is disabled so the two paths can't fight.
 
+**The ring shows which sessions want you.** A palette slot turns **orange** under exactly the same
+rule as the sidebar's session cards: that session is thinking right now, or it's holding output you
+haven't seen yet (the session you're attached to is never orange — you're already looking at it).
+So a glance at the ring tells you where to switch without opening the sidebar. Both surfaces read
+one shared definition of the cue, so they can't disagree.
+
 **Debug overlays (Settings → Debug).** A developer toggle, off by default. It draws translucent boxes
 over the normally-invisible push-to-talk zones — the red **discard** zone (drag left) and amber
 **hands-free** zone (drag up) — with a live readout of your finger's drift and hold time while you

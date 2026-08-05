@@ -136,10 +136,9 @@ fun Sidebar(
             // host group; "orange" sessions — thinking now or holding unread output — come next;
             // everything else follows. Within every tier the newest activity sits at the top, so
             // the session whose last message is most recent is always highest in its group.
-            fun key(d: DiscoveredInfo) = d.sessionId.ifBlank { d.dir }
-            fun isAttached(d: DiscoveredInfo) =
-                d.registered && attachedId.isNotEmpty() && d.sessionId == attachedId
-            fun isOrange(d: DiscoveredInfo) = !isAttached(d) && (d.busy || key(d) in unread)
+            fun key(d: DiscoveredInfo) = sessionKey(d)
+            fun isAttached(d: DiscoveredInfo) = isSessionAttached(d, attachedId)
+            fun isOrange(d: DiscoveredInfo) = needsAttention(d, attachedId, unread)
             fun tier(d: DiscoveredInfo) = when {
                 isAttached(d) -> 0
                 isOrange(d) -> 1

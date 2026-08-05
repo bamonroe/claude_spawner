@@ -14,6 +14,16 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "show-the-sidebar-s-orange-active-message-state-on-ring-slots"
+title = "Show the sidebar's orange active-message state on ring slots"
+description = "Sessions in the ring that have an active/unread message should render in the same orange the sidebar uses. Lift the unread/active computation currently done in MainScreen (the seen-marks map compared against discovered lastActive) into shared state both the sidebar and the palette read, rather than duplicating the logic. Keep one definition of the color."
+status = "finished"
+category = "feature"
+created = 2026-08-05
+completed = 2026-08-05
+tags = ["android", "ui", "radial-menu"]
+
+[[task]]
 id = "mic-lock-center-toggle-that-holds-tap-to-speak-open"
 title = "Mic lock: center toggle that holds tap-to-speak open"
 description = "The palette's center button toggles a locked-open microphone: tap to lock the mic on, tap again to release. Not hands-free/wake-word — it just holds the existing tap-to-speak capture path open. Wire into VoiceController's push-to-talk state, show clear locked-on affordance, and define what happens if the palette closes, the app backgrounds, or attachment changes while locked."

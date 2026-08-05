@@ -34,7 +34,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -132,24 +131,9 @@ fun MainScreen(
         withTimeoutOrNull(1500) { snapshotFlow { discovered }.drop(1).first() }
         refreshing = false
     }
-    // Per-session "activity we've already surfaced", keyed by stable session id. Seeded to a
-    // session's current lastActive the first time we see it (so nothing is falsely unread on
-    // first load) and kept current for the session you're attached to. A session only becomes
-    // "unread" — and thus orange in the sidebar — when new output lands for it while you're
-    // attached elsewhere. In-memory: a fresh launch starts everyone clean.
-    val seen = remember { mutableStateMapOf<String, Long>() }
-    LaunchedEffect(discovered, attachedId) {
-        discovered.forEach { d ->
-            val id = d.sessionId.ifBlank { d.dir }
-            val prev = seen[id]
-            if (prev == null || id == attachedId) seen[id] = maxOf(prev ?: 0L, d.lastActive)
-        }
-    }
-    val unread = discovered.mapNotNull { d ->
-        val id = d.sessionId.ifBlank { d.dir }
-        val mark = seen[id]
-        if (d.sessionId != attachedId && mark != null && d.lastActive > mark) id else null
-    }.toSet()
+    // Which sessions are holding output you haven't seen — see [rememberUnreadSessions]; it and
+    // [needsAttention] are the one definition of the orange cue every session surface reads.
+    val unread = rememberUnreadSessions(discovered, attachedId)
     val openSession = { d: DiscoveredInfo ->
         if (d.registered) controller.focusSession(d) else controller.adopt(d.sessionId, d.dir)
         // Opening a session answers any heads-up we were showing for it.
@@ -390,12 +374,12 @@ fun MainScreen(
       // The radial session palette. Its slots are the attach-history ring (most recent
       // first); the centre toggles the mic lock (see [micLocked]) and closes the ring.
       if (paletteOpen) {
-          val ring = remember(discovered, attachedId) {
+          val ring = remember(discovered, attachedId, unread) {
               controller.paletteSessions().map {
                   PaletteSlot(
-                      id = it.sessionId.ifBlank { it.dir },
+                      id = sessionKey(it),
                       label = it.name.ifBlank { it.dir.substringAfterLast('/') },
-                      highlighted = it.busy || it.sessionId.ifBlank { it.dir } in unread,
+                      highlighted = needsAttention(it, attachedId, unread),
                   )
               }
           }

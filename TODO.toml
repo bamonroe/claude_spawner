@@ -21,17 +21,6 @@ finish_work = "When a task is fully finished (built, tested, documented), run `s
 scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/KMP app + web client. The historical phase roadmap stays in README.md."
 
 [[task]]
-id = "show-the-sidebar-s-orange-active-message-state-on-ring-slots"
-title = "Show the sidebar's orange active-message state on ring slots"
-description = "Sessions in the ring that have an active/unread message should render in the same orange the sidebar uses. Lift the unread/active computation currently done in MainScreen (the seen-marks map compared against discovered lastActive) into shared state both the sidebar and the palette read, rather than duplicating the logic. Keep one definition of the color."
-status = "active"
-category = "feature"
-urgency = "normal"
-order = 60
-created = 2026-08-05
-tags = ["android", "ui", "radial-menu"]
-
-[[task]]
 id = "radial-palette-parity-in-the-web-client"
 title = "Radial palette parity in the web client"
 description = "Make sure the palette works in the Compose Multiplatform browser client: gesture equivalent for double-tap (double-click), pointer/hover behavior, and layout at desktop window sizes. Keep the composable and MRU state in commonMain so there's one implementation; see docs/web-client.md."
