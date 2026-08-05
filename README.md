@@ -182,10 +182,14 @@ hasn't got one. That same most-recent-first order also drives the left-edge swap
 
 **Mic lock (hands stay free, wake word stays off).** Holding the mic gets tiring for a long
 dictation, so the **radial palette** (double-tap the transcript) has a **centre button that locks
-the mic open**: tap `lock mic` and recording starts and *keeps* running with no finger down; the
-palette closes, the centre turns red while locked, a red **mic locked** line appears above the
-message box, and the mic button itself goes red. Tap the mic button — or reopen the palette and tap
-`unlock mic` — to end the clip and send it. This is *not* hands-free: there's no wake word and no
+the mic open**: tap `lock mic` and recording starts and *keeps* running with no finger down.
+
+The palette **stays open** while locked, and becomes the recording control itself: the ring of
+sessions gives way to just two buttons under your thumb — a red **mic** in the centre that **sends**
+the clip, and an **✕** directly above it that **cancels** it. Nothing implicit closes the palette
+while it's locked (the dimmed background, back and Escape are all inert), so a clip only ever ends
+on a deliberate tap. A red **mic locked** line still appears above the message box and the mic
+button in the corner goes red, so tapping that mic sends too. This is *not* hands-free: there's no wake word and no
 voice-activity detection, it's exactly the ordinary tap-to-speak capture held open, so the whole
 locked stretch is one clip.
 

@@ -11,6 +11,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -26,6 +29,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -68,6 +72,12 @@ data class PaletteSlot(
  * The centre is a toggle rather than a navigation target; [centerHighlighted] paints it
  * in the error colour to show the toggle is currently on (today: the mic lock).
  *
+ * When [cancelLabel] is non-null an extra button sits directly above the centre — the
+ * destructive counterpart to it (today: cancel the locked clip). Callers that show a
+ * cancel usually pass no [slots], so the ring is just the pair. Setting [dismissible]
+ * to false removes every implicit way out (scrim, back, Escape), which is what a
+ * live-capture mode wants: the only exits are the two explicit buttons.
+ *
  * Lives in commonMain so Android and the web client share one implementation.
  */
 @Composable
@@ -79,8 +89,12 @@ fun RadialPalette(
     onSlot: (PaletteSlot) -> Unit,
     onCenter: () -> Unit,
     onDismiss: () -> Unit,
+    centerIcon: ImageVector? = null,
+    cancelLabel: String? = null,
+    onCancel: () -> Unit = { },
+    dismissible: Boolean = true,
 ) {
-    PlatformBackHandler(enabled = true) { onDismiss() }
+    PlatformBackHandler(enabled = true) { if (dismissible) onDismiss() }
     // One animation drives scale and fade, so the ring blooms from the tap point.
     val progress by animateFloatAsState(1f, tween(durationMillis = 140), label = "palette")
     val focus = remember { FocusRequester() }
@@ -88,11 +102,11 @@ fun RadialPalette(
     BoxWithConstraints(
         Modifier.fillMaxSize()
             .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.55f * progress))
-            .pointerInput(Unit) { detectTapGestures { onDismiss() } }
+            .pointerInput(dismissible) { detectTapGestures { if (dismissible) onDismiss() } }
             .focusRequester(focus)
             .focusable()
             .onPreviewKeyEvent { e ->
-                if (e.type == KeyEventType.KeyDown && e.key == Key.Escape) {
+                if (dismissible && e.type == KeyEventType.KeyDown && e.key == Key.Escape) {
                     onDismiss()
                     true
                 } else false
@@ -138,8 +152,23 @@ fun RadialPalette(
             content = if (centerHighlighted) MaterialTheme.colorScheme.onError
                       else MaterialTheme.colorScheme.onPrimaryContainer,
             label = centerLabel,
+            icon = centerIcon,
             onClick = onCenter,
         )
+        // The cancel sits where slot 0 would be — straight up from the centre.
+        if (cancelLabel != null) {
+            RingButton(
+                x = center.first - SlotSize / 2,
+                y = center.second - RingRadius * progress - SlotSize / 2,
+                size = SlotSize,
+                progress = progress,
+                container = MaterialTheme.colorScheme.errorContainer,
+                content = MaterialTheme.colorScheme.onErrorContainer,
+                label = cancelLabel,
+                icon = Icons.Filled.Close,
+                onClick = onCancel,
+            )
+        }
     }
 }
 
@@ -153,6 +182,7 @@ private fun RingButton(
     container: Color,
     content: Color,
     label: String,
+    icon: ImageVector? = null,
     onClick: () -> Unit,
 ) {
     Surface(
@@ -166,13 +196,19 @@ private fun RingButton(
         tonalElevation = 6.dp,
     ) {
         Box(Modifier.padding(6.dp), contentAlignment = Alignment.Center) {
-            Text(
-                label,
-                style = MaterialTheme.typography.labelMedium,
-                textAlign = TextAlign.Center,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-            )
+            if (icon != null) {
+                // With an icon the label becomes the accessibility description: the glyph
+                // is the affordance, and text alongside it would crowd a 76.dp circle.
+                Icon(icon, contentDescription = label, modifier = Modifier.size(32.dp))
+            } else {
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelMedium,
+                    textAlign = TextAlign.Center,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }

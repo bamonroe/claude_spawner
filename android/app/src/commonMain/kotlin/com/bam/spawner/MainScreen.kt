@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.DrawerValue
@@ -384,9 +386,16 @@ fun MainScreen(
               }
           }
           RadialPalette(
-              slots = ring,
-              centerLabel = if (micLocked) "unlock mic" else "lock mic",
+              // While locked the palette *is* the recording control: the ring of sessions
+              // gives way to send (centre) and cancel (above it), and nothing implicit
+              // closes it, so the clip can only end by an explicit tap.
+              slots = if (micLocked) emptyList() else ring,
+              centerLabel = if (micLocked) "Send" else "lock mic",
+              centerIcon = if (micLocked) Icons.Filled.Mic else null,
               centerHighlighted = micLocked,
+              cancelLabel = if (micLocked) "Cancel" else null,
+              onCancel = { abandonMicLock(); paletteOpen = false },
+              dismissible = !micLocked,
               origin = paletteAt,
               onSlot = { slot ->
                   // End any locked capture first so the clip is sent against the
@@ -397,13 +406,14 @@ fun MainScreen(
               },
               // The centre toggles the mic lock. Locking needs the same preconditions
               // as a hold — connected, and hands-free not already owning the mic.
+              // Locking keeps the palette up so the centre stays under the thumb as the
+              // send button; tapping it again sends the clip and closes.
               onCenter = {
                   when {
-                      micLocked -> releaseMicLock()
+                      micLocked -> { releaseMicLock(); paletteOpen = false }
                       connected && !handsFree -> { micLocked = true; onTalkStart() }
-                      else -> {}
+                      else -> paletteOpen = false
                   }
-                  paletteOpen = false
               },
               onDismiss = { paletteOpen = false },
           )
