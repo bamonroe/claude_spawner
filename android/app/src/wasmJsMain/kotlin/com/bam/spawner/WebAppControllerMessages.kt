@@ -243,7 +243,7 @@ internal fun WebAppController.fetchOlder(id: String, name: String) {
     if (id.isEmpty() || router.hasMore[id] != true || router.loadingOlder) return
     val before = router.oldest[id] ?: return
     router.loadingOlder = true
-    client?.send(Outbound.history(name, before))
+    client?.send(Outbound.history(id, name, before))
 }
 
 internal fun WebAppController.onHistory(msg: ServerMsg.History) {

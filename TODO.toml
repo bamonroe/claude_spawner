@@ -65,17 +65,6 @@ created = 2026-08-05
 tags = ["session-switch", "perf", "server"]
 
 [[task]]
-id = "key-history-requests-by-session-id-not-name"
-title = "Key history requests by session_id, not name"
-description = "net/SessionSync.kt:218 sends Outbound.history(name,...) and ops_history.go:17 does store.Get(name) with no id fallback, while every other path keys by the stable session_id. A session renamed on another device (or same name colliding across servers) yields no_session and the transcript silently never refreshes — the exact bug class the id-keying was meant to kill. Address history by session_id end to end."
-status = "active"
-category = "bug"
-urgency = "high"
-order = 90
-created = 2026-08-05
-tags = ["protocol", "bug-sweep"]
-
-[[task]]
 id = "silent-attach-failure-leaves-client-desynced-from-server"
 title = "Silent attach failure leaves client desynced from server"
 description = "focusKnownSession (VoiceControllerMessages.kt:100-111) optimistically sets _attachedId/lastSessionId before the server confirms, and with silent=true a failed doAttach returns with no error frame (ops_session.go:156-161), so the app shows itself attached to a session the connection isn't on. Also the blank-id path (:95-98) sends attach and returns without updating local state, and 'silent = syncServer' means user-initiated focus suppresses the attach error. Reconcile on failure: have the server always ack/nack attach, and roll back or retry client state on nack."

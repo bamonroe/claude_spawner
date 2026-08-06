@@ -226,7 +226,7 @@ class SessionSync(private val host: Host) {
         if (freshPending == id) return
         freshPending = id
         val held = digestHeld[id]
-        host.send(Outbound.history(name, null, haveHash = held?.second ?: ""))
+        host.send(Outbound.history(id, name, null, haveHash = held?.second ?: ""))
     }
 
     // --- Chat de-dup ---------------------------------------------------------

@@ -14,6 +14,16 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "key-history-requests-by-session-id-not-name"
+title = "Key history requests by session_id, not name"
+description = "net/SessionSync.kt:218 sends Outbound.history(name,...) and ops_history.go:17 does store.Get(name) with no id fallback, while every other path keys by the stable session_id. A session renamed on another device (or same name colliding across servers) yields no_session and the transcript silently never refreshes — the exact bug class the id-keying was meant to kill. Address history by session_id end to end."
+status = "finished"
+category = "bug"
+created = 2026-08-05
+completed = 2026-08-06
+tags = ["protocol", "bug-sweep"]
+
+[[task]]
 id = "move-transcript-cache-disk-i-o-off-the-main-thread"
 title = "Move transcript cache disk I/O off the main thread"
 description = "showLog (VoiceControllerMessages.kt:367-374) runs persist() (synchronous JSON encode + file write of up to 2000 messages, :76-92) and ensureLoaded() (file read + decode + dedupe, :62-72) directly in the Compose click lambda, blocking the frame and delaying the drawer-close animation by 30-200ms+ per switch. onHistory also persists synchronously (:377-425). Move TranscriptCache reads/writes to a background dispatcher; publish from memory immediately."

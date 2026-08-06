@@ -617,8 +617,11 @@ object Outbound {
     // Server-side fallback for the voice "swap" command, and for clients that do
     // not have a local previous-focus target.
     fun swap() = buildJsonObject { put("type", "swap") }.toString()
-    fun history(name: String, before: Int?, limit: Int = 30, haveHash: String = "") = buildJsonObject {
-        put("type", "history"); put("name", name); put("limit", limit)
+    // Addressed by the stable [sessionId] — names are per-server and change under a
+    // rename on another device, which used to make the server answer `no_session` and
+    // the transcript silently never refresh. `name` rides along only for old servers.
+    fun history(sessionId: String, name: String, before: Int?, limit: Int = 30, haveHash: String = "") = buildJsonObject {
+        put("type", "history"); put("session_id", sessionId); put("name", name); put("limit", limit)
         if (before != null) put("before", before)
         if (haveHash.isNotEmpty()) put("have_hash", haveHash) // top-page freshness check → server may reply `unchanged`
     }.toString()

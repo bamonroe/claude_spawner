@@ -359,7 +359,7 @@ class WebAppController(internal val prefs: Prefs) : AppController {
         if (before <= 0 || router.loadingOlder) return
         val name = _attachedName.value ?: return // the history request is addressed by name
         router.loadingOlder = true
-        client?.send(Outbound.history(name, before))
+        client?.send(Outbound.history(router.currentId, name, before))
     }
     override fun submitAnswers(text: String) { _ask.value = null; sendText(text) }
     override fun dismissAsk() { _ask.value = null }

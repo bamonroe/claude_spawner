@@ -155,7 +155,7 @@ internal fun VoiceController.fetchOlder(id: String, name: String) {
     if (id.isEmpty() || router.hasMore[id] != true || id in loadingOlder) return
     val before = router.oldest[id] ?: return
     loadingOlder.add(id)
-    client?.send(Outbound.history(name, before))
+    client?.send(Outbound.history(id, name, before))
 }
 
 internal fun VoiceController.onMessage(msg: ServerMsg) {

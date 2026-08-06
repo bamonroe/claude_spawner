@@ -13,12 +13,25 @@ import (
 // serveHistory returns a page of a session's past conversation, read from
 // Claude's transcript on disk. `before` is the exclusive index cursor (nil =
 // most recent page); the app pages older by passing the oldest index it holds.
-func (c *conn) serveHistory(name string, before *int, limit int, haveHash string) {
-	s := c.srv.store.Get(name)
+// The target is addressed by the stable `session_id` when the client sends one —
+// the same handle every other session op uses. A name is only a fallback (older
+// clients): names are per-server and get renamed on another device, so keying
+// history by name made a renamed session answer `no_session` and silently never
+// refresh. GetByAnyID also accepts an id retired by a clear/compress rotation, so
+// a client holding a pre-rotation id still reaches the live record.
+func (c *conn) serveHistory(sessionID, name string, before *int, limit int, haveHash string) {
+	var s *session.Session
+	if sessionID != "" {
+		s = c.srv.store.GetByAnyID(sessionID)
+	}
+	if s == nil {
+		s = c.srv.store.Get(name)
+	}
 	if s == nil {
 		c.fail("no_session", "no such session: "+name)
 		return
 	}
+	name = recName(s) // the reply echoes the session's current name, not the client's stale one
 	// Cache-validation fast path: a top-page request (before == nil) carrying the
 	// hash the app already holds needs no message bodies — tell it the cache is
 	// current so clicking back into an unchanged session transfers nothing.
