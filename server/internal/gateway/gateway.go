@@ -568,12 +568,14 @@ var wireHandlers = map[string]func(c *conn, in inbound){
 	"identity_update": func(c *conn, in inbound) {
 		c.doIdentityUpdate(in.Name, in.User, in.SetPassword, in.Password, in.UpdatedAt)
 	},
-	"identity_delete":     func(c *conn, in inbound) { c.doIdentityDelete(in.Name, in.UpdatedAt) },
-	"profile_put":         func(c *conn, in inbound) { c.doProfilePut(in.ProfileDef) },
-	"profile_delete":      func(c *conn, in inbound) { c.doProfileDelete(in.Name, in.UpdatedAt) },
-	"profile_set_default": func(c *conn, in inbound) { c.doProfileSetDefault(in.Name) },
-	"spoken_token_put":    func(c *conn, in inbound) { c.doSpokenTokenPut(in.SpokenToken) },
-	"spoken_token_delete": func(c *conn, in inbound) { c.doSpokenTokenDelete(in.Name, in.UpdatedAt) },
-	"provider_put":        func(c *conn, in inbound) { c.doProviderPut(in.Agent, in.DefaultModel, in.VoiceModels, in.UpdatedAt) },
-	"setting_put":         func(c *conn, in inbound) { c.doSettingPut(in.Key, in.Value, in.UpdatedAt) },
+	"identity_delete":      func(c *conn, in inbound) { c.doIdentityDelete(in.Name, in.UpdatedAt) },
+	"profile_put":          func(c *conn, in inbound) { c.doProfilePut(in.ProfileDef) },
+	"profile_delete":       func(c *conn, in inbound) { c.doProfileDelete(in.Name, in.UpdatedAt) },
+	"profile_set_default":  func(c *conn, in inbound) { c.doProfileSetDefault(in.Name) },
+	"spoken_token_put":     func(c *conn, in inbound) { c.doSpokenTokenPut(in.SpokenToken) },
+	"spoken_token_delete":  func(c *conn, in inbound) { c.doSpokenTokenDelete(in.Name, in.UpdatedAt) },
+	"shell_command_put":    func(c *conn, in inbound) { c.doShellCommandPut(in.ShellCommand) },
+	"shell_command_delete": func(c *conn, in inbound) { c.doShellCommandDelete(in.Name, in.UpdatedAt) },
+	"provider_put":         func(c *conn, in inbound) { c.doProviderPut(in.Agent, in.DefaultModel, in.VoiceModels, in.UpdatedAt) },
+	"setting_put":          func(c *conn, in inbound) { c.doSettingPut(in.Key, in.Value, in.UpdatedAt) },
 }

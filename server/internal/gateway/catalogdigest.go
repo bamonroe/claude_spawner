@@ -147,6 +147,19 @@ func spokenTokensDigest(tokens []*spoken.Token) string {
 	return foldDigest(recs)
 }
 
+// shellCommandsDigest folds the shell-command catalogue with the same FNV-1a-64
+// canonical scheme as the others: each record's (name, command, dir, host,
+// updated_at). Must be byte-identical to the Kotlin CatalogueDigest.shellCommands fold.
+func shellCommandsDigest(cmds []*session.ShellCommand) string {
+	recs := make([]string, 0, len(cmds))
+	for _, c := range cmds {
+		recs = append(recs, strings.Join([]string{
+			c.Name, c.Command, c.Dir, c.Host, strconv.FormatInt(c.UpdatedAt, 10),
+		}, digestFieldSep))
+	}
+	return foldDigest(recs)
+}
+
 // settingsDigest folds the fifth catalogue — the keyed shared-settings store — with
 // the same FNV-1a-64 canonical scheme as the others: each record's (key, value,
 // updated_at). Must be byte-identical to the Kotlin CatalogueDigest.settings fold.

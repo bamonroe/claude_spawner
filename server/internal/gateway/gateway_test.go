@@ -34,6 +34,17 @@ func testTokens(t *testing.T) *session.SpokenTokenStore {
 	return ts
 }
 
+// testShellCmds opens an empty, temp-backed shell-command catalogue for a test
+// server — the gateway pushes it on connect, so it must always be present.
+func testShellCmds(t *testing.T) *session.ShellCommandStore {
+	t.Helper()
+	cs, err := session.OpenShellCommandStore(filepath.Join(t.TempDir(), "shell_commands.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cs
+}
+
 // tokensSeed builds an in-temp spoken-token store from an explicit seed, for tests
 // that need a specific set of wake/end/speak tokens.
 func tokensSeed(t *testing.T, seed []*spoken.Token) *session.SpokenTokenStore {
@@ -125,7 +136,7 @@ func newTestServerGW(t *testing.T, stt transcribe.Transcriber) (*httptest.Server
 	if err != nil {
 		t.Fatal(err)
 	}
-	gw := New(cfg, store, hosts, ids, testTokens(t), nil, nil, driver, tmux.NewManager(), stt, nil)
+	gw := New(cfg, store, hosts, ids, testTokens(t), testShellCmds(t), nil, driver, tmux.NewManager(), stt, nil)
 	ts := httptest.NewServer(http.HandlerFunc(gw.HandleWS))
 	t.Cleanup(ts.Close)
 	return ts, root, gw
@@ -206,7 +217,7 @@ func newSandboxTestServer(t *testing.T) (*httptest.Server, string, *Server) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	gw := New(cfg, store, hosts, ids, testTokens(t), nil, nil, driver, tmux.NewManager(), nil, nil)
+	gw := New(cfg, store, hosts, ids, testTokens(t), testShellCmds(t), nil, driver, tmux.NewManager(), nil, nil)
 	ts := httptest.NewServer(http.HandlerFunc(gw.HandleWS))
 	t.Cleanup(ts.Close)
 	return ts, root, gw

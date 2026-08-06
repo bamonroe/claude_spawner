@@ -82,6 +82,12 @@ object CatalogueDigest {
     fun spokenTokens(ts: List<SpokenTokenInfo>): String = fold(ts.map {
         listOf(it.name, it.phrase, it.action, it.model, it.updatedAt.toString()).joinToString(FS)
     })
+
+    // The shell-command catalogue, folded (name, command, dir, host, updated_at) —
+    // byte-identical to Go's shellCommandsDigest.
+    fun shellCommands(cs: List<ShellCommandInfo>): String = fold(cs.map {
+        listOf(it.name, it.command, it.dir, it.host, it.updatedAt.toString()).joinToString(FS)
+    })
 }
 
 /** The per-catalogue digests the app presents in the `hello` handshake so the
@@ -94,4 +100,5 @@ data class CatalogueDigests(
     val providers: String = "",
     val settings: String = "",
     val spokenTokens: String = "",
+    val shellCommands: String = "",
 )

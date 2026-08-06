@@ -119,6 +119,7 @@ sealed interface ServerMsg {
     data class Profiles(val profiles: List<ProfileInfo>, val default: String) : ServerMsg // execution profiles (for the new-session picker)
     data class Actions(val actions: List<ActionInfo>) : ServerMsg // closed set of bindable spoken-token actions (advertise-only)
     data class SpokenTokens(val tokens: List<SpokenTokenInfo>) : ServerMsg // app-managed wake/end/speak token catalogue
+    data class ShellCommands(val commands: List<ShellCommandInfo>) : ServerMsg // app-managed pre-configured shell commands
     data class HostList(val hosts: List<Host>) : ServerMsg // app-managed SSH host registry
     data class IdentityList(val identities: List<Identity>) : ServerMsg // app-managed SSH identities
     data class Settings(val settings: List<SettingRecord>) : ServerMsg // shared server-global scalars (whisper models, auto-compress, summary-only)
@@ -178,6 +179,7 @@ sealed interface ServerMsg {
                 "profiles" -> Profiles(readProfiles(o.arr("profiles")), o.str("default"))
                 "actions" -> Actions(readActions(o.arr("actions")))
                 "spoken_tokens" -> SpokenTokens(readSpokenTokens(o.arr("spoken_tokens")))
+                "shell_commands" -> ShellCommands(readShellCommands(o.arr("shell_commands")))
                 "host_list" -> HostList(readHosts(o.arr("hosts")))
                 "identity_list" -> IdentityList(readIdentities(o.arr("identities")))
                 "settings" -> Settings(readSettings(o.arr("settings")))
@@ -285,6 +287,16 @@ sealed interface ServerMsg {
                 SpokenTokenInfo(
                     t.str("name"), t.str("phrase"), t.str("action"),
                     t.str("model"), t.long("updated_at"),
+                )
+            }
+        }
+
+        private fun readShellCommands(arr: JsonArray?): List<ShellCommandInfo> {
+            if (arr == null) return emptyList()
+            return arr.map { it.jsonObject }.map { c ->
+                ShellCommandInfo(
+                    c.str("name"), c.str("command"), c.str("dir"),
+                    c.str("host"), c.long("updated_at"),
                 )
             }
         }
@@ -406,6 +418,20 @@ data class SpokenTokenInfo(
     val phrase: String,
     val action: String,
     val model: String = "",
+    // Client-stamped last-edit time (unix ms); drives last-writer-wins (see CatalogueSync).
+    val updatedAt: Long = 0,
+)
+
+/** One pre-configured shell command (Settings → Shell commands): the spoken alias
+ *  [name] bound to a fixed command-line template [command] run on the target host
+ *  (or [host], when pinned) in [dir]. This catalogue is the closed set a shell token
+ *  may run, so spoken shell can never be arbitrary. The app manages it; the server
+ *  persists it. See docs/protocol.md for the $1..$9 / $* argument syntax. */
+data class ShellCommandInfo(
+    val name: String,
+    val command: String,
+    val dir: String = "",
+    val host: String = "",
     // Client-stamped last-edit time (unix ms); drives last-writer-wins (see CatalogueSync).
     val updatedAt: Long = 0,
 )
@@ -567,6 +593,7 @@ object Outbound {
         put("hosts_digest", digests.hosts); put("identities_digest", digests.identities)
         put("profiles_digest", digests.profiles); put("providers_digest", digests.providers)
         put("settings_digest", digests.settings); put("spoken_tokens_digest", digests.spokenTokens)
+        put("shell_commands_digest", digests.shellCommands)
     }.toString()
     // Live-update the server-global context-compression preference without reconnecting.
     fun autoCompress(warm: Boolean, auto: Boolean, thresholdK: Int) = buildJsonObject {
@@ -736,6 +763,19 @@ object Outbound {
     }.toString()
     fun spokenTokenDelete(name: String, updatedAt: Long) =
         buildJsonObject { put("type", "spoken_token_delete"); put("name", name); put("updated_at", updatedAt) }.toString()
+
+    // Pre-configured shell commands (Settings → Shell commands). Same app-owned,
+    // server-persisted shape as the spoken tokens; the server broadcasts an updated
+    // `shell_commands` after every change.
+    fun shellCommandPut(c: ShellCommandInfo) = buildJsonObject {
+        put("type", "shell_command_put")
+        putJsonObject("shell_command") {
+            put("name", c.name); put("command", c.command); put("dir", c.dir)
+            put("host", c.host); put("updated_at", c.updatedAt)
+        }
+    }.toString()
+    fun shellCommandDelete(name: String, updatedAt: Long) =
+        buildJsonObject { put("type", "shell_command_delete"); put("name", name); put("updated_at", updatedAt) }.toString()
 
     // Provider (AI-backend) settings overlay (Settings → Providers). The backends
     // are compile-time; the app sets per-backend overrides — the model a spawn

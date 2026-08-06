@@ -88,6 +88,12 @@ func (c *conn) authenticate() bool {
 	if in.SpokenTokensDigest != spokenTokensDigest(c.srv.tokens.List()) {
 		c.send(msgSpokenTokens(c.srv.tokens.List()))
 	}
+	// Same fast path for the shell-command catalogue a shell token can run: the
+	// closed set is what makes spoken shell safe, so the app must hold it before it
+	// can parse one.
+	if in.ShellCommandsDigest != shellCommandsDigest(c.srv.shellCmds.List()) {
+		c.send(msgShellCommands(c.srv.shellCmds.List()))
+	}
 	// Hosts and identities were previously request-only; presenting a digest lets us
 	// proactively reconcile them on connect too, so a different client's edit reflects
 	// here without opening the settings screen — but only when they actually differ.

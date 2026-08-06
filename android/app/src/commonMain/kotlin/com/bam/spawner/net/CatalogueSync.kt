@@ -62,6 +62,7 @@ class CatalogueSync(private val send: (String) -> Unit) {
     private val agentCat = Catalogue<AgentInfo>(key = AgentInfo::id, updatedAt = AgentInfo::updatedAt)
     private val settingCat = Catalogue<SettingRecord>(key = SettingRecord::key, updatedAt = SettingRecord::updatedAt)
     private val tokenCat = Catalogue<SpokenTokenInfo>(key = SpokenTokenInfo::name, updatedAt = SpokenTokenInfo::updatedAt)
+    private val shellCmdCat = Catalogue<ShellCommandInfo>(key = ShellCommandInfo::name, updatedAt = ShellCommandInfo::updatedAt)
 
     val hosts: StateFlow<List<Host>> = hostCat.items
     val identities: StateFlow<List<Identity>> = identityCat.items
@@ -69,6 +70,8 @@ class CatalogueSync(private val send: (String) -> Unit) {
     val agents: StateFlow<List<AgentInfo>> = agentCat.items
     /** The app-managed spoken-token catalogue (wake/end/speak phrases + models). */
     val spokenTokens: StateFlow<List<SpokenTokenInfo>> = tokenCat.items
+    /** The app-managed catalogue of shell commands a shell token may run. */
+    val shellCommands: StateFlow<List<ShellCommandInfo>> = shellCmdCat.items
     /** The shared server-global settings catalogue, as keyed records. Controllers
      *  read typed values off this (see [settingValue]) and mirror them into the UI. */
     val settings: StateFlow<List<SettingRecord>> = settingCat.items
@@ -88,6 +91,7 @@ class CatalogueSync(private val send: (String) -> Unit) {
         providers = CatalogueDigest.providers(agentCat.items.value),
         settings = CatalogueDigest.settings(settingCat.items.value),
         spokenTokens = CatalogueDigest.spokenTokens(tokenCat.items.value),
+        shellCommands = CatalogueDigest.shellCommands(shellCmdCat.items.value),
     )
 
     /** The current string value of a shared setting, or null when the server hasn't
@@ -106,6 +110,7 @@ class CatalogueSync(private val send: (String) -> Unit) {
         is ServerMsg.Agents -> { agentCat.apply(msg.agents); true }
         is ServerMsg.Settings -> { settingCat.apply(msg.settings); true }
         is ServerMsg.SpokenTokens -> { tokenCat.apply(msg.tokens); true }
+        is ServerMsg.ShellCommands -> { shellCmdCat.apply(msg.commands); true }
         else -> false
     }
 
@@ -138,6 +143,10 @@ class CatalogueSync(private val send: (String) -> Unit) {
     // --- Spoken tokens (Settings → Spoken tokens) ----------------------------
     fun putSpokenToken(t: SpokenTokenInfo) = send(Outbound.spokenTokenPut(t.copy(updatedAt = nowEpochMs())))
     fun deleteSpokenToken(name: String) = send(Outbound.spokenTokenDelete(name, nowEpochMs()))
+
+    // --- Shell commands (Settings → Shell commands) --------------------------
+    fun putShellCommand(c: ShellCommandInfo) = send(Outbound.shellCommandPut(c.copy(updatedAt = nowEpochMs())))
+    fun deleteShellCommand(name: String) = send(Outbound.shellCommandDelete(name, nowEpochMs()))
 
     // --- Shared settings (whisper models, auto-compress, summary-only) --------
     // Each scalar is its own keyed record so per-key last-writer-wins arbitrates
