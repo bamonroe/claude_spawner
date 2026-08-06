@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "shell-alias-resolver-longest-alias-wins-match-over-the-catalogue"
+title = "Shell alias resolver: longest-alias-wins match over the catalogue"
+description = "Pure resolver in internal/session (next to shellcommands.go): given the post-gate utterance and ShellCommandStore.List(), normalize both sides with the same rules as command.normalize, and match catalogue names as leading word-phrases with LONGEST alias winning (so 'deploy staging' prefers a 'deploy staging' record over 'deploy'). Remaining words become the positional args. Returns (record, args, ok). Unit tests: exact match, multi-word alias, longest-wins, no match, empty catalogue, punctuation/case noise from Whisper."
+status = "finished"
+level = "task"
+category = "feature"
+created = 2026-08-06
+completed = 2026-08-06
+tags = ["shell", "voice"]
+
+[[task]]
 id = "voice-argument-parsing-for-shell-command-aliases"
 title = "Voice argument parsing for shell command aliases"
 description = "Decide and implement how a spoken utterance after the shell gate resolves to an alias plus arguments — e.g. 'deploy staging' matches alias 'deploy' with arg 'staging'. Investigate: longest-alias-wins matching against the catalogue, how the remaining words map onto template placeholders, quoting/escaping so arguments cannot break out of the intended command over SSH, and what to say back when no alias matches or arguments are missing."
