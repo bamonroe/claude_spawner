@@ -62,12 +62,13 @@ fun SpokenTokensSettings(controller: SpokenTokensController, onBack: () -> Unit)
     val advertised by controller.spokenActions.collectAsState()
     val connected by controller.connected.collectAsState()
 
-    // Fall back to the three built-in actions if the server hasn't advertised yet
+    // Fall back to the built-in actions if the server hasn't advertised yet
     // (older server), so the editor still works.
     val actionList = if (advertised.isNotEmpty()) advertised else listOf(
         ActionInfo("wake", "Wake", "Starts a spoken command, e.g. \"hey buddy\"."),
         ActionInfo("end", "End", "Commits a hands-free message, e.g. \"beep\"."),
         ActionInfo("speech_gate", "Speech gate", "Opens the dictation gate; only speech after it is dictated."),
+        ActionInfo("shell", "Shell", "Runs a pre-configured shell command on the target host, e.g. \"shell\"."),
     )
 
     var phrase by rememberSaveable { mutableStateOf("") }

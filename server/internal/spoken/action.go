@@ -22,6 +22,7 @@ const (
 	ActionWake       = "wake"        // flags an utterance as a control command (the wake token)
 	ActionEnd        = "end"         // commits the hands-free buffer (the end token)
 	ActionSpeechGate = "speech_gate" // opens the dictation gate (the speak token)
+	ActionShell      = "shell"       // runs a pre-configured shell command (the shell token)
 )
 
 // Action describes one bindable feature for the app's token editor.
@@ -37,6 +38,7 @@ var actions = []Action{
 	{ID: ActionWake, Label: "Wake", Desc: `Starts a spoken command, e.g. "hey buddy".`},
 	{ID: ActionEnd, Label: "End", Desc: `Commits a hands-free message, e.g. "beep".`},
 	{ID: ActionSpeechGate, Label: "Speech gate", Desc: "Opens the dictation gate; only speech after it is dictated."},
+	{ID: ActionShell, Label: "Shell", Desc: `Runs a pre-configured shell command on the target host, e.g. "shell".`},
 }
 
 // Actions returns a copy of the action registry, for advertising to the app.

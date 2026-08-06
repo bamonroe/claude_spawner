@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "shell-gate-new-shell-spoken-action-and-token"
+title = "Shell gate: new 'shell' spoken action and token"
+description = "Add a third gate action alongside wake/end/speech_gate: ActionShell in server/internal/spoken/action.go, seeded with a default token phrase 'shell' in spoken.DefaultTokens (match.go). Add a connection-scoped resolver shellPhrases() in gateway/conn.go next to wakePhrases()/endPhrases(), and route detached utterances that start with a shell phrase into the shell path instead of the 'didn't catch that' fallback in gateway/ops.go dispatch. Gate is inert when no shell phrase is configured (same fail-safe as gateActive()). Attached behaviour unchanged for now unless the shell phrase leads the utterance."
+status = "finished"
+level = "task"
+category = "feature"
+created = 2026-08-06
+completed = 2026-08-06
+tags = ["shell", "voice"]
+
+[[task]]
 id = "radial-menu-select-individual-tray-commands"
 title = "Radial menu: select individual tray commands"
 description = "Extend the radial menu so it can select individual tray commands, not just the tray as a whole."

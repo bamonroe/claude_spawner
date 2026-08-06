@@ -43,18 +43,6 @@ created = 2026-08-06
 tags = ["shell", "detached", "ssh"]
 
 [[task]]
-id = "shell-gate-new-shell-spoken-action-and-token"
-title = "Shell gate: new 'shell' spoken action and token"
-description = "Add a third gate action alongside wake/end/speech_gate: ActionShell in server/internal/spoken/action.go, seeded with a default token phrase 'shell' in spoken.DefaultTokens (match.go). Add a connection-scoped resolver shellPhrases() in gateway/conn.go next to wakePhrases()/endPhrases(), and route detached utterances that start with a shell phrase into the shell path instead of the 'didn't catch that' fallback in gateway/ops.go dispatch. Gate is inert when no shell phrase is configured (same fail-safe as gateActive()). Attached behaviour unchanged for now unless the shell phrase leads the utterance."
-status = "active"
-level = "task"
-category = "feature"
-urgency = "normal"
-order = 20
-created = 2026-08-06
-tags = ["shell", "voice"]
-
-[[task]]
 id = "shell-command-catalogue-store-wire-ops-app-editing"
 title = "Shell command catalogue: store, wire ops, app editing"
 description = "Pre-configured shell commands are the only thing the shell gate can run — no arbitrary spoken commands. Investigate and break into tasks: a ShellCommandStore modelled on session/hosts.go and session/spokentokens.go (alias phrase, command template, optional working dir/host override, UpdatedAt LWW), its config path + SPAWNER_ env var, catalogue sync/put/delete wire ops in gateway/settings.go, protocol docs, and the app-side settings editor (same pattern as the hosts and spoken-token editors). Commands take spoken arguments, so the model needs a way to express parameters in the template."

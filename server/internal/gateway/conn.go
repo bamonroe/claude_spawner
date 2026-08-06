@@ -307,6 +307,19 @@ func (c *conn) speakPhrases() [][]string {
 
 func (c *conn) endPhrases() [][]string { return spoken.Phrases(c.srv.tokens.List(), spoken.ActionEnd) }
 
+// shellPhrases are the phrases bound to the shell token — the gate that routes an
+// utterance to a pre-configured shell command instead of a session. No phrase
+// configured ⇒ the gate is inert and nothing changes (same fail-safe as gateActive).
+func (c *conn) shellPhrases() [][]string {
+	return spoken.Phrases(c.srv.tokens.List(), spoken.ActionShell)
+}
+
+// stripShell reports whether text leads with a shell phrase, returning the rest of
+// the utterance (the alias and its arguments) when it does.
+func (c *conn) stripShell(text string) (rest string, hadShell bool) {
+	return command.StripWakeWith(text, c.shellPhrases())
+}
+
 // endModels are the distinct detector (ONNX) model keys bound to end-token tokens,
 // scored against the wakeword sidecar when the detector service is on.
 

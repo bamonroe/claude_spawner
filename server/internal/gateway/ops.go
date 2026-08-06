@@ -7,6 +7,13 @@ import (
 // dispatch handles an immediate (push-to-talk / typed) utterance when no dialog
 // is active: a control command, or dictation to the attached session.
 func (c *conn) dispatch(text string) {
+	// The shell token is its own front door: when the utterance leads with a shell
+	// phrase the rest is a pre-configured shell command, never dictation.
+	if shell, hadShell := c.stripShell(text); hadShell {
+		c.runShell(shell)
+		return
+	}
+
 	rest, hadWake := c.stripWake(text)
 
 	// Attached + no wake word => plain dictation.

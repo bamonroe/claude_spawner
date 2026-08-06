@@ -39,7 +39,8 @@ func Models(tokens []*Token, action string) []string {
 
 // DefaultTokens builds the first-run seed for the catalogue: one token per default
 // wake phrase (the canonical first phrase carrying the wake detector model, the
-// rest Whisper-only mishearing coverage) plus the default end token. Written once
+// rest Whisper-only mishearing coverage) plus the default end and shell tokens.
+// The shell token is Whisper-only ("shell" has no detector model). Written once
 // to the catalogue file; after that the app owns the list. Mirrors the behavior of
 // the old hardcoded wake handling so a fresh deployment wakes on "hey buddy" and
 // commits on "beep" out of the box.
@@ -54,6 +55,7 @@ func DefaultTokens(wakePhrases [][]string, wakeModel, endModel string) []*Token 
 		out = append(out, t)
 	}
 	out = append(out, &Token{Name: "end-token", Phrase: "beep", Action: ActionEnd, Model: endModel})
+	out = append(out, &Token{Name: "shell-token", Phrase: "shell", Action: ActionShell})
 	return out
 }
 

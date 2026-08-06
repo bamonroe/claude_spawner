@@ -195,6 +195,28 @@ Edge cases:
 Reserved-word collision: if the user genuinely needs to dictate a phrase that looks like a
 command, require the wake word for all control commands so plain dictation is never intercepted.
 
+## The shell token
+
+The wake token ("hey buddy") is not the only front door. A spoken token bound to the **`shell`**
+action — seeded as the phrase **"shell"**, rebindable in Settings → Spoken tokens like any other
+token — opens a second parsing surface. An utterance that *leads* with a shell phrase is never
+dictation and never a control command: the rest of it names a **pre-configured** shell command,
+which runs on the current target host with its output spoken back in full.
+
+```
+  user: "shell, deploy staging"
+  -> alias "deploy" from the shell-command catalogue, argument "staging"
+  -> run on the target host over the existing SSH pool -> output spoken
+```
+
+Arbitrary spoken shell is never run — only aliases that were configured ahead of time — so there is
+no confirmation prompt for destructive-looking commands. The catalogue *is* the safety boundary.
+With no shell phrase configured the gate is inert, exactly like the speech gate.
+
+The catalogue itself, the alias/argument parsing, the `set target` / `set directory` command and the
+SSH execution path are still being built; see the shell-token epic in `TODO.toml`. Today the gate is
+wired end to end and answers that nothing is configured.
+
 ## Adding or changing a command
 
 The **command set** has a single code source of truth: `server/internal/command.Registry` (a list
