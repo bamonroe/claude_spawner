@@ -14,6 +14,16 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "reconcilejobs-runs-outside-j-mu-turn-start-race"
+title = "reconcileJobs runs outside j.mu — turn-start race"
+description = "turns.go:332-334: bindJob checks j.isRunning() then calls reconcileJobs before taking j.mu at :342. A turn starting in that window is exactly the one-writer race the adjacent comment says must not happen (store.Put single writer). Take the lock across the check + reconcile."
+status = "finished"
+category = "bug"
+created = 2026-08-05
+completed = 2026-08-06
+tags = ["server", "bug-sweep"]
+
+[[task]]
 id = "fuzzy-name-attach-fallback-can-attach-the-wrong-session"
 title = "Fuzzy-name attach fallback can attach the wrong session"
 description = "doAttachBy (ops_session.go:98-104) falls back to name when the session id is unknown, and resolveSession (:206-234) matches on matchKey (letters+digits, claude- prefix stripped) of name or dir basename — 'claude-bam-store' and 'bamstore' collide. A stale id plus a fuzzy collision silently attaches to a different session. Require exact match (or confirm) when the caller supplied an id."

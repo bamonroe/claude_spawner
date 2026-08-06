@@ -121,7 +121,7 @@ func TestSpawnUnresolvedPathReprompts(t *testing.T) {
 func TestSpawnAsksTargetWhenSandboxConfigured(t *testing.T) {
 	ts, root, gw := newSandboxTestServer(t)
 	fake := &fakeSandbox{}
-	gw.driver.Execs[session.TargetSandbox] = fake
+	gw.driver.SetExec(session.TargetSandbox, fake)
 	if err := os.MkdirAll(filepath.Join(root, "myproj"), 0o755); err != nil {
 		t.Fatal(err)
 	}

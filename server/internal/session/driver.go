@@ -19,7 +19,14 @@ type Driver struct {
 	// and Usage select by the session's Target (empty/unknown falls back to
 	// TargetHost, which must always be registered). Register a sandbox target to
 	// make host-vs-container a per-session choice.
-	Execs map[Target]Executor
+	//
+	// Populate it at construction (a literal, or NewDriver) and change it ONLY via
+	// SetExec/HostBin afterwards: the driver is shared by every turn goroutine and
+	// by background work like the job reconciler, so a bare map write once the
+	// driver is live races their lookups. execsMu guards every post-construction
+	// access; the internal readers below all go through exec().
+	Execs   map[Target]Executor
+	execsMu sync.RWMutex
 	// Agents is the registry of AI backends. Turn resolves a session's Agent id
 	// here to build the turn's command line and pick the output parser; an empty or
 	// unknown id falls back to the registry's default backend (Claude). Never nil
@@ -96,13 +103,40 @@ func NewDriver() *Driver {
 // HostBin points the host executor at a specific claude binary. Convenience for
 // wiring (config's SPAWNER_CLAUDE_BIN) and tests; equivalent to replacing
 // Execs[TargetHost].
-func (d *Driver) HostBin(bin string) { d.Execs[TargetHost] = HostExecutor{Bin: bin} }
+func (d *Driver) HostBin(bin string) { d.SetExec(TargetHost, HostExecutor{Bin: bin}) }
+
+// SetExec registers (or replaces) a target's executor on a live driver — the one
+// supported way to change Execs after construction, so the write is ordered
+// against every concurrent lookup.
+func (d *Driver) SetExec(t Target, e Executor) {
+	d.execsMu.Lock()
+	defer d.execsMu.Unlock()
+	if d.Execs == nil {
+		d.Execs = map[Target]Executor{}
+	}
+	d.Execs[t] = e
+}
+
+// sandboxExec is the guarded read of the sandbox executor, nil when unregistered
+// (so the type assertions on it read as "no lifecycle/reaper support").
+func (d *Driver) sandboxExec() Executor {
+	e, _ := d.exec(TargetSandbox)
+	return e
+}
+
+// exec is the guarded read of Execs. Every internal lookup goes through it.
+func (d *Driver) exec(t Target) (Executor, bool) {
+	d.execsMu.RLock()
+	defer d.execsMu.RUnlock()
+	e, ok := d.Execs[t]
+	return e, ok
+}
 
 // SandboxEnabled reports whether the sandbox target is available (an executor is
 // registered for it), so the spawn flow only offers "host or sandbox?" when
 // sandbox sessions can actually run.
 func (d *Driver) SandboxEnabled() bool {
-	_, ok := d.Execs[TargetSandbox]
+	_, ok := d.exec(TargetSandbox)
 	return ok
 }
 
@@ -187,11 +221,12 @@ func (d *Driver) ProfileFor(s *Session) (*ExecProfile, error) {
 // for the empty string or any target with no registered executor.
 func (d *Driver) executor(t Target) Executor {
 	if t != "" {
-		if e, ok := d.Execs[t]; ok {
+		if e, ok := d.exec(t); ok {
 			return e
 		}
 	}
-	return d.Execs[TargetHost]
+	e, _ := d.exec(TargetHost)
+	return e
 }
 
 // EnsureContainer creates the session's persistent sandbox container if it isn't
@@ -202,7 +237,7 @@ func (d *Driver) EnsureContainer(ctx context.Context, rec *Session) error {
 	if s.Target != TargetSandbox || s.Container == "" {
 		return nil
 	}
-	if lc, ok := d.Execs[TargetSandbox].(SandboxLifecycle); ok {
+	if lc, ok := d.sandboxExec().(SandboxLifecycle); ok {
 		p, err := d.ProfileFor(s)
 		if err != nil {
 			return err
@@ -219,7 +254,7 @@ func (d *Driver) RemoveContainer(ctx context.Context, rec *Session) error {
 	if s.Target != TargetSandbox || s.Container == "" {
 		return nil
 	}
-	if lc, ok := d.Execs[TargetSandbox].(SandboxLifecycle); ok {
+	if lc, ok := d.sandboxExec().(SandboxLifecycle); ok {
 		return lc.Remove(ctx, s.Container)
 	}
 	return nil
@@ -231,7 +266,7 @@ func (d *Driver) RemoveContainer(ctx context.Context, rec *Session) error {
 // server was down. Returns the names removed. A no-op when the sandbox executor
 // can't list its containers.
 func (d *Driver) ReconcileContainers(ctx context.Context, known map[string]bool) ([]string, error) {
-	reaper, ok := d.Execs[TargetSandbox].(SandboxReaper)
+	reaper, ok := d.sandboxExec().(SandboxReaper)
 	if !ok {
 		return nil, nil
 	}
@@ -320,7 +355,8 @@ func (d *Driver) Restart(ctx context.Context, mode string) error {
 // under the test-only HostExecutor. Restart and claudeFSFor reuse it to reach the
 // host without the openssh client.
 func (d *Driver) hostPool() *SSHPool {
-	if ex, ok := d.Execs[TargetHost].(SSHExecutor); ok {
+	hostExec, _ := d.exec(TargetHost)
+	if ex, ok := hostExec.(SSHExecutor); ok {
 		return ex.Pool
 	}
 	return nil

@@ -129,6 +129,79 @@ type sessionJob struct {
 	// the frames it actually missed instead of the turn from frame 0. Reset at each
 	// turn's start (the seq space is per-turn).
 	replayedTo map[*conn]int
+	// recCancel/recDone are the background-job reconciler's claim on this session's
+	// SINGLE WRITER slot. `running` alone couldn't express it: reconcile is minutes
+	// of nothing and then a burst of SSH round-trips, and a turn starting inside
+	// that burst is exactly the concurrent store.Put the one-writer rule forbids.
+	// Non-nil recDone means a reconcile owns the slot; startTurn cancels it and
+	// waits for recDone rather than refusing the user's turn — see claimReconcile.
+	recCancel context.CancelFunc
+	recDone   chan struct{}
+}
+
+// claimReconcile reserves the session's writer slot for a background-job
+// reconcile, returning a context the turn path can preempt it through. false
+// means the slot is taken — a turn is running, or another reconcile is already
+// in flight — and the caller must not write to the record at all.
+func (j *sessionJob) claimReconcile() (context.Context, bool) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.running || j.recDone != nil {
+		return nil, false
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	j.recCancel, j.recDone = cancel, make(chan struct{})
+	return ctx, true
+}
+
+// claimTurn takes the session's single writer slot for a turn: it preempts an
+// in-flight background-job reconcile, then atomically checks-and-claims. false
+// means a turn is already running and the caller must not start one. Every turn
+// start (dictation, compress, job-notify) goes through here, so "one active
+// writer per session" is a property of this method rather than a rule each site
+// has to re-implement — the check and the claim can't drift apart again.
+func (j *sessionJob) claimTurn(cancel context.CancelFunc) bool {
+	j.preemptReconcile()
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.running {
+		return false
+	}
+	j.beginTurn(cancel)
+	return true
+}
+
+// releaseReconcile hands the writer slot back. Safe to call once per successful
+// claimReconcile; the close is what unblocks a turn waiting to preempt.
+func (j *sessionJob) releaseReconcile() {
+	j.mu.Lock()
+	cancel, done := j.recCancel, j.recDone
+	j.recCancel, j.recDone = nil, nil
+	j.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	if done != nil {
+		close(done)
+	}
+}
+
+// preemptReconcile takes the writer slot away from an in-flight reconcile and
+// blocks until it has actually let go. Every piece of work reconcile does is
+// bound to the context we cancel here, so the wait is a cancel round-trip, not
+// its full timeout — cheap enough to do on the read loop, and the alternative
+// (letting the turn start anyway) is the data race this claim exists to prevent.
+func (j *sessionJob) preemptReconcile() {
+	j.mu.Lock()
+	cancel, done := j.recCancel, j.recDone
+	j.mu.Unlock()
+	if done == nil {
+		return
+	}
+	if cancel != nil {
+		cancel()
+	}
+	<-done
 }
 
 // maxTurnFrames bounds the per-turn replay buffer so a very long agentic turn

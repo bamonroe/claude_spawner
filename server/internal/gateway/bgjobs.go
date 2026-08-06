@@ -45,7 +45,21 @@ func (s *Server) reconcileJobs(sess *session.Session, stage bool) bool {
 	// This runs off the read loop (idle ticker) as well as on it, so every field
 	// read below goes through a snapshot or Read — only writes touch the live record.
 	snap := sess.Snapshot()
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	// CLAIM the session's single writer slot for the whole reconcile. Checking
+	// "is a turn running?" and then reconciling was two steps with a gap, and a
+	// turn starting in that gap was precisely the concurrent store.Put this
+	// function is forbidden to do. The claim closes the gap: it fails outright if
+	// a turn (or another reconcile) owns the slot, and the context it hands back
+	// is cancelled the moment a turn preempts us — so we stop writing rather than
+	// race. Nothing is lost by being preempted: notes are only marked Notified
+	// when they're written, so the next reconcile re-finds whatever we skipped.
+	j := s.jobFor(snap.SessionID)
+	claimed, ok := j.claimReconcile()
+	if !ok {
+		return false
+	}
+	defer j.releaseReconcile()
+	ctx, cancel := context.WithTimeout(claimed, 8*time.Second)
 	defer cancel()
 
 	home := session.HostHome()
@@ -84,6 +98,12 @@ func (s *Server) reconcileJobs(sess *session.Session, stage bool) bool {
 	var breadcrumbs []string
 	var reaped []string
 	for _, r := range recs {
+		// Preempted by a starting turn (or timed out): stop writing here. Whatever we
+		// already applied is complete per-job and persisted by the turn's own Put; the
+		// rest is re-found next time, unmarked.
+		if ctx.Err() != nil {
+			break
+		}
 		// The registry is dir-keyed, so a job another session in this same directory
 		// launched shows up here too. Skip it entirely — don't adopt, note, or reap —
 		// so it survives for its real owner to announce. A job stamped with an owner we
@@ -140,13 +160,16 @@ func (s *Server) reconcileJobs(sess *session.Session, stage bool) bool {
 		}
 	})
 
-	if changed {
+	// Persist only while we still hold the writer slot. A preempted reconcile
+	// leaves the in-memory record correct (each job's Mutate is atomic) and lets
+	// the turn that took the slot do the flushing — writing here would be the
+	// concurrent Put we're avoiding.
+	if changed && ctx.Err() == nil {
 		if err := s.store.Put(sess); err != nil {
 			log.Printf("bgjobs[%s]: persist: %v", snap.Name, err)
 		}
 	}
 	if len(breadcrumbs) > 0 {
-		j := s.jobFor(snap.SessionID)
 		for _, cmd := range breadcrumbs {
 			j.emit(msgActivity("✅ background job finished: " + logField(cmd)))
 		}

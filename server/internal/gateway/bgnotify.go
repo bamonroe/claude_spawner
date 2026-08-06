@@ -121,14 +121,11 @@ func (s *Server) startJobNotify(sess *session.Session, notes []string) bool {
 	var name, sessionID string
 	sess.Read(func(r *session.Session) { name, sessionID = r.Name, r.SessionID })
 	j := s.jobFor(sessionID)
-	j.mu.Lock()
-	if j.running {
-		j.mu.Unlock()
+	ctx, cancel := context.WithCancel(context.Background())
+	if !j.claimTurn(cancel) {
+		cancel()
 		return false // a dictate/compress raced in; it will carry the notes itself
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	j.beginTurn(cancel)
-	j.mu.Unlock()
 
 	s.inflight.add(sessionID)
 	turnID := newTurnID()

@@ -39,16 +39,13 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk, primeJo
 	var name, sessionID, dir string
 	sess.Read(func(r *session.Session) { name, sessionID, dir = r.Name, r.SessionID, r.Dir })
 	j := s.jobFor(sessionID)
-	j.mu.Lock()
-	if j.running {
-		j.mu.Unlock()
-		return false
-	}
 	// Background-derived (so the turn outlives the connection) but cancelable, so
 	// "abort" can kill the claude child on demand.
 	ctx, cancel := context.WithCancel(context.Background())
-	j.beginTurn(cancel)
-	j.mu.Unlock()
+	if !j.claimTurn(cancel) {
+		cancel()
+		return false
+	}
 
 	s.inflight.add(sessionID) // persist "running" so a restart can flag it interrupted
 	turnID := newTurnID()     // shared by every output frame of this turn — the client's dedup key
@@ -202,16 +199,13 @@ func (s *Server) startCompress(sess *session.Session) bool {
 	var name, sessionID string
 	sess.Read(func(r *session.Session) { name, sessionID = r.Name, r.SessionID })
 	j := s.jobFor(sessionID)
-	j.mu.Lock()
-	if j.running {
-		j.mu.Unlock()
-		return false
-	}
 	// Background-derived so the summary outlives the connection, but cancelable so
 	// "abort" can kill it like any turn.
 	ctx, cancel := context.WithCancel(context.Background())
-	j.beginTurn(cancel)
-	j.mu.Unlock()
+	if !j.claimTurn(cancel) {
+		cancel()
+		return false
+	}
 
 	s.inflight.add(sessionID)
 	turnID := newTurnID() // the compress is a turn too — its terminal frames carry an id
@@ -326,16 +320,15 @@ func (s *Server) bindJob(c *conn, sess *session.Session, silent bool) {
 	j := s.jobFor(sessionID)
 	// On attach, reconcile detached background jobs so a device that reconnects
 	// after a job finished gets the completion breadcrumb and the note is staged for
-	// the next dictation. Skip while a turn is running — the reconciler must not race
-	// the running turn's store.Put (one-writer); dictate reconciles at the next turn.
-	// Reconcile OFF this goroutine: bindJob runs on the connection's serial read
-	// loop, and reconcile is an SSH round-trip (up to its 8s timeout) that would
-	// hold up every message queued behind the attach — the history request first.
-	// The breadcrumbs it emits go to the session's job hub, which is already
-	// connection-independent, so they land whenever they land.
-	if !j.isRunning() {
-		go s.reconcileJobs(sess, true)
-	}
+	// the next dictation. Reconcile OFF this goroutine: bindJob runs on the
+	// connection's serial read loop, and reconcile is an SSH round-trip (up to its
+	// 8s timeout) that would hold up every message queued behind the attach — the
+	// history request first. The breadcrumbs it emits go to the session's job hub,
+	// which is already connection-independent, so they land whenever they land.
+	// No turn check here: reconcileJobs claims the session's writer slot itself and
+	// bows out (or is preempted) if a turn owns it — checking from out here could
+	// only be a stale answer by the time the goroutine ran.
+	go s.reconcileJobs(sess, true)
 	sink := c.jobSink(j)
 	// A turn that was running when the server last restarted is dead; tell the app
 	// once so it doesn't wait on it (its result, if any, is in the transcript the
