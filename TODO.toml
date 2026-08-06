@@ -33,8 +33,8 @@ Design decisions settled with the user (2026-08-06):
 - Shell commands take spoken arguments, and the command list is editable from the app.
 - Output is spoken in full.
 
-Done: shell-gate-new-shell-spoken-action-and-token; shell-command-catalogue-store-wire-ops-app-editing (scoped out into the four catalogue tasks below).
-Remaining children: shellcommandstore-record-persistence-config-path, shell-command-catalogue-wire-ops-in-the-gateway, kotlin-protocol-cataloguesync-entries-for-shell-commands, app-settings-editor-for-shell-commands, voice-argument-parsing-for-shell-command-aliases, set-buddy-command-for-target-host-and-directory, shell-execution-over-the-ssh-pool-with-spoken-output."""
+Done: shell-gate-new-shell-spoken-action-and-token; shell-command-catalogue-store-wire-ops-app-editing (scoped out into the four catalogue tasks below); shellcommandstore-record-persistence-config-path; shell-command-catalogue-wire-ops-in-the-gateway; kotlin-protocol-cataloguesync-entries-for-shell-commands; app-settings-editor-for-shell-commands.
+Remaining children: voice-argument-parsing-for-shell-command-aliases, set-buddy-command-for-target-host-and-directory, shell-execution-over-the-ssh-pool-with-spoken-output."""
 status = "in-progress"
 level = "epic"
 category = "feature"
