@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/bam/claude_spawner/server/internal/agent"
@@ -62,6 +63,12 @@ type Driver struct {
 	// digests is the durable transcript-digest cache used by DisplayDigest. Nil is
 	// fine — every digest is then recomputed from a full parse. Set via SetDigests.
 	digests *DigestCache
+
+	// staged remembers which targets already hold the current spawner-job wrapper,
+	// so StageJobScript is a no-op after the first success per target per server
+	// run. Keyed by target identity (see stageKey); see StageJobScript.
+	stagedMu sync.Mutex
+	staged   map[string]bool
 }
 
 // NewDriver returns a Driver with project defaults: a single host executor

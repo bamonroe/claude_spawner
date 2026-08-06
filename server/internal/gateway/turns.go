@@ -329,8 +329,13 @@ func (s *Server) bindJob(c *conn, sess *session.Session, silent bool) {
 	// after a job finished gets the completion breadcrumb and the note is staged for
 	// the next dictation. Skip while a turn is running — the reconciler must not race
 	// the running turn's store.Put (one-writer); dictate reconciles at the next turn.
+	// Reconcile OFF this goroutine: bindJob runs on the connection's serial read
+	// loop, and reconcile is an SSH round-trip (up to its 8s timeout) that would
+	// hold up every message queued behind the attach — the history request first.
+	// The breadcrumbs it emits go to the session's job hub, which is already
+	// connection-independent, so they land whenever they land.
 	if !j.isRunning() {
-		s.reconcileJobs(sess, true)
+		go s.reconcileJobs(sess, true)
 	}
 	sink := c.jobSink(j)
 	// A turn that was running when the server last restarted is dead; tell the app

@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -109,8 +110,22 @@ func (d *Driver) RunOnTarget(ctx context.Context, live *Session, cmd string) ([]
 // (host, SSH, or sandbox) at JobScriptPath and makes it executable. Idempotent and
 // cheap enough to call lazily per turn/reconcile. A staging failure is returned,
 // never fatal — the caller logs and continues so it can NEVER block a turn.
+//
+// The write itself is a ~12KB heredoc over the target's transport, so after the
+// first success for a given target this run it is memoized and skipped: callers
+// keep calling it lazily and unconditionally, and only the first one pays. The key
+// covers the target identity and the script version, so a new container, a
+// different SSH host, or a changed embedded script all re-stage.
 func (d *Driver) StageJobScript(ctx context.Context, s *Session, home string) error {
-	name := s.Snapshot().Name
+	snap := s.Snapshot()
+	name := snap.Name
+	key := stageKey(snap, home)
+	d.stagedMu.Lock()
+	done := d.staged[key]
+	d.stagedMu.Unlock()
+	if done {
+		return nil
+	}
 	dir := filepath.Join(home, jobRootRel)
 	path := JobScriptPath(home)
 	// One shell command that creates the dir, writes the script from a heredoc, and
@@ -123,7 +138,20 @@ func (d *Driver) StageJobScript(ctx context.Context, s *Session, home string) er
 	if err != nil {
 		return fmt.Errorf("stage spawner-job on %q: %w: %s", name, err, string(out))
 	}
+	d.stagedMu.Lock()
+	if d.staged == nil {
+		d.staged = map[string]bool{}
+	}
+	d.staged[key] = true
+	d.stagedMu.Unlock()
 	return nil
+}
+
+// stageKey identifies "this exact script, on this exact target" for StageJobScript's
+// memo. Sessions sharing a target share the key, so the wrapper is written once.
+func stageKey(s *Session, home string) string {
+	sum := sha256.Sum256([]byte(bgjob.Script))
+	return fmt.Sprintf("%s|%s|%s|%s|%x", s.Target, s.Host, s.Container, home, sum[:8])
 }
 
 // HostHome returns $HOME on the server (the host target's home). SSH and sandbox
