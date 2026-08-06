@@ -24,21 +24,80 @@ scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/K
 id = "shell-tokens-in-the-detached-state-run-commands-on-a-target-host"
 title = "Shell tokens in the detached state: run commands on a target host"
 description = """
-In the detached state we are not attached to any Claude Code session, so speech has nowhere to go. Introduce a new gated token class — a *shell token* — that opens a second parsing surface for shell commands while detached. Speaking the shell token puts the user into a mode where the rest of the utterance is parsed as a shell command, SSH'd to a target host and run there, with output spoken/returned.
+In the detached state we are not attached to any Claude Code session, so speech has nowhere to go. A new gated token class — a *shell token* — opens a second parsing surface while detached: the rest of the utterance resolves to a PRE-CONFIGURED shell command, which is SSH'd to the target host and run there, with output spoken in full.
 
-Key pieces to work out (this epic spawns scopes, not code):
-- The shell token itself: what the gating word is, how it composes with 'hey buddy', how it is disambiguated from dictation, and how the mode ends.
-- A new 'set' buddy command for configurable state: e.g. 'set target localhost' changes the default host for new sessions AND the host shell commands are dispatched to. Needs a vocabulary of settable keys, persistence, and a way to read current values back.
-- Target-host resolution: which host a shell command runs on when detached, how it interacts with the existing SSH plumbing and host list, and what happens if no target is set.
-- Execution + transport: reuse the existing SSH channel pool rather than opening ad-hoc connections; decide on working directory, environment, timeouts, long-running/streaming output, and how much output is spoken vs shown.
-- Safety: the server is already privileged, but shell-by-voice is a new surface — decide on confirmation for destructive commands, if any.
-- Wire protocol, docs/commands.md, docs/protocol.md, and README updates.
+Design decisions settled with the user (2026-08-06):
+- The gate is its own action in the existing spoken-token registry, not a 'hey buddy' subcommand — the default phrase is just 'shell', and the user can rebind it like any other token.
+- One 'set' command with a small key vocabulary. 'target' is a single host shared by BOTH the default spawn host and the shell target; 'directory' replaces the working-directory idea. Values persist across server restarts (settings KV).
+- NO confirmation gate for destructive commands. Arbitrary spoken shell is never allowed; every runnable command is pre-configured with an alias pointing at a command/path on the target host. The catalogue IS the safety boundary.
+- Shell commands take spoken arguments, and the command list is editable from the app.
+- Output is spoken in full.
 
-NOTE: this is expansive and full of open decisions. When picking this up, ASK THE USER questions about the design choices above rather than deciding unilaterally — the user explicitly wants to be consulted on how to make these calls."""
-status = "active"
+Broken down into: shell-gate-new-shell-spoken-action-and-token, shell-command-catalogue-store-wire-ops-app-editing, voice-argument-parsing-for-shell-command-aliases, set-buddy-command-for-target-host-and-directory, shell-execution-over-the-ssh-pool-with-spoken-output."""
+status = "in-progress"
 level = "epic"
 category = "feature"
 urgency = "normal"
 order = 10
 created = 2026-08-06
 tags = ["shell", "detached", "ssh"]
+
+[[task]]
+id = "shell-gate-new-shell-spoken-action-and-token"
+title = "Shell gate: new 'shell' spoken action and token"
+description = "Add a third gate action alongside wake/end/speech_gate: ActionShell in server/internal/spoken/action.go, seeded with a default token phrase 'shell' in spoken.DefaultTokens (match.go). Add a connection-scoped resolver shellPhrases() in gateway/conn.go next to wakePhrases()/endPhrases(), and route detached utterances that start with a shell phrase into the shell path instead of the 'didn't catch that' fallback in gateway/ops.go dispatch. Gate is inert when no shell phrase is configured (same fail-safe as gateActive()). Attached behaviour unchanged for now unless the shell phrase leads the utterance."
+status = "active"
+level = "task"
+category = "feature"
+urgency = "normal"
+order = 20
+created = 2026-08-06
+tags = ["shell", "voice"]
+
+[[task]]
+id = "shell-command-catalogue-store-wire-ops-app-editing"
+title = "Shell command catalogue: store, wire ops, app editing"
+description = "Pre-configured shell commands are the only thing the shell gate can run — no arbitrary spoken commands. Investigate and break into tasks: a ShellCommandStore modelled on session/hosts.go and session/spokentokens.go (alias phrase, command template, optional working dir/host override, UpdatedAt LWW), its config path + SPAWNER_ env var, catalogue sync/put/delete wire ops in gateway/settings.go, protocol docs, and the app-side settings editor (same pattern as the hosts and spoken-token editors). Commands take spoken arguments, so the model needs a way to express parameters in the template."
+status = "active"
+level = "scope"
+category = "feature"
+urgency = "normal"
+order = 30
+created = 2026-08-06
+tags = ["shell"]
+
+[[task]]
+id = "voice-argument-parsing-for-shell-command-aliases"
+title = "Voice argument parsing for shell command aliases"
+description = "Decide and implement how a spoken utterance after the shell gate resolves to an alias plus arguments — e.g. 'deploy staging' matches alias 'deploy' with arg 'staging'. Investigate: longest-alias-wins matching against the catalogue, how the remaining words map onto template placeholders, quoting/escaping so arguments cannot break out of the intended command over SSH, and what to say back when no alias matches or arguments are missing."
+status = "active"
+level = "scope"
+category = "feature"
+urgency = "normal"
+order = 40
+created = 2026-08-06
+tags = ["shell", "voice"]
+
+[[task]]
+id = "set-buddy-command-for-target-host-and-directory"
+title = "'set' buddy command for target host and directory"
+description = "New 'hey buddy, set <key> <value>' command with a small closed key vocabulary — 'target' (a single host used BOTH as the default spawn host and as the shell-command target) and 'directory' (default working directory). Persist in the existing session/settingskv.go store so values survive restarts; read values back with a 'get'/'what is' form. Register in command.Registry, regenerate docs/commands.json via cmd/gencommands, and document in docs/commands.md."
+status = "active"
+level = "task"
+category = "feature"
+urgency = "normal"
+order = 50
+created = 2026-08-06
+tags = ["shell"]
+
+[[task]]
+id = "shell-execution-over-the-ssh-pool-with-spoken-output"
+title = "Shell execution over the SSH pool with spoken output"
+description = "Run a resolved shell command on the target host through the existing session.SSHPool (c.srv.ssh, nil-check when SSH-native is disabled) rather than ad-hoc connections, honouring the persisted target and directory settings. Investigate: which pool entry point to use, channel budgeting, timeouts and long-running commands, stderr handling, and the transport of results. Output is spoken in FULL — work out how that interacts with TTS length and the app chat log. No confirmation gate for destructive commands by design: the catalogue is the safety boundary."
+status = "active"
+level = "scope"
+category = "feature"
+urgency = "normal"
+order = 60
+created = 2026-08-06
+tags = ["shell"]
