@@ -19,3 +19,26 @@ add_proposed_work = "Add proposed features and tests as new tasks rather than lo
 remove_dropped_items = "Remove dropped items with a one-line why (`scripts/todo.sh remove <id> --reason`)."
 finish_work = "When a task is fully finished (built, tested, documented), run `scripts/todo.sh done <id>` to move it to FINISHED.toml — in the same commit that completes the work."
 scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/KMP app + web client. The historical phase roadmap stays in README.md."
+
+[[task]]
+id = "shell-tokens-in-the-detached-state-run-commands-on-a-target-host"
+title = "Shell tokens in the detached state: run commands on a target host"
+description = """
+In the detached state we are not attached to any Claude Code session, so speech has nowhere to go. Introduce a new gated token class — a *shell token* — that opens a second parsing surface for shell commands while detached. Speaking the shell token puts the user into a mode where the rest of the utterance is parsed as a shell command, SSH'd to a target host and run there, with output spoken/returned.
+
+Key pieces to work out (this epic spawns scopes, not code):
+- The shell token itself: what the gating word is, how it composes with 'hey buddy', how it is disambiguated from dictation, and how the mode ends.
+- A new 'set' buddy command for configurable state: e.g. 'set target localhost' changes the default host for new sessions AND the host shell commands are dispatched to. Needs a vocabulary of settable keys, persistence, and a way to read current values back.
+- Target-host resolution: which host a shell command runs on when detached, how it interacts with the existing SSH plumbing and host list, and what happens if no target is set.
+- Execution + transport: reuse the existing SSH channel pool rather than opening ad-hoc connections; decide on working directory, environment, timeouts, long-running/streaming output, and how much output is spoken vs shown.
+- Safety: the server is already privileged, but shell-by-voice is a new surface — decide on confirmation for destructive commands, if any.
+- Wire protocol, docs/commands.md, docs/protocol.md, and README updates.
+
+NOTE: this is expansive and full of open decisions. When picking this up, ASK THE USER questions about the design choices above rather than deciding unilaterally — the user explicitly wants to be consulted on how to make these calls."""
+status = "active"
+level = "epic"
+category = "feature"
+urgency = "normal"
+order = 10
+created = 2026-08-06
+tags = ["shell", "detached", "ssh"]
