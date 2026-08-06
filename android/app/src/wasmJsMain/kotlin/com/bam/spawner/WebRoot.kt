@@ -78,6 +78,8 @@ fun WebRoot() {
                     handsFreeInitial = false,
                     badgeMode = prefs.tokenBadge,
                     showCacheTimer = prefs.cacheWarmTimer,
+                    sidebarPinned = prefs.sidebarPinned,
+                    onSidebarPinnedChange = { prefs.sidebarPinned = it },
                     trayCommandNames = prefs.trayCommandNames().toSet(),
                     radialMenu = parseRadialMenu(prefs.radialMenu),
                     // Push-to-talk, SpeechSynthesis TTS, and VAD-gated hands-free are all live

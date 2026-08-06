@@ -20,6 +20,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
@@ -90,12 +92,29 @@ fun Sidebar(
     onDetach: () -> Unit,
     rateLimit: RateLimitInfo?,
     onCheckUsage: () -> Unit,
+    pinned: Boolean = false,
+    onTogglePinned: ((Boolean) -> Unit)? = null,
 ) {
     // Which card is expanded in place (keyed by a stable id, falling back to the dir
     // for a still-discovered session with no session id yet). Only one at a time.
     var expandedKey by remember { mutableStateOf("") }
     Column(Modifier.fillMaxHeight().statusBarsPadding().navigationBarsPadding().padding(12.dp)) {
-        Text("Sessions", style = MaterialTheme.typography.titleLarge)
+        // Title row, with the pin toggle on the right: pinning docks the sidebar open
+        // permanently (the chat shifts over) instead of overlaying it from the ☰ button.
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("Sessions", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+            if (onTogglePinned != null) {
+                IconButton(onClick = { onTogglePinned(!pinned) }) {
+                    Icon(
+                        if (pinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
+                        contentDescription = if (pinned) "Unpin sidebar" else "Pin sidebar open",
+                        tint = if (pinned) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
+        }
         Row {
             TextButton(onClick = onNew) {
                 Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))

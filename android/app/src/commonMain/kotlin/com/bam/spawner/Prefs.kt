@@ -32,6 +32,11 @@ interface Prefs {
      *  Read it through [parseRadialMenu]; see `RadialMenuConfig.kt`. */
     var radialMenu: String
 
+    /** Pin the sessions sidebar permanently open (docked beside the chat) instead of
+     *  opening it as an overlay from the ☰ button. When pinned, the chat column shifts
+     *  over so nothing is covered. Toggled from the sidebar's own pin control. */
+    var sidebarPinned: Boolean
+
     /** Theme preference: "system" | "light" | "dark". */
     var themeMode: String
     /** Per-message token-usage badge detail: "off" | "compact" | "detailed". */

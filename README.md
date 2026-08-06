@@ -815,11 +815,19 @@ restored automatically on load). The browser speaks to the OS default output sin
 between devices, so the audio-output button offers the two states that matter: **Speaker** (voice
 on) or **Mute** (voice off, which also stops any reply already being spoken); the choice is saved.
 
-The sessions sidebar is a **modal drawer at every width** — it is never pinned open beside the chat
-and never opens on a swipe. The **☰ button in the top bar is the only way to show it**, at any window
-size; tapping outside it, swiping it left, or pressing back closes it again. The chat therefore keeps
-the whole window until you ask for the session list. (The right-to-left swipe on the chat still
-swaps sessions — that gesture is unchanged.)
+By default the sessions sidebar is a **modal drawer at every width** — it never opens on a swipe.
+The **☰ button in the top bar is the only way to show it**, at any window size; tapping outside it,
+swiping it left, or pressing back closes it again. The chat therefore keeps the whole window until
+you ask for the session list. (The right-to-left swipe on the chat still swaps sessions — that
+gesture is unchanged.)
+
+**Pinning the sidebar.** A **pin button** sits at the top-right of the sidebar, next to the
+"Sessions" title. Tap it and the sidebar becomes a **permanent docked rail**: it stays on screen and
+the chat column shifts over beside it, so the full message text stays visible instead of being
+covered by an overlay. The ☰ button disappears while pinned (the list is already there). Tap the pin
+again to unpin and go back to the overlay drawer. The choice is **persisted** (Android
+`SharedPreferences` / browser `localStorage`) and applies to both clients — it's most useful on a
+wide browser window or tablet, but works at any size.
 
 > **Secure context required.** The client only connects from a **secure context** — https, or
 > `localhost`/`127.0.0.1`. Served over plain http from a real hostname the browser marks the origin

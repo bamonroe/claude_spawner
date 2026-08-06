@@ -306,6 +306,8 @@ private fun AppRoot(
             handsFreeInitial = settings.handsFree,
             badgeMode = settings.tokenBadge,
             showCacheTimer = settings.cacheWarmTimer,
+            sidebarPinned = settings.sidebarPinned,
+            onSidebarPinnedChange = { settings.sidebarPinned = it },
             trayCommandNames = settings.trayCommandNames().toSet(),
             radialMenu = parseRadialMenu(settings.radialMenu),
             debugOverlays = settings.debugOverlays,

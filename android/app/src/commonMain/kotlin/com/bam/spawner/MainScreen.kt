@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,6 +28,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PermanentDrawerSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
@@ -88,8 +90,13 @@ fun MainScreen(
     onStopSpeaking: () -> Unit,
     onOpenSettings: () -> Unit,
     onNewSession: () -> Unit,
+    /** Persisted: keep the sidebar docked open beside the chat (see [Prefs.sidebarPinned]). */
+    sidebarPinned: Boolean = false,
+    onSidebarPinnedChange: (Boolean) -> Unit = { },
     transferButton: @Composable (onUploaded: (String) -> Unit) -> Unit = { },
 ) {
+    var pinned by remember { mutableStateOf(sidebarPinned) }
+    val setPinned: (Boolean) -> Unit = { pinned = it; onSidebarPinnedChange(it) }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val focus = LocalFocusManager.current
@@ -207,6 +214,10 @@ fun MainScreen(
             onDetach = { controller.detach() },
             rateLimit = rateLimit,
             onCheckUsage = { controller.requestUsage(); onNavigated() },
+            pinned = pinned,
+            // Pinning from the overlay docks it (and closes the overlay behind it);
+            // unpinning from the docked rail hides it back behind the ☰ button.
+            onTogglePinned = { on -> setPinned(on); if (on) onNavigated() },
         )
     }
     // The chat column (top bar → list → status bars → input bar). [onMenu] is null in
@@ -298,23 +309,17 @@ fun MainScreen(
         }
     }
 
-    // The sidebar is a modal drawer at every width — never pinned open, never
-    // swipe-opened. The ☰ button in the top bar is the one and only way it appears,
-    // so the chat keeps the full window until the user asks for the session list.
+    // Unpinned (the default), the sidebar is a modal drawer at every width — never
+    // swipe-opened; the ☰ button in the top bar is the one and only way it appears, so
+    // the chat keeps the full window until the user asks for the session list. Pinned
+    // (the sidebar's pin toggle, persisted), it becomes a permanent docked rail and the
+    // chat column shifts over beside it so no message text is ever covered.
     BoxWithConstraints(Modifier.fillMaxSize()) {
       val containerWidth = maxWidth
-      ModalNavigationDrawer(
-          drawerState = drawerState,
-          // Opened only by the ☰ button. The drawer's own gestures stay limited to
-          // when it's already open (swipe-to-close); enabling them for the whole
-          // content would let any horizontal drag across the chat open it.
-          gesturesEnabled = drawerState.isOpen,
-          drawerContent = {
-              ModalDrawerSheet { sidebar { scope.launch { drawerState.close() } } }
-          },
-      ) {
+      // The chat area plus its edge-swipe strips, laid out identically in both modes.
+      val chatArea: @Composable (onMenu: (() -> Unit)?) -> Unit = { onMenu ->
           Box(Modifier.fillMaxSize()) {
-            chatColumn { scope.launch { drawerState.open() } }
+            chatColumn(onMenu)
             // Edge-swipe strips stay in the chat area. They are transparent boxes
             // layered over content, so covering the app bar or message bar would steal
             // taps from real controls before those controls ever see the pointer.
@@ -342,6 +347,28 @@ fun MainScreen(
                         )
                     },
             )
+          }
+      }
+      if (pinned) {
+          Row(Modifier.fillMaxSize()) {
+              // The docked rail. Same composable as the drawer sheet, so it keeps the
+              // surface treatment; navigating in it doesn't dismiss anything.
+              PermanentDrawerSheet(Modifier.width(300.dp)) { sidebar { } }
+              // No ☰ in pinned mode — the sidebar is already on screen.
+              Box(Modifier.weight(1f).fillMaxHeight()) { chatArea(null) }
+          }
+      } else {
+          ModalNavigationDrawer(
+              drawerState = drawerState,
+              // Opened only by the ☰ button. The drawer's own gestures stay limited to
+              // when it's already open (swipe-to-close); enabling them for the whole
+              // content would let any horizontal drag across the chat open it.
+              gesturesEnabled = drawerState.isOpen,
+              drawerContent = {
+                  ModalDrawerSheet { sidebar { scope.launch { drawerState.close() } } }
+              },
+          ) {
+              chatArea { scope.launch { drawerState.open() } }
           }
       }
       // The radial menu. While the mic is locked the ring *is* the recording control —

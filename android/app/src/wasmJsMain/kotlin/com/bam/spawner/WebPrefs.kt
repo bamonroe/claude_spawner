@@ -59,6 +59,10 @@ class WebPrefs : Prefs {
         get() = str("radial_menu", "")
         set(v) = putStr("radial_menu", v)
 
+    override var sidebarPinned: Boolean
+        get() = bool("sidebar_pinned", false)
+        set(v) = putBool("sidebar_pinned", v)
+
     override var themeMode: String
         get() = str("theme_mode", Prefs.DEFAULT_THEME_MODE)
         set(v) = putStr("theme_mode", v)

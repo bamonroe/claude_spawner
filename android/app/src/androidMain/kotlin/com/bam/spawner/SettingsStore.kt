@@ -48,6 +48,11 @@ class SettingsStore(context: Context) : Prefs {
         get() = prefs.getString("radial_menu", "") ?: ""
         set(v) = prefs.edit().putString("radial_menu", v).apply()
 
+    /** Sidebar pinned open (docked) — see [Prefs.sidebarPinned]. */
+    override var sidebarPinned: Boolean
+        get() = prefs.getBoolean("sidebar_pinned", false)
+        set(v) = prefs.edit().putBoolean("sidebar_pinned", v).apply()
+
     /** Theme preference: "system" | "light" | "dark". */
     override var themeMode: String
         get() = prefs.getString("theme_mode", Prefs.DEFAULT_THEME_MODE) ?: Prefs.DEFAULT_THEME_MODE

@@ -14,6 +14,16 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "sidebar-pin-toggle-for-permanent-docked-mode"
+title = "Sidebar pin toggle for permanent docked mode"
+description = "Add a toggle at the top of the sidebar that pins it open permanently (docked), the way it behaved before it became an overlay opened from the hamburger. When pinned, the chat content shifts over so the full message text stays visible alongside the sidebar instead of being covered. Persist the pinned state."
+status = "finished"
+category = "feature"
+created = 2026-08-05
+completed = 2026-08-05
+tags = ["ui", "sidebar"]
+
+[[task]]
 id = "sidebar-only-from-a-top-bar-hamburger-toggle"
 title = "Sidebar only from a top-bar hamburger toggle"
 description = "The session sidebar should never appear on its own — no swipe-open, no pinned-open wide layout. Add a hamburger button to the top title bar that toggles it, and make that the only way it shows."
