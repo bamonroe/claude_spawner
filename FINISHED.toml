@@ -14,6 +14,16 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "radial-menu-select-individual-tray-commands"
+title = "Radial menu: select individual tray commands"
+description = "Extend the radial menu so it can select individual tray commands, not just the tray as a whole."
+status = "finished"
+category = "feature"
+created = 2026-08-06
+completed = 2026-08-06
+tags = []
+
+[[task]]
 id = "prune-orphaned-transcriptcache-files"
 title = "Prune orphaned TranscriptCache files"
 description = "TranscriptCache.kt:36 only deletes on explicit remove(); sessions deleted server-side leave their cached transcript JSON on the device forever. Sweep the cache dir against the known session list periodically or on session-list refresh."

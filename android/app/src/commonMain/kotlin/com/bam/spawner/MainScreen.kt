@@ -389,9 +389,22 @@ fun MainScreen(
               onDismiss = { },
           )
       } else if (paletteOpen) {
-          // The one live source today: the attach-history ring, most recent first.
-          val sessionEntries: (String) -> List<RadialDynamicEntry> = { source ->
-              if (source != RadialSources.SESSIONS) emptyList() else controller.paletteSessions().map { d ->
+          // The live sources: the attach-history ring, and the curated tray commands
+          // (the same argument-free set the swipe-up tray shows), each as one slot.
+          val dynamicEntries: (String) -> List<RadialDynamicEntry> = { source ->
+              when (source) {
+                RadialSources.COMMANDS ->
+                  if (!connected) emptyList()
+                  else COMMANDS.filter { c ->
+                      c.name in trayCommandNames && c.aliases.none { it.contains("<") }
+                  }.map { cmd ->
+                      RadialDynamicEntry(PaletteSlot(id = "cmd:" + cmd.name, label = cmd.name)) {
+                          releaseMicLock()
+                          controller.sendText("hey buddy " + cmd.aliases.first())
+                          paletteOpen = false
+                      }
+                  }
+                RadialSources.SESSIONS -> controller.paletteSessions().map { d ->
                   RadialDynamicEntry(
                       PaletteSlot(
                           id = sessionKey(d),
@@ -405,12 +418,14 @@ fun MainScreen(
                       openSession(d)
                       paletteOpen = false
                   }
+                }
+                else -> emptyList()
               }
           }
           RadialMenuHost(
               config = radialMenu,
               origin = paletteAt,
-              dynamic = sessionEntries,
+              dynamic = dynamicEntries,
               onDismiss = { paletteOpen = false },
               onAction = { action ->
                   // Locking the mic keeps the ring up so the centre stays under the thumb

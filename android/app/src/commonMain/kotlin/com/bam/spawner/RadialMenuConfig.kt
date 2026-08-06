@@ -85,7 +85,16 @@ object RadialSources {
     /** The attach-history ring: recent sessions, most recent first. */
     const val SESSIONS = "sessions"
 
-    val all: List<Pair<String, String>> = listOf(SESSIONS to "Sessions")
+    /**
+     * The tray-command ring: the same curated, argument-free commands the swipe-up
+     * tray shows (Settings › Commands), each sending its "hey buddy …" phrase.
+     */
+    const val COMMANDS = "commands"
+
+    val all: List<Pair<String, String>> = listOf(
+        SESSIONS to "Sessions",
+        COMMANDS to "Commands",
+    )
 
     fun label(id: String): String = all.firstOrNull { it.first == id }?.second ?: id
 }
@@ -98,6 +107,7 @@ val DefaultRadialMenu = RadialMenuConfig(
     center = RadialActions.MIC_LOCK,
     items = listOf(
         RadialItem.Dynamic("Sessions", RadialSources.SESSIONS),
+        RadialItem.Dynamic("Commands", RadialSources.COMMANDS),
         RadialItem.Action("New", RadialActions.NEW_SESSION),
         RadialItem.Action("Swap", RadialActions.SWAP),
         RadialItem.Action("Hands-free", RadialActions.HANDS_FREE),

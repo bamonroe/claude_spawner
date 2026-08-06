@@ -200,7 +200,7 @@ implementation, so the two clients can't drift apart.
 **The ring is configurable, and it has submenus (Settings → Radial menu).** What the ring shows
 is a **tree** you edit yourself: each entry is either a **built-in action** (lock mic, new session,
 swap, detach, hands-free, stop speaking, check usage, settings, close), a **submenu**, or a **live
-ring** built from app state (today: **Sessions**). Tapping a submenu opens it **in place** — the ring
+ring** built from app state (**Sessions** and **Commands**). Tapping a submenu opens it **in place** — the ring
 does not move, re-bloom, or change geometry; only its contents swap. Inside a submenu the centre
 button becomes **Back**, and the dimmed background, **back** and **Escape** pop one level instead of
 closing, so the ring only ever disappears from the top level. Nesting is unlimited.
@@ -218,7 +218,15 @@ back and forth is always the same short flick. The session you're currently atta
 (you're already there), as is anything the server no longer knows about, and the list survives app
 restarts. On a fresh install, with no history yet, the ring falls back to last-active order so it's
 never empty. Each slot is labelled with the session's name, or the last part of its directory if it
-hasn't got one. That same most-recent-first order also drives the left-edge swap gesture. The
+hasn't got one.
+
+The **Commands** ring holds the same curated, argument-free commands as the swipe-up command tray
+(chosen in Settings → Commands), each as its own slot — so a single command is one flick away without
+opening the tray. Tapping a slot sends that command's "hey buddy …" phrase to the attached session
+and closes the ring; while disconnected the ring is empty. Like Sessions, it can be a submenu button
+or spliced flat into its parent ring, and it shows at most eight slots.
+
+The most-recent-first session order also drives the left-edge swap gesture. The
 **centre** of the ring isn't a session — it's the mic lock.
 
 **Mic lock (hands stay free, wake word stays off).** Holding the mic gets tiring for a long
