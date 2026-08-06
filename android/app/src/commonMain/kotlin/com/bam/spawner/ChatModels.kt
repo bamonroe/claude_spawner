@@ -30,6 +30,33 @@ data class ChatMessage(
 )
 
 /**
+ * Stable, unique identity for every row in a chat log, in list order.
+ *
+ * Lazy lists need a key per item or they discard and re-compose every bubble (and
+ * re-run markdown parsing) on any list change. No single field is both always-present
+ * and always-unique — `id` is empty for live rows, `liveKey` for history, `index` is
+ * -1 for live — so the key falls back through them and finally to position. Because a
+ * fallback (or a backend repeating an id) could collide, and a duplicate key is a hard
+ * crash in LazyColumn, uniqueness is made an invariant here: the first use of a key
+ * wins and later repeats get an occurrence suffix. Compute the whole list at once so
+ * that guarantee holds across the list, not per item.
+ */
+fun chatKeys(msgs: List<ChatMessage>): List<String> {
+    val seen = HashMap<String, Int>(msgs.size)
+    return msgs.mapIndexed { pos, m ->
+        val base = when {
+            m.id.isNotEmpty() -> "i:${m.id}"
+            m.liveKey.isNotEmpty() -> "l:${m.liveKey}"
+            m.index >= 0 -> "x:${m.index}"
+            else -> "p:$pos"
+        }
+        val n = seen.getOrElse(base) { 0 }
+        seen[base] = n + 1
+        if (n == 0) base else "$base#$n"
+    }
+}
+
+/**
  * Order a chat log chronologically by timestamp so a live (index < 0) row —
  * a system ack ("cleared, starting fresh"), a mid-turn breadcrumb, a still-streaming
  * reply — lands in its true slot instead of being stranded at the bottom. History

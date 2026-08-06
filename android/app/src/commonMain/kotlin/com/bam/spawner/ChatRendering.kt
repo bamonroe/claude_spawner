@@ -14,7 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -70,6 +70,9 @@ fun ChatList(
     // Bottom item index accounts for the "load older" header (item 0) when present,
     // so we land on the actual newest message, not one above it.
     val bottom = (messages.size - 1 + if (hasMore) 1 else 0).coerceAtLeast(0)
+    // Per-row identity for the LazyColumn (see chatKeys) — recomputed only when the
+    // list itself changes, not on every recomposition.
+    val keys = remember(messages) { chatKeys(messages) }
     // `pinned` tracks whether the reader is parked at the very bottom — the END of the
     // newest message is actually in view. It gates the auto-follow: if you've scrolled
     // up to read earlier messages, a new message must NOT yank you back down. It is set
@@ -159,7 +162,9 @@ fun ChatList(
                     Text("load older messages")
                 }
             }
-            items(messages) { Bubble(it, badgeMode) }
+            // Keyed so composed bubbles (and their parsed markdown, selection and
+            // expansion state) survive list updates and session switches.
+            itemsIndexed(messages, key = { i, _ -> keys[i] }) { _, m -> Bubble(m, badgeMode) }
         }
         // When scrolled up, offer a one-tap jump back to the newest message. Sits at
         // the bottom of the chat area, just above the status bars / input bar.
