@@ -113,6 +113,20 @@ was heard (the server logs `speech gate:` lines when it opens or times out). Lea
 the speak token blank) to dictate everything as before. The speak token is comma-separated, so you
 can give it a couple of variants.
 
+**Pre-configured shell commands (Settings → Shell commands).** While you're detached from every
+session, a **shell token** (bind the phrase in Settings → Spoken tokens, action "Shell") opens a
+second parsing surface: the rest of what you say names one of the commands listed on this screen, and
+it runs over SSH on the target host with its output spoken back in full. The catalogue *is* the
+safety boundary — only what's listed here can ever run, so spoken shell is never arbitrary.
+
+Each entry has a **spoken alias** (what you say), a **command template**, and optionally a working
+**directory** and a **host** to pin it to (blank = wherever the shell target is set). The template
+takes spoken arguments: `$1`…`$9` are the first nine spoken words after the alias, `$*` is the rest
+space-joined, and `$$` is a literal dollar. Substituted values are shell-quoted, so an argument can
+never sneak in an operator or a second command. Add, edit and delete are live: the list is stored on
+the server and shared across every device, so a command you add on the phone is there in the web
+client too.
+
 **Wake/end-token detection backend (Settings → Commands).** By default the live hands-free wake and
 end tokens are recognized by string-matching the fast Whisper transcript — always available, no extra
 service. Turn on **Use dedicated wake-word detector** to instead score the purpose-trained LiveKit

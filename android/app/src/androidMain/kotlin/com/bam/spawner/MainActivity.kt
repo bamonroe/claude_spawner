@@ -276,6 +276,7 @@ private fun AppRoot(
             },
         )
         "set_spoken_tokens" -> SpokenTokensSettings(controller, onBack = { screen = "settings" })
+        "set_shell_commands" -> ShellCommandsSettings(controller, onBack = { screen = "settings" })
         "set_audio" -> AudioSettings(
             settings,
             controller,

@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "app-settings-editor-for-shell-commands"
+title = "App settings editor for shell commands"
+description = "Add SettingsShellCommands.kt in commonMain following SettingsSpokenTokens.kt: interface ShellCommandsController {putShellCommand, deleteShellCommand}, a list screen with inline add/edit dialog over alias / command template / optional dir / optional host, wired into AppController's interface list and reachable from the settings menu. Show the argument-template syntax as helper text. Verify on the Dockerized emulator via the android-dev skill, then document the editor in README.md."
+status = "finished"
+level = "task"
+category = "feature"
+created = 2026-08-06
+completed = 2026-08-06
+tags = ["shell-token", "app"]
+
+[[task]]
 id = "kotlin-protocol-cataloguesync-entries-for-shell-commands"
 title = "Kotlin protocol + CatalogueSync entries for shell commands"
 description = "App side of the catalogue: ServerMsg.ShellCommands + readShellCommands + ShellCommandInfo DTO in net/Protocol.kt, shell_commands parse dispatch, shell_commands_digest in the hello payload, and shellCommandPut/shellCommandDelete outbound builders. Register a Catalogue<ShellCommandInfo> in net/CatalogueSync.kt with its StateFlow, digest assembly, inbound apply and client-stamped putShellCommand/deleteShellCommand mutators. Must keep the docsync clientsync_test.go wire-string check green."

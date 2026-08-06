@@ -242,6 +242,9 @@ class WebAppController(internal val prefs: Prefs) : AppController {
     override val spokenActions: StateFlow<List<com.bam.spawner.net.ActionInfo>> = _spokenActions.asStateFlow()
     override fun putSpokenToken(t: com.bam.spawner.net.SpokenTokenInfo) = catalogues.putSpokenToken(t)
     override fun deleteSpokenToken(name: String) = catalogues.deleteSpokenToken(name)
+    override val shellCommands = catalogues.shellCommands
+    override fun putShellCommand(c: com.bam.spawner.net.ShellCommandInfo) = catalogues.putShellCommand(c)
+    override fun deleteShellCommand(name: String) = catalogues.deleteShellCommand(name)
 
     internal val _listing = MutableStateFlow<ServerMsg.Listing?>(null)
     override val listing: StateFlow<ServerMsg.Listing?> = _listing.asStateFlow()

@@ -52,6 +52,7 @@ fun SettingsHub(onOpen: (String) -> Unit, onBack: () -> Unit) {
         SettingsRow("Commands", "Reference & aliases") { onOpen("set_commands") }
         SettingsRow("Radial menu", "Double-tap ring: items & submenus") { onOpen("set_radial") }
         SettingsRow("Spoken tokens", "Wake / end / speech-gate phrases & models") { onOpen("set_spoken_tokens") }
+        SettingsRow("Shell commands", "Pre-configured commands a shell token can run") { onOpen("set_shell_commands") }
         SettingsRow("Audio", "Mic meter, thresholds, transcription") { onOpen("set_audio") }
         SettingsRow("Hosts", "SSH targets sessions can run on") { onOpen("set_hosts") }
         SettingsRow("Identities", "SSH keypairs hosts authenticate with") { onOpen("set_identities") }

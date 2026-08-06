@@ -78,15 +78,3 @@ urgency = "normal"
 order = 60
 created = 2026-08-06
 tags = ["shell"]
-
-[[task]]
-id = "app-settings-editor-for-shell-commands"
-title = "App settings editor for shell commands"
-description = "Add SettingsShellCommands.kt in commonMain following SettingsSpokenTokens.kt: interface ShellCommandsController {putShellCommand, deleteShellCommand}, a list screen with inline add/edit dialog over alias / command template / optional dir / optional host, wired into AppController's interface list and reachable from the settings menu. Show the argument-template syntax as helper text. Verify on the Dockerized emulator via the android-dev skill, then document the editor in README.md."
-status = "active"
-level = "task"
-category = "feature"
-urgency = "normal"
-order = 34
-created = 2026-08-06
-tags = ["shell-token", "app"]
