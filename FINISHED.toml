@@ -14,6 +14,16 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "prune-orphaned-transcriptcache-files"
+title = "Prune orphaned TranscriptCache files"
+description = "TranscriptCache.kt:36 only deletes on explicit remove(); sessions deleted server-side leave their cached transcript JSON on the device forever. Sweep the cache dir against the known session list periodically or on session-list refresh."
+status = "finished"
+category = "chore"
+created = 2026-08-05
+completed = 2026-08-06
+tags = ["android", "bug-sweep"]
+
+[[task]]
 id = "digest-sweep-concurrency-can-exceed-ssh-maxsessions-and-drop-the-pooled-client"
 title = "Digest sweep concurrency can exceed SSH MaxSessions and drop the pooled client"
 description = "ops_history.go:75 sets digestSweepConcurrency=8; with a concurrent attach's stat/tail/RunOnTarget channels this can exceed OpenSSH's default MaxSessions=10 on one pooled client. SSHPool.Run (ssh_fs.go:158-171) misreads the channel-open failure as a stale connection and drops + re-dials the whole client. Cap total in-flight channels per pooled client, or distinguish channel-open-refused from dead-connection."

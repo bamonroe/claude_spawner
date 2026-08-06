@@ -19,14 +19,3 @@ add_proposed_work = "Add proposed features and tests as new tasks rather than lo
 remove_dropped_items = "Remove dropped items with a one-line why (`scripts/todo.sh remove <id> --reason`)."
 finish_work = "When a task is fully finished (built, tested, documented), run `scripts/todo.sh done <id>` to move it to FINISHED.toml — in the same commit that completes the work."
 scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/KMP app + web client. The historical phase roadmap stays in README.md."
-
-[[task]]
-id = "prune-orphaned-transcriptcache-files"
-title = "Prune orphaned TranscriptCache files"
-description = "TranscriptCache.kt:36 only deletes on explicit remove(); sessions deleted server-side leave their cached transcript JSON on the device forever. Sweep the cache dir against the known session list periodically or on session-list refresh."
-status = "active"
-category = "chore"
-urgency = "low"
-order = 140
-created = 2026-08-05
-tags = ["android", "bug-sweep"]

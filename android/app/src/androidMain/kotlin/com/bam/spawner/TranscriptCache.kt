@@ -8,6 +8,7 @@ import kotlinx.serialization.json.Json
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -38,8 +39,18 @@ class TranscriptCache(private val dir: File, private val scope: CoroutineScope) 
     private val mem = ConcurrentHashMap<String, CachedSession>()
     private val dirty = ConcurrentHashMap<String, CachedSession>()
     private val flushing = AtomicBoolean(false)
+    private val lastSweep = AtomicLong(0)
 
     init { runCatching { dir.mkdirs() } }
+
+    private companion object {
+        // How long a cached transcript survives after its session stops appearing in
+        // a server's list. Long enough to span "I haven't opened that machine in a
+        // while", short enough that deleted sessions don't accumulate for years.
+        const val RETENTION_MS = 14L * 24 * 60 * 60 * 1000
+        // Don't re-walk the cache dir more than this often.
+        const val SWEEP_INTERVAL_MS = 60L * 60 * 1000
+    }
 
     /** The in-memory copy, if this session has been loaded or saved already.
      *  Never touches disk — safe to call on the main thread. */
@@ -67,6 +78,53 @@ class TranscriptCache(private val dir: File, private val scope: CoroutineScope) 
         mem.remove(name)
         dirty.remove(name)
         scope.launch(Dispatchers.IO) { runCatching { fileFor(name).delete() } }
+    }
+
+    /**
+     * Drop cached transcripts for sessions that no longer exist. Without this the
+     * only deletion path is an explicit [remove], so a session deleted server-side
+     * left its transcript JSON on the device forever — the cache grew monotonically
+     * for the life of the install.
+     *
+     * [known] is **one server's** session list, not global truth: the app talks to
+     * several servers, and the same cache dir holds sessions from all of them. So
+     * absence is treated as evidence, not proof — a file is deleted only after it
+     * has gone unseen for [RETENTION_MS]. Every id in [known] has its file's mtime
+     * refreshed, which is what "seen" means here (no extra bookkeeping file, and no
+     * reading the entries to find out). A session on a server you simply haven't
+     * connected to lately survives as long as you come back within the window.
+     *
+     * Throttled to [SWEEP_INTERVAL_MS] so a chatty `discovered` stream doesn't
+     * re-walk the directory on every frame, and runs entirely on [Dispatchers.IO].
+     */
+    fun retainOnly(known: Set<String>) {
+        val now = System.currentTimeMillis()
+        val last = lastSweep.get()
+        if (now - last < SWEEP_INTERVAL_MS || !lastSweep.compareAndSet(last, now)) return
+        scope.launch(Dispatchers.IO) {
+            val files = runCatching { dir.listFiles() }.getOrNull() ?: return@launch
+            for (f in files) {
+                val id = idOf(f) ?: continue
+                if (id in known) {
+                    runCatching { f.setLastModified(now) }
+                    continue
+                }
+                if (now - f.lastModified() < RETENTION_MS) continue
+                mem.remove(id)
+                dirty.remove(id)
+                runCatching { f.delete() }
+            }
+        }
+    }
+
+    // The inverse of fileFor: recover the session id a cache file belongs to, or
+    // null for anything this class didn't write (so a stray file is left alone).
+    private fun idOf(f: File): String? {
+        val base = f.name.removeSuffix(".json")
+        if (base == f.name) return null
+        return runCatching {
+            Base64.decode(base, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP).decodeToString()
+        }.getOrNull()?.takeIf { it.isNotEmpty() }
     }
 
     // One writer at a time, draining whatever is dirty when it gets there — so N

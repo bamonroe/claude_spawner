@@ -328,6 +328,14 @@ than stitching a stale one. The cache lives under the app's private storage and 
 hash is opaque to the app, so this stays correct without the phone and server having to agree on how it's
 computed.
 
+The cache **prunes itself**. A session deleted on the server would otherwise leave its transcript on
+the phone forever, since nothing else deletes cache files. Each time the session list refreshes, the app
+sweeps its cache directory and drops entries for sessions that no longer exist. Because you may use more
+than one server, and any given list only speaks for the one you're connected to, absence is treated as
+evidence rather than proof: an entry is deleted only after it has gone unseen for **two weeks**, so a
+session on a machine you simply haven't opened lately survives as long as you come back within that
+window. The sweep is throttled to once an hour and runs off the UI thread.
+
 The **session list itself is cached** the same way: the last set of discovered sessions is written to
 disk on every connect, so a fresh launch shows the sidebar populated (and lets you click into any
 session's cached transcript) **before — or entirely without — a server connection**. It's refreshed

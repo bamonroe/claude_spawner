@@ -411,6 +411,11 @@ internal fun VoiceController.onDiscovered(msg: ServerMsg.Discovered) {
     _discovered.value = msg.sessions
     discoveredCache.save(msg.sessions)
     _discoverError.value = ""
+    // Sweep transcripts for sessions that no longer exist — this list is the only
+    // signal the app gets that a session was deleted server-side. retainOnly is
+    // throttled, grace-period'd (this is one server's list, not global truth) and
+    // does its work off the main thread, so calling it on every discover is fine.
+    cache.retainOnly(msg.sessions.map { it.sessionId }.filter { it.isNotEmpty() }.toSet())
     // Re-derive the attached TITLE from the fresh list by stable id. After a server
     // switch the same session can carry a different name here, leaving the title stale;
     // storage is id-keyed, so this is a title-only update (no map migration).
