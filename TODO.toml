@@ -33,7 +33,8 @@ Design decisions settled with the user (2026-08-06):
 - Shell commands take spoken arguments, and the command list is editable from the app.
 - Output is spoken in full.
 
-Broken down into: shell-gate-new-shell-spoken-action-and-token, shell-command-catalogue-store-wire-ops-app-editing, voice-argument-parsing-for-shell-command-aliases, set-buddy-command-for-target-host-and-directory, shell-execution-over-the-ssh-pool-with-spoken-output."""
+Done: shell-gate-new-shell-spoken-action-and-token; shell-command-catalogue-store-wire-ops-app-editing (scoped out into the four catalogue tasks below).
+Remaining children: shellcommandstore-record-persistence-config-path, shell-command-catalogue-wire-ops-in-the-gateway, kotlin-protocol-cataloguesync-entries-for-shell-commands, app-settings-editor-for-shell-commands, voice-argument-parsing-for-shell-command-aliases, set-buddy-command-for-target-host-and-directory, shell-execution-over-the-ssh-pool-with-spoken-output."""
 status = "in-progress"
 level = "epic"
 category = "feature"
@@ -41,18 +42,6 @@ urgency = "normal"
 order = 10
 created = 2026-08-06
 tags = ["shell", "detached", "ssh"]
-
-[[task]]
-id = "shell-command-catalogue-store-wire-ops-app-editing"
-title = "Shell command catalogue: store, wire ops, app editing"
-description = "Pre-configured shell commands are the only thing the shell gate can run — no arbitrary spoken commands. Investigate and break into tasks: a ShellCommandStore modelled on session/hosts.go and session/spokentokens.go (alias phrase, command template, optional working dir/host override, UpdatedAt LWW), its config path + SPAWNER_ env var, catalogue sync/put/delete wire ops in gateway/settings.go, protocol docs, and the app-side settings editor (same pattern as the hosts and spoken-token editors). Commands take spoken arguments, so the model needs a way to express parameters in the template."
-status = "active"
-level = "scope"
-category = "feature"
-urgency = "normal"
-order = 30
-created = 2026-08-06
-tags = ["shell"]
 
 [[task]]
 id = "voice-argument-parsing-for-shell-command-aliases"
@@ -89,3 +78,51 @@ urgency = "normal"
 order = 60
 created = 2026-08-06
 tags = ["shell"]
+
+[[task]]
+id = "shellcommandstore-record-persistence-config-path"
+title = "ShellCommandStore: record, persistence, config path"
+description = "Add server/internal/session/shellcommands.go modelled verbatim on hosts.go/spokentokens.go: ShellCommand record {Name (spoken alias), Command (template string), Dir, Host (optional override), UpdatedAt int64 millis}, ShellCommandStore{path, mu, byName, tombs} with OpenShellCommandStore/List/Get/Put/Delete/flush, reusing session/tombstone.go for LWW deletes and ErrStale on stale Put. Argument template syntax: $1..$9 for positional spoken args and $* for the rest — decide and document it here since the store owns the template. Add cfg.ShellCommandsPath from env SPAWNER_SHELL_COMMANDS (default shell_commands.json) in internal/config, document it in docs/config.md, wire OpenShellCommandStore in server/main.go and a shellCmds field on gateway.New. Tests mirroring hosts_test.go/lww_test.go."
+status = "active"
+level = "task"
+category = "feature"
+urgency = "normal"
+order = 31
+created = 2026-08-06
+tags = ["shell-token", "server"]
+
+[[task]]
+id = "shell-command-catalogue-wire-ops-in-the-gateway"
+title = "Shell command catalogue wire ops in the gateway"
+description = "Add server/internal/gateway/shellcommands.go following spokentokens.go: broadcastShellCommands(), doShellCommandPut, doShellCommandDelete with the ErrStale->send-list-to-that-client-only path. Register shell_command_put / shell_command_delete in the gateway.go dispatch table, add ShellCommand + digest fields to messages.go inbound, msgShellCommands (type shell_commands) outbound, a bad_shell_command error code, and the shell_commands_digest hello fast-path push (follow the spoken-tokens digest pattern, not the hosts explicit-list op). Document every message, payload field and error code in docs/protocol.md so internal/docsync passes."
+status = "active"
+level = "task"
+category = "feature"
+urgency = "normal"
+order = 32
+created = 2026-08-06
+tags = ["shell-token", "protocol"]
+
+[[task]]
+id = "kotlin-protocol-cataloguesync-entries-for-shell-commands"
+title = "Kotlin protocol + CatalogueSync entries for shell commands"
+description = "App side of the catalogue: ServerMsg.ShellCommands + readShellCommands + ShellCommandInfo DTO in net/Protocol.kt, shell_commands parse dispatch, shell_commands_digest in the hello payload, and shellCommandPut/shellCommandDelete outbound builders. Register a Catalogue<ShellCommandInfo> in net/CatalogueSync.kt with its StateFlow, digest assembly, inbound apply and client-stamped putShellCommand/deleteShellCommand mutators. Must keep the docsync clientsync_test.go wire-string check green."
+status = "active"
+level = "task"
+category = "feature"
+urgency = "normal"
+order = 33
+created = 2026-08-06
+tags = ["shell-token", "app"]
+
+[[task]]
+id = "app-settings-editor-for-shell-commands"
+title = "App settings editor for shell commands"
+description = "Add SettingsShellCommands.kt in commonMain following SettingsSpokenTokens.kt: interface ShellCommandsController {putShellCommand, deleteShellCommand}, a list screen with inline add/edit dialog over alias / command template / optional dir / optional host, wired into AppController's interface list and reachable from the settings menu. Show the argument-template syntax as helper text. Verify on the Dockerized emulator via the android-dev skill, then document the editor in README.md."
+status = "active"
+level = "task"
+category = "feature"
+urgency = "normal"
+order = 34
+created = 2026-08-06
+tags = ["shell-token", "app"]
