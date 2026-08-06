@@ -281,6 +281,10 @@ internal fun VoiceController.onTtsVoices(msg: ServerMsg.TtsVoices) {
 }
 
 internal fun VoiceController.onAttached(msg: ServerMsg.Attached) {
+    // The echo for a switch we already applied optimistically (focusKnownSession): the
+    // view is already this session, so re-running showLog would only re-publish and yank
+    // the scroll back to the bottom mid-read. Everything else below is idempotent.
+    val alreadyShown = msg.sessionId.isNotBlank() && msg.sessionId == router.currentId
     session.rememberPreviousOnAttach(msg.name, msg.sessionId)
     // Storage is keyed by the stable session_id, so a backend switch (set_agent) that
     // rotates the id and re-emits `attached` just lands on a fresh, empty id and refetches
@@ -308,7 +312,7 @@ internal fun VoiceController.onAttached(msg: ServerMsg.Attached) {
     settings.lastSession = msg.name
     settings.lastSessionId = msg.sessionId
     _status.value = "attached: ${msg.name}"
-    showLog(msg.sessionId)
+    if (!alreadyShown) showLog(msg.sessionId)
     // Refetch recent history on (re)attach so a session that produced output
     // while we viewed another one isn't left stale (the server only fans live
     // output to the currently-attached connection). But save data when we can:

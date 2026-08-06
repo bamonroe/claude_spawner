@@ -21,17 +21,6 @@ finish_work = "When a task is fully finished (built, tested, documented), run `s
 scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/KMP app + web client. The historical phase roadmap stays in README.md."
 
 [[task]]
-id = "drop-duplicate-history-fetch-on-session-switch"
-title = "Drop duplicate history fetch on session switch"
-description = "Every switch sends the history request twice: optimistically in focusKnownSession (VoiceControllerMessages.kt:113, web WebAppControllerMessages.kt:57) and again in onAttached (VoiceControllerMessages.kt:320). Each costs a server-side DisplayDigest or full transcript parse plus an RTT. Skip the second request (and the second showLog at :311, which also re-persists and yanks scroll) when the attached echo matches the already-focused session id."
-status = "active"
-category = "bug"
-urgency = "high"
-order = 10
-created = 2026-08-05
-tags = ["session-switch", "perf"]
-
-[[task]]
 id = "move-bindjob-reconcilejobs-off-the-gateway-read-loop"
 title = "Move bindJob/reconcileJobs off the gateway read loop"
 description = "doAttach ends with bindJob -> reconcileJobs (turns.go:324-334, bgjobs.go:41-65, session/bgjobs.go:112-127): re-uploads the 12KB spawner-job.sh heredoc and runs 'spawner-job list --json' on the target, on the connection's serial read loop (loop.go:33), under an 8s timeout. The follow-up history request queues behind it — 20-80ms local, 150-600ms over SSH, up to 8s on a slow target, and a hung target stalls the whole connection. Run it in a goroutine like startDigestSweep, and skip the re-stage when the script is already current."

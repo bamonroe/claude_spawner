@@ -14,6 +14,16 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "drop-duplicate-history-fetch-on-session-switch"
+title = "Drop duplicate history fetch on session switch"
+description = "Every switch sends the history request twice: optimistically in focusKnownSession (VoiceControllerMessages.kt:113, web WebAppControllerMessages.kt:57) and again in onAttached (VoiceControllerMessages.kt:320). Each costs a server-side DisplayDigest or full transcript parse plus an RTT. Skip the second request (and the second showLog at :311, which also re-persists and yanks scroll) when the attached echo matches the already-focused session id."
+status = "finished"
+category = "bug"
+created = 2026-08-05
+completed = 2026-08-06
+tags = ["session-switch", "perf"]
+
+[[task]]
 id = "sidebar-pin-toggle-for-permanent-docked-mode"
 title = "Sidebar pin toggle for permanent docked mode"
 description = "Add a toggle at the top of the sidebar that pins it open permanently (docked), the way it behaved before it became an overlay opened from the hamburger. When pinned, the chat content shifts over so the full message text stays visible alongside the sidebar instead of being covered. Persist the pinned state."

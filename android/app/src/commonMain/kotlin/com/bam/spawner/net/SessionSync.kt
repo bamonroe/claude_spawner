@@ -65,6 +65,9 @@ class SessionSync(private val host: Host) {
     // when nothing moved — the authoritative, bodies-free freshness check.
     private val digestHeld = mutableMapOf<String, Pair<Int, String>>()
 
+    /** Session id of the outstanding fresh-history request, if any (see [requestFreshHistory]). */
+    private var freshPending: String? = null
+
     // The attach history: session ids in most-recently-*departed* order. The front is the
     // session we were focused on before the current one (the swap gesture's target), and the
     // whole list — with the current focus prepended — is the radial palette's attach-recency
@@ -190,11 +193,13 @@ class SessionSync(private val host: Host) {
      *  server's: record its digest so the next attach's `have_hash` check stands. */
     fun recordSynced(id: String, count: Int, hash: String) {
         digestHeld[id] = count to hash
+        if (freshPending == id) freshPending = null
     }
 
     /** Drop the held digest for a session (context-reset rotation / cache wipe). */
     fun drop(id: String) {
         digestHeld.remove(id)
+        if (freshPending == id) freshPending = null
     }
 
     /**
@@ -212,6 +217,14 @@ class SessionSync(private val host: Host) {
      * the same optimization done correctly, so we defer to it instead.
      */
     fun requestFreshHistory(id: String, name: String) {
+        // Idempotent per session: a switch asks twice — optimistically when the sidebar
+        // row is tapped, then again when the server's `attached` echo lands — and each
+        // costs a server-side digest/transcript parse plus a round trip. Suppress the
+        // second while the first is still outstanding. The marker is a single slot keyed
+        // by id, so it can never wedge: a request for any *other* session replaces it,
+        // and the history/`unchanged` reply (recordSynced) or a cache drop clears it.
+        if (freshPending == id) return
+        freshPending = id
         val held = digestHeld[id]
         host.send(Outbound.history(name, null, haveHash = held?.second ?: ""))
     }

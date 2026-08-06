@@ -150,8 +150,12 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
                 val ageMs = if (msg.usageAt > 0) (nowEpochSeconds() - msg.usageAt) * 1000 else Long.MAX_VALUE
                 _lastTurnUsage.value = TurnUsageInfo(msg.usage, nowMonotonicMs() - ageMs.coerceIn(0, 6 * 60 * 1000L))
             }
-            router.currentId = msg.sessionId
-            router.publish()
+            // Skip the re-publish when this is just the echo of a switch we already
+            // applied optimistically in focusKnownSession — the view is already here.
+            if (router.currentId != msg.sessionId) {
+                router.currentId = msg.sessionId
+                router.publish()
+            }
             router.loadingOlder = false
             session.requestFreshHistory(msg.sessionId, msg.name)
         }
