@@ -90,7 +90,9 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
     // Offline transcript cache. `loadedFromCache` tracks which sessions we've pulled from
     // disk into memory. The digest caches (which the on-disk cache is validated against)
     // and the previous-session bookkeeping live in the shared reconciler below.
-    internal val cache = TranscriptCache(File(app.filesDir, "transcripts"))
+    // Declared ahead of the caches below: they hand their disk I/O to this scope.
+    internal val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    internal val cache = TranscriptCache(File(app.filesDir, "transcripts"), scope)
     internal val discoveredCache = DiscoveredCache(File(app.filesDir, "discovered.json"))
     internal val loadedFromCache = mutableSetOf<String>()
 
@@ -372,7 +374,6 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
     internal val _audioInput = MutableStateFlow(AudioInput.DEVICE)
     val audioInput: StateFlow<AudioInput> = _audioInput.asStateFlow()
 
-    internal val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     internal var meter: LevelMeter? = null
     internal var commitTimer: Job? = null
 

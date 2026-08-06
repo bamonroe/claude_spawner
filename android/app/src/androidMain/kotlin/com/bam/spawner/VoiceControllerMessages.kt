@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 // --- Server-message handling, per-session chat/log paging, and history merge ---
 // These are extension functions on VoiceController (identical to member functions;
@@ -61,22 +62,37 @@ internal fun VoiceController.dropSessionCache(id: String) {
 // in-memory maps the first time it's needed (so the cached chat shows even
 // offline), without clobbering a live in-memory log we already hold. Keyed by
 // the stable session id (an older name-keyed cache file simply misses → rebuilt
-// from history on the next fetch).
+// from history on the next fetch). A memory hit applies inline (so the switch renders the cached chat in the same
+// frame); a miss reads the file on a background dispatcher and applies + republishes
+// when it lands, so the click lambda never waits on disk.
 internal fun VoiceController.ensureLoaded(id: String) {
     if (id.isEmpty() || id in loadedFromCache) return
     loadedFromCache.add(id)
     if (id in router.logs) return
-    val c = cache.load(id) ?: return
+    val hit = cache.peek(id)
+    if (hit != null) { applyCached(id, hit); return }
+    scope.launch {
+        val c = cache.load(id) ?: return@launch
+        withContext(Dispatchers.Main) {
+            if (id in router.logs) return@withContext // a live log arrived while we read
+            applyCached(id, c)
+            if (id == router.currentId) { router.publish(); scrollToBottom() }
+        }
+    }
+}
+
+private fun VoiceController.applyCached(id: String, c: CachedSession) {
     router.logs[id] = session.dedupe(c.messages.map { it.toChat() })
     router.oldest[id] = c.oldestIndex
     router.hasMore[id] = c.hasMore
     session.recordHeld(id, c.count, c.hash)
 }
 
-// persist writes a session's current log (minus live-only SYSTEM notes, which
-// aren't part of the server transcript) plus its paging cursor and held digest
-// to disk (keyed by the stable session id), so it survives an app restart and can
-// be shown offline.
+// persist hands a session's current log (minus live-only SYSTEM notes, which
+// aren't part of the server transcript) plus its paging cursor and held digest to
+// the cache (keyed by the stable session id), so it survives an app restart and can
+// be shown offline. TranscriptCache.save returns immediately — the encode and file
+// write happen on a background dispatcher — so this is safe on the UI thread.
 internal fun VoiceController.persist(id: String) {
     if (id.isEmpty()) return
     val msgs = session.dedupe(router.logs[id] ?: return)
