@@ -14,6 +14,16 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "digest-sweep-concurrency-can-exceed-ssh-maxsessions-and-drop-the-pooled-client"
+title = "Digest sweep concurrency can exceed SSH MaxSessions and drop the pooled client"
+description = "ops_history.go:75 sets digestSweepConcurrency=8; with a concurrent attach's stat/tail/RunOnTarget channels this can exceed OpenSSH's default MaxSessions=10 on one pooled client. SSHPool.Run (ssh_fs.go:158-171) misreads the channel-open failure as a stale connection and drops + re-dials the whole client. Cap total in-flight channels per pooled client, or distinguish channel-open-refused from dead-connection."
+status = "finished"
+category = "bug"
+created = 2026-08-05
+completed = 2026-08-06
+tags = ["server", "ssh", "bug-sweep"]
+
+[[task]]
 id = "reconcilejobs-runs-outside-j-mu-turn-start-race"
 title = "reconcileJobs runs outside j.mu — turn-start race"
 description = "turns.go:332-334: bindJob checks j.isRunning() then calls reconcileJobs before taking j.mu at :342. A turn starting in that window is exactly the one-writer race the adjacent comment says must not happen (store.Put single writer). Take the lock across the check + reconcile."

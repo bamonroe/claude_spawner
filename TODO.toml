@@ -21,17 +21,6 @@ finish_work = "When a task is fully finished (built, tested, documented), run `s
 scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/KMP app + web client. The historical phase roadmap stays in README.md."
 
 [[task]]
-id = "digest-sweep-concurrency-can-exceed-ssh-maxsessions-and-drop-the-pooled-client"
-title = "Digest sweep concurrency can exceed SSH MaxSessions and drop the pooled client"
-description = "ops_history.go:75 sets digestSweepConcurrency=8; with a concurrent attach's stat/tail/RunOnTarget channels this can exceed OpenSSH's default MaxSessions=10 on one pooled client. SSHPool.Run (ssh_fs.go:158-171) misreads the channel-open failure as a stale connection and drops + re-dials the whole client. Cap total in-flight channels per pooled client, or distinguish channel-open-refused from dead-connection."
-status = "active"
-category = "bug"
-urgency = "normal"
-order = 130
-created = 2026-08-05
-tags = ["server", "ssh", "bug-sweep"]
-
-[[task]]
 id = "prune-orphaned-transcriptcache-files"
 title = "Prune orphaned TranscriptCache files"
 description = "TranscriptCache.kt:36 only deletes on explicit remove(); sessions deleted server-side leave their cached transcript JSON on the device forever. Sweep the cache dir against the known session list periodically or on session-list refresh."

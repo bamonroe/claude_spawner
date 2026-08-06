@@ -91,9 +91,13 @@ func (c *conn) serveHistory(sessionID, name string, before *int, limit int, have
 
 // digestSweepConcurrency bounds how many sessions the sweep reads at once. The
 // reads are independent and mostly wait on remote I/O, so overlapping them turns
-// a sum of latencies into roughly the slowest one; the cap keeps a machine with
-// dozens of sessions from opening dozens of SSH channels at once (OpenSSH's
-// default MaxSessions is 10 per connection).
+// a sum of latencies into roughly the slowest one.
+//
+// It is no longer this constant's job to stay under the peer's SSH channel
+// ceiling — the pool budgets channels per connection now (see
+// session/ssh_channels.go), so a sweep that outruns the budget queues instead of
+// getting the whole pooled client wrongly dropped as stale. This is purely how
+// much work the sweep tries to have in flight.
 const digestSweepConcurrency = 8
 
 // startDigestSweep runs the sweep OFF the connection's inbound loop. The loop

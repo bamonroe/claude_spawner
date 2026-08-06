@@ -112,14 +112,14 @@ func (p *SSHPool) WriteFile(ctx context.Context, host, path string, data []byte)
 	if err != nil {
 		return err
 	}
-	err = writeRemote(ctx, client, path, data)
-	if err != nil {
+	err = p.writeRemote(ctx, host, client, path, data)
+	if err != nil && !isChannelOpenErr(err) {
 		p.drop(host, client)
 		client, derr := p.client(host)
 		if derr != nil {
 			return err
 		}
-		err = writeRemote(ctx, client, path, data)
+		err = p.writeRemote(ctx, host, client, path, data)
 	}
 	return err
 }
@@ -127,11 +127,12 @@ func (p *SSHPool) WriteFile(ctx context.Context, host, path string, data []byte)
 // writeRemote opens one session channel and pipes data into `cat > path` (making the
 // parent dir first). ctx-cancel kills the remote command so a hung write can't leak
 // a channel.
-func writeRemote(ctx context.Context, client *ssh.Client, path string, data []byte) error {
-	sess, err := client.NewSession()
+func (p *SSHPool) writeRemote(ctx context.Context, host string, client *ssh.Client, path string, data []byte) error {
+	sess, release, err := p.openChannel(ctx, host, client, false)
 	if err != nil {
 		return err
 	}
+	defer release()
 	defer sess.Close()
 	stop := context.AfterFunc(ctx, func() { _ = sess.Signal(ssh.SIGKILL); _ = sess.Close() })
 	defer stop()
@@ -160,14 +161,17 @@ func (p *SSHPool) Run(ctx context.Context, host, cmd string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	out, err := runRemote(ctx, client, cmd)
-	if err != nil {
+	out, err := p.runRemote(ctx, host, client, cmd)
+	// A channel-open refusal means the connection is BUSY, not dead — dropping it
+	// would tear down every other operation sharing it (a running turn included)
+	// and re-dial for nothing. Only a transport error earns a re-dial.
+	if err != nil && !isChannelOpenErr(err) {
 		p.drop(host, client)
 		client, derr := p.client(host)
 		if derr != nil {
 			return nil, err
 		}
-		out, err = runRemote(ctx, client, cmd)
+		out, err = p.runRemote(ctx, host, client, cmd)
 	}
 	return out, err
 }
@@ -181,25 +185,26 @@ func (p *SSHPool) Stream(ctx context.Context, host, inner string) (Proc, error) 
 	if err != nil {
 		return nil, err
 	}
-	proc, err := streamRemote(ctx, client, inner)
-	if err != nil {
+	proc, err := p.streamRemote(ctx, host, client, inner)
+	if err != nil && !isChannelOpenErr(err) {
 		p.drop(host, client)
 		client, derr := p.client(host)
 		if derr != nil {
 			return nil, err
 		}
-		proc, err = streamRemote(ctx, client, inner)
+		proc, err = p.streamRemote(ctx, host, client, inner)
 	}
 	return proc, err
 }
 
 // runRemote opens one session channel, runs cmd, and returns its stdout. ctx-cancel
 // kills the remote command so a hung probe can't leak a channel.
-func runRemote(ctx context.Context, client *ssh.Client, cmd string) ([]byte, error) {
-	sess, err := client.NewSession()
+func (p *SSHPool) runRemote(ctx context.Context, host string, client *ssh.Client, cmd string) ([]byte, error) {
+	sess, release, err := p.openChannel(ctx, host, client, false)
 	if err != nil {
 		return nil, err
 	}
+	defer release()
 	defer sess.Close()
 	stop := context.AfterFunc(ctx, func() { _ = sess.Signal(ssh.SIGKILL); _ = sess.Close() })
 	defer stop()

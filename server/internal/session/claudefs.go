@@ -2,6 +2,7 @@ package session
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -59,18 +60,22 @@ func (fs claudeFS) cacheKey(path string) string {
 
 // output runs a short command on the remote host and returns its stdout. Used for
 // the file-access primitives (find/ls/stat/cat/rm), not for streaming a turn.
+// It goes through SSHPool.Run rather than opening a channel itself so these
+// probes are inside the connection's channel budget: the digest sweep fans
+// several of them out at once, and un-budgeted they were what pushed a pooled
+// client past the peer's MaxSessions and got it wrongly dropped as stale.
+// The deadline bounds the wait for a channel slot as much as the command: these
+// probes have no caller-supplied context, and an unbounded wait behind a busy
+// connection would hang a history read rather than fail it.
 func (r *sshFS) output(cmd string) ([]byte, error) {
-	c, err := r.pool.client(r.host)
-	if err != nil {
-		return nil, err
-	}
-	s, err := c.NewSession()
-	if err != nil {
-		return nil, err
-	}
-	defer s.Close()
-	return s.Output(cmd)
+	ctx, cancel := context.WithTimeout(context.Background(), remoteProbeTimeout)
+	defer cancel()
+	return r.pool.Run(ctx, r.host, cmd)
 }
+
+// remoteProbeTimeout caps one file-access probe (find/ls/stat/cat/rm) end to end,
+// including any wait for a channel slot.
+const remoteProbeTimeout = 30 * time.Second
 
 // listAllTranscripts returns every session transcript under ~/.claude/projects with
 // its mtime, newest-first ordering left to the caller.

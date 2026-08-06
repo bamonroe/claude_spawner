@@ -48,7 +48,15 @@ type SSHPool struct {
 type poolEntry struct {
 	mu     sync.Mutex // serializes dials for this host; may be held for the dial timeout
 	client *ssh.Client
+	// chans bounds concurrent SSH channels on this host's connection, below the
+	// peer's MaxSessions ceiling — see ssh_channels.go. It belongs to the entry,
+	// not the client: a re-dial replaces the connection but the budget (and any
+	// slots still held by unwinding operations) carries across.
+	chans channelBudget
 }
+
+// budget returns this host's channel allowance.
+func (e *poolEntry) budget() *channelBudget { return &e.chans }
 
 // NewSSHPool validates the global config (building the shared known_hosts
 // verification) and returns a ready, empty pool. Per-host auth/user is built at
