@@ -97,11 +97,39 @@ func sandboxTarget(s *session.Session) string {
 // across a server change where the same session carries a different name.
 func (c *conn) doAttachBy(sessionID, name string, silent bool) {
 	if sessionID != "" {
-		if s := c.srv.store.GetBySessionID(sessionID); s != nil {
-			name = recName(s)
+		// An id is an EXACT handle. Resolving it by id and then re-resolving that
+		// name fuzzily would let a stale id fall through to a same-key collision
+		// ("claude-bam-store" vs "bamstore") and silently attach elsewhere, so an
+		// id request is answered by id or not at all.
+		s := c.srv.store.GetBySessionID(sessionID)
+		if s == nil {
+			s = c.srv.adoptDiscoveredID(sessionID)
+			if s != nil {
+				c.sendSessionList()
+			}
 		}
+		if s == nil {
+			c.attachFailed(sessionID, name, "unknown_session", silent,
+				"that session isn't here.")
+			return
+		}
+		c.attachTo(s, silent)
+		return
 	}
 	c.doAttach(name, silent)
+}
+
+// attachFailed answers an attach the server could not complete. The app tracks
+// its own attachment optimistically, so a request that resolves to nothing must
+// still produce a frame — otherwise the client believes it is attached to a
+// session this connection was never put on, and every later dictation goes
+// somewhere else. `silent` only suppresses the SPOKEN line (auto-attach on
+// reconnect must not talk); the machine-readable nack always goes out.
+func (c *conn) attachFailed(sessionID, name, reason string, silent bool, spoken string) {
+	c.send(msgAttachFailed(sessionID, name, reason))
+	if !silent && spoken != "" {
+		c.send(msgSay(spoken))
+	}
 }
 
 // selectClientSession makes the connection follow the app's declared active
@@ -148,16 +176,22 @@ func (c *conn) selectClientSession(sessionID string) bool {
 
 func (c *conn) doAttach(name string, silent bool) {
 	if name == "" {
-		c.send(msgSay("which session?"))
+		c.attachFailed("", "", "no_session_named", silent, "which session?")
 		return
 	}
 	s := c.resolveSession(name)
 	if s == nil {
-		if !silent {
-			c.send(msgSay("no session named " + name + "."))
-		}
+		c.attachFailed("", name, "no_session_named", silent, "no session named "+name+".")
 		return
 	}
+	c.attachTo(s, silent)
+}
+
+// attachTo is the one place a connection's attachment actually moves — every
+// attach path (by id, by spoken name, swap) funnels through it so the bookkeeping
+// (previous-session handle for "swap", job unbind/rebind, buffer reset, the
+// `attached` ack) can't drift between them.
+func (c *conn) attachTo(s *session.Session, silent bool) {
 	if c.attached != nil {
 		// Remember the session we're leaving so "swap" can toggle back to it —
 		// but only on a genuine move to a different session (re-attaching to the
@@ -217,14 +251,30 @@ func (c *conn) resolveSession(spoken string) *session.Session {
 			return s
 		}
 	}
-	found, _ := c.srv.driver.DiscoverSessions("")
-	for _, d := range found {
+	for _, d := range c.srv.discoverForAttach() {
 		if matchKey(filepath.Base(d.Dir)) == key {
 			if rec, err := c.srv.registerDiscovered(d.SessionID, d.Dir); err == nil {
 				c.sendSessionList()
 				return rec
 			}
 		}
+	}
+	return nil
+}
+
+// adoptDiscoveredID resolves a session_id the registry doesn't hold against the
+// sessions on disk — by EXACT id, never fuzzily — and adopts the match so it can
+// be driven. nil when the id isn't on disk (or the walk hasn't landed yet, in
+// which case the caller nacks and the client's retry hits the warm memo).
+func (s *Server) adoptDiscoveredID(sessionID string) *session.Session {
+	for _, d := range s.discoverForAttach() {
+		if d.SessionID != sessionID {
+			continue
+		}
+		if rec, err := s.registerDiscovered(d.SessionID, d.Dir); err == nil {
+			return rec
+		}
+		return nil
 	}
 	return nil
 }
@@ -277,7 +327,9 @@ func (c *conn) doSwap() {
 	if c.attached != nil && recID(c.attached) == prevSnap.SessionID {
 		return // already there; nothing to toggle
 	}
-	c.doAttachBy(prevSnap.SessionID, prevSnap.Name, false)
+	// The record is already in hand — attach straight to it rather than round-
+	// tripping its id/name back through resolution, which could only lose it.
+	c.attachTo(prev, false)
 }
 
 // doClear rotates the attached session's Claude context: the current session_id is

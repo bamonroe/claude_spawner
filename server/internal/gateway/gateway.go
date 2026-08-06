@@ -84,6 +84,8 @@ type Server struct {
 	autoCompressMu sync.Mutex
 	acCfg          autoCompressCfg  // global auto-compress preference (set by the app over the wire)
 	acFired        map[string]int64 // session_id -> last turn `At` we auto-compressed, for dedup
+
+	discoverMemo attachDiscovery // bounded, memoized on-disk session walk for attach resolution
 }
 
 // New builds a gateway Server. stt may be nil, in which case audio frames are

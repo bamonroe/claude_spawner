@@ -37,7 +37,11 @@ internal fun WebAppController.touchDiscovered(id: String, busy: Boolean? = null)
 
 internal fun WebAppController.focusKnownSession(target: DiscoveredInfo, syncServer: Boolean) {
     if (target.sessionId.isBlank()) {
-        client?.send(Outbound.attach(target.name, silent = syncServer))
+        // No stable handle to key local state by, so this path stays server-
+        // authoritative: don't move focus optimistically, let `attached` drive it.
+        // Silent only suppresses the spoken line — a failure still comes back as
+        // `attach_failed`, so this can't strand us mid-switch.
+        client?.send(Outbound.attach(target.name, silent = true))
         return
     }
     session.rememberPreviousIfSwitching(target.sessionId)
@@ -158,6 +162,28 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
             }
             router.loadingOlder = false
             session.requestFreshHistory(msg.sessionId, msg.name)
+        }
+        // The attach didn't happen — the server's attachment is unchanged. We move
+        // focus optimistically, so reconcile back rather than sit on a session this
+        // connection was never put on. Stale nacks (for a session we've since left)
+        // are ignored; a fresh `discover` goes out either way.
+        is ServerMsg.AttachFailed -> {
+            val mine = (msg.sessionId.isNotEmpty() && msg.sessionId == _attachedId.value) ||
+                (msg.sessionId.isEmpty() && msg.name.isNotEmpty() && msg.name == _attachedName.value)
+            client?.send(Outbound.discover())
+            if (mine) {
+                val fallback = session.attachHistory(limit = 1).firstOrNull()
+                if (fallback != null) {
+                    focusKnownSession(fallback, syncServer = true)
+                    _status.value = "couldn't attach — back on ${fallback.name}"
+                } else {
+                    _attachedId.value = ""; _attachedName.value = null
+                    _attachedAgent.value = ""; _attachedModel.value = ""
+                    prefs.lastSession = ""; prefs.lastSessionId = ""
+                    router.currentId = ""; router.publish()
+                    _status.value = "couldn't attach: ${msg.name.ifEmpty { msg.sessionId }}"
+                }
+            }
         }
         is ServerMsg.Detached -> {
             session.rememberPrevious()

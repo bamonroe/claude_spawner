@@ -53,6 +53,11 @@ sealed interface ServerMsg {
     // usage/usageAt seed the context meter from the transcript's last turn on
     // attach (usageAt = that turn's unix seconds, for the cache-warm countdown).
     data class Attached(val name: String, val sessionId: String = "", val usage: TokenUsage? = null, val usageAt: Long = 0, val agent: String = "", val model: String = "", val profile: String = "") : ServerMsg
+    // The attach did NOT happen: the server's attachment is unchanged. We move our
+    // own focus optimistically on tap, so this nack is what keeps that honest —
+    // without it we'd keep showing (and dictating into) a session this connection
+    // was never put on. sessionId/name echo the request we sent.
+    data class AttachFailed(val sessionId: String, val name: String, val reason: String) : ServerMsg
     data object Detached : ServerMsg
     // Claude context cleared/compressed → drop token accounting. sessionId is the
     // NEW rotated session_id the clear/compress produced (the transcript was wiped/
@@ -139,6 +144,7 @@ sealed interface ServerMsg {
                 "files" -> Files(readStrings(o.arr("files")), o.str("session_id"))
                 "dialog" -> Dialog(o.str("state"), o.str("prompt"))
                 "attached" -> Attached(o.str("name"), o.str("session_id"), readUsage(o.obj("usage")), o.long("usage_at"), o.str("agent"), o.str("model"), o.str("profile"))
+                "attach_failed" -> AttachFailed(o.str("session_id"), o.str("name"), o.str("reason"))
                 "detached" -> Detached
                 "context_reset" -> ContextReset(o.str("name"), o.str("session_id"))
                 "renamed" -> Renamed(o.str("old"), o.str("name"), o.str("session_id"))

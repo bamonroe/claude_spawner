@@ -110,7 +110,12 @@ internal fun VoiceController.persist(id: String) {
 
 internal fun VoiceController.focusKnownSession(target: DiscoveredInfo, syncServer: Boolean) {
     if (target.sessionId.isBlank()) {
-        client?.send(Outbound.attach(target.name, silent = syncServer))
+        // No stable handle to key local state by, so this one path stays
+        // server-authoritative: don't move focus optimistically, let the server's
+        // `attached` frame drive it. Always silent (a tap shouldn't be narrated) —
+        // a failure still comes back as `attach_failed`, which silence never
+        // suppresses, so this can't strand us mid-switch.
+        client?.send(Outbound.attach(target.name, silent = true))
         return
     }
     session.rememberPreviousIfSwitching(target.sessionId)
@@ -192,6 +197,7 @@ internal fun VoiceController.onMessage(msg: ServerMsg) {
         is ServerMsg.SpeechMode -> settings.summaryOnlySpeech = msg.summaryOnly // "summary only" / "speak everything" voice toggle
         is ServerMsg.Dialog -> _status.value = "dialog: ${msg.state}"
         is ServerMsg.Attached -> onAttached(msg)
+        is ServerMsg.AttachFailed -> onAttachFailed(msg)
         is ServerMsg.Detached -> onDetached(msg)
         is ServerMsg.Renamed -> onRenamed(msg)
         is ServerMsg.Notice -> router.onNotice(msg)
@@ -338,6 +344,40 @@ internal fun VoiceController.onAttached(msg: ServerMsg.Attached) {
     // the recent page, passing the hash we hold so the server can still answer
     // `unchanged` (no bodies) if nothing moved. onHistory dedupes against live.
     session.requestFreshHistory(msg.sessionId, msg.name)
+}
+
+/**
+ * The server refused an attach: its attachment did **not** move. We switch focus
+ * optimistically (so a tap renders in the same frame), which is only safe because
+ * this nack exists — otherwise we'd sit on a session the connection was never put
+ * on and quietly dictate into whatever it *is* on.
+ *
+ * Reconcile rather than guess: ignore a nack for anything but the session we're
+ * currently showing (a late nack for a session we've already moved off is stale),
+ * and otherwise fall back to the most recent still-known session, or to nothing.
+ * A fresh `discover` goes out either way so the sidebar stops offering a session
+ * this server doesn't have.
+ */
+internal fun VoiceController.onAttachFailed(msg: ServerMsg.AttachFailed) {
+    val mine = (msg.sessionId.isNotEmpty() && msg.sessionId == _attachedId.value) ||
+        (msg.sessionId.isEmpty() && msg.name.isNotEmpty() && msg.name == _attachedName.value)
+    client?.send(Outbound.discover())
+    if (!mine) return
+    if (msg.sessionId.isNotEmpty()) dropSessionCache(msg.sessionId)
+    val fallback = session.attachHistory(limit = 1).firstOrNull()
+    if (fallback != null) {
+        focusKnownSession(fallback, syncServer = true)
+        _status.value = "couldn't attach — back on ${fallback.name}"
+        return
+    }
+    _attachedId.value = ""
+    _attachedName.value = null
+    _attachedAgent.value = ""
+    _attachedModel.value = ""
+    settings.lastSession = ""
+    settings.lastSessionId = ""
+    showLog("")
+    _status.value = "couldn't attach: ${msg.name.ifEmpty { msg.sessionId }}"
 }
 
 internal fun VoiceController.onDetached(msg: ServerMsg.Detached) {

@@ -332,6 +332,17 @@ func msgAttached(rec *session.Session, cx *session.ContextSnapshot) map[string]a
 	return m
 }
 
+// msgAttachFailed nacks an attach the server could not complete. The app moves
+// its own attachment optimistically (so the chat switches in the same frame the
+// user taps), which only stays honest if EVERY attach is answered: without this
+// frame a request that resolved to nothing left the client showing a session
+// this connection was never put on, and silently dictating into another one.
+// `reason` is machine-readable — "unknown_session" (the id/name resolved to
+// nothing here) or "no_session_named".
+func msgAttachFailed(sessionID, name, reason string) map[string]any {
+	return map[string]any{"type": "attach_failed", "session_id": sessionID, "name": name, "reason": reason}
+}
+
 func msgDetached() map[string]any {
 	return map[string]any{"type": "detached"}
 }
