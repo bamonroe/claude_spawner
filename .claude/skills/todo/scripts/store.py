@@ -23,6 +23,16 @@ CATEGORIES = ("feature", "bug", "docs", "refactor", "test", "chore")
 URGENCIES = ("low", "normal", "high", "critical")
 _URGENCY_RANK = {name: i for i, name in enumerate(URGENCIES)}
 
+# How big a task is, and therefore what "working" it means:
+#   task  — atomic and implementable as-is; just build it.
+#   scope — investigate the code, decide what needs doing, then `add` the
+#           concrete atomic tasks it breaks into. Produces tasks, not code.
+#   epic  — a large spanning feature. Working it means scoping out the next
+#           steps and adding `scope`/`task` children — never implementing the
+#           whole thing in one go.
+LEVELS = ("task", "scope", "epic")
+DEFAULT_LEVEL = "task"
+
 # Project-specific per-task boolean hints, TODO-only: they are dropped when a
 # task is archived, get a `--flag/--no-flag` option on `add`/`edit`, and are
 # shown in `list`/`show`. Empty by default — add your project's own here (e.g.
@@ -37,6 +47,7 @@ _TASK_FIELDS = (
     "title",
     "description",
     "status",
+    "level",
     "category",
     "urgency",
     "order",
@@ -139,10 +150,14 @@ def sort_active(tasks):
 
 
 def counts_by(tasks, field):
-    """Count tasks grouped by one field, as an ordered dict (desc by count)."""
+    """Count tasks grouped by one field, as an ordered dict (desc by count).
+
+    Tasks written before `level` existed have no such field, so a missing one
+    counts as the default level rather than "(none)"."""
+    fallback = DEFAULT_LEVEL if field == "level" else "(none)"
     tally = {}
     for task in tasks:
-        key = task.get(field, "(none)")
+        key = task.get(field, fallback)
         tally[key] = tally.get(key, 0) + 1
     return dict(sorted(tally.items(), key=lambda kv: (-kv[1], str(kv[0]))))
 

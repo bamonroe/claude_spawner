@@ -45,7 +45,8 @@ def _print_task(task, indent=""):
     cat = task.get("category", "-")
     status = task.get("status", "-")
     print(f"{indent}[{task.get('id','?')}] {task.get('title','')}")
-    meta = f"{indent}    status={status} category={cat} urgency={urg}"
+    lvl = task.get("level", store.DEFAULT_LEVEL)
+    meta = f"{indent}    level={lvl} status={status} category={cat} urgency={urg}"
     if "order" in task:
         meta += f" order={task['order']}"
     if "completed" in task:
@@ -65,6 +66,9 @@ def cmd_list(args):
         tasks = [t for t in tasks if t.get("status") == args.status]
     if args.category:
         tasks = [t for t in tasks if t.get("category") == args.category]
+    if args.level:
+        tasks = [t for t in tasks
+                 if t.get("level", store.DEFAULT_LEVEL) == args.level]
     if not args.finished:
         tasks = store.sort_active(tasks)
     if args.json:
@@ -101,6 +105,7 @@ def cmd_stats(args):
         "active_by_status": store.counts_by(active, "status"),
         "active_by_category": store.counts_by(active, "category"),
         "active_by_urgency": store.counts_by(active, "urgency"),
+        "active_by_level": store.counts_by(active, "level"),
         "finished_by_category": store.counts_by(done["tasks"], "category"),
     }
     if args.json:
@@ -112,6 +117,7 @@ def cmd_stats(args):
         ("active by status", "active_by_status"),
         ("active by category", "active_by_category"),
         ("active by urgency", "active_by_urgency"),
+        ("active by level", "active_by_level"),
         ("finished by category", "finished_by_category"),
     ):
         print(f"\n{label}:")
@@ -138,6 +144,7 @@ def cmd_add(args):
         "title": args.title,
         "description": args.description,
         "status": args.status,
+        "level": args.level,
         "category": args.category,
         "urgency": args.urgency,
         "order": store.next_order(doc["tasks"]),
@@ -156,7 +163,7 @@ def cmd_edit(args):
     task = store.find(doc["tasks"], args.id)
     if not task:
         sys.exit(f"no active task with id {args.id!r}")
-    fields = ("title", "description", "status", "category", "urgency",
+    fields = ("title", "description", "status", "level", "category", "urgency",
               "order") + store.FLAGS
     for field in fields:
         value = getattr(args, field)
@@ -229,6 +236,8 @@ def _validate_task(label, task, finished, seen):
         seen[tid] = label
     if "category" in task and task["category"] not in store.CATEGORIES:
         out.append(f"{where}: unknown category {task['category']!r}")
+    if "level" in task and task["level"] not in store.LEVELS:
+        out.append(f"{where}: unknown level {task['level']!r}")
     if finished:
         if task.get("status") != store.STATUS_FINISHED:
             out.append(f"{where}: archive task not marked finished")
@@ -255,6 +264,7 @@ def build_parser():
     ls.add_argument("--finished", action="store_true", help="list the archive")
     ls.add_argument("--status")
     ls.add_argument("--category")
+    ls.add_argument("--level", choices=store.LEVELS)
     ls.add_argument("--json", action="store_true")
     ls.set_defaults(func=cmd_list)
 
@@ -269,12 +279,15 @@ def build_parser():
 
     ct = sub.add_parser("count", help="count tasks, optionally grouped")
     ct.add_argument("--finished", action="store_true")
-    ct.add_argument("--by", choices=("status", "category", "urgency"))
+    ct.add_argument("--by", choices=("status", "category", "urgency", "level"))
     ct.set_defaults(func=cmd_count)
 
     ad = sub.add_parser("add", help="add an active task")
     ad.add_argument("--title", required=True)
     ad.add_argument("--description", required=True)
+    ad.add_argument("--level", choices=store.LEVELS, default=store.DEFAULT_LEVEL,
+                    help="task (atomic) | scope (investigate, then add tasks) | "
+                         "epic (large; break into scope/task children)")
     ad.add_argument("--category", choices=store.CATEGORIES, default="feature")
     ad.add_argument("--urgency", choices=store.URGENCIES, default="normal")
     ad.add_argument("--status", choices=store.STATUSES_ACTIVE, default="active")
@@ -291,6 +304,7 @@ def build_parser():
     ed.add_argument("--title")
     ed.add_argument("--description")
     ed.add_argument("--status", choices=store.STATUSES_ACTIVE)
+    ed.add_argument("--level", choices=store.LEVELS)
     ed.add_argument("--category", choices=store.CATEGORIES)
     ed.add_argument("--urgency", choices=store.URGENCIES)
     ed.add_argument("--order", type=int)
