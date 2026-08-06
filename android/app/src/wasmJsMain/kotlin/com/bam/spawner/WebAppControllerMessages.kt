@@ -228,6 +228,7 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
         is ServerMsg.HostList, is ServerMsg.IdentityList,
         is ServerMsg.Agents, is ServerMsg.Profiles,
         is ServerMsg.SpokenTokens -> catalogues.apply(msg)
+        is ServerMsg.ShellCommands -> catalogues.apply(msg)
         is ServerMsg.Actions -> _spokenActions.value = msg.actions
         is ServerMsg.Settings -> { catalogues.apply(msg); mirrorSettingsToPrefs() }
         is ServerMsg.Digests -> {
