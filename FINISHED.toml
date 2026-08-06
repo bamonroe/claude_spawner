@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "voice-argument-parsing-for-shell-command-aliases"
+title = "Voice argument parsing for shell command aliases"
+description = "Decide and implement how a spoken utterance after the shell gate resolves to an alias plus arguments — e.g. 'deploy staging' matches alias 'deploy' with arg 'staging'. Investigate: longest-alias-wins matching against the catalogue, how the remaining words map onto template placeholders, quoting/escaping so arguments cannot break out of the intended command over SSH, and what to say back when no alias matches or arguments are missing."
+status = "finished"
+level = "scope"
+category = "feature"
+created = 2026-08-06
+completed = 2026-08-06
+tags = ["shell", "voice"]
+
+[[task]]
 id = "app-settings-editor-for-shell-commands"
 title = "App settings editor for shell commands"
 description = "Add SettingsShellCommands.kt in commonMain following SettingsSpokenTokens.kt: interface ShellCommandsController {putShellCommand, deleteShellCommand}, a list screen with inline add/edit dialog over alias / command template / optional dir / optional host, wired into AppController's interface list and reachable from the settings menu. Show the argument-template syntax as helper text. Verify on the Dockerized emulator via the android-dev skill, then document the editor in README.md."

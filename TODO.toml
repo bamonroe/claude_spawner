@@ -34,7 +34,8 @@ Design decisions settled with the user (2026-08-06):
 - Output is spoken in full.
 
 Done: shell-gate-new-shell-spoken-action-and-token; shell-command-catalogue-store-wire-ops-app-editing (scoped out into the four catalogue tasks below); shellcommandstore-record-persistence-config-path; shell-command-catalogue-wire-ops-in-the-gateway; kotlin-protocol-cataloguesync-entries-for-shell-commands; app-settings-editor-for-shell-commands.
-Remaining children: voice-argument-parsing-for-shell-command-aliases, set-buddy-command-for-target-host-and-directory, shell-execution-over-the-ssh-pool-with-spoken-output."""
+Done also: voice-argument-parsing-for-shell-command-aliases (scoped out into the three resolver/expansion/reply tasks below).
+Remaining children: shell-alias-resolver-longest-alias-wins-match-over-the-catalogue, shell-command-template-expansion-with-ssh-safe-quoting, spoken-replies-for-unmatched-shell-aliases-and-missing-arguments, set-buddy-command-for-target-host-and-directory, shell-execution-over-the-ssh-pool-with-spoken-output."""
 status = "in-progress"
 level = "epic"
 category = "feature"
@@ -42,18 +43,6 @@ urgency = "normal"
 order = 10
 created = 2026-08-06
 tags = ["shell", "detached", "ssh"]
-
-[[task]]
-id = "voice-argument-parsing-for-shell-command-aliases"
-title = "Voice argument parsing for shell command aliases"
-description = "Decide and implement how a spoken utterance after the shell gate resolves to an alias plus arguments — e.g. 'deploy staging' matches alias 'deploy' with arg 'staging'. Investigate: longest-alias-wins matching against the catalogue, how the remaining words map onto template placeholders, quoting/escaping so arguments cannot break out of the intended command over SSH, and what to say back when no alias matches or arguments are missing."
-status = "active"
-level = "scope"
-category = "feature"
-urgency = "normal"
-order = 40
-created = 2026-08-06
-tags = ["shell", "voice"]
 
 [[task]]
 id = "set-buddy-command-for-target-host-and-directory"
@@ -78,3 +67,39 @@ urgency = "normal"
 order = 60
 created = 2026-08-06
 tags = ["shell"]
+
+[[task]]
+id = "shell-alias-resolver-longest-alias-wins-match-over-the-catalogue"
+title = "Shell alias resolver: longest-alias-wins match over the catalogue"
+description = "Pure resolver in internal/session (next to shellcommands.go): given the post-gate utterance and ShellCommandStore.List(), normalize both sides with the same rules as command.normalize, and match catalogue names as leading word-phrases with LONGEST alias winning (so 'deploy staging' prefers a 'deploy staging' record over 'deploy'). Remaining words become the positional args. Returns (record, args, ok). Unit tests: exact match, multi-word alias, longest-wins, no match, empty catalogue, punctuation/case noise from Whisper."
+status = "active"
+level = "task"
+category = "feature"
+urgency = "normal"
+order = 42
+created = 2026-08-06
+tags = ["shell", "voice"]
+
+[[task]]
+id = "shell-command-template-expansion-with-ssh-safe-quoting"
+title = "Shell command template expansion with SSH-safe quoting"
+description = "Implement the $1..$9 / $* / $$ substitution documented in server/internal/session/shellcommands.go:17-34. Each spoken argument is passed through shellQuote (server/internal/session/ssh_fs.go) BEFORE substitution so a spoken word can never break out of the intended command over SSH; absent $N expands to an empty quoted string; $* joins the remaining args space-separated, each quoted; $$ yields a literal $; other $x is left as-is. Unit tests must include adversarial args (semicolons, backticks, quotes, command substitution, newlines) asserting the expanded string is inert."
+status = "active"
+level = "task"
+category = "feature"
+urgency = "normal"
+order = 44
+created = 2026-08-06
+tags = ["shell", "security"]
+
+[[task]]
+id = "spoken-replies-for-unmatched-shell-aliases-and-missing-arguments"
+title = "Spoken replies for unmatched shell aliases and missing arguments"
+description = "Decide and implement what runShell (server/internal/gateway/shell.go) says back: empty catalogue keeps today's \"no shell commands are configured yet\"; no alias match speaks \"I do not know a shell command called X\" plus the closest one or two configured names so the user can correct by ear; a template referencing $1 with no argument supplied asks for it by name rather than running with a blank. Keep the phrasing short — it is read aloud."
+status = "active"
+level = "task"
+category = "feature"
+urgency = "normal"
+order = 46
+created = 2026-08-06
+tags = ["shell", "voice"]
