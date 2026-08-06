@@ -14,6 +14,26 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "make-attach-s-lastcontextusage-read-non-blocking"
+title = "Make attach's LastContextUsage read non-blocking"
+description = "ops_session.go:175: msgAttached computes LastContextUsage via a blocking backward tail read (256KB escalating to 4MB/32MB, transcript.go:519-526) before the attached frame is written — ~5-30ms local, 50-150ms remote — delaying the attached ack that gates the client. Send attached immediately and follow with usage asynchronously, or cache last usage per session."
+status = "finished"
+category = "refactor"
+created = 2026-08-05
+completed = 2026-08-06
+tags = ["session-switch", "perf", "server"]
+
+[[task]]
+id = "serve-history-pages-without-full-transcript-re-parse-on-digest-miss"
+title = "Serve history pages without full transcript re-parse on digest miss"
+description = "ops_history.go:16-63: any session that produced output since last fetch misses have_hash, and ReadDisplayHistory (driver.go:513-533, transcript.go:481-505) parses the entire transcript chain plus archived backend segments just to return the newest 30 messages — hundreds of ms to seconds, worse over SSH (ls glob + stat + read per id). Serve the tail incrementally (e.g. parse backward from the end, or cache parsed pages keyed by digest)."
+status = "finished"
+category = "refactor"
+created = 2026-08-05
+completed = 2026-08-06
+tags = ["session-switch", "perf", "server"]
+
+[[task]]
 id = "key-history-requests-by-session-id-not-name"
 title = "Key history requests by session_id, not name"
 description = "net/SessionSync.kt:218 sends Outbound.history(name,...) and ops_history.go:17 does store.Get(name) with no id fallback, while every other path keys by the stable session_id. A session renamed on another device (or same name colliding across servers) yields no_session and the transcript silently never refreshes — the exact bug class the id-keying was meant to kill. Address history by session_id end to end."

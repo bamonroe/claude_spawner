@@ -303,7 +303,12 @@ seam rather than at the call sites:
   usage-bearing assistant line, so it scans *backward* over a bounded tail (`tailBytes`, widening
   only if a run of giant tool-result lines fills the window) — the mirror of the bounded *head* read
   `cwds` uses for the working directory. This runs at the end of every turn, on a file the turn just
-  grew, so a cache can never help it.
+  grew, so an *in-process* cache keyed on (size, mtime) can never help it — which is why the snapshot
+  is also memoized **durably** by chain signature (`UsageCache`, `state/usage.json`, alongside
+  `DigestCache`). Attach blocks its `attached` ack on this lookup, and the post-turn attach is exactly
+  the case that always missed; a session whose transcripts haven't moved since the snapshot was taken
+  now answers from a stat. Callers holding a `*Session` go through `Driver.SessionContextUsage`;
+  `LastContextUsage` (raw, uncached) remains for the id-only callers.
 - **Parse only what was appended.** These transcripts are append-only, so the message parse is
   *resumable* (`claudeParse`): messages so far, the byte offset they cover, and the still-open
   dictation's turn rollup. A later read re-reads only the new bytes — plus a small overlap of the
@@ -318,6 +323,17 @@ The same reasoning drives the callers: a `history` request that carries the hash
 holds is answered from `DisplayDigest` (a few stats) *before* any full read, because gateway handlers
 are dispatched serially off one inbound loop — a needless multi-megabyte parse there blocks every
 other request on the connection.
+
+A request that *does* need bodies goes through `Driver.DisplayHistory`, which stats the chain **once**
+for both the log and its digest and serves what it can from the in-memory display memo
+(`displaymemo.go`), at two granularities. The whole assembled log is memoized per session under the
+chain's signature, so paging older messages — `before != nil` skips the fast path by definition — no
+longer re-parses the entire cross-backend chain per page. Each *archived* `HistorySegment` is memoized
+under its own signature, and an archived segment belongs to a backend the session has switched away
+from, so its signature never changes again: a session that keeps producing output misses the
+whole-log memo on every turn yet still never re-reads its archives. Both levels hand out copies
+(`serveHistory` strips injected scaffolding in place), and a segment whose read failed suppresses the
+whole-log memo so a transient error can't be cached as a short log.
 
 **A turn *in flight* isn't on disk yet — so mid-turn (re)attach is caught up from a live replay
 buffer, not history.** A turn's streamed prose is only written to the on-disk transcript when it

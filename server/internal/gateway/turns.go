@@ -167,8 +167,7 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk, primeJo
 		// context and bounces with tool-use count. Read the true size the way attach does
 		// — the transcript's last assistant message — so live matches on-attach.
 		badge := turnUsage
-		cur := sess.Snapshot() // consistent agent/host/id view for the badge read
-		if cx := s.driver.LastContextUsage(cur.Agent, cur.Host, cur.TranscriptIDs()); cx != nil {
+		if cx := s.driver.SessionContextUsage(sess); cx != nil {
 			badge = cx.Usage
 		}
 		// The closing frame also carries the turn's cycle count + aggregate usage

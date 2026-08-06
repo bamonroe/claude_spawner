@@ -47,12 +47,16 @@ func (c *conn) serveHistory(sessionID, name string, before *int, limit int, have
 			return
 		}
 	}
-	msgs, err := c.srv.driver.ReadDisplayHistory(s)
+	// One call for bodies AND digest: it stats the chain once for both, serves the
+	// log from the display memo when nothing has moved (which is every page-back —
+	// `before != nil` skips the fast path above, so paging older messages used to
+	// re-parse the entire chain per page), and re-reads only the archived segments
+	// that actually changed, which for an archive is never.
+	msgs, count, hash, err := c.srv.driver.DisplayHistory(s)
 	if err != nil {
 		c.fail("history_failed", err.Error())
 		return
 	}
-	count, hash := session.HistoryDigest(msgs)
 	b := -1
 	if before != nil {
 		b = *before

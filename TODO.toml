@@ -21,28 +21,6 @@ finish_work = "When a task is fully finished (built, tested, documented), run `s
 scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/KMP app + web client. The historical phase roadmap stays in README.md."
 
 [[task]]
-id = "serve-history-pages-without-full-transcript-re-parse-on-digest-miss"
-title = "Serve history pages without full transcript re-parse on digest miss"
-description = "ops_history.go:16-63: any session that produced output since last fetch misses have_hash, and ReadDisplayHistory (driver.go:513-533, transcript.go:481-505) parses the entire transcript chain plus archived backend segments just to return the newest 30 messages — hundreds of ms to seconds, worse over SSH (ls glob + stat + read per id). Serve the tail incrementally (e.g. parse backward from the end, or cache parsed pages keyed by digest)."
-status = "active"
-category = "refactor"
-urgency = "normal"
-order = 50
-created = 2026-08-05
-tags = ["session-switch", "perf", "server"]
-
-[[task]]
-id = "make-attach-s-lastcontextusage-read-non-blocking"
-title = "Make attach's LastContextUsage read non-blocking"
-description = "ops_session.go:175: msgAttached computes LastContextUsage via a blocking backward tail read (256KB escalating to 4MB/32MB, transcript.go:519-526) before the attached frame is written — ~5-30ms local, 50-150ms remote — delaying the attached ack that gates the client. Send attached immediately and follow with usage asynchronously, or cache last usage per session."
-status = "active"
-category = "refactor"
-urgency = "normal"
-order = 60
-created = 2026-08-05
-tags = ["session-switch", "perf", "server"]
-
-[[task]]
 id = "give-chatlist-items-stable-keys"
 title = "Give ChatList items stable keys"
 description = "ChatRendering.kt:150 uses items(messages) with no key, so every switch (and every list update) discards all composed bubbles, re-runs parseBlocks markdown parsing per Claude bubble (ui/MarkdownText.kt:36), and loses per-bubble selection/expansion state. Key items by message id."

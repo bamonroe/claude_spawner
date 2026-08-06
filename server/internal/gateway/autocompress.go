@@ -85,7 +85,7 @@ func (s *Server) autoCompressLoop() {
 			if !snap.Started || s.isBusy(snap.SessionID) {
 				continue // nothing to compress, or a turn is already running
 			}
-			cx := s.driver.LastContextUsage(snap.Agent, snap.Host, snap.TranscriptIDs())
+			cx := s.driver.SessionContextUsage(sess)
 			if cx == nil || cx.At == 0 {
 				continue
 			}

@@ -64,6 +64,16 @@ type Driver struct {
 	// fine — every digest is then recomputed from a full parse. Set via SetDigests.
 	digests *DigestCache
 
+	// usage is the durable last-context-usage cache used by SessionContextUsage.
+	// Nil is fine — usage is then re-read from the transcript tail every time.
+	// Set via SetUsageCache.
+	usage *UsageCache
+
+	// displayOnce/displayMemoized lazily build the in-memory display-history memo,
+	// so a Driver built as a struct literal (tests, minimal callers) still has one.
+	displayOnce     sync.Once
+	displayMemoized *displayMemo
+
 	// staged remembers which targets already hold the current spawner-job wrapper,
 	// so StageJobScript is a no-op after the first success per target per server
 	// run. Keyed by target identity (see stageKey); see StageJobScript.
@@ -446,6 +456,17 @@ func (d *Driver) ArchiveSegment(live *Session) HistorySegment {
 // digest is then recomputed from a full parse every time, as before).
 func (d *Driver) SetDigests(c *DigestCache) { d.digests = c }
 
+// SetUsageCache installs the durable last-context-usage cache backing
+// SessionContextUsage. Nil disables it (every lookup re-reads the transcript
+// tail, as before).
+func (d *Driver) SetUsageCache(c *UsageCache) { d.usage = c }
+
+// display returns the driver's display-history memo, building it on first use.
+func (d *Driver) display() *displayMemo {
+	d.displayOnce.Do(func() { d.displayMemoized = newDisplayMemo() })
+	return d.displayMemoized
+}
+
 // DisplayDigest returns a session's display-history digest (message count +
 // content hash), reusing the cached value when every transcript in the chain is
 // byte-for-byte where it was last time.
@@ -466,48 +487,97 @@ func (d *Driver) DisplayDigest(live *Session) (count int, hash string, cached bo
 	// changed signature, misses, and recomputes. Reading first and statting after
 	// would fail the other way: a newer signature pinned to an older digest, which
 	// never invalidates and leaves the app showing a stale transcript forever.
-	sig, cacheable := d.displayChainSig(rec)
-	if cacheable {
+	parts := d.displayChainParts(rec)
+	sig := parts.sig()
+	if parts.ok {
 		if count, hash, ok := d.digests.Get(rec.SessionID, sig); ok {
 			return count, hash, true, nil
 		}
 	}
-	msgs, err := d.ReadDisplayHistory(rec)
+	msgs, err := d.readDisplayHistory(rec, parts)
 	if err != nil {
 		return 0, "", false, err
 	}
 	count, hash = HistoryDigest(msgs)
-	if cacheable {
+	if parts.ok {
 		d.digests.Put(rec.SessionID, sig, count, hash)
 	}
 	return count, hash, false, nil
 }
 
-// displayChainSig is the freshness signature of everything ReadDisplayHistory
-// reads: every archived segment plus the current chain, in the same order. It is
-// cacheable only if EVERY segment can describe itself — one opencode segment in
-// a session's past makes the whole digest uncacheable, which is correct: we
-// can't tell whether that segment changed.
-func (d *Driver) displayChainSig(rec *Session) (string, bool) {
-	var b strings.Builder
-	for _, seg := range rec.History {
-		sig, ok := d.transcriptReaderFor(seg.Agent, seg.Host).chainSig(seg.IDs)
-		if !ok {
-			return "", false
+// DisplayHistory returns a session's full display history together with its
+// digest, computing the chain's freshness signature ONCE for both.
+//
+// It's what the history op should call on a digest miss: DisplayDigest followed by
+// ReadDisplayHistory would stat the whole chain twice (a round trip per transcript
+// over SSH) and then re-derive a digest the cache may already hold.
+func (d *Driver) DisplayHistory(live *Session) (msgs []Message, count int, hash string, err error) {
+	rec := live.Snapshot()
+	parts := d.displayChainParts(rec)
+	sig := parts.sig()
+	msgs, err = d.readDisplayHistory(rec, parts)
+	if err != nil {
+		return nil, 0, "", err
+	}
+	if parts.ok {
+		if count, hash, ok := d.digests.Get(rec.SessionID, sig); ok {
+			return msgs, count, hash, nil
 		}
-		b.WriteString(seg.Agent)
-		b.WriteByte('@')
-		b.WriteString(sig)
+	}
+	count, hash = HistoryDigest(msgs)
+	if parts.ok {
+		d.digests.Put(rec.SessionID, sig, count, hash)
+	}
+	return msgs, count, hash, nil
+}
+
+// chainParts is the freshness signature of everything ReadDisplayHistory reads,
+// kept SPLIT per archived segment rather than pre-joined. The join answers "has
+// anything changed?" (the digest cache); the parts answer "has THIS segment
+// changed?", which is what lets an archived segment stay memoized across the turns
+// that keep invalidating the session as a whole.
+//
+// ok is true only if EVERY part can describe itself — one opencode segment in a
+// session's past makes the whole digest uncacheable, which is correct: we can't
+// tell whether that segment changed.
+type chainParts struct {
+	segs []string // per archived segment, "<agent>@<sig>"; "" = indescribable
+	cur  string   // the current chain, "<agent>@<sig>"; "" = indescribable
+	ok   bool
+}
+
+// sig joins the parts into the single signature the digest cache keys on. Empty
+// when any part is indescribable, which every cache treats as "never a hit".
+func (p chainParts) sig() string {
+	if !p.ok {
+		return ""
+	}
+	var b strings.Builder
+	for _, s := range p.segs {
+		b.WriteString(s)
 		b.WriteByte('|')
 	}
-	sig, ok := d.transcriptReaderFor(rec.Agent, rec.Host).chainSig(d.currentHistoryIDs(rec))
-	if !ok {
-		return "", false
+	b.WriteString(p.cur)
+	return b.String()
+}
+
+// displayChainParts stats every transcript ReadDisplayHistory would read — each
+// archived segment plus the current chain, in that order — once.
+func (d *Driver) displayChainParts(rec *Session) chainParts {
+	p := chainParts{segs: make([]string, len(rec.History)), ok: true}
+	for i, seg := range rec.History {
+		if sig, ok := d.transcriptReaderFor(seg.Agent, seg.Host).chainSig(seg.IDs); ok {
+			p.segs[i] = seg.Agent + "@" + sig
+		} else {
+			p.ok = false
+		}
 	}
-	b.WriteString(rec.Agent)
-	b.WriteByte('@')
-	b.WriteString(sig)
-	return b.String(), true
+	if sig, ok := d.transcriptReaderFor(rec.Agent, rec.Host).chainSig(d.currentHistoryIDs(rec)); ok {
+		p.cur = rec.Agent + "@" + sig
+	} else {
+		p.ok = false
+	}
+	return p
 }
 
 // ReadDisplayHistory reads a session's full cross-backend chat log for display: each
@@ -519,13 +589,34 @@ func (d *Driver) displayChainSig(rec *Session) (string, bool) {
 // ReadTranscriptChain(current) exactly.
 func (d *Driver) ReadDisplayHistory(live *Session) ([]Message, error) {
 	rec := live.Snapshot() // pure reader: History/Agent/ids from one locked view
+	return d.readDisplayHistory(rec, d.displayChainParts(rec))
+}
+
+// readDisplayHistory is ReadDisplayHistory against an already-taken snapshot and
+// an already-computed chain signature, served from the display memo when nothing
+// it reads has moved (and per archived segment when only the current chain has).
+func (d *Driver) readDisplayHistory(rec *Session, parts chainParts) ([]Message, error) {
+	if msgs, ok := d.display().getWhole(rec.SessionID, parts.sig()); ok {
+		return msgs, nil
+	}
 	var all []Message
-	for _, seg := range rec.History {
+	degraded := false // a segment read failed: this log is short, don't memoize it
+	for i, seg := range rec.History {
+		key := ""
+		if i < len(parts.segs) {
+			key = parts.segs[i]
+		}
+		if msgs, ok := d.display().getSegment(key); ok {
+			all = append(all, msgs...)
+			continue
+		}
 		msgs, err := d.transcriptReaderFor(seg.Agent, seg.Host).readTranscriptChain(seg.IDs)
 		if err != nil {
 			log.Printf("display history[%s]: read archived %s segment: %v", rec.Name, seg.Agent, err)
+			degraded = true
 			continue
 		}
+		d.display().putSegment(key, msgs)
 		all = append(all, msgs...)
 	}
 	cur, err := d.transcriptReaderFor(rec.Agent, rec.Host).readTranscriptChain(d.currentHistoryIDs(rec))
@@ -535,6 +626,9 @@ func (d *Driver) ReadDisplayHistory(live *Session) ([]Message, error) {
 	all = append(all, cur...)
 	for i := range all {
 		all[i].Index = i
+	}
+	if !degraded {
+		d.display().putWhole(rec.SessionID, parts.sig(), all)
 	}
 	return all, nil
 }
@@ -564,4 +658,33 @@ func (d *Driver) DeleteSessionAll(live *Session) (int, error) {
 // the backend's on-disk format.
 func (d *Driver) LastContextUsage(agentID, host string, ids []string) *ContextSnapshot {
 	return d.transcriptReaderFor(agentID, host).lastContextUsage(ids)
+}
+
+// SessionContextUsage is LastContextUsage for a registered session, served from
+// the durable UsageCache whenever the session's transcripts are byte-for-byte
+// where they were when the snapshot was last read.
+//
+// Prefer it over LastContextUsage anywhere a *Session is in hand — above all on
+// attach, which blocks the `attached` ack on this lookup. See UsageCache for why
+// the underlying read is expensive and why the in-memory cache can't cover it.
+func (d *Driver) SessionContextUsage(live *Session) *ContextSnapshot {
+	rec := live.Snapshot() // one locked view: the sig and the ids must describe the same moment
+	ids := rec.TranscriptIDs()
+	reader := d.transcriptReaderFor(rec.Agent, rec.Host)
+	// Signature FIRST, then read — same ordering rule as DisplayDigest: a turn
+	// landing in between stores a newer snapshot under an older signature, which
+	// simply misses next time. The reverse pins a newer signature to an older
+	// snapshot, which never invalidates.
+	sig, cacheable := reader.chainSig(ids)
+	if cacheable {
+		sig = rec.Agent + "@" + sig
+		if snap, ok := d.usage.Get(rec.SessionID, sig); ok {
+			return snap
+		}
+	}
+	snap := reader.lastContextUsage(ids)
+	if cacheable {
+		d.usage.Put(rec.SessionID, sig, snap)
+	}
+	return snap
 }

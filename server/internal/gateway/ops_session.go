@@ -141,8 +141,7 @@ func (c *conn) selectClientSession(sessionID string) bool {
 		c.srv.unbindJob(c, c.prevSessionID)
 	}
 	c.setAttached(s)
-	att := s.Snapshot()
-	c.send(msgAttached(s, c.srv.driver.LastContextUsage(att.Agent, att.Host, att.TranscriptIDs())))
+	c.send(msgAttached(s, c.srv.driver.SessionContextUsage(s)))
 	c.srv.bindJob(c, s, true)
 	return true
 }
@@ -171,8 +170,7 @@ func (c *conn) doAttach(name string, silent bool) {
 	}
 	c.clearBuffer() // fresh message buffer for the new session
 	c.setAttached(s)
-	att2 := s.Snapshot()
-	c.send(msgAttached(s, c.srv.driver.LastContextUsage(att2.Agent, att2.Host, att2.TranscriptIDs())))
+	c.send(msgAttached(s, c.srv.driver.SessionContextUsage(s)))
 	if !silent {
 		c.send(msgSay("attached to " + recName(s) + "."))
 	}

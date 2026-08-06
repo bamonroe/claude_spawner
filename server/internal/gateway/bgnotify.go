@@ -179,8 +179,7 @@ func (s *Server) startJobNotify(sess *session.Session, notes []string) bool {
 		// Read the true context size the way attach/dictate do (last assistant message),
 		// not the turn's aggregate usage, so the badge matches.
 		badge := turnUsage
-		cur := sess.Snapshot() // consistent agent/host/id view for the badge read
-		if cx := s.driver.LastContextUsage(cur.Agent, cur.Host, cur.TranscriptIDs()); cx != nil {
+		if cx := s.driver.SessionContextUsage(sess); cx != nil {
 			badge = cx.Usage
 		}
 		j.finish(msgOutput(name, reply, turnID, false, &badge, &turnStats{Turns: res.Turns, Total: turnUsage}))

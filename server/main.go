@@ -53,6 +53,9 @@ func main() {
 	// restarts so the app's connect-time digest sweep doesn't re-parse every
 	// session's transcripts each time the container is recreated.
 	driver.SetDigests(session.OpenDigestCache(filepath.Join(filepath.Dir(cfg.StatePath), "digests.json")))
+	// Durable last-context-usage cache, alongside it: attach blocks its ack on this
+	// snapshot, and re-reading the transcript tail is the slowest thing in that path.
+	driver.SetUsageCache(session.OpenUsageCache(filepath.Join(filepath.Dir(cfg.StatePath), "usage.json")))
 	driver.RestartCmd = cfg.RestartCmd
 	driver.ClaudeExtraArgs = cfg.ClaudeExtraArgs
 	// First-run starter profiles, seeded from the flat sandbox config. Written once
