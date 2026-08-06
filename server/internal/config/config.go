@@ -33,6 +33,11 @@ type Config struct {
 	// shared across clients. A missing file is seeded with the built-in "hey buddy"
 	// wake family + the "beep" end token, then the app owns it.
 	SpokenTokensPath string
+	// ShellCommandsPath is the file where the app-managed shell-command catalogue is
+	// persisted — the pre-configured aliases a shell token can run on the target
+	// host. The app is the source of truth; a missing file means an empty catalogue
+	// (nothing is seeded, since a seed would be a runnable command nobody chose).
+	ShellCommandsPath string
 	// ProvidersPath is the optional JSON file where the app-managed provider
 	// (AI-backend) settings overlay is persisted — per-backend default model and the
 	// voice-enumerable model subset. The backends themselves are compile-time; this
@@ -203,6 +208,7 @@ func Load() (*Config, error) {
 		StatePath:            env("SPAWNER_STATE", "sessions.json"),
 		ProfilesPath:         env("SPAWNER_PROFILES", "profiles.json"),
 		SpokenTokensPath:     env("SPAWNER_SPOKEN_TOKENS", "spoken_tokens.json"),
+		ShellCommandsPath:    env("SPAWNER_SHELL_COMMANDS", "shell_commands.json"),
 		ProvidersPath:        env("SPAWNER_PROVIDERS", "providers.json"),
 		HostsPath:            env("SPAWNER_HOSTS", "hosts.json"),
 		IdentitiesPath:       env("SPAWNER_IDENTITIES", "identities.json"),

@@ -125,7 +125,7 @@ func newTestServerGW(t *testing.T, stt transcribe.Transcriber) (*httptest.Server
 	if err != nil {
 		t.Fatal(err)
 	}
-	gw := New(cfg, store, hosts, ids, testTokens(t), nil, driver, tmux.NewManager(), stt, nil)
+	gw := New(cfg, store, hosts, ids, testTokens(t), nil, nil, driver, tmux.NewManager(), stt, nil)
 	ts := httptest.NewServer(http.HandlerFunc(gw.HandleWS))
 	t.Cleanup(ts.Close)
 	return ts, root, gw
@@ -206,7 +206,7 @@ func newSandboxTestServer(t *testing.T) (*httptest.Server, string, *Server) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	gw := New(cfg, store, hosts, ids, testTokens(t), nil, driver, tmux.NewManager(), nil, nil)
+	gw := New(cfg, store, hosts, ids, testTokens(t), nil, nil, driver, tmux.NewManager(), nil, nil)
 	ts := httptest.NewServer(http.HandlerFunc(gw.HandleWS))
 	t.Cleanup(ts.Close)
 	return ts, root, gw

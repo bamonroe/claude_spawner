@@ -90,6 +90,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("spoken tokens: %v", err)
 	}
+	// App-managed shell-command catalogue: the pre-configured aliases a shell token
+	// can run on the target host. Empty on a fresh install — the app fills it.
+	shellCmds, err := session.OpenShellCommandStore(cfg.ShellCommandsPath)
+	if err != nil {
+		log.Fatalf("shell commands: %v", err)
+	}
 	driver.Home = os.Getenv("HOME")
 	driver.GlobalVars = cfg.ProfileVars
 	log.Printf("execution profiles loaded: %d profile(s)", len(profiles.List()))
@@ -262,7 +268,7 @@ func main() {
 		log.Printf("tts: DISABLED (set SPAWNER_TTS_URL); clients use on-device speech")
 	}
 
-	gw := gateway.New(cfg, store, hostStore, idStore, tokens, sshConns, driver, tmuxMgr, stt, kokoro)
+	gw := gateway.New(cfg, store, hostStore, idStore, tokens, shellCmds, sshConns, driver, tmuxMgr, stt, kokoro)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {

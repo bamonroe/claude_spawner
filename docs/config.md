@@ -42,6 +42,14 @@ just a pointer to this file.)
   change; a missing file is seeded with the built-in "hey buddy" wake family + the
   "beep" end token, then the app owns it — the configured list fully REPLACES the old
   built-in wake word),
+  `SPAWNER_SHELL_COMMANDS` (`shell_commands.json`; the app-managed shell-command catalogue —
+  the pre-configured spoken aliases a *shell token* can run on the target host while detached.
+  Each entry binds an alias to a fixed command template (`$1`..`$9` for spoken arguments, `$*`
+  for the rest, `$$` for a literal dollar; substituted values are shell-quoted, so an argument
+  can never change the shape of the command line), plus an optional working directory and host
+  override. The catalogue IS the safety boundary: arbitrary spoken shell is never runnable. Like
+  the profile/host catalogues, the app is the source of truth and the server persists it; a
+  missing file means an empty catalogue — nothing is seeded),
   `SPAWNER_HOSTS` (`hosts.json`; the
   app-managed SSH host registry — the app is the source of truth, this file just persists it),
   `SPAWNER_IDENTITIES` (`identities.json`; the app-managed SSH identity registry — names + public

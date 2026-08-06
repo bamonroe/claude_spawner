@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "shellcommandstore-record-persistence-config-path"
+title = "ShellCommandStore: record, persistence, config path"
+description = "Add server/internal/session/shellcommands.go modelled verbatim on hosts.go/spokentokens.go: ShellCommand record {Name (spoken alias), Command (template string), Dir, Host (optional override), UpdatedAt int64 millis}, ShellCommandStore{path, mu, byName, tombs} with OpenShellCommandStore/List/Get/Put/Delete/flush, reusing session/tombstone.go for LWW deletes and ErrStale on stale Put. Argument template syntax: $1..$9 for positional spoken args and $* for the rest — decide and document it here since the store owns the template. Add cfg.ShellCommandsPath from env SPAWNER_SHELL_COMMANDS (default shell_commands.json) in internal/config, document it in docs/config.md, wire OpenShellCommandStore in server/main.go and a shellCmds field on gateway.New. Tests mirroring hosts_test.go/lww_test.go."
+status = "finished"
+level = "task"
+category = "feature"
+created = 2026-08-06
+completed = 2026-08-06
+tags = ["shell-token", "server"]
+
+[[task]]
 id = "shell-command-catalogue-store-wire-ops-app-editing"
 title = "Shell command catalogue: store, wire ops, app editing"
 description = "Pre-configured shell commands are the only thing the shell gate can run — no arbitrary spoken commands. Investigate and break into tasks: a ShellCommandStore modelled on session/hosts.go and session/spokentokens.go (alias phrase, command template, optional working dir/host override, UpdatedAt LWW), its config path + SPAWNER_ env var, catalogue sync/put/delete wire ops in gateway/settings.go, protocol docs, and the app-side settings editor (same pattern as the hosts and spoken-token editors). Commands take spoken arguments, so the model needs a way to express parameters in the template."

@@ -28,17 +28,18 @@ import (
 
 // Server holds the shared dependencies for all connections.
 type Server struct {
-	cfg     *config.Config
-	store   *session.Store
-	hosts   *session.HostStore        // app-managed SSH host registry (Settings → Hosts)
-	ids     *session.IdentityStore    // app-managed SSH identity registry (Settings → Identities)
-	tokens  *session.SpokenTokenStore // app-managed spoken-token catalogue (wake/end/speak phrases + models)
-	ssh     *session.SSHPool          // pooled SSH connections; nil when SSH-native is disabled
-	driver  *session.Driver
-	tmuxMgr *tmux.Manager
-	stt     transcribe.Transcriber // nil disables the audio path
-	fastStt transcribe.Transcriber // fast model for live drafts/detection; nil → use stt
-	tts     *tts.Client            // server-side Kokoro synthesis; nil = clients use on-device TTS
+	cfg       *config.Config
+	store     *session.Store
+	hosts     *session.HostStore         // app-managed SSH host registry (Settings → Hosts)
+	ids       *session.IdentityStore     // app-managed SSH identity registry (Settings → Identities)
+	tokens    *session.SpokenTokenStore  // app-managed spoken-token catalogue (wake/end/speak phrases + models)
+	shellCmds *session.ShellCommandStore // app-managed shell-command catalogue a shell token can run on the target host
+	ssh       *session.SSHPool           // pooled SSH connections; nil when SSH-native is disabled
+	driver    *session.Driver
+	tmuxMgr   *tmux.Manager
+	stt       transcribe.Transcriber // nil disables the audio path
+	fastStt   transcribe.Transcriber // fast model for live drafts/detection; nil → use stt
+	tts       *tts.Client            // server-side Kokoro synthesis; nil = clients use on-device TTS
 
 	// detector gates the end token (and wake) on a clip via the purpose-trained
 	// sidecar; nil → fall back to the Whisper string-match. wakeThreshold is the
@@ -91,7 +92,7 @@ type Server struct {
 // New builds a gateway Server. stt may be nil, in which case audio frames are
 // rejected but text `utterance` messages still work. ttsClient may be nil, in
 // which case `speak` requests are refused and clients use on-device TTS.
-func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, ids *session.IdentityStore, tokens *session.SpokenTokenStore, sshPool *session.SSHPool, driver *session.Driver, tmuxMgr *tmux.Manager, stt transcribe.Transcriber, ttsClient *tts.Client) *Server {
+func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, ids *session.IdentityStore, tokens *session.SpokenTokenStore, shellCmds *session.ShellCommandStore, sshPool *session.SSHPool, driver *session.Driver, tmuxMgr *tmux.Manager, stt transcribe.Transcriber, ttsClient *tts.Client) *Server {
 	var fast transcribe.Transcriber
 	if cfg.WhisperFastURL != "" {
 		fast = &transcribe.RemoteWhisper{URL: cfg.WhisperFastURL}
@@ -136,6 +137,7 @@ func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, ids
 		hosts:         hosts,
 		ids:           ids,
 		tokens:        tokens,
+		shellCmds:     shellCmds,
 		ssh:           sshPool,
 		driver:        driver,
 		tmuxMgr:       tmuxMgr,
