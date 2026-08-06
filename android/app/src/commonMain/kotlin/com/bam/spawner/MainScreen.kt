@@ -262,7 +262,7 @@ fun MainScreen(
             // re-pins the newest message above the bars (and the keyboard) itself.
             val showWarmBar = showCacheTimer && lastUsage != null
             ChatList(
-                chat, hasMoreHistory, scrollTick, badgeMode, controller::loadOlder,
+                chat, hasMoreHistory, scrollTick, badgeMode, attachedId, controller::loadOlder,
                 Modifier.weight(1f).fillMaxWidth(),
                 onDoubleTap = { at -> trayOpen = false; paletteAt = at; paletteOpen = true },
             )

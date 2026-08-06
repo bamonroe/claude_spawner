@@ -14,6 +14,16 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "snap-chat-scroll-on-session-switch-instead-of-animating"
+title = "Snap chat scroll on session switch instead of animating"
+description = "ChatRendering.kt:84-90: LaunchedEffect(last)/LaunchedEffect(scrollTick) call animateScrollToItem on a LazyColumn still holding the previous session's scroll offset, over an unmeasured list — and it fires up to three times per switch (showLog at focus, showLog in onAttached, onHistory). Visible 200-600ms of wrong-position-then-scroll motion; this is likely the main thing that makes switching feel non-instant. Use scrollToItem (snap) when the session id changes; keep the animation only for new messages within a session."
+status = "finished"
+category = "bug"
+created = 2026-08-05
+completed = 2026-08-06
+tags = ["session-switch", "perf", "android"]
+
+[[task]]
 id = "move-bindjob-reconcilejobs-off-the-gateway-read-loop"
 title = "Move bindJob/reconcileJobs off the gateway read loop"
 description = "doAttach ends with bindJob -> reconcileJobs (turns.go:324-334, bgjobs.go:41-65, session/bgjobs.go:112-127): re-uploads the 12KB spawner-job.sh heredoc and runs 'spawner-job list --json' on the target, on the connection's serial read loop (loop.go:33), under an 8s timeout. The follow-up history request queues behind it — 20-80ms local, 150-600ms over SSH, up to 8s on a slow target, and a hung target stalls the whole connection. Run it in a goroutine like startDigestSweep, and skip the re-stage when the script is already current."

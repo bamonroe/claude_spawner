@@ -60,6 +60,7 @@ fun ChatList(
     hasMore: Boolean,
     scrollTick: Int,
     badgeMode: String,
+    sessionId: String?,
     onLoadOlder: () -> Unit,
     modifier: Modifier,
     onDoubleTap: ((Offset) -> Unit)? = null,
@@ -79,15 +80,26 @@ fun ChatList(
     // LAST message so paging OLDER messages in (which doesn't change the last one) never
     // yanks the view to the bottom.
     val last = messages.lastOrNull()
-    LaunchedEffect(last) {
-        if (messages.isNotEmpty() && pinned) listState.animateScrollToItem(bottom)
+    // Switching sessions replaces the whole list while the LazyColumn still holds the
+    // PREVIOUS session's scroll offset, so animating would show a few hundred ms of
+    // wrong-position-then-scroll. Until we've settled at the bottom of the newly
+    // attached session, every scroll below SNAPS; animation is only for appends within
+    // a session the reader is already looking at.
+    var settledSession by remember { mutableStateOf<String?>(null) }
+    val switching = sessionId != settledSession
+    suspend fun follow() {
+        if (switching) listState.scrollToItem(bottom, Int.MAX_VALUE) else listState.animateScrollToItem(bottom)
+        settledSession = sessionId
+    }
+    LaunchedEffect(last, sessionId) {
+        if (messages.isNotEmpty() && pinned) follow()
     }
     // Explicit scroll-to-bottom (attach, typed send, read-last). Always follows, and
     // re-pins so subsequent appends resume auto-following.
-    LaunchedEffect(scrollTick) {
+    LaunchedEffect(scrollTick, sessionId) {
         if (scrollTick > 0 && messages.isNotEmpty()) {
             pinned = true
-            listState.animateScrollToItem(bottom)
+            follow()
         }
     }
     // Keep the newest message pinned above whatever sits below the list — the soft
