@@ -369,6 +369,12 @@ than stitching a stale one. The cache lives under the app's private storage and 
 hash is opaque to the app, so this stays correct without the phone and server having to agree on how it's
 computed.
 
+The cache is **pre-warmed at launch**. Right after startup the app decodes the most recently used
+cached transcripts into memory in the background, so the first tap into a session renders its chat
+instantly instead of showing an empty screen while the file is read and parsed. The in-memory set is
+bounded (least-recently-used sessions fall out first); anything evicted is still on disk and loads on
+demand.
+
 The cache **prunes itself**. A session deleted on the server would otherwise leave its transcript on
 the phone forever, since nothing else deletes cache files. Each time the session list refreshes, the app
 sweeps its cache directory and drops entries for sessions that no longer exist. Because you may use more

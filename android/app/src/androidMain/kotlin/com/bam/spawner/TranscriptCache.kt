@@ -6,6 +6,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -33,15 +34,34 @@ import kotlinx.coroutines.withContext
  * [Dispatchers.IO] — [peek] is the non-blocking memory hit callers use on the UI
  * thread. That makes "never block a frame on the transcript cache" an invariant of
  * this class rather than a rule its callers have to remember.
+ *
+ * **The warm set is pre-loaded and bounded.** Construction kicks off a background
+ * pre-warm that decodes the most recently used cache files into memory, so the
+ * FIRST switch to a session after app launch gets a [peek] hit and renders its
+ * chat in the same frame instead of a blank list waiting on disk. The in-memory
+ * map is an LRU capped at [WARM_CAP]: sessions the user actually flips between
+ * stay warm, cold ones fall out, and an evicted entry is simply a [load] (disk)
+ * away — the file is the durable copy either way.
  */
 class TranscriptCache(private val dir: File, private val scope: CoroutineScope) {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
-    private val mem = ConcurrentHashMap<String, CachedSession>()
+    // Access-ordered LRU behind a synchronized wrapper: even reads reorder entries,
+    // so every touch must lock. Uncontended locks are nanoseconds; the values are
+    // references — the cap bounds decoded-transcript memory, not correctness.
+    private val mem: MutableMap<String, CachedSession> = Collections.synchronizedMap(
+        object : LinkedHashMap<String, CachedSession>(16, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CachedSession>) =
+                size > WARM_CAP
+        },
+    )
     private val dirty = ConcurrentHashMap<String, CachedSession>()
     private val flushing = AtomicBoolean(false)
     private val lastSweep = AtomicLong(0)
 
-    init { runCatching { dir.mkdirs() } }
+    init {
+        runCatching { dir.mkdirs() }
+        prewarm()
+    }
 
     private companion object {
         // How long a cached transcript survives after its session stops appearing in
@@ -50,6 +70,30 @@ class TranscriptCache(private val dir: File, private val scope: CoroutineScope) 
         const val RETENTION_MS = 14L * 24 * 60 * 60 * 1000
         // Don't re-walk the cache dir more than this often.
         const val SWEEP_INTERVAL_MS = 60L * 60 * 1000
+        // The LRU cap on decoded transcripts held in memory, and how many of the
+        // most recently used files the startup pre-warm decodes into it. Prewarm
+        // stays under the cap so it can't evict a session loaded on demand while
+        // it runs.
+        const val WARM_CAP = 32
+        const val PREWARM_LIMIT = 16
+    }
+
+    // Decode the most recently used cache files into memory in the background.
+    // mtime is the recency signal ([retainOnly] refreshes it for every live
+    // session, and a save rewrites the file), oldest-first insertion leaves the
+    // most recent entries freshest in the LRU, and putIfAbsent keeps any entry a
+    // faster on-demand load/save already published.
+    private fun prewarm() {
+        scope.launch(Dispatchers.IO) {
+            val files = runCatching { dir.listFiles() }.getOrNull() ?: return@launch
+            files.sortedByDescending { it.lastModified() }
+                .take(PREWARM_LIMIT)
+                .asReversed()
+                .forEach { f ->
+                    val id = idOf(f) ?: return@forEach
+                    decode(f)?.let { mem.putIfAbsent(id, it) }
+                }
+        }
     }
 
     /** The in-memory copy, if this session has been loaded or saved already.
@@ -59,12 +103,14 @@ class TranscriptCache(private val dir: File, private val scope: CoroutineScope) 
     /** Memory hit, else a disk read on [Dispatchers.IO]. */
     suspend fun load(name: String): CachedSession? {
         mem[name]?.let { return it }
-        val c = withContext(Dispatchers.IO) {
-            val f = fileFor(name)
-            if (!f.exists()) null
-            else runCatching { json.decodeFromString<CachedSession>(f.readText()) }.getOrNull()
-        } ?: return null
+        val c = withContext(Dispatchers.IO) { decode(fileFor(name)) } ?: return null
         return mem.putIfAbsent(name, c) ?: c
+    }
+
+    // Read + parse one cache file; null for a missing or corrupt file. IO-thread only.
+    private fun decode(f: File): CachedSession? {
+        if (!f.exists()) return null
+        return runCatching { json.decodeFromString<CachedSession>(f.readText()) }.getOrNull()
     }
 
     /** Publishes to memory immediately and queues the write; returns at once. */
