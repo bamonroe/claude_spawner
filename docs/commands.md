@@ -219,9 +219,13 @@ Every dead end answers out loud with the fix: an empty catalogue says nothing is
 unrecognized alias is repeated back with the closest one or two configured names to say instead, and
 a template with an unfilled `$1`…`$9` asks for the missing value rather than running with a blank.
 
-The host a shell command runs on is the **`target`** setting — say "set target `<host>`" (see the
-control-commands table). The SSH execution path is still being built; see the shell-token epic in
-`TODO.toml`. Today a fully resolved command says it is not wired to run yet.
+A resolved command runs on the **`target`** host — say "set target `<host>`" (see the
+control-commands table) — in the **`directory`** setting, both overridable per entry by the
+catalogue's own `host`/`dir` fields. It goes over the same pooled SSH connection everything else
+uses, is announced ("running `<alias>` on `<host>`") and then answers with its **entire** output,
+stdout and stderr merged the way a terminal shows them. A command with no output says so, a failing
+one is read back with its complaint, and one still running after 60 seconds is reported as timed
+out — the catalogue is for short operational commands, not long jobs.
 
 ## Adding or changing a command
 

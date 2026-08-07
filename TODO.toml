@@ -43,15 +43,3 @@ urgency = "normal"
 order = 10
 created = 2026-08-06
 tags = ["shell", "detached", "ssh"]
-
-[[task]]
-id = "shell-execution-over-the-ssh-pool-with-spoken-output"
-title = "Shell execution over the SSH pool with spoken output"
-description = "Run a resolved shell command on the target host through the existing session.SSHPool (c.srv.ssh, nil-check when SSH-native is disabled) rather than ad-hoc connections, honouring the persisted target and directory settings. Investigate: which pool entry point to use, channel budgeting, timeouts and long-running commands, stderr handling, and the transport of results. Output is spoken in FULL — work out how that interacts with TTS length and the app chat log. No confirmation gate for destructive commands by design: the catalogue is the safety boundary."
-status = "active"
-level = "scope"
-category = "feature"
-urgency = "normal"
-order = 60
-created = 2026-08-06
-tags = ["shell"]

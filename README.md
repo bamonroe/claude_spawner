@@ -135,7 +135,9 @@ Each entry has a **spoken alias** (what you say), a **command template**, and op
 **directory** and a **host** to pin it to (blank = wherever the shell target is set). The template
 takes spoken arguments: `$1`…`$9` are the first nine spoken words after the alias, `$*` is the rest
 space-joined, and `$$` is a literal dollar. Substituted values are shell-quoted, so an argument can
-never sneak in an operator or a second command. Add, edit and delete are live: the list is stored on
+never sneak in an operator or a second command. The command is announced as it starts and then its
+whole output is read back, stdout and stderr together; a silent command says it finished with no
+output, and anything still running after a minute is reported as timed out. Add, edit and delete are live: the list is stored on
 the server and shared across every device, so a command you add on the phone is there in the web
 client too.
 
