@@ -92,6 +92,11 @@ func TestDisplayMemo_ArchivedSegmentSurvivesCurrentGrowth(t *testing.T) {
 	writeClaudeTranscript(t, home, current, "new-user", "new-asst")
 
 	d := NewDriver()
+	// This test appends to the transcript and re-reads within microseconds; the
+	// chainSig memo would (correctly, per its TTL contract) still report the chain
+	// unchanged. A real turn outlives the TTL, so switch the memo off to test the
+	// display memo's own invalidation.
+	d.sigTTL = 0
 	rec := &Session{Name: "s", SessionID: current, History: []HistorySegment{{IDs: []string{archived}}}}
 	if _, err := d.ReadDisplayHistory(rec); err != nil {
 		t.Fatal(err)

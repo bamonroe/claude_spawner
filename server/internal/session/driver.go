@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/bam/claude_spawner/server/internal/agent"
 )
@@ -86,6 +87,25 @@ type Driver struct {
 	// run. Keyed by target identity (see stageKey); see StageJobScript.
 	stagedMu sync.Mutex
 	staged   map[string]bool
+
+	// sigMu/sigMemo/sigTTL memoize chainSig results for a moment (sigTTL, seeded
+	// to chainSigTTL by NewDriver) so the burst of lookups a session switch fires
+	// — attach's SessionContextUsage, then history's DisplayDigest milliseconds
+	// later — stats each transcript chain once, not once per caller. For
+	// SSH-hosted sessions each stat is a network round trip per file, so the
+	// second walk was pure duplicated latency. A zero sigTTL (struct-literal
+	// Drivers, and tests that simulate a transcript write landing "instantly")
+	// disables the memo. See chainSig.
+	sigMu   sync.Mutex
+	sigMemo map[string]sigMemoEntry
+	sigTTL  time.Duration
+}
+
+// sigMemoEntry is one memoized chainSig result; see Driver.chainSig.
+type sigMemoEntry struct {
+	sig string
+	ok  bool
+	at  time.Time
 }
 
 // NewDriver returns a Driver with project defaults: a single host executor
@@ -97,6 +117,7 @@ func NewDriver() *Driver {
 		Execs:  map[Target]Executor{TargetHost: HostExecutor{Bin: "claude"}},
 		Agents: agent.Default(),
 		Bypass: true,
+		sigTTL: chainSigTTL,
 	}
 }
 
@@ -597,18 +618,58 @@ func (p chainParts) sig() string {
 	return b.String()
 }
 
+// chainSigTTL is how long a memoized chainSig is served before the chain is
+// re-statted. It only needs to span the burst of lookups one user action fires
+// (attach + history land within milliseconds); anything longer just widens the
+// window in which a fresh transcript write can be reported as unchanged.
+const chainSigTTL = 1500 * time.Millisecond
+
+// chainSig is transcriptReaderFor(...).chainSig(ids) behind the short-TTL memo —
+// the one seam every chain-freshness stat goes through (displayChainParts,
+// SessionContextUsage), so callers arriving within sigTTL of each other share
+// one stat walk instead of each re-statting the chain.
+func (d *Driver) chainSig(agentID, host string, ids []string) (string, bool) {
+	if d.sigTTL <= 0 {
+		return d.transcriptReaderFor(agentID, host).chainSig(ids)
+	}
+	key := agentID + "\x00" + host + "\x00" + strings.Join(ids, "\x00")
+	now := time.Now()
+	d.sigMu.Lock()
+	if e, hit := d.sigMemo[key]; hit && now.Sub(e.at) < d.sigTTL {
+		d.sigMu.Unlock()
+		return e.sig, e.ok
+	}
+	d.sigMu.Unlock()
+	sig, ok := d.transcriptReaderFor(agentID, host).chainSig(ids)
+	d.sigMu.Lock()
+	if d.sigMemo == nil {
+		d.sigMemo = make(map[string]sigMemoEntry)
+	} else if len(d.sigMemo) > 1024 {
+		// The keys embed id chains, which rotate on clear/compress — drop expired
+		// entries now and then so retired chains don't accumulate forever.
+		for k, e := range d.sigMemo {
+			if now.Sub(e.at) >= d.sigTTL {
+				delete(d.sigMemo, k)
+			}
+		}
+	}
+	d.sigMemo[key] = sigMemoEntry{sig: sig, ok: ok, at: now}
+	d.sigMu.Unlock()
+	return sig, ok
+}
+
 // displayChainParts stats every transcript ReadDisplayHistory would read — each
 // archived segment plus the current chain, in that order — once.
 func (d *Driver) displayChainParts(rec *Session) chainParts {
 	p := chainParts{segs: make([]string, len(rec.History)), ok: true}
 	for i, seg := range rec.History {
-		if sig, ok := d.transcriptReaderFor(seg.Agent, seg.Host).chainSig(seg.IDs); ok {
+		if sig, ok := d.chainSig(seg.Agent, seg.Host, seg.IDs); ok {
 			p.segs[i] = seg.Agent + "@" + sig
 		} else {
 			p.ok = false
 		}
 	}
-	if sig, ok := d.transcriptReaderFor(rec.Agent, rec.Host).chainSig(d.currentHistoryIDs(rec)); ok {
+	if sig, ok := d.chainSig(rec.Agent, rec.Host, d.currentHistoryIDs(rec)); ok {
 		p.cur = rec.Agent + "@" + sig
 	} else {
 		p.ok = false
@@ -711,7 +772,7 @@ func (d *Driver) SessionContextUsage(live *Session) *ContextSnapshot {
 	// landing in between stores a newer snapshot under an older signature, which
 	// simply misses next time. The reverse pins a newer signature to an older
 	// snapshot, which never invalidates.
-	sig, cacheable := reader.chainSig(ids)
+	sig, cacheable := d.chainSig(rec.Agent, rec.Host, ids)
 	if cacheable {
 		sig = rec.Agent + "@" + sig
 		if snap, ok := d.usage.Get(rec.SessionID, sig); ok {
