@@ -375,6 +375,14 @@ instantly instead of showing an empty screen while the file is read and parsed. 
 bounded (least-recently-used sessions fall out first); anything evicted is still on disk and loads on
 demand.
 
+The cache is also **refreshed in the background** while you work. A prefetcher quietly issues the
+same history request a switch would for the most recently active sessions you are *not* looking at —
+prioritized by the server's connect-time digest sweep, so only sessions whose transcript actually
+changed are fetched. At most two requests run at once, it pauses entirely while a turn is streaming,
+and it can never move your view: by the time you tap a session, its chat is usually already warm and
+current. The per-attach `have_hash` freshness check stays the authority; the sweep only decides what
+is worth fetching early.
+
 The cache **prunes itself**. A session deleted on the server would otherwise leave its transcript on
 the phone forever, since nothing else deletes cache files. Each time the session list refreshes, the app
 sweeps its cache directory and drops entries for sessions that no longer exist. Because you may use more

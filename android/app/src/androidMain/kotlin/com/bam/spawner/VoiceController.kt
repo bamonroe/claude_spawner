@@ -112,6 +112,17 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
         override fun saveAttachHistory(ids: List<String>) = settings.setAttachHistoryIds(ids)
     })
 
+    // Background transcript prefetcher (commonMain): keeps the most recently active
+    // NON-focused sessions' caches warm by issuing the same history{have_hash} frames a
+    // switch would, prioritized by the server's digest sweep. Its replies flow through
+    // onHistory like any other; its Host is read-only view state, so it can never move
+    // focus or touch the visible chat.
+    internal val prefetcher = com.bam.spawner.net.TranscriptPrefetcher(scope, session, object : com.bam.spawner.net.TranscriptPrefetcher.Host {
+        override fun send(frame: String) { client?.send(frame) }
+        override fun viewedId() = router.currentId
+        override fun turnActive() = turnInFlight
+    })
+
     // The shared commonMain inbound-message router (sibling to SessionSync/CatalogueSync): it
     // owns the per-session chat logs, view cursor and per-turn streamed/spoken tracking, and
     // files every session-scoped frame (Say/Output/Activity/Files/Diff/Ask/Transcript/Err/
@@ -706,5 +717,6 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
         turnInFlight = false
         lostTurnWatchdog?.cancel()
         lostTurnWatchdog = null
+        prefetcher.kick() // the turn that paused prefetching is over
     }
 }

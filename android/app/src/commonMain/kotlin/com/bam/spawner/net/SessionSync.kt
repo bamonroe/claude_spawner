@@ -65,6 +65,13 @@ class SessionSync(private val host: Host) {
     // when nothing moved — the authoritative, bodies-free freshness check.
     private val digestHeld = mutableMapOf<String, Pair<Int, String>>()
 
+    // The server's connect-time digest sweep, per session id. PRIORITIZATION ONLY —
+    // the background prefetcher fetches sessions whose server hash differs from what
+    // we hold, newest first. Never a freshness short-circuit: it's a snapshot that
+    // goes stale for any session we're detached from (no live output invalidates it),
+    // so the per-attach `have_hash` → `unchanged` round trip stays authoritative.
+    private val serverDigest = mutableMapOf<String, Pair<Int, String>>()
+
     /** Session id of the outstanding fresh-history request, if any (see [requestFreshHistory]). */
     private var freshPending: String? = null
 
@@ -196,9 +203,18 @@ class SessionSync(private val host: Host) {
         if (freshPending == id) freshPending = null
     }
 
+    /** One row of the server's `digests` sweep landed: hold it as a prefetch hint. */
+    fun recordServerDigest(id: String, count: Int, hash: String) {
+        serverDigest[id] = count to hash
+    }
+
+    /** The server-sweep digest for a session, if the sweep reported one. */
+    fun serverDigest(id: String): Pair<Int, String>? = serverDigest[id]
+
     /** Drop the held digest for a session (context-reset rotation / cache wipe). */
     fun drop(id: String) {
         digestHeld.remove(id)
+        serverDigest.remove(id)
         if (freshPending == id) freshPending = null
     }
 

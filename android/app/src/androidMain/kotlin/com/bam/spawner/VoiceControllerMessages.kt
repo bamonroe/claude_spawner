@@ -217,10 +217,16 @@ internal fun VoiceController.onMessage(msg: ServerMsg) {
         is ServerMsg.FileSaved -> _fileSaved.tryEmit(msg.path)
         is ServerMsg.FileData -> _fileData.tryEmit(msg)
         is ServerMsg.Digests -> {
-            // Connect-time server-truth sweep. No longer consulted: transcript freshness
-            // is checked per-attach via `have_hash` → `unchanged` (see requestFreshHistory),
-            // which — unlike a cached connect snapshot — can't go stale for a session we're
-            // detached from and so silently drop its messages. Kept as a protocol no-op.
+            // Connect-time server-truth sweep, recorded as PRIORITIZATION hints for the
+            // background prefetcher: it fetches only sessions whose server hash differs
+            // from the locally held one, newest-active first. Never a freshness
+            // short-circuit — the per-attach `have_hash` → `unchanged` round trip (see
+            // requestFreshHistory) stays authoritative, because this snapshot goes stale
+            // for any session we're detached from and would silently drop its messages.
+            for (d in msg.items) if (d.sessionId.isNotEmpty()) {
+                session.recordServerDigest(d.sessionId, d.count, d.hash)
+            }
+            prefetcher.kick()
         }
         is ServerMsg.HostList, is ServerMsg.IdentityList,
         is ServerMsg.Agents, is ServerMsg.Profiles,
@@ -434,6 +440,7 @@ internal fun VoiceController.onDiscovered(msg: ServerMsg.Discovered) {
     _discovered.value = msg.sessions
     discoveredCache.save(msg.sessions)
     _discoverError.value = ""
+    prefetcher.onDiscovered(msg.sessions) // fresh recency order → reprioritize warm-cache work
     // Sweep transcripts for sessions that no longer exist — this list is the only
     // signal the app gets that a session was deleted server-side. retainOnly is
     // throttled, grace-period'd (this is one server's list, not global truth) and
@@ -470,6 +477,7 @@ internal fun VoiceController.onHistory(msg: ServerMsg.History) {
     // stored digest (both held and server) so future freshness checks stand.
     if (msg.unchanged) {
         if (msg.hash.isNotEmpty()) session.recordSynced(key, msg.count, msg.hash)
+        prefetcher.onSynced(key)
         loadingOlder.remove(key)
         router.logs[key]?.let { cleaned ->
             val deduped = session.dedupe(cleaned)
@@ -491,6 +499,7 @@ internal fun VoiceController.onHistory(msg: ServerMsg.History) {
     // Record the chain digest this page belongs to and persist the merged log, so
     // the cache is current on disk and a later reattach can short-circuit the fetch.
     if (msg.hash.isNotEmpty()) session.recordSynced(key, msg.count, msg.hash)
+    prefetcher.onSynced(key)
     persist(key)
     // Reconnect gap-fill: the reattach top page is only the newest slice, so if the
     // session advanced by more than a page while we were away, a hole is left between
