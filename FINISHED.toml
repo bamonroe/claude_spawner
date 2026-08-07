@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "polish-efficiency-epic"
+title = "Polish and efficiency pass: fix UX lags and creeping bugs"
+description = "Umbrella epic for making the existing app pleasant, not for adding features. The Android APK (web client untested for ~a week) has accumulated polishy lag and small bugs: session switching is still laggy; the local transcript cache reads first but should be proactively refreshed from the server in the background; under server load, session names go missing and the app has spawned a duplicate session named after the directory (e.g. a new 'claude_spawner' session appearing alongside the existing 'spawner' session while rapidly swapping sessions, with no spawn requested). Work this epic by scoping concrete problem areas into child scope/task items and shipping them incrementally. Explicitly out of scope: any new feature."
+status = "finished"
+level = "epic"
+category = "bug"
+created = 2026-08-07
+completed = 2026-08-07
+tags = ["polish", "performance"]
+
+[[task]]
 id = "use-digest-sweep"
 title = "Use the server digest sweep to prioritize prefetch instead of discarding it"
 description = "Child of [polish-efficiency-epic] via [scope-session-switch-lag]. The server already pushes a digest sweep on connect but the client throws it away (VoiceControllerMessages.kt:210-215, 'protocol no-op'). Replace that branch with a recordServerDigest sink and have the prefetcher fetch only sessions whose server hash differs from the locally held hash, newest-active first. Keep the per-attach have_hash round trip as the authoritative staleness check; digests are for prioritization only."
