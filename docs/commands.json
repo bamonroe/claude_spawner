@@ -54,6 +54,14 @@
       "description": "Leave the current session"
     },
     {
+      "title": "get",
+      "aliases": [
+        "get target",
+        "what is the directory"
+      ],
+      "description": "Speak the current target host or default directory"
+    },
+    {
       "title": "help",
       "aliases": [
         "help",
@@ -149,6 +157,14 @@
         "scratch mode on"
       ],
       "description": "Toggle scratch mode: while detached, hear each transcription read back to test STT"
+    },
+    {
+      "title": "set",
+      "aliases": [
+        "set target <host>",
+        "set directory <path>"
+      ],
+      "description": "Set the target host (used for new sessions and shell commands) or the default directory; both persist across restarts"
     },
     {
       "title": "spawn",

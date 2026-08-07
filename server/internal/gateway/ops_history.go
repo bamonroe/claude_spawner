@@ -171,7 +171,7 @@ func (c *conn) serveDigests() {
 // commandHelp is spoken + shown when the user asks "hey buddy help".
 const commandHelp = "here's what I know: attach to a session, detach, list sessions, status, " +
 	"kill a session, spawn a session, spawn a new project, read last, clear the context, compress the context, " +
-	"list models, use model by number, stop the turn, cancel message, and help. " +
+	"list models, use model by number, set the target or directory, stop the turn, cancel message, and help. " +
 	"say hey buddy, then the command, then your end token."
 
 	// sandboxTarget returns the session's target string only when it's a sandbox

@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "set-buddy-command-for-target-host-and-directory"
+title = "'set' buddy command for target host and directory"
+description = "New 'hey buddy, set <key> <value>' command with a small closed key vocabulary — 'target' (a single host used BOTH as the default spawn host and as the shell-command target) and 'directory' (default working directory). Persist in the existing session/settingskv.go store so values survive restarts; read values back with a 'get'/'what is' form. Register in command.Registry, regenerate docs/commands.json via cmd/gencommands, and document in docs/commands.md."
+status = "finished"
+level = "task"
+category = "feature"
+created = 2026-08-06
+completed = 2026-08-07
+tags = ["shell"]
+
+[[task]]
 id = "spoken-replies-for-unmatched-shell-aliases-and-missing-arguments"
 title = "Spoken replies for unmatched shell aliases and missing arguments"
 description = "Decide and implement what runShell (server/internal/gateway/shell.go) says back: empty catalogue keeps today's \"no shell commands are configured yet\"; no alias match speaks \"I do not know a shell command called X\" plus the closest one or two configured names so the user can correct by ear; a template referencing $1 with no argument supplied asks for it by name rather than running with a blank. Keep the phrasing short — it is read aloud."

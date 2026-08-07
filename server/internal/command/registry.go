@@ -77,6 +77,10 @@ var Registry = []Command{
 		"Kill one of the attached session's background jobs by number (from 'list jobs')", "kill job 2"},
 	{JobStatus, "job status", []string{"job status", "how are the jobs"},
 		"Speak a one-line summary of the attached session's background jobs", "job status"},
+	{Set, "set", []string{"set target <host>", "set directory <path>"},
+		"Set the target host (used for new sessions and shell commands) or the default directory; both persist across restarts", "set target bam"},
+	{Get, "get", []string{"get target", "what is the directory"},
+		"Speak the current target host or default directory", "get target"},
 	{Restart, "restart the server", []string{"restart the server", "rebuild the server", "reboot the server", "restart spawner"},
 		"Rebuild and restart the spawner server itself", "restart the server"},
 }

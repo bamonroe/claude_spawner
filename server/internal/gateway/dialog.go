@@ -50,19 +50,23 @@ func (c *conn) spawnCommand(intent command.Intent) {
 		c.startSpawn(intent.New, intent.Location, intent.Agent)
 		return
 	}
+	host := c.srv.targetHost()
 	segs, _ := parseSpokenPath(intent.Location)
-	if len(segs) == 0 {
-		c.startSpawn(false, intent.Location, intent.Agent) // no path spoken → ask for one
-		return
-	}
-	dir, _, res := c.resolveSpokenPath(session.LocalHost, segs)
-	if res != pathOK {
-		c.startSpawn(false, intent.Location, intent.Agent) // ambiguous / not found → reprompt
+	dir := c.srv.targetDir()
+	switch {
+	case len(segs) > 0:
+		var res pathResult
+		if dir, _, res = c.resolveSpokenPath(host, segs); res != pathOK {
+			c.startSpawn(false, intent.Location, intent.Agent) // ambiguous / not found → reprompt
+			return
+		}
+	case dir == "":
+		c.startSpawn(false, intent.Location, intent.Agent) // no path spoken and no default → ask for one
 		return
 	}
 	profileID := c.resolveProfileName(intent.Profile)
 	name := sanitizeName(strings.Join(projects.Terms(intent.Name), "-"))
-	c.doSpawnAt(dir, "", false, session.LocalHost, intent.Agent, "", profileID, name, true)
+	c.doSpawnAt(dir, "", false, host, intent.Agent, "", profileID, name, true)
 }
 
 // parseSpokenPath turns a spoken absolute path into its segments. The wake-word
@@ -191,7 +195,7 @@ func (c *conn) spawnAwaitPath(text string) {
 // either spawns there (session mode) or creates the final folder first (new mode),
 // reprompting when the path is ambiguous or can't be placed.
 func (c *conn) resolveAndArrive(segs []string) {
-	host := session.LocalHost
+	host := c.srv.targetHost()
 	if c.dlg.mode == "new" {
 		// The last segment names the folder to create; resolve its parent path.
 		parentSegs, newName := segs[:len(segs)-1], sanitizeName(segs[len(segs)-1])

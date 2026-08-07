@@ -65,6 +65,8 @@ All prefixed with **"hey buddy"**:
 - `compress the context` — like `clear`, but carries a **summary** forward (see below)
 - `list models` / `use model <number>` — list the AI's models and switch by number (see below)
 - `scratch on` / `scratch off` — **scratch mode**: while detached, hear each transcription read back so you can test how well Whisper is hearing you (see below)
+- `set target <host>` / `set directory <path>` — where work happens: the host new sessions spawn on and shell commands run on, and the default directory a spawn lands in (see below)
+- `get target` / `what is the directory` — read the current setting back
 - `summary only` / `speak everything` — **summary-only speech**: on a long, multi-step turn, read aloud only the **final result**; each intermediate step plays a soft beep instead of being spoken (see below)
 
 Anything spoken **while attached** that isn't a reserved command is dictated to the session. When a
@@ -112,6 +114,16 @@ The trade-off to know: a *missed* gate now loses the audio too, so there's no tr
 was heard (the server logs `speech gate:` lines when it opens or times out). Leave the switch off (or
 the speak token blank) to dictate everything as before. The speak token is comma-separated, so you
 can give it a couple of variants.
+
+**Setting the target and directory by voice.** Two shared settings decide *where* work happens, and
+both can be spoken: **"hey buddy, set target `<host>`"** picks the machine — used both as the host new
+sessions spawn on and as the host shell commands run on — and **"hey buddy, set directory `<path>`"**
+picks the folder a spawn with no spoken path lands in. Values are checked before they're stored: a
+target must name a host you've configured (fuzzily, so a mis-heard name still lands, otherwise the
+known hosts are read back to you), and a directory is resolved segment-by-segment against the
+target's real filesystem over SSH and saved as the resolved absolute path. Both persist across server
+restarts and sync to every client. Ask for either back with **"hey buddy, get target"** or **"hey
+buddy, what is the directory"**; an unset target reads back as `localhost`.
 
 **Pre-configured shell commands (Settings → Shell commands).** While you're detached from every
 session, a **shell token** (bind the phrase in Settings → Spoken tokens, action "Shell") opens a

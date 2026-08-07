@@ -91,6 +91,10 @@ func (c *conn) runCommand(intent command.Intent) bool {
 		c.doKillJob(intent.Count)
 	case command.JobStatus:
 		c.doJobStatus()
+	case command.Set:
+		c.doSet(intent.Arg, intent.Value)
+	case command.Get:
+		c.doGet(intent.Arg)
 	case command.Restart:
 		c.doRestart("") // voice "restart" = full rebuild (empty = rebuild)
 	default:

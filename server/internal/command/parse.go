@@ -57,6 +57,9 @@ var parsers = []func(parseCtx) (Intent, bool){
 	parseHelp,
 	parseListModels,
 	parseUseModel,
+	// After parseUseModel: "set model 3" is a model switch, not a setting.
+	parseSet,
+	parseGet,
 	parseSpawn,
 	parseDetach,
 	parseSwap,
@@ -382,4 +385,62 @@ func parseRename(c parseCtx) (Intent, bool) {
 		arg = afterAny(c.t, "rename")
 	}
 	return Intent{Kind: Rename, Arg: arg}, true
+}
+
+// settingKeys maps the spoken words for a shared setting onto its canonical key.
+// The vocabulary is deliberately CLOSED: anything else spoken after "set" is not
+// a setting command at all, so "set the timer" falls through to dictation rather
+// than persisting junk. Keep it in sync with gateway.settingKeys, which is the
+// write allowlist on the other side of the seam.
+var settingKeys = map[string]string{
+	"target":    "target",
+	"host":      "target",
+	"machine":   "target",
+	"directory": "directory",
+	"dir":       "directory",
+	"folder":    "directory",
+	"path":      "directory",
+}
+
+// Set: "set <key> [to] <value>" — a small closed key vocabulary ("target",
+// "directory"), the rest of the utterance being the spoken value (a host name,
+// or a spoken path the gateway resolves against the target's real filesystem).
+func parseSet(c parseCtx) (Intent, bool) {
+	if c.first != "set" {
+		return Intent{}, false
+	}
+	rest := strings.Fields(strings.TrimPrefix(afterAny(c.t, "set")+" ", "the "))
+	if len(rest) == 0 {
+		return Intent{}, false
+	}
+	key, ok := settingKeys[rest[0]]
+	if !ok {
+		return Intent{}, false
+	}
+	value := strings.Join(rest[1:], " ")
+	value = strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(value, "to the "), "to "))
+	return Intent{Kind: Set, Arg: key, Value: value}, true
+}
+
+// Get: "what is the target" / "get directory" — speak a setting's current value.
+func parseGet(c parseCtx) (Intent, bool) {
+	var rest string
+	switch {
+	case c.first == "get":
+		rest = afterAny(c.t, "get")
+	case leadsWith(c.t, "what is", "what's", "whats", "where is", "where's", "wheres"):
+		rest = afterAny(c.t, "is", "what's", "whats", "where's", "wheres")
+	default:
+		return Intent{}, false
+	}
+	rest = strings.TrimPrefix(rest+" ", "the ")
+	words := strings.Fields(rest)
+	if len(words) == 0 {
+		return Intent{}, false
+	}
+	key, ok := settingKeys[words[0]]
+	if !ok || len(words) > 1 {
+		return Intent{}, false // "what is the target of this refactor" is dictation
+	}
+	return Intent{Kind: Get, Arg: key}, true
 }

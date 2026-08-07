@@ -28,6 +28,11 @@ var settingKeys = map[string]bool{
 	"auto_compress":           true,
 	"auto_compress_threshold": true,
 	"summary_only":            true,
+	// Where work happens: the host new sessions and shell commands run on, and
+	// the directory a spawn with no spoken path lands in. Set by voice
+	// ("set target bam") or from the app; read via Server.targetHost/targetDir.
+	"target":    true,
+	"directory": true,
 }
 
 // broadcastSettings re-sends the whole shared-settings catalogue to every client, so

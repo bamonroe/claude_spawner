@@ -37,6 +37,8 @@ const (
 	KillJob     Kind = "kill_job"     // kill one of the attached session's background jobs by number
 	JobStatus   Kind = "job_status"   // report the attached session's background-job summary
 	Restart     Kind = "restart"      // restart/rebuild the spawner server (SPAWNER_RESTART_CMD)
+	Set         Kind = "set"          // set a shared setting ("target", "directory") by voice
+	Get         Kind = "get"          // speak the current value of a shared setting
 	Unknown     Kind = "unknown"
 )
 
@@ -55,6 +57,10 @@ type Intent struct {
 	// Name, for Spawn, is the session's spoken name ("called trashbot"); empty
 	// means default to the folder basename.
 	Name string
+	// Value, for Set, is the spoken value the setting is being given ("set
+	// target to bam" -> "bam"). Arg holds the canonical setting key for both
+	// Set and Get.
+	Value string
 }
 
 // wakePhrases is the DEFAULT wake token — the canonical "hey buddy" first, then
@@ -97,6 +103,7 @@ var commandVocab = []string{
 	"usage", "rename", "session", "project", "model", "models", "codex", "opencode",
 	"scratch", "summary", "job", "jobs", "restart", "rebuild", "server",
 	"called", "named", "profile", "swap",
+	"set", "target", "directory", "host", "folder",
 }
 
 // Vocabulary returns the control words worth biasing STT toward: commandVocab,
