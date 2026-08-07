@@ -74,3 +74,18 @@ func referencedArgs(template string) map[int]bool {
 	}
 	return used
 }
+
+// MissingShellArgs returns the 1-based positions a template names explicitly via
+// $1..$9 that the speaker did not supply, in ascending order. Running with the
+// blank ExpandShellCommand would substitute is almost never what the user meant,
+// so the caller asks for the argument instead of guessing.
+func MissingShellArgs(template string, args []string) []int {
+	var missing []int
+	used := referencedArgs(template)
+	for i := 0; i < 9; i++ {
+		if used[i] && i >= len(args) {
+			missing = append(missing, i+1)
+		}
+	}
+	return missing
+}

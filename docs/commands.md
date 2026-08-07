@@ -213,9 +213,12 @@ Arbitrary spoken shell is never run — only aliases that were configured ahead 
 no confirmation prompt for destructive-looking commands. The catalogue *is* the safety boundary.
 With no shell phrase configured the gate is inert, exactly like the speech gate.
 
-The catalogue itself, the alias/argument parsing, the `set target` / `set directory` command and the
-SSH execution path are still being built; see the shell-token epic in `TODO.toml`. Today the gate is
-wired end to end and answers that nothing is configured.
+Every dead end answers out loud with the fix: an empty catalogue says nothing is configured, an
+unrecognized alias is repeated back with the closest one or two configured names to say instead, and
+a template with an unfilled `$1`…`$9` asks for the missing value rather than running with a blank.
+
+The `set target` / `set directory` command and the SSH execution path are still being built; see the
+shell-token epic in `TODO.toml`. Today a fully resolved command says it is not wired to run yet.
 
 ## Adding or changing a command
 

@@ -1,6 +1,11 @@
 package session
 
-import "strings"
+import (
+	"sort"
+	"strings"
+
+	"github.com/bam/claude_spawner/server/internal/projects"
+)
 
 // normalizeSpoken folds a spoken phrase to the form aliases are matched in:
 // lowercase, sentence punctuation dropped, whitespace collapsed. It mirrors
@@ -71,4 +76,62 @@ func ResolveShellCommand(utterance string, catalogue []*ShellCommand) (*ShellCom
 		return best, nil, true
 	}
 	return best, append([]string(nil), args...), true
+}
+
+// SuggestShellCommands returns up to n catalogue names that sound closest to an
+// utterance that matched nothing, so a spoken reply can offer a correction by
+// ear ("did you mean disk space?"). Candidates are ranked by edit distance
+// between the alias and the leading words of the utterance it would have had to
+// match, and anything wildly different is dropped rather than guessed at.
+func SuggestShellCommands(utterance string, catalogue []*ShellCommand, n int) []string {
+	words := strings.Fields(normalizeSpoken(utterance))
+	if len(words) == 0 || n <= 0 {
+		return nil
+	}
+	type scored struct {
+		name string
+		d    int
+	}
+	var out []scored
+	for _, c := range catalogue {
+		if c == nil || strings.TrimSpace(c.Name) == "" {
+			continue
+		}
+		alias := strings.Fields(normalizeSpoken(c.Name))
+		if len(alias) == 0 {
+			continue
+		}
+		// Compare the alias against the same number of leading spoken words, so a
+		// two-word alias is judged on two words rather than the whole sentence.
+		k := len(alias)
+		if k > len(words) {
+			k = len(words)
+		}
+		head := strings.Join(words[:k], " ")
+		aliasNorm := strings.Join(alias, " ")
+		d := projects.Levenshtein(head, aliasNorm)
+		// Tolerate roughly a third of the alias being misheard, minimum one edit.
+		limit := len(aliasNorm) / 3
+		if limit < 1 {
+			limit = 1
+		}
+		if d > limit {
+			continue
+		}
+		out = append(out, scored{c.Name, d})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].d != out[j].d {
+			return out[i].d < out[j].d
+		}
+		return out[i].name < out[j].name
+	})
+	if len(out) > n {
+		out = out[:n]
+	}
+	names := make([]string, 0, len(out))
+	for _, s := range out {
+		names = append(names, s.name)
+	}
+	return names
 }

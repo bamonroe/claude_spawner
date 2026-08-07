@@ -127,6 +127,11 @@ never sneak in an operator or a second command. Add, edit and delete are live: t
 the server and shared across every device, so a command you add on the phone is there in the web
 client too.
 
+If what you said doesn't line up with the catalogue, the reply tells you how to fix it by ear: with
+nothing configured it says so, an alias it can't find is repeated back with the closest one or two
+configured names ("did you mean disk space?"), and a template whose `$1`…`$9` you didn't fill asks
+for the missing value instead of running the command with a blank in its place.
+
 **Wake/end-token detection backend (Settings → Commands).** By default the live hands-free wake and
 end tokens are recognized by string-matching the fast Whisper transcript — always available, no extra
 service. Turn on **Use dedicated wake-word detector** to instead score the purpose-trained LiveKit

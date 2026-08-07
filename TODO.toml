@@ -67,15 +67,3 @@ urgency = "normal"
 order = 60
 created = 2026-08-06
 tags = ["shell"]
-
-[[task]]
-id = "spoken-replies-for-unmatched-shell-aliases-and-missing-arguments"
-title = "Spoken replies for unmatched shell aliases and missing arguments"
-description = "Decide and implement what runShell (server/internal/gateway/shell.go) says back: empty catalogue keeps today's \"no shell commands are configured yet\"; no alias match speaks \"I do not know a shell command called X\" plus the closest one or two configured names so the user can correct by ear; a template referencing $1 with no argument supplied asks for it by name rather than running with a blank. Keep the phrasing short — it is read aloud."
-status = "active"
-level = "task"
-category = "feature"
-urgency = "normal"
-order = 46
-created = 2026-08-06
-tags = ["shell", "voice"]
