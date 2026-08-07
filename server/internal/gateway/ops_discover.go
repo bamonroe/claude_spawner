@@ -7,21 +7,45 @@ import (
 	"github.com/bam/claude_spawner/server/internal/session"
 )
 
-// doDiscover scans ~/.claude/projects for all Claude sessions (spawner-created
-// or not) and returns them, flagged with whether they're already registered and
-// whether an interactive claude is live in tmux at that directory.
+// doDiscover answers a discover request off the connection's serial read loop
+// (the walk and the tmux inspection both do I/O; inline they blocked every other
+// request under load). Requests coalesce per connection: one in flight at a
+// time, and a request arriving meanwhile is dropped because the running one's
+// `discovered` frame answers it too — same shape as startDigestSweep.
 func (c *conn) doDiscover() {
-	found, err := c.srv.driver.DiscoverSessions("")
-	if err != nil {
-		c.fail("discover_failed", err.Error())
+	if !c.discovering.CompareAndSwap(false, true) {
 		return
 	}
+	go func() {
+		defer c.discovering.Store(false)
+		c.serveDiscover()
+	}()
+}
+
+// serveDiscover builds and sends the session list, flagged with whether each is
+// already registered and whether an interactive claude is live in tmux at that
+// directory. It reads the MEMOIZED walk (discoverSnapshot) rather than walking
+// the disk per request, and it never hard-fails the frame: with no walk data at
+// all it still emits every registered row (from the store) marked partial:true,
+// so under load the app degrades to a list without adoptable rows instead of
+// getting nothing.
+func (c *conn) serveDiscover() {
+	found, ok := c.srv.discoverSnapshot()
 	active := c.srv.tmuxMgr.ClaudeDirs(c.ctx)
 	registered := c.srv.store.List()
-	// last-active per dir, from discovery (used only to timestamp registered rows).
-	discByDir := map[string]session.Discovered{}
+	// Last-active per session id AND per dir. Registered rows match by their OWN
+	// transcript ids first — the per-dir fallback alone gave a dir-mate's (or a
+	// rotated-away) session LastActive 0 or its neighbor's time, sinking or
+	// shuffling it in the app's sidebar.
+	lastByID := map[string]int64{}
+	lastByDir := map[string]int64{}
 	for _, d := range found {
-		discByDir[d.Dir] = d
+		if d.LastActive > lastByID[d.SessionID] {
+			lastByID[d.SessionID] = d.LastActive
+		}
+		if d.LastActive > lastByDir[d.Dir] {
+			lastByDir[d.Dir] = d.LastActive
+		}
 	}
 	views := make([]discoveredView, 0, len(registered)+len(found))
 	regDirs := map[string]bool{}
@@ -31,19 +55,35 @@ func (c *conn) doDiscover() {
 	for _, rec := range registered {
 		s := rec.Snapshot() // one consistent row per record, not a torn live read
 		regDirs[s.Dir] = true
+		// Newest activity across every id this session has run under (a clear/
+		// compress rotates the live id but the old transcript keeps the newest
+		// mtime until the next turn lands).
+		var last int64
+		for _, id := range s.TranscriptIDs() {
+			if t := lastByID[id]; t > last {
+				last = t
+			}
+		}
+		if last == 0 {
+			last = lastByDir[s.Dir]
+		}
 		views = append(views, discoveredView{
 			Name: s.Name, Dir: s.Dir, SessionID: s.SessionID,
-			LastActive: discByDir[s.Dir].LastActive, Active: active[s.Dir], Registered: true,
+			LastActive: last, Active: active[s.Dir], Registered: true,
 			Busy: c.srv.isBusy(s.SessionID), Target: sandboxTarget(s), Host: s.Host,
 			Agent: s.Agent, Model: s.Model, Profile: s.Profile,
 		})
 	}
-	// Unregistered sessions found on disk — one adoptable row per directory (these
-	// aren't managed yet, so a per-dir entry to offer adoption is enough).
+	// Unregistered sessions found on disk — one adoptable row per directory. The
+	// walk reports every transcript, newest first; these aren't managed yet, so a
+	// single per-dir entry (its most recent session — the one `claude --resume`
+	// would continue) is enough to offer adoption.
+	seenDir := map[string]bool{}
 	for _, d := range found {
-		if regDirs[d.Dir] {
+		if regDirs[d.Dir] || seenDir[d.Dir] {
 			continue
 		}
+		seenDir[d.Dir] = true
 		views = append(views, discoveredView{
 			Name: sanitizeName(filepath.Base(d.Dir)), Dir: d.Dir, SessionID: d.SessionID,
 			LastActive: d.LastActive, Active: active[d.Dir], Registered: false,
@@ -51,7 +91,7 @@ func (c *conn) doDiscover() {
 			Host: session.LocalHost,
 		})
 	}
-	c.send(msgDiscovered(views))
+	c.send(msgDiscovered(views, !ok))
 }
 
 // doRenameDiscovered gives a discovered session a custom name. It resolves the

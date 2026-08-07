@@ -431,7 +431,11 @@ func (fs claudeFS) isMissing(err error) bool {
 
 // discoverSessions scans the target host's ~/.claude/projects for every session
 // transcript and returns each session's id + working directory + last-active time,
-// newest first, one row per directory. (Backend-neutral; see DiscoverSessions.)
+// newest first — EVERY session, including dir-mates. Collapsing to one row per
+// directory is the caller's choice (the gateway does it only for unregistered,
+// adoptable rows): collapsing here starved registered dir-mates of their own
+// last-active time, sinking them to the bottom of the app's sidebar.
+// (Backend-neutral; see DiscoverSessions.)
 func (fs claudeFS) discoverSessions() ([]Discovered, error) {
 	refs, err := fs.listAllTranscripts()
 	if err != nil {
@@ -461,18 +465,7 @@ func (fs claudeFS) discoverSessions() ([]Discovered, error) {
 		out = append(out, Discovered{SessionID: id, Dir: dir, LastActive: ref.mod.Unix()})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].LastActive > out[j].LastActive })
-	// One entry per directory: keep the most-recently-active session (the one
-	// `claude --resume` would continue), not every historical session in that dir.
-	byDir := map[string]bool{}
-	deduped := out[:0]
-	for _, d := range out {
-		if byDir[d.Dir] {
-			continue
-		}
-		byDir[d.Dir] = true
-		deduped = append(deduped, d)
-	}
-	return deduped, nil
+	return out, nil
 }
 
 // perSessionStateDirs are the ~/.claude subdirectories Claude fills with a

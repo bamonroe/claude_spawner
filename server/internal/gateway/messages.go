@@ -641,11 +641,18 @@ type discoveredView struct {
 	Profile    string `json:"profile,omitempty"`
 }
 
-func msgDiscovered(items []discoveredView) map[string]any {
+func msgDiscovered(items []discoveredView, partial bool) map[string]any {
 	if items == nil {
 		items = []discoveredView{}
 	}
-	return map[string]any{"type": "discovered", "sessions": items}
+	m := map[string]any{"type": "discovered", "sessions": items}
+	if partial {
+		// The disk walk hasn't landed (cold server / scan failure): the list holds
+		// only registered rows, so the app shouldn't prune caches or treat missing
+		// adoptable rows as gone.
+		m["partial"] = true
+	}
+	return m
 }
 
 // msgReadLast tells the app to re-read (TTS) and scroll to the last `count`

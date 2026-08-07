@@ -26,7 +26,12 @@ func (c *conn) doList() {
 		byDir[s.Dir] = s.Name
 	}
 	names := make([]string, 0, len(found))
+	seenDir := map[string]bool{}
 	for _, d := range found {
+		if seenDir[d.Dir] {
+			continue // the walk lists every dir-mate; speak each directory once
+		}
+		seenDir[d.Dir] = true
 		if n, ok := byDir[d.Dir]; ok {
 			names = append(names, n)
 		} else {

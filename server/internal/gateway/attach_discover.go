@@ -68,6 +68,21 @@ func (s *Server) discoverForAttach() []session.Discovered {
 	}
 }
 
+// discoverSnapshot is discoverForAttach plus whether the memo holds ANY
+// successful walk. ok=false means the walk has never landed (cold server, or a
+// scan failure before the first success) — the caller has no on-disk view at
+// all and should say so (`partial`) rather than fail or pretend the disk is
+// empty. A stale-but-successful memo still reports ok=true: stale rows beat no
+// rows, and the refresh that's already in flight will feed the next request.
+func (s *Server) discoverSnapshot() ([]session.Discovered, bool) {
+	list := s.discoverForAttach()
+	d := &s.discoverMemo
+	d.mu.Lock()
+	ok := !d.at.IsZero()
+	d.mu.Unlock()
+	return list, ok
+}
+
 // refreshAttachDiscovery performs the one in-flight walk and publishes it. A
 // failed walk still clears `ready` (so the next caller can retry) but leaves the
 // previous list and its timestamp alone, so a transient host outage doesn't
