@@ -33,18 +33,6 @@ created = 2026-08-07
 tags = ["polish", "performance"]
 
 [[task]]
-id = "prewarm-transcript-cache"
-title = "Pre-warm the transcript cache into memory at app startup"
-description = "Child of [polish-efficiency-epic] via [scope-session-switch-lag]. TranscriptCache.mem starts empty each launch, so the first switch to any session renders an empty chat until the disk read + JSON decode land (ensureLoaded in VoiceControllerMessages.kt:72-81) — the dominant switch lag. On controller init, launch an IO job that lists the cache dir and decodes the most recently modified entries into mem so peek hits on first switch. Add a bounded LRU on mem so the warm set stays capped; load still serves evicted entries."
-status = "active"
-level = "task"
-category = "bug"
-urgency = "high"
-order = 40
-created = 2026-08-07
-tags = ["polish", "performance"]
-
-[[task]]
 id = "switch-ui-thread-work"
 title = "Take dedupe/persist off the session-switch UI thread; collapse switch state writes"
 description = "Child of [polish-efficiency-epic] via [scope-session-switch-lag]. showLog (VoiceControllerMessages.kt:434) runs persist(previousId) with a dedupe over up to 2000 rows on the main thread, and applyCached re-dedupes already-deduped cached rows. Defer persist to a background coroutine (the memory map is authoritative), drop the redundant dedupe in applyCached, and collapse the ~8 separate StateFlow writes in focusKnownSession (:121-132) into one attached-session state object so a switch causes one recomposition instead of eight."
