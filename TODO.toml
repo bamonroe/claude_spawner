@@ -69,18 +69,6 @@ created = 2026-08-06
 tags = ["shell"]
 
 [[task]]
-id = "shell-command-template-expansion-with-ssh-safe-quoting"
-title = "Shell command template expansion with SSH-safe quoting"
-description = "Implement the $1..$9 / $* / $$ substitution documented in server/internal/session/shellcommands.go:17-34. Each spoken argument is passed through shellQuote (server/internal/session/ssh_fs.go) BEFORE substitution so a spoken word can never break out of the intended command over SSH; absent $N expands to an empty quoted string; $* joins the remaining args space-separated, each quoted; $$ yields a literal $; other $x is left as-is. Unit tests must include adversarial args (semicolons, backticks, quotes, command substitution, newlines) asserting the expanded string is inert."
-status = "active"
-level = "task"
-category = "feature"
-urgency = "normal"
-order = 44
-created = 2026-08-06
-tags = ["shell", "security"]
-
-[[task]]
 id = "spoken-replies-for-unmatched-shell-aliases-and-missing-arguments"
 title = "Spoken replies for unmatched shell aliases and missing arguments"
 description = "Decide and implement what runShell (server/internal/gateway/shell.go) says back: empty catalogue keeps today's \"no shell commands are configured yet\"; no alias match speaks \"I do not know a shell command called X\" plus the closest one or two configured names so the user can correct by ear; a template referencing $1 with no argument supplied asks for it by name rather than running with a blank. Keep the phrasing short — it is read aloud."
