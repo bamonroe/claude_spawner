@@ -17,6 +17,14 @@ import (
 // history overlap an attach.
 const historyConcurrency = 4
 
+// historyReq is one queued history request; see startHistory.
+type historyReq struct {
+	sessionID, name string
+	before          *int
+	limit           int
+	haveHash        string
+}
+
 // startHistory serves a history request off the connection's serial inbound
 // loop. Inbound messages dispatch one at a time, so serving history inline made
 // a switch's history request queue behind attach's transcript stats — and any
@@ -24,41 +32,60 @@ const historyConcurrency = 4
 // loop: it touches only the store and the driver (both internally locked), and
 // replies serialize through wmu like every other cross-goroutine send.
 //
-// Top-page requests (before == nil) coalesce per session: a request arriving
-// while one for the same session is already in flight is dropped, because the
-// running read's reply answers it too — that stops a prefetch burst from
-// stampeding the same transcript. Paging requests (before != nil) always run;
+// Top-page requests (before == nil) coalesce per session: while one is in
+// flight, later arrivals for the same session don't spawn their own reads —
+// the LATEST one is parked and runs when the in-flight read finishes (earlier
+// parked ones are superseded; top-page requests only differ by have_hash, and
+// the newest is the client's current state). Parking rather than dropping
+// matters: the in-flight read may have already sent its reply by the time the
+// next request arrives, and a dropped request would then never be answered.
+// A burst of N prefetch requests thus costs at most two reads, and can't
+// stampede the same transcript. Paging requests (before != nil) always run;
 // their cursors differ, so each reply is distinct.
 func (c *conn) startHistory(sessionID, name string, before *int, limit int, haveHash string) {
+	c.historyMu.Lock()
+	if c.historySem == nil {
+		c.historySem = make(chan struct{}, historyConcurrency)
+		c.historyBusy = make(map[string]*historyReq)
+	}
+	sem := c.historySem
+	req := historyReq{sessionID: sessionID, name: name, before: before, limit: limit, haveHash: haveHash}
+	if before != nil {
+		c.historyMu.Unlock()
+		go func() {
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			c.serveHistory(sessionID, name, before, limit, haveHash)
+		}()
+		return
+	}
 	key := sessionID
 	if key == "" {
 		key = name
 	}
-	c.historyMu.Lock()
-	if c.historySem == nil {
-		c.historySem = make(chan struct{}, historyConcurrency)
-		c.historyBusy = make(map[string]bool)
+	if _, busy := c.historyBusy[key]; busy {
+		c.historyBusy[key] = &req // supersede any earlier parked request
+		c.historyMu.Unlock()
+		return
 	}
-	if before == nil {
-		if c.historyBusy[key] {
-			c.historyMu.Unlock()
-			return
-		}
-		c.historyBusy[key] = true
-	}
-	sem := c.historySem
+	c.historyBusy[key] = nil // in flight, nothing parked
 	c.historyMu.Unlock()
 	go func() {
-		if before == nil {
-			defer func() {
-				c.historyMu.Lock()
+		for {
+			sem <- struct{}{}
+			c.serveHistory(req.sessionID, req.name, req.before, req.limit, req.haveHash)
+			<-sem
+			c.historyMu.Lock()
+			parked := c.historyBusy[key]
+			if parked == nil {
 				delete(c.historyBusy, key)
 				c.historyMu.Unlock()
-			}()
+				return
+			}
+			c.historyBusy[key] = nil
+			c.historyMu.Unlock()
+			req = *parked
 		}
-		sem <- struct{}{}
-		defer func() { <-sem }()
-		c.serveHistory(sessionID, name, before, limit, haveHash)
 	}()
 }
 

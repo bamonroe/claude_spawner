@@ -55,10 +55,11 @@ type conn struct {
 	closed bool       // set once the connection is gone (guards job delivery)
 
 	digestSweeping atomic.Bool // a transcript-digest sweep is running off the inbound loop; see startDigestSweep
+	discovering    atomic.Bool // a discover build is running off the inbound loop; see doDiscover
 
-	historyMu   sync.Mutex      // guards historySem/historyBusy init and mutation (read loop + history goroutines)
-	historySem  chan struct{}   // bounds concurrent off-loop history reads; see startHistory
-	historyBusy map[string]bool // sessions with a top-page history read in flight (coalesces prefetch bursts)
+	historyMu   sync.Mutex             // guards historySem/historyBusy init and mutation (read loop + history goroutines)
+	historySem  chan struct{}          // bounds concurrent off-loop history reads; see startHistory
+	historyBusy map[string]*historyReq // per-session in-flight marker + latest parked request (coalesces prefetch bursts)
 
 	attachedMu    sync.Mutex       // guards attached for cross-goroutine readers; see setAttached
 	attached      *session.Session // non-nil when in passthrough mode
