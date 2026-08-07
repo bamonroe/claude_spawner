@@ -19,27 +19,3 @@ add_proposed_work = "Add proposed features and tests as new tasks rather than lo
 remove_dropped_items = "Remove dropped items with a one-line why (`scripts/todo.sh remove <id> --reason`)."
 finish_work = "When a task is fully finished (built, tested, documented), run `scripts/todo.sh done <id>` to move it to FINISHED.toml — in the same commit that completes the work."
 scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/KMP app + web client. The historical phase roadmap stays in README.md."
-
-[[task]]
-id = "shell-tokens-in-the-detached-state-run-commands-on-a-target-host"
-title = "Shell tokens in the detached state: run commands on a target host"
-description = """
-In the detached state we are not attached to any Claude Code session, so speech has nowhere to go. A new gated token class — a *shell token* — opens a second parsing surface while detached: the rest of the utterance resolves to a PRE-CONFIGURED shell command, which is SSH'd to the target host and run there, with output spoken in full.
-
-Design decisions settled with the user (2026-08-06):
-- The gate is its own action in the existing spoken-token registry, not a 'hey buddy' subcommand — the default phrase is just 'shell', and the user can rebind it like any other token.
-- One 'set' command with a small key vocabulary. 'target' is a single host shared by BOTH the default spawn host and the shell target; 'directory' replaces the working-directory idea. Values persist across server restarts (settings KV).
-- NO confirmation gate for destructive commands. Arbitrary spoken shell is never allowed; every runnable command is pre-configured with an alias pointing at a command/path on the target host. The catalogue IS the safety boundary.
-- Shell commands take spoken arguments, and the command list is editable from the app.
-- Output is spoken in full.
-
-Done: shell-gate-new-shell-spoken-action-and-token; shell-command-catalogue-store-wire-ops-app-editing (scoped out into the four catalogue tasks below); shellcommandstore-record-persistence-config-path; shell-command-catalogue-wire-ops-in-the-gateway; kotlin-protocol-cataloguesync-entries-for-shell-commands; app-settings-editor-for-shell-commands.
-Done also: voice-argument-parsing-for-shell-command-aliases (scoped out into the three resolver/expansion/reply tasks below).
-Remaining children: shell-alias-resolver-longest-alias-wins-match-over-the-catalogue, shell-command-template-expansion-with-ssh-safe-quoting, spoken-replies-for-unmatched-shell-aliases-and-missing-arguments, set-buddy-command-for-target-host-and-directory, shell-execution-over-the-ssh-pool-with-spoken-output."""
-status = "in-progress"
-level = "epic"
-category = "feature"
-urgency = "normal"
-order = 10
-created = 2026-08-06
-tags = ["shell", "detached", "ssh"]
