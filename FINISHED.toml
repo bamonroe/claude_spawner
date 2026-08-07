@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "no-implicit-adopt"
+title = "Never implicitly adopt on attach-by-id miss — fail loudly instead"
+description = "Child of [polish-efficiency-epic] via [scope-phantom-duplicate-sessions]. Drop the adoptDiscoveredID fallback from doAttachBy (ops_session.go:104-109); an unresolvable id answers attach_failed{reason:unknown_session} and nothing else. Adoption stays an explicit user action (adopt, rename_discovered, discover sheet). Log the miss with id, dir, and whether a transcript exists so this bug class is diagnosable, not silent."
+status = "finished"
+level = "task"
+category = "bug"
+created = 2026-08-07
+completed = 2026-08-07
+tags = ["reliability"]
+
+[[task]]
 id = "memoize-chain-stats"
 title = "Memoize chain stats so attach+history don't double-stat the transcript chain"
 description = "Child of [polish-efficiency-epic] via [scope-session-switch-lag]. On every switch, attach's SessionContextUsage (session/driver.go:706) and history's DisplayDigest (driver.go:519) each stat the entire transcript chain within milliseconds of each other — for SSH-hosted sessions that's a network round trip per file, twice. Add a short-TTL (~1-2s) per-session chainParts memo in the driver so the second call reuses the first's signature."
