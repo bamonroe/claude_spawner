@@ -82,7 +82,9 @@ internal fun VoiceController.ensureLoaded(id: String) {
 }
 
 private fun VoiceController.applyCached(id: String, c: CachedSession) {
-    router.logs[id] = session.dedupe(c.messages.map { it.toChat() })
+    // No dedupe here: cached rows were deduped when persisted, and re-deduping a
+    // couple thousand rows sat directly on the switch path's UI thread.
+    router.logs[id] = c.messages.map { it.toChat() }
     router.oldest[id] = c.oldestIndex
     router.hasMore[id] = c.hasMore
     session.recordHeld(id, c.count, c.hash)
@@ -91,21 +93,28 @@ private fun VoiceController.applyCached(id: String, c: CachedSession) {
 // persist hands a session's current log (minus live-only SYSTEM notes, which
 // aren't part of the server transcript) plus its paging cursor and held digest to
 // the cache (keyed by the stable session id), so it survives an app restart and can
-// be shown offline. TranscriptCache.save returns immediately — the encode and file
-// write happen on a background dispatcher — so this is safe on the UI thread.
+// be shown offline. Snapshots of the id-keyed maps are taken here on the caller's
+// (UI) thread; the expensive part — deduping up to a couple thousand rows, then the
+// encode + file write — runs on a background dispatcher, so a session switch never
+// pays for it in the frame. The in-memory log is authoritative; the file only has
+// to reflect it eventually. (The rows are immutable lists, safe to hand across
+// threads; a later persist of newer state simply wins the file.)
 internal fun VoiceController.persist(id: String) {
     if (id.isEmpty()) return
-    val msgs = session.dedupe(router.logs[id] ?: return)
-    router.logs[id] = msgs
-    val keep = msgs.filter { it.role != Role.SYSTEM }
+    val msgs = router.logs[id] ?: return
     val d = session.heldDigest(id)
-    cache.save(id, CachedSession(
-        messages = keep.map { it.toCached() },
-        oldestIndex = router.oldest[id] ?: (keep.firstOrNull { it.index >= 0 }?.index ?: 0),
-        hasMore = router.hasMore[id] ?: false,
-        count = d?.first ?: 0,
-        hash = d?.second ?: "",
-    ))
+    val oldest = router.oldest[id]
+    val hasMore = router.hasMore[id] ?: false
+    scope.launch(Dispatchers.Default) {
+        val keep = session.dedupe(msgs).filter { it.role != Role.SYSTEM }
+        cache.save(id, CachedSession(
+            messages = keep.map { it.toCached() },
+            oldestIndex = oldest ?: (keep.firstOrNull { it.index >= 0 }?.index ?: 0),
+            hasMore = hasMore,
+            count = d?.first ?: 0,
+            hash = d?.second ?: "",
+        ))
+    }
 }
 
 internal fun VoiceController.focusKnownSession(target: DiscoveredInfo, syncServer: Boolean) {
