@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "scope-phantom-duplicate-sessions"
+title = "Scope: duplicate/missing sessions under load (phantom directory-named session)"
+description = "Child scope of [polish-efficiency-epic]. Under server load and rapid session switching, session names occasionally go missing from the list, and the system has created a brand-new session named after the working directory (e.g. 'claude_spawner') instead of reusing the existing 'spawner' session — with no spawn requested. Investigate the session identity/naming path: how sessions are keyed, how the list is built, what happens when a turn runs against a session whose id lookup fails or races, and where a fallback could silently create a new transcript/session. Output: concrete child tasks, not code."
+status = "finished"
+level = "scope"
+category = "bug"
+created = 2026-08-07
+completed = 2026-08-07
+tags = ["polish", "reliability"]
+
+[[task]]
 id = "scope-session-switch-lag"
 title = "Scope: session-switch lag and background transcript cache refresh"
 description = "Child scope of [polish-efficiency-epic]. Investigate why switching sessions in the Android app is still laggy despite the cache-first transcript read, and design a background refresh: the app should proactively fetch the latest server transcripts into the local cache (for recently-used or all sessions) so a switch lands on warm, current data instead of waiting on the server fill-in. Trace the switch path client-side (what blocks the UI, what round-trips happen, what renders when) and server-side (transcript fetch cost). Output: concrete child tasks, not code."

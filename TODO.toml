@@ -33,18 +33,6 @@ created = 2026-08-07
 tags = ["polish", "performance"]
 
 [[task]]
-id = "scope-phantom-duplicate-sessions"
-title = "Scope: duplicate/missing sessions under load (phantom directory-named session)"
-description = "Child scope of [polish-efficiency-epic]. Under server load and rapid session switching, session names occasionally go missing from the list, and the system has created a brand-new session named after the working directory (e.g. 'claude_spawner') instead of reusing the existing 'spawner' session — with no spawn requested. Investigate the session identity/naming path: how sessions are keyed, how the list is built, what happens when a turn runs against a session whose id lookup fails or races, and where a fallback could silently create a new transcript/session. Output: concrete child tasks, not code."
-status = "active"
-level = "scope"
-category = "bug"
-urgency = "high"
-order = 30
-created = 2026-08-07
-tags = ["polish", "reliability"]
-
-[[task]]
 id = "prewarm-transcript-cache"
 title = "Pre-warm the transcript cache into memory at app startup"
 description = "Child of [polish-efficiency-epic] via [scope-session-switch-lag]. TranscriptCache.mem starts empty each launch, so the first switch to any session renders an empty chat until the disk read + JSON decode land (ensureLoaded in VoiceControllerMessages.kt:72-81) — the dominant switch lag. On controller init, launch an IO job that lists the cache dir and decodes the most recently modified entries into mem so peek hits on first switch. Add a bounded LRU on mem so the warm set stays capped; load still serves evicted entries."
@@ -115,3 +103,75 @@ urgency = "normal"
 order = 90
 created = 2026-08-07
 tags = ["polish", "performance"]
+
+[[task]]
+id = "attach-by-any-owned-id"
+title = "Resolve attach by any owned id, not byID alone; re-key client on rotated ids"
+description = "Child of [polish-efficiency-epic] via [scope-phantom-duplicate-sessions]. Root cause of the phantom 'claude_spawner' session: auto-compress rotates SessionID and ForgetID()s the old one, the app attaches with the stale id, doAttachBy (ops_session.go:98) resolves via GetBySessionID only, misses, and falls into implicit adoption. Change doAttachBy and selectClientSession to resolve via GetByAnyID, extended to also match History[].IDs via Session.OwnsID. When an id resolves to a rotated record, reply with a fresh attached carrying the current session_id so the client re-keys."
+status = "active"
+level = "task"
+category = "bug"
+urgency = "critical"
+order = 100
+created = 2026-08-07
+tags = ["reliability"]
+
+[[task]]
+id = "register-discovered-ownsid-guard"
+title = "registerDiscovered must refuse ids an existing session already owns"
+description = "Child of [polish-efficiency-epic] via [scope-phantom-duplicate-sessions]. registerDiscovered (dialog.go:384) checks only GetBySessionID before minting a new dir-named record, so a retired PriorID transcript found on disk becomes a brand-new session named after the directory. Before minting, scan the store for any record where OwnsID(sessionID) is true and return that record instead; guarantee a discovered id whose chain belongs to a registered session can never produce a second row. Same fix covers the resolveSession fuzzy voice-attach path (ops_session.go:240-263)."
+status = "active"
+level = "task"
+category = "bug"
+urgency = "critical"
+order = 110
+created = 2026-08-07
+tags = ["reliability"]
+
+[[task]]
+id = "no-implicit-adopt"
+title = "Never implicitly adopt on attach-by-id miss — fail loudly instead"
+description = "Child of [polish-efficiency-epic] via [scope-phantom-duplicate-sessions]. Drop the adoptDiscoveredID fallback from doAttachBy (ops_session.go:104-109); an unresolvable id answers attach_failed{reason:unknown_session} and nothing else. Adoption stays an explicit user action (adopt, rename_discovered, discover sheet). Log the miss with id, dir, and whether a transcript exists so this bug class is diagnosable, not silent."
+status = "active"
+level = "task"
+category = "bug"
+urgency = "high"
+order = 120
+created = 2026-08-07
+tags = ["reliability"]
+
+[[task]]
+id = "store-atomic-insert"
+title = "Atomic name allocation in Store: Insert under one lock; purge stale index keys"
+description = "Child of [polish-efficiency-epic] via [scope-phantom-duplicate-sessions]. uniqueName + Put is a TOCTOU race: two concurrent adoptions/spawns in the same dir both compute 'spawner' and the second Put silently overwrites the first in byName — the record vanishes from List() (the missing-names symptom) while staying live in byID. Add Store.Insert(rec) that resolves a unique name and inserts into both indices under one lock, replacing every uniqueName+Put pair; make Put delete stale byName keys and Delete purge every chain id from byID. Cover with a concurrent-adoption test asserting no record ever drops from List()."
+status = "active"
+level = "task"
+category = "bug"
+urgency = "high"
+order = 130
+created = 2026-08-07
+tags = ["reliability"]
+
+[[task]]
+id = "broadcast-context-reset"
+title = "Broadcast context_reset id rotations to every device"
+description = "Child of [polish-efficiency-epic] via [scope-phantom-duplicate-sessions]. context_reset after compress/clear (turns.go:266, doClear) reaches only sinks bound to that session's job hub, so a device switched away at the wrong moment keeps the retired id — the setup for the phantom-session bug. Add a server-wide broadcast of old_id→new_id (like broadcastRenamed) plus an unsolicited discovered push, and have the client remap attachHistory, digestHeld, and the sidebar row by old id."
+status = "active"
+level = "task"
+category = "bug"
+urgency = "high"
+order = 140
+created = 2026-08-07
+tags = ["reliability"]
+
+[[task]]
+id = "resilient-discover"
+title = "Resilient discover: memoized walk off the read loop, partial results, no per-dir collapse for registered rows"
+description = "Child of [polish-efficiency-epic] via [scope-phantom-duplicate-sessions]. doDiscover runs an unmemoized disk walk on the connection's serial read loop and hard-fails the whole frame on any scan error, so under load the app gets no list at all; the per-dir dedupe in claudefs.go also gives registered dir-mates LastActive 0, sinking them out of the sidebar. Serve doDiscover from the memoized walk, run it off the read loop, emit registered rows with partial:true on scan failure instead of failing, and collapse per-dir only for unregistered rows."
+status = "active"
+level = "task"
+category = "bug"
+urgency = "high"
+order = 150
+created = 2026-08-07
+tags = ["reliability"]
