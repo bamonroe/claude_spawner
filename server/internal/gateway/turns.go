@@ -265,9 +265,11 @@ func (s *Server) startCompress(sess *session.Session) bool {
 			log.Printf("forget rotated id %s: %v", oldID, ferr)
 		}
 		log.Printf("compress[%s] rotated to %s (seed %d bytes)", name, newID, len(summary))
-		// One self-describing reset carrying the rotated session_id (see doClear);
-		// the seeded next turn sets the new context size.
-		j.emit(msgContextReset(name, newID))
+		// One self-describing reset carrying old_id → new session_id (see doClear);
+		// the seeded next turn sets the new context size. Broadcast to every
+		// device — the hub's sinks only cover devices attached right now, and a
+		// device switched away would keep the retired id.
+		s.broadcastContextReset(name, oldID, newID)
 		j.finish(stampTurn(msgSay("compressed. carried a summary forward — your history is still here."), turnID))
 	}()
 	return true

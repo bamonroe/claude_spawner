@@ -370,9 +370,12 @@ func msgDetached() map[string]any {
 // session's PriorIDs), carried here so this reset is a single self-describing
 // event: the app re-keys to the new id and refreshes the cleared session's cached
 // rows off it, without overloading the `attached` (re-attach) message to mean
-// "the context rotated."
-func msgContextReset(name, sessionID string) map[string]any {
-	return map[string]any{"type": "context_reset", "name": name, "session_id": sessionID}
+// "the context rotated." `old_id` names the retired id explicitly so a device
+// that is NOT viewing this session (the frame is broadcast to every connection)
+// can remap whatever it keyed by the old id — its sidebar row, held digests,
+// cached history — instead of keeping a handle no session owns.
+func msgContextReset(name, oldID, sessionID string) map[string]any {
+	return map[string]any{"type": "context_reset", "name": name, "old_id": oldID, "session_id": sessionID}
 }
 
 // msgRenamed tells the app that the currently-attached session was renamed

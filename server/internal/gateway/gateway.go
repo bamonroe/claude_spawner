@@ -409,6 +409,29 @@ func (s *Server) broadcastRenamed(rec *session.Session, old, newName string) {
 	}
 }
 
+// broadcastContextReset pushes a context_reset id rotation (clear/compress) to
+// EVERY live connection — not just the sinks bound to the session's job hub.
+// The hub only reaches devices currently attached to the session, so a device
+// switched away at the wrong moment kept the retired id and later re-attached
+// by it; resolving that stale id is what minted phantom duplicate sessions.
+// The frame carries old_id→new id for the remap, and each connection also gets
+// a refreshed discovered list (served from the memoized walk, off this
+// goroutine) so its sidebar row re-keys immediately rather than on its next
+// manual refresh.
+func (s *Server) broadcastContextReset(name, oldID, newID string) {
+	s.connsMu.Lock()
+	cs := make([]*conn, 0, len(s.conns))
+	for c := range s.conns {
+		cs = append(cs, c)
+	}
+	s.connsMu.Unlock()
+	msg := msgContextReset(name, oldID, newID)
+	for _, c := range cs {
+		c.send(msg)
+		c.doDiscover()
+	}
+}
+
 // noticeMax bounds the `notice` summary. The frame is a heads-up, not a
 // transcript: a client renders it as a badge/toast, so a couple of sentences is
 // all that can be shown and all we ship.

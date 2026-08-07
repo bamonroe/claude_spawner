@@ -400,9 +400,11 @@ func (c *conn) doClear() {
 		log.Printf("forget rotated id %s: %v", oldID, ferr)
 	}
 	c.clearBuffer()
-	// One self-describing reset: it carries the rotated session_id, so the app
-	// re-keys and refreshes this session's rows off it — no `attached` re-emit.
-	c.send(msgContextReset(snap.Name, newID))
+	// One self-describing reset: it carries old_id → new session_id, so every
+	// device re-keys and refreshes this session's rows off it — no `attached`
+	// re-emit. Broadcast, not just this connection: a device switched away from
+	// the session would otherwise keep the retired id.
+	c.srv.broadcastContextReset(snap.Name, oldID, newID)
 	c.send(msgSay("cleared. starting fresh — your history is still here."))
 }
 
