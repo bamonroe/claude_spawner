@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "history-off-inbound-loop"
+title = "Serve history/digest off the gateway connection's serial inbound loop"
+description = "Child of [polish-efficiency-epic] via [scope-session-switch-lag]. Inbound messages dispatch serially per connection (gateway/conn.go:34), so on a switch the history request queues behind attach's transcript stats, and any concurrent discover/browse/turn blocks both. Run serveHistory (gateway/ops_history.go) in a goroutine with a small per-connection semaphore and per-session in-flight coalescing so prefetch bursts can't stampede; sends already serialize through wmu so write ordering stays safe."
+status = "finished"
+level = "task"
+category = "bug"
+created = 2026-08-07
+completed = 2026-08-07
+tags = ["polish", "performance"]
+
+[[task]]
 id = "register-discovered-ownsid-guard"
 title = "registerDiscovered must refuse ids an existing session already owns"
 description = "Child of [polish-efficiency-epic] via [scope-phantom-duplicate-sessions]. registerDiscovered (dialog.go:384) checks only GetBySessionID before minting a new dir-named record, so a retired PriorID transcript found on disk becomes a brand-new session named after the directory. Before minting, scan the store for any record where OwnsID(sessionID) is true and return that record instead; guarantee a discovered id whose chain belongs to a registered session can never produce a second row. Same fix covers the resolveSession fuzzy voice-attach path (ops_session.go:240-263)."
