@@ -213,11 +213,72 @@ func (s *Store) List() []*Session {
 	return out
 }
 
-// Put inserts or updates a session and persists the registry.
+// Insert registers a NEW record: it resolves rec's Name to one no existing
+// record holds (base, then "base-2", "base-3", …) and inserts into both indices
+// under ONE lock. This replaces the old resolve-then-Put pair, which was a
+// TOCTOU race: two concurrent adoptions/spawns in the same dir both computed
+// "spawner" and the second Put silently overwrote the first in byName — the
+// record vanished from List() while staying live in byID.
+//
+// Insert is also idempotent on the session_id, under the same lock: if any
+// registered record already owns rec's id (live, retired by clear/compress, or
+// archived by a backend switch), that record is returned and rec is NOT
+// inserted — two concurrent adoptions of one id can't mint duplicate records.
+// The returned *Session is therefore the record that owns the id after the
+// call: rec itself on a fresh insert, the existing owner otherwise.
+func (s *Store) Insert(rec *Session) (*Session, error) {
+	var base, id string
+	rec.Read(func(r *Session) { base, id = r.Name, r.SessionID })
+	s.mu.Lock()
+	if id != "" {
+		if existing := s.byID[id]; existing != nil {
+			s.mu.Unlock()
+			return existing, nil
+		}
+		for _, r := range s.byName {
+			if r.OwnsID(id) { // store→record lock order, same as List/GetByAnyID
+				s.mu.Unlock()
+				return r, nil
+			}
+		}
+	}
+	name := base
+	for i := 2; ; i++ {
+		if _, taken := s.byName[name]; !taken {
+			break
+		}
+		name = fmt.Sprintf("%s-%d", base, i)
+	}
+	if name != base {
+		rec.Mutate(func(r *Session) { r.Name = name })
+	}
+	s.byName[name] = rec
+	if id != "" {
+		s.byID[id] = rec
+	}
+	s.mu.Unlock()
+	return rec, s.flush()
+}
+
+// Put updates a session (use Insert to register a new one — Put does no name
+// allocation) and persists the registry. Any stale index key still pointing at
+// this record — an old name, or a session_id rotated away by clear/compress —
+// is purged in the same locked pass, so an index entry can never shadow or leak
+// a record whose keys have moved on.
 func (s *Store) Put(rec *Session) error {
 	var name, id string
 	rec.Read(func(r *Session) { name, id = r.Name, r.SessionID })
 	s.mu.Lock()
+	for k, r := range s.byName {
+		if r == rec && k != name {
+			delete(s.byName, k)
+		}
+	}
+	for k, r := range s.byID {
+		if r == rec && k != id {
+			delete(s.byID, k)
+		}
+	}
 	s.byName[name] = rec
 	if id != "" {
 		s.byID[id] = rec
@@ -226,13 +287,17 @@ func (s *Store) Put(rec *Session) error {
 	return s.flush()
 }
 
-// Delete removes a session and persists the registry.
+// Delete removes a session and persists the registry, purging EVERY id-index
+// entry that points at the record — its live session_id and any retired chain
+// id still indexed — so a deleted session can't be resolved by a stale id.
 func (s *Store) Delete(name string) error {
 	s.mu.Lock()
 	if rec := s.byName[name]; rec != nil {
-		var id string
-		rec.Read(func(r *Session) { id = r.SessionID })
-		delete(s.byID, id)
+		for k, r := range s.byID {
+			if r == rec {
+				delete(s.byID, k)
+			}
+		}
 	}
 	delete(s.byName, name)
 	s.mu.Unlock()
@@ -296,9 +361,31 @@ func (s *Store) flush() error {
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
 		return err
 	}
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+	// A UNIQUE temp file per flush, not a fixed "<path>.tmp": concurrent flushes
+	// (two Puts/Inserts racing) would share the fixed name and one's rename would
+	// yank the file out from under the other's write. Each flush snapshots the
+	// whole registry, so whichever rename lands last leaves a complete, current
+	// file either way.
+	tmp, err := os.CreateTemp(filepath.Dir(s.path), filepath.Base(s.path)+".tmp*")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, s.path)
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(tmp.Name())
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmp.Name())
+		return err
+	}
+	if err := os.Chmod(tmp.Name(), 0o600); err != nil {
+		os.Remove(tmp.Name())
+		return err
+	}
+	if err := os.Rename(tmp.Name(), s.path); err != nil {
+		os.Remove(tmp.Name())
+		return err
+	}
+	return nil
 }

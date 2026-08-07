@@ -542,14 +542,17 @@ func (c *conn) doStatus() {
 // outlives this connection — so a long job keeps running if the app disconnects,
 // and its result is delivered on reconnect. Only one turn per session at a time.
 
-// newSession builds a durable record with a generated session_id, ensuring a
-// unique name derived from base.
+// newSession builds a durable record with a generated session_id. The name is
+// the raw base — persisting via Store.Insert (never Put) is what resolves it to
+// a unique one, atomically at insert time. Resolving here and Putting later was
+// a TOCTOU race: a concurrent spawn/adoption could take the name in between and
+// the later Put would silently overwrite it.
 func (c *conn) newSession(base, dir string, target session.Target, agentID, profileID string) (*session.Session, error) {
 	id, err := session.NewSessionID()
 	if err != nil {
 		return nil, err
 	}
-	s := &session.Session{Name: c.srv.uniqueName(base), Dir: dir, SessionID: id, Target: target}
+	s := &session.Session{Name: base, Dir: dir, SessionID: id, Target: target}
 	// Stamp the AI backend and its default model — spawn chooses the model for you
 	// ("use model N" switches it later). agentID empty/unknown resolves to the
 	// default backend (Claude), so the visual picker (no backend choice yet) and

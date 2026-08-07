@@ -1,7 +1,6 @@
 package gateway
 
 import (
-	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -306,7 +305,7 @@ func (c *conn) spawnAwaitTarget(text string) {
 func (c *conn) beginAttachQuestion(dir, prompt string, target session.Target) {
 	// A directory is just the session's initial working dir, not its identity — so
 	// this always mints a NEW session, even when the folder already hosts one (the
-	// name dedups to "<dir>-2" via newSession's uniqueName). Re-attaching to an
+	// name dedups to "<dir>-2" via Store.Insert at persist time). Re-attaching to an
 	// existing session is the attach flow's job, not re-spawning in its folder.
 	sess, err := c.newSession(sanitizeName(filepath.Base(dir)), dir, target, c.dlg.agentID, "")
 	if err != nil {
@@ -325,7 +324,7 @@ func (c *conn) spawnAwaitAttach(text string) {
 	switch {
 	case affirmative(text, c.wakePhrases()):
 		sess := c.dlg.sess
-		if perr := c.srv.store.Put(sess); perr != nil {
+		if _, perr := c.srv.store.Insert(sess); perr != nil {
 			c.fail("internal", perr.Error())
 			c.dlg = nil
 			return
@@ -346,7 +345,7 @@ func (c *conn) spawnAwaitAttach(text string) {
 		c.send(msgSay("attached to " + snap.Name + where))
 	case negative(text, c.wakePhrases()):
 		sess := c.dlg.sess
-		if perr := c.srv.store.Put(sess); perr != nil {
+		if _, perr := c.srv.store.Insert(sess); perr != nil {
 			c.fail("internal", perr.Error())
 			c.dlg = nil
 			return
@@ -359,38 +358,24 @@ func (c *conn) spawnAwaitAttach(text string) {
 	}
 }
 
-// uniqueName ensures the session name doesn't collide with an existing one.
-func (s *Server) uniqueName(base string) string {
-	if s.store.Get(base) == nil {
-		return base
-	}
-	for i := 2; ; i++ {
-		candidate := fmt.Sprintf("%s-%d", base, i)
-		if s.store.Get(candidate) == nil {
-			return candidate
-		}
-	}
-}
-
 // registerDiscovered creates and persists a store record for a discovered
 // Claude session (session_id + dir) that isn't in the registry yet, giving it a
 // unique auto-name from the directory basename. Shared by adopt / rename / fuzzy
 // voice-attach, which all "adopt" an on-disk session the same way.
 //
-// It is IDEMPOTENT on the session_id (the sole identity): if any registered
-// session OWNS this id — as its live SessionID, a PriorID retired by
-// clear/compress, or a History id from a backend switch — it returns that
+// Both guarantees live INSIDE Store.Insert, under one lock: the name dedups to
+// "<dir>-2" atomically (two concurrent adoptions can't steal each other's name),
+// and the insert is IDEMPOTENT on the session_id (the sole identity) — if any
+// registered session OWNS this id, as its live SessionID, a PriorID retired by
+// clear/compress, or a History id from a backend switch, Insert returns that
 // record instead of adding a second. A retired id's transcript stays on disk,
 // so discovery keeps finding it; without the owned-id check it would be minted
 // as a brand-new session named after the directory (the phantom duplicate). A
 // folder that already hosts a DIFFERENT session is fine — that's a distinct
-// session and this one's name simply dedups to "<dir>-2".
+// session and this one's name simply dedups.
 func (s *Server) registerDiscovered(sessionID, dir string) (*session.Session, error) {
-	if existing := s.store.GetByAnyID(sessionID); existing != nil {
-		return existing, nil
-	}
 	rec := &session.Session{
-		Name:      s.uniqueName(sanitizeName(filepath.Base(dir))),
+		Name:      sanitizeName(filepath.Base(dir)),
 		Dir:       dir,
 		SessionID: sessionID,
 		Started:   true,
@@ -399,10 +384,7 @@ func (s *Server) registerDiscovered(sessionID, dir string) (*session.Session, er
 		// the SSH executor now rejects.
 		Host: session.LocalHost,
 	}
-	if err := s.store.Put(rec); err != nil {
-		return nil, err
-	}
-	return rec, nil
+	return s.store.Insert(rec)
 }
 
 // sanitizeName keeps a session name to safe characters.

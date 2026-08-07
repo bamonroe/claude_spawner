@@ -141,7 +141,7 @@ func (c *conn) doSpawnAt(path string, target session.Target, create bool, host, 
 	// A directory is just the session's initial working dir, not its identity — so a
 	// spawn always mints a NEW session even when the folder already hosts one. The
 	// name collides on the folder basename and dedups to "<dir>-2", "-3", … (via
-	// newSession's uniqueName). Re-attaching to an existing session is the session
+	// Store.Insert at persist time). Re-attaching to an existing session is the session
 	// list's job (the attach message), not re-picking its directory.
 	base := name
 	if base == "" {
@@ -165,7 +165,7 @@ func (c *conn) doSpawnAt(path string, target session.Target, create bool, host, 
 	if target != session.TargetSandbox {
 		sess.Host = wantHost
 	}
-	if perr := c.srv.store.Put(sess); perr != nil {
+	if _, perr := c.srv.store.Insert(sess); perr != nil {
 		c.fail("internal", perr.Error())
 		return nil
 	}
