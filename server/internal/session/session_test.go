@@ -332,3 +332,30 @@ func TestOwnsID(t *testing.T) {
 		}
 	}
 }
+
+func TestGetByAnyIDMatchesFullOwnedChain(t *testing.T) {
+	s, err := OpenStore(filepath.Join(t.TempDir(), "sessions.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := &Session{
+		Name:      "proj",
+		SessionID: "live",
+		PriorIDs:  []string{"cleared"},
+		History:   []HistorySegment{{Agent: "claude", IDs: []string{"archived"}}},
+	}
+	if err := s.Put(rec); err != nil {
+		t.Fatal(err)
+	}
+	// Every id the session has ever run under must resolve to it: the live id,
+	// one retired by clear/compress, and one archived by a backend switch. A miss
+	// on any of these sends callers down the adopt-a-duplicate path.
+	for _, id := range []string{"live", "cleared", "archived"} {
+		if got := s.GetByAnyID(id); got != rec {
+			t.Errorf("GetByAnyID(%q) = %v, want the owning record", id, got)
+		}
+	}
+	if got := s.GetByAnyID("stranger"); got != nil {
+		t.Errorf("GetByAnyID(stranger) = %v, want nil", got)
+	}
+}

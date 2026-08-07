@@ -100,8 +100,13 @@ func (c *conn) doAttachBy(sessionID, name string, silent bool) {
 		// An id is an EXACT handle. Resolving it by id and then re-resolving that
 		// name fuzzily would let a stale id fall through to a same-key collision
 		// ("claude-bam-store" vs "bamstore") and silently attach elsewhere, so an
-		// id request is answered by id or not at all.
-		s := c.srv.store.GetBySessionID(sessionID)
+		// id request is answered by id or not at all. GetByAnyID, not
+		// GetBySessionID: an auto-compress/clear rotates the live id while the app
+		// is away, so the id the app attaches by may be one the session retired —
+		// it must resolve to that same session, never fall through to adoption
+		// (which would mint a phantom duplicate). attachTo's `attached` frame
+		// carries the CURRENT session_id, which re-keys the client.
+		s := c.srv.store.GetByAnyID(sessionID)
 		if s == nil {
 			s = c.srv.adoptDiscoveredID(sessionID)
 			if s != nil {
@@ -153,13 +158,18 @@ func (c *conn) selectClientSession(sessionID string) bool {
 	}
 	// A "clear"/"compress" rotates the attached session's id and retires (ForgetID)
 	// the old one, but the app keeps routing by that pre-rotation id until it sees a
-	// fresh `attached` — which a context_reset doesn't send. So a stale id that is a
-	// PriorID of the session we're already on just means "the session I'm attached
-	// to"; stay on it instead of erroring with "that session is gone."
-	if c.attached != nil && c.attached.HasPriorID(sessionID) {
+	// fresh `attached` — which a context_reset doesn't send. So a stale id owned by
+	// the session we're already on just means "the session I'm attached to": stay on
+	// it, and re-send `attached` with the CURRENT session_id so the client re-keys
+	// and stops routing by the retired id.
+	if c.attached != nil && c.attached.OwnsID(sessionID) {
+		c.send(msgAttached(c.attached, c.srv.driver.SessionContextUsage(c.attached)))
 		return true
 	}
-	s := c.srv.store.GetBySessionID(sessionID)
+	// GetByAnyID: the declared id may have rotated while this device was showing
+	// it — it still names that session, and the `attached` reply below re-keys the
+	// client onto the live id.
+	s := c.srv.store.GetByAnyID(sessionID)
 	if s == nil {
 		c.send(msgSay("that session is gone."))
 		return false

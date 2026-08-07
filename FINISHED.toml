@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "attach-by-any-owned-id"
+title = "Resolve attach by any owned id, not byID alone; re-key client on rotated ids"
+description = "Child of [polish-efficiency-epic] via [scope-phantom-duplicate-sessions]. Root cause of the phantom 'claude_spawner' session: auto-compress rotates SessionID and ForgetID()s the old one, the app attaches with the stale id, doAttachBy (ops_session.go:98) resolves via GetBySessionID only, misses, and falls into implicit adoption. Change doAttachBy and selectClientSession to resolve via GetByAnyID, extended to also match History[].IDs via Session.OwnsID. When an id resolves to a rotated record, reply with a fresh attached carrying the current session_id so the client re-keys."
+status = "finished"
+level = "task"
+category = "bug"
+created = 2026-08-07
+completed = 2026-08-07
+tags = ["reliability"]
+
+[[task]]
 id = "scope-phantom-duplicate-sessions"
 title = "Scope: duplicate/missing sessions under load (phantom directory-named session)"
 description = "Child scope of [polish-efficiency-epic]. Under server load and rapid session switching, session names occasionally go missing from the list, and the system has created a brand-new session named after the working directory (e.g. 'claude_spawner') instead of reusing the existing 'spawner' session — with no spawn requested. Investigate the session identity/naming path: how sessions are keyed, how the list is built, what happens when a turn runs against a session whose id lookup fails or races, and where a fallback could silently create a new transcript/session. Output: concrete child tasks, not code."

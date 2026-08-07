@@ -178,11 +178,13 @@ func (s *Store) GetBySessionID(id string) *Session {
 	return s.byID[id]
 }
 
-// GetByAnyID resolves a session by its live SessionID or by any of the ids it
-// retired via a "clear"/"compress" context rotation (PriorIDs). A caller holding
-// a pre-rotation id — e.g. a "previous session" pointer captured before that
-// session was cleared/compressed — still finds the live record. Falls back to a
-// PriorIDs scan only when the fast byID lookup misses.
+// GetByAnyID resolves a session by any transcript id it has ever run under: its
+// live SessionID, an id retired via a "clear"/"compress" context rotation
+// (PriorIDs), or an id archived by a backend switch (History). A caller holding
+// a pre-rotation id — e.g. an app attaching by an id that rotated while it was
+// away, or a "previous session" pointer captured before a clear — still finds
+// the live record. Falls back to an OwnsID scan only when the fast byID lookup
+// misses.
 func (s *Store) GetByAnyID(id string) *Session {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -190,7 +192,7 @@ func (s *Store) GetByAnyID(id string) *Session {
 		return rec
 	}
 	for _, rec := range s.byName {
-		if rec.HasPriorID(id) {
+		if rec.OwnsID(id) {
 			return rec
 		}
 	}
