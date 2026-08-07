@@ -108,12 +108,17 @@ func (c *conn) doAttachBy(sessionID, name string, silent bool) {
 		// carries the CURRENT session_id, which re-keys the client.
 		s := c.srv.store.GetByAnyID(sessionID)
 		if s == nil {
-			s = c.srv.adoptDiscoveredID(sessionID)
-			if s != nil {
-				c.sendSessionList()
-			}
-		}
-		if s == nil {
+			// NO implicit adoption here. An attach-by-id that misses the registry
+			// used to silently adopt a matching on-disk transcript — which is how a
+			// registry record briefly lost to a race (or a stale client id) minted a
+			// phantom duplicate session alongside the real one. Adoption is an
+			// explicit user action (adopt / rename_discovered / the discover sheet);
+			// an unresolvable id is answered loudly and does nothing else. The log
+			// carries what the miss looked like so this class of bug stays
+			// diagnosable: whether the id exists as a transcript on disk, and where.
+			dir, onDisk := c.srv.discoveredDirOf(sessionID)
+			log.Printf("attach: unknown session id %s (name %q, transcript on disk: %v, dir %q) — refusing to implicitly adopt",
+				sessionID, name, onDisk, dir)
 			c.attachFailed(sessionID, name, "unknown_session", silent,
 				"that session isn't here.")
 			return
@@ -272,21 +277,16 @@ func (c *conn) resolveSession(spoken string) *session.Session {
 	return nil
 }
 
-// adoptDiscoveredID resolves a session_id the registry doesn't hold against the
-// sessions on disk — by EXACT id, never fuzzily — and adopts the match so it can
-// be driven. nil when the id isn't on disk (or the walk hasn't landed yet, in
-// which case the caller nacks and the client's retry hits the warm memo).
-func (s *Server) adoptDiscoveredID(sessionID string) *session.Session {
+// discoveredDirOf reports whether sessionID exists as a transcript on disk (per
+// the attach-discovery memo) and the directory it lives in. Diagnostic only —
+// attach never adopts from this; see doAttachBy.
+func (s *Server) discoveredDirOf(sessionID string) (dir string, onDisk bool) {
 	for _, d := range s.discoverForAttach() {
-		if d.SessionID != sessionID {
-			continue
+		if d.SessionID == sessionID {
+			return d.Dir, true
 		}
-		if rec, err := s.registerDiscovered(d.SessionID, d.Dir); err == nil {
-			return rec
-		}
-		return nil
 	}
-	return nil
+	return "", false
 }
 
 // doSetWhisperModel changes a resident whisper server's model (server-global) —
