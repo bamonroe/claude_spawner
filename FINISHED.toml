@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "register-discovered-ownsid-guard"
+title = "registerDiscovered must refuse ids an existing session already owns"
+description = "Child of [polish-efficiency-epic] via [scope-phantom-duplicate-sessions]. registerDiscovered (dialog.go:384) checks only GetBySessionID before minting a new dir-named record, so a retired PriorID transcript found on disk becomes a brand-new session named after the directory. Before minting, scan the store for any record where OwnsID(sessionID) is true and return that record instead; guarantee a discovered id whose chain belongs to a registered session can never produce a second row. Same fix covers the resolveSession fuzzy voice-attach path (ops_session.go:240-263)."
+status = "finished"
+level = "task"
+category = "bug"
+created = 2026-08-07
+completed = 2026-08-07
+tags = ["reliability"]
+
+[[task]]
 id = "attach-by-any-owned-id"
 title = "Resolve attach by any owned id, not byID alone; re-key client on rotated ids"
 description = "Child of [polish-efficiency-epic] via [scope-phantom-duplicate-sessions]. Root cause of the phantom 'claude_spawner' session: auto-compress rotates SessionID and ForgetID()s the old one, the app attaches with the stale id, doAttachBy (ops_session.go:98) resolves via GetBySessionID only, misses, and falls into implicit adoption. Change doAttachBy and selectClientSession to resolve via GetByAnyID, extended to also match History[].IDs via Session.OwnsID. When an id resolves to a rotated record, reply with a fresh attached carrying the current session_id so the client re-keys."

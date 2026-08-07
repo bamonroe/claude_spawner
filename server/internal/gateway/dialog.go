@@ -377,12 +377,16 @@ func (s *Server) uniqueName(base string) string {
 // unique auto-name from the directory basename. Shared by adopt / rename / fuzzy
 // voice-attach, which all "adopt" an on-disk session the same way.
 //
-// It is IDEMPOTENT on the session_id (the sole identity): if this session_id is
-// already registered it returns that record instead of adding a second. A folder
-// that already hosts a DIFFERENT session is fine — that's a distinct session and
-// this one's name simply dedups to "<dir>-2".
+// It is IDEMPOTENT on the session_id (the sole identity): if any registered
+// session OWNS this id — as its live SessionID, a PriorID retired by
+// clear/compress, or a History id from a backend switch — it returns that
+// record instead of adding a second. A retired id's transcript stays on disk,
+// so discovery keeps finding it; without the owned-id check it would be minted
+// as a brand-new session named after the directory (the phantom duplicate). A
+// folder that already hosts a DIFFERENT session is fine — that's a distinct
+// session and this one's name simply dedups to "<dir>-2".
 func (s *Server) registerDiscovered(sessionID, dir string) (*session.Session, error) {
-	if existing := s.store.GetBySessionID(sessionID); existing != nil {
+	if existing := s.store.GetByAnyID(sessionID); existing != nil {
 		return existing, nil
 	}
 	rec := &session.Session{

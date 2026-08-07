@@ -105,18 +105,6 @@ created = 2026-08-07
 tags = ["polish", "performance"]
 
 [[task]]
-id = "register-discovered-ownsid-guard"
-title = "registerDiscovered must refuse ids an existing session already owns"
-description = "Child of [polish-efficiency-epic] via [scope-phantom-duplicate-sessions]. registerDiscovered (dialog.go:384) checks only GetBySessionID before minting a new dir-named record, so a retired PriorID transcript found on disk becomes a brand-new session named after the directory. Before minting, scan the store for any record where OwnsID(sessionID) is true and return that record instead; guarantee a discovered id whose chain belongs to a registered session can never produce a second row. Same fix covers the resolveSession fuzzy voice-attach path (ops_session.go:240-263)."
-status = "active"
-level = "task"
-category = "bug"
-urgency = "critical"
-order = 110
-created = 2026-08-07
-tags = ["reliability"]
-
-[[task]]
 id = "no-implicit-adopt"
 title = "Never implicitly adopt on attach-by-id miss — fail loudly instead"
 description = "Child of [polish-efficiency-epic] via [scope-phantom-duplicate-sessions]. Drop the adoptDiscoveredID fallback from doAttachBy (ops_session.go:104-109); an unresolvable id answers attach_failed{reason:unknown_session} and nothing else. Adoption stays an explicit user action (adopt, rename_discovered, discover sheet). Log the miss with id, dir, and whether a transcript exists so this bug class is diagnosable, not silent."
