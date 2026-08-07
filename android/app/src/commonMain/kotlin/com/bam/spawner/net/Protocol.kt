@@ -62,7 +62,7 @@ sealed interface ServerMsg {
     // Claude context cleared/compressed → drop token accounting. sessionId is the
     // NEW rotated session_id the clear/compress produced (the transcript was wiped/
     // summarized under the same name); empty from an old server (meter-reset only).
-    data class ContextReset(val name: String, val sessionId: String = "") : ServerMsg
+    data class ContextReset(val name: String, val oldId: String = "", val sessionId: String = "") : ServerMsg
     data class Renamed(val old: String, val name: String, val sessionId: String = "") : ServerMsg // attached session renamed → update title in place (matched by id)
     // Out-of-band heads-up about ANOTHER session (today: an eagerly-notified
     // background job that finished while nothing was attached). Only sent to
@@ -147,7 +147,7 @@ sealed interface ServerMsg {
                 "attached" -> Attached(o.str("name"), o.str("session_id"), readUsage(o.obj("usage")), o.long("usage_at"), o.str("agent"), o.str("model"), o.str("profile"))
                 "attach_failed" -> AttachFailed(o.str("session_id"), o.str("name"), o.str("reason"))
                 "detached" -> Detached
-                "context_reset" -> ContextReset(o.str("name"), o.str("session_id"))
+                "context_reset" -> ContextReset(o.str("name"), o.str("old_id"), o.str("session_id"))
                 "renamed" -> Renamed(o.str("old"), o.str("name"), o.str("session_id"))
                 "notice" -> Notice(o.str("name"), o.str("session_id"), o.str("text"))
                 "output" -> Output(o.str("name"), o.str("text"), o.bool("chunk", false), readUsage(o.obj("usage")), o.long("usage_at"), o.str("turn"), o.str("session_id"), readTurnStats(o), o.long("seq"))

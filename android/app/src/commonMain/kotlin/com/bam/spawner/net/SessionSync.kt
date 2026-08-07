@@ -203,6 +203,23 @@ class SessionSync(private val host: Host) {
     }
 
     /**
+     * A context rotation (clear/compress) retired [oldId] for [newId] — broadcast to every
+     * device, not just the one attached. Re-key the attach history in place so the swap
+     * gesture and the radial palette keep pointing at the (same, live) session instead of a
+     * handle no session owns, and drop the old id's digest/freshness state: its transcript
+     * was wiped or summarized, so the next fetch re-establishes both under the new id.
+     */
+    fun remapId(oldId: String, newId: String) {
+        if (oldId.isBlank() || newId.isBlank() || oldId == newId) return
+        val next = history().map { if (it == oldId) newId else it }.distinct()
+        if (next != attachHistory) {
+            attachHistory = next
+            host.saveAttachHistory(next)
+        }
+        drop(oldId)
+    }
+
+    /**
      * (Re)attach freshness: always refetch the recent history page so a session that
      * advanced while we viewed another — or while we were detached from it entirely and
      * so never received its live output — isn't left stale. The held hash rides along, so

@@ -110,20 +110,27 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
         is ServerMsg.ContextReset -> {
             router.usageFor(router.keyOf(msg.sessionId), null) // context cleared → the attached session's status bar returns to 0
             // A clear/compress rotates the session_id server-side and wipes/summarizes the
-            // transcript. The rotation bridges OLD id → NEW id by name (the reset is for the
-            // attached session): drop the retired old id's rows, re-key the view + attached id
-            // to the fresh one, and refetch. An old server omits session_id → meter reset only.
-            // The attach-StateFlow/prefs choreography stays here; the router owns the log/keying.
-            if (msg.sessionId.isNotEmpty() && _attachedName.value == msg.name) {
-                val oldId = _attachedId.value
-                _attachedId.value = msg.sessionId
-                prefs.lastSessionId = msg.sessionId
+            // transcript. The frame is BROADCAST to every device and names the retirement
+            // explicitly (old_id → session_id): remap everything keyed by the old id even
+            // when this device is attached elsewhere — keeping it meant later attaching by
+            // a handle no session owns. An old server omits old_id → fall back to the
+            // by-name bridge (helps only the attached device, as before); an omitted
+            // session_id → meter reset only.
+            val oldId = msg.oldId.ifEmpty { if (_attachedName.value == msg.name) _attachedId.value else "" }
+            if (msg.sessionId.isNotEmpty() && oldId.isNotEmpty() && oldId != msg.sessionId) {
+                session.remapId(oldId, msg.sessionId) // swap/palette history + held digest
                 val wasViewing = router.currentId == oldId
+                if (_attachedId.value == oldId) {
+                    _attachedId.value = msg.sessionId
+                    prefs.lastSessionId = msg.sessionId
+                }
                 if (wasViewing) router.currentId = msg.sessionId
                 router.dropSessionCache(oldId) // retired id's transcript wiped/summarized: forget rows + digests
                 bridgeTo.remove(oldId) // no gap left to bridge on a retired id
-                if (wasViewing) router.publish() // reflect the fresh (empty) new-id view
-                session.requestFreshHistory(msg.sessionId, msg.name)
+                if (wasViewing) {
+                    router.publish() // reflect the fresh (empty) new-id view
+                    session.requestFreshHistory(msg.sessionId, msg.name)
+                }
             }
         }
         is ServerMsg.Activity -> router.onActivity(msg)

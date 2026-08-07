@@ -267,18 +267,31 @@ internal fun VoiceController.onWhisperDownload(msg: ServerMsg.WhisperDownload) {
 
 internal fun VoiceController.onContextReset(msg: ServerMsg.ContextReset) {
     router.usageFor(msg.sessionId.ifEmpty { router.currentId }, null) // context cleared → the attached session's status bar returns to 0
+    if (msg.sessionId.isEmpty()) return // old server: meter reset only
     // A clear/compress rotates the session_id server-side and wipes/summarizes the
-    // transcript. The rotation bridges OLD id → NEW id by name (the reset is for the
-    // attached session): drop the retired old id's rows, re-key the view + attached id
-    // to the fresh one, and refetch. An old server omits session_id → meter reset only.
-    // The attach-StateFlow/prefs choreography stays here; the router owns the log/keying.
-    if (msg.sessionId.isNotEmpty() && _attachedName.value == msg.name) {
-        val oldId = _attachedId.value
+    // transcript. The frame is BROADCAST to every device and names the retirement
+    // explicitly (old_id → session_id) — this device may be attached elsewhere and
+    // still hold the retired id in its sidebar, swap history, or caches; keeping it
+    // meant later attaching by a handle no session owns (the phantom-duplicate
+    // setup). Remap everything keyed by the old id, then refresh whatever this
+    // device is actually looking at. An old server omits old_id → fall back to the
+    // by-name bridge (the reset then only helps the attached device, as before).
+    val oldId = msg.oldId.ifEmpty { if (_attachedName.value == msg.name) _attachedId.value else "" }
+    if (oldId.isEmpty() || oldId == msg.sessionId) return
+    session.remapId(oldId, msg.sessionId) // swap/palette history + held digest
+    // Re-key the sidebar row in place so the list stays correct until the server's
+    // refreshed discovered push (sent with the broadcast) lands.
+    _discovered.value = _discovered.value.map {
+        if (it.sessionId == oldId) it.copy(sessionId = msg.sessionId) else it
+    }
+    val wasViewing = router.currentId == oldId
+    dropSessionCache(oldId) // retired id's transcript wiped/summarized: forget rows + digests
+    if (_attachedId.value == oldId) {
         _attachedId.value = msg.sessionId
         settings.lastSessionId = msg.sessionId
-        val wasViewing = router.currentId == oldId
-        dropSessionCache(oldId) // retired id's transcript wiped/summarized: forget rows + digests
-        if (wasViewing) showLog(msg.sessionId) // switch the view to the fresh (empty) id
+    }
+    if (wasViewing) {
+        showLog(msg.sessionId) // switch the view to the fresh id
         session.requestFreshHistory(msg.sessionId, msg.name)
     }
 }
