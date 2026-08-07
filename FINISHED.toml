@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "switch-ui-thread-work"
+title = "Take dedupe/persist off the session-switch UI thread; collapse switch state writes"
+description = "Child of [polish-efficiency-epic] via [scope-session-switch-lag]. showLog (VoiceControllerMessages.kt:434) runs persist(previousId) with a dedupe over up to 2000 rows on the main thread, and applyCached re-dedupes already-deduped cached rows. Defer persist to a background coroutine (the memory map is authoritative), drop the redundant dedupe in applyCached, and collapse the ~8 separate StateFlow writes in focusKnownSession (:121-132) into one attached-session state object so a switch causes one recomposition instead of eight."
+status = "finished"
+level = "task"
+category = "bug"
+created = 2026-08-07
+completed = 2026-08-07
+tags = ["polish", "performance"]
+
+[[task]]
 id = "broadcast-context-reset"
 title = "Broadcast context_reset id rotations to every device"
 description = "Child of [polish-efficiency-epic] via [scope-phantom-duplicate-sessions]. context_reset after compress/clear (turns.go:266, doClear) reaches only sinks bound to that session's job hub, so a device switched away at the wrong moment keeps the retired id — the setup for the phantom-session bug. Add a server-wide broadcast of old_id→new_id (like broadcastRenamed) plus an unsolicited discovered push, and have the client remap attachHistory, digestHeld, and the sidebar row by old id."

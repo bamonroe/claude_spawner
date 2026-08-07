@@ -33,18 +33,6 @@ created = 2026-08-07
 tags = ["polish", "performance"]
 
 [[task]]
-id = "switch-ui-thread-work"
-title = "Take dedupe/persist off the session-switch UI thread; collapse switch state writes"
-description = "Child of [polish-efficiency-epic] via [scope-session-switch-lag]. showLog (VoiceControllerMessages.kt:434) runs persist(previousId) with a dedupe over up to 2000 rows on the main thread, and applyCached re-dedupes already-deduped cached rows. Defer persist to a background coroutine (the memory map is authoritative), drop the redundant dedupe in applyCached, and collapse the ~8 separate StateFlow writes in focusKnownSession (:121-132) into one attached-session state object so a switch causes one recomposition instead of eight."
-status = "active"
-level = "task"
-category = "bug"
-urgency = "high"
-order = 50
-created = 2026-08-07
-tags = ["polish", "performance"]
-
-[[task]]
 id = "transcript-prefetcher"
 title = "Background transcript prefetcher for non-focused sessions"
 description = "Child of [polish-efficiency-epic] via [scope-session-switch-lag]. Add a TranscriptPrefetcher in commonMain next to SessionSync that, on discovered updates and when idle, issues history{have_hash} requests for the top-N most recently active non-focused sessions (throttled, <=2 in flight, paused while a turn streams), merging replies through the existing onHistory path so the local cache lands warm and current before the user taps. It must only touch router.logs and the disk cache — never router.currentId or _chat for non-viewed sessions."
