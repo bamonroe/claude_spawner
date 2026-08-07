@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "memoize-chain-stats"
+title = "Memoize chain stats so attach+history don't double-stat the transcript chain"
+description = "Child of [polish-efficiency-epic] via [scope-session-switch-lag]. On every switch, attach's SessionContextUsage (session/driver.go:706) and history's DisplayDigest (driver.go:519) each stat the entire transcript chain within milliseconds of each other — for SSH-hosted sessions that's a network round trip per file, twice. Add a short-TTL (~1-2s) per-session chainParts memo in the driver so the second call reuses the first's signature."
+status = "finished"
+level = "task"
+category = "bug"
+created = 2026-08-07
+completed = 2026-08-07
+tags = ["polish", "performance"]
+
+[[task]]
 id = "history-off-inbound-loop"
 title = "Serve history/digest off the gateway connection's serial inbound loop"
 description = "Child of [polish-efficiency-epic] via [scope-session-switch-lag]. Inbound messages dispatch serially per connection (gateway/conn.go:34), so on a switch the history request queues behind attach's transcript stats, and any concurrent discover/browse/turn blocks both. Run serveHistory (gateway/ops_history.go) in a goroutine with a small per-connection semaphore and per-session in-flight coalescing so prefetch bursts can't stampede; sends already serialize through wmu so write ordering stays safe."
