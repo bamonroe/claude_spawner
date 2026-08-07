@@ -19,3 +19,39 @@ add_proposed_work = "Add proposed features and tests as new tasks rather than lo
 remove_dropped_items = "Remove dropped items with a one-line why (`scripts/todo.sh remove <id> --reason`)."
 finish_work = "When a task is fully finished (built, tested, documented), run `scripts/todo.sh done <id>` to move it to FINISHED.toml — in the same commit that completes the work."
 scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/KMP app + web client. The historical phase roadmap stays in README.md."
+
+[[task]]
+id = "polish-efficiency-epic"
+title = "Polish and efficiency pass: fix UX lags and creeping bugs"
+description = "Umbrella epic for making the existing app pleasant, not for adding features. The Android APK (web client untested for ~a week) has accumulated polishy lag and small bugs: session switching is still laggy; the local transcript cache reads first but should be proactively refreshed from the server in the background; under server load, session names go missing and the app has spawned a duplicate session named after the directory (e.g. a new 'claude_spawner' session appearing alongside the existing 'spawner' session while rapidly swapping sessions, with no spawn requested). Work this epic by scoping concrete problem areas into child scope/task items and shipping them incrementally. Explicitly out of scope: any new feature."
+status = "active"
+level = "epic"
+category = "bug"
+urgency = "high"
+order = 10
+created = 2026-08-07
+tags = ["polish", "performance"]
+
+[[task]]
+id = "scope-session-switch-lag"
+title = "Scope: session-switch lag and background transcript cache refresh"
+description = "Child scope of [polish-efficiency-epic]. Investigate why switching sessions in the Android app is still laggy despite the cache-first transcript read, and design a background refresh: the app should proactively fetch the latest server transcripts into the local cache (for recently-used or all sessions) so a switch lands on warm, current data instead of waiting on the server fill-in. Trace the switch path client-side (what blocks the UI, what round-trips happen, what renders when) and server-side (transcript fetch cost). Output: concrete child tasks, not code."
+status = "active"
+level = "scope"
+category = "bug"
+urgency = "high"
+order = 20
+created = 2026-08-07
+tags = ["polish", "performance"]
+
+[[task]]
+id = "scope-phantom-duplicate-sessions"
+title = "Scope: duplicate/missing sessions under load (phantom directory-named session)"
+description = "Child scope of [polish-efficiency-epic]. Under server load and rapid session switching, session names occasionally go missing from the list, and the system has created a brand-new session named after the working directory (e.g. 'claude_spawner') instead of reusing the existing 'spawner' session — with no spawn requested. Investigate the session identity/naming path: how sessions are keyed, how the list is built, what happens when a turn runs against a session whose id lookup fails or races, and where a fallback could silently create a new transcript/session. Output: concrete child tasks, not code."
+status = "active"
+level = "scope"
+category = "bug"
+urgency = "high"
+order = 30
+created = 2026-08-07
+tags = ["polish", "reliability"]
