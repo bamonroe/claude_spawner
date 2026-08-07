@@ -91,15 +91,3 @@ urgency = "high"
 order = 140
 created = 2026-08-07
 tags = ["reliability"]
-
-[[task]]
-id = "resilient-discover"
-title = "Resilient discover: memoized walk off the read loop, partial results, no per-dir collapse for registered rows"
-description = "Child of [polish-efficiency-epic] via [scope-phantom-duplicate-sessions]. doDiscover runs an unmemoized disk walk on the connection's serial read loop and hard-fails the whole frame on any scan error, so under load the app gets no list at all; the per-dir dedupe in claudefs.go also gives registered dir-mates LastActive 0, sinking them out of the sidebar. Serve doDiscover from the memoized walk, run it off the read loop, emit registered rows with partial:true on scan failure instead of failing, and collapse per-dir only for unregistered rows."
-status = "active"
-level = "task"
-category = "bug"
-urgency = "high"
-order = 150
-created = 2026-08-07
-tags = ["reliability"]

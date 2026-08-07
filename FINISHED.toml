@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "resilient-discover"
+title = "Resilient discover: memoized walk off the read loop, partial results, no per-dir collapse for registered rows"
+description = "Child of [polish-efficiency-epic] via [scope-phantom-duplicate-sessions]. doDiscover runs an unmemoized disk walk on the connection's serial read loop and hard-fails the whole frame on any scan error, so under load the app gets no list at all; the per-dir dedupe in claudefs.go also gives registered dir-mates LastActive 0, sinking them out of the sidebar. Serve doDiscover from the memoized walk, run it off the read loop, emit registered rows with partial:true on scan failure instead of failing, and collapse per-dir only for unregistered rows."
+status = "finished"
+level = "task"
+category = "bug"
+created = 2026-08-07
+completed = 2026-08-07
+tags = ["reliability"]
+
+[[task]]
 id = "store-atomic-insert"
 title = "Atomic name allocation in Store: Insert under one lock; purge stale index keys"
 description = "Child of [polish-efficiency-epic] via [scope-phantom-duplicate-sessions]. uniqueName + Put is a TOCTOU race: two concurrent adoptions/spawns in the same dir both compute 'spawner' and the second Put silently overwrites the first in byName — the record vanishes from List() (the missing-names symptom) while staying live in byID. Add Store.Insert(rec) that resolves a unique name and inserts into both indices under one lock, replacing every uniqueName+Put pair; make Put delete stale byName keys and Delete purge every chain id from byID. Cover with a concurrent-adoption test asserting no record ever drops from List()."
