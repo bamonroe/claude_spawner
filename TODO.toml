@@ -33,18 +33,6 @@ created = 2026-08-07
 tags = ["polish", "performance"]
 
 [[task]]
-id = "scope-session-switch-lag"
-title = "Scope: session-switch lag and background transcript cache refresh"
-description = "Child scope of [polish-efficiency-epic]. Investigate why switching sessions in the Android app is still laggy despite the cache-first transcript read, and design a background refresh: the app should proactively fetch the latest server transcripts into the local cache (for recently-used or all sessions) so a switch lands on warm, current data instead of waiting on the server fill-in. Trace the switch path client-side (what blocks the UI, what round-trips happen, what renders when) and server-side (transcript fetch cost). Output: concrete child tasks, not code."
-status = "active"
-level = "scope"
-category = "bug"
-urgency = "high"
-order = 20
-created = 2026-08-07
-tags = ["polish", "performance"]
-
-[[task]]
 id = "scope-phantom-duplicate-sessions"
 title = "Scope: duplicate/missing sessions under load (phantom directory-named session)"
 description = "Child scope of [polish-efficiency-epic]. Under server load and rapid session switching, session names occasionally go missing from the list, and the system has created a brand-new session named after the working directory (e.g. 'claude_spawner') instead of reusing the existing 'spawner' session — with no spawn requested. Investigate the session identity/naming path: how sessions are keyed, how the list is built, what happens when a turn runs against a session whose id lookup fails or races, and where a fallback could silently create a new transcript/session. Output: concrete child tasks, not code."
@@ -55,3 +43,75 @@ urgency = "high"
 order = 30
 created = 2026-08-07
 tags = ["polish", "reliability"]
+
+[[task]]
+id = "prewarm-transcript-cache"
+title = "Pre-warm the transcript cache into memory at app startup"
+description = "Child of [polish-efficiency-epic] via [scope-session-switch-lag]. TranscriptCache.mem starts empty each launch, so the first switch to any session renders an empty chat until the disk read + JSON decode land (ensureLoaded in VoiceControllerMessages.kt:72-81) — the dominant switch lag. On controller init, launch an IO job that lists the cache dir and decodes the most recently modified entries into mem so peek hits on first switch. Add a bounded LRU on mem so the warm set stays capped; load still serves evicted entries."
+status = "active"
+level = "task"
+category = "bug"
+urgency = "high"
+order = 40
+created = 2026-08-07
+tags = ["polish", "performance"]
+
+[[task]]
+id = "switch-ui-thread-work"
+title = "Take dedupe/persist off the session-switch UI thread; collapse switch state writes"
+description = "Child of [polish-efficiency-epic] via [scope-session-switch-lag]. showLog (VoiceControllerMessages.kt:434) runs persist(previousId) with a dedupe over up to 2000 rows on the main thread, and applyCached re-dedupes already-deduped cached rows. Defer persist to a background coroutine (the memory map is authoritative), drop the redundant dedupe in applyCached, and collapse the ~8 separate StateFlow writes in focusKnownSession (:121-132) into one attached-session state object so a switch causes one recomposition instead of eight."
+status = "active"
+level = "task"
+category = "bug"
+urgency = "high"
+order = 50
+created = 2026-08-07
+tags = ["polish", "performance"]
+
+[[task]]
+id = "transcript-prefetcher"
+title = "Background transcript prefetcher for non-focused sessions"
+description = "Child of [polish-efficiency-epic] via [scope-session-switch-lag]. Add a TranscriptPrefetcher in commonMain next to SessionSync that, on discovered updates and when idle, issues history{have_hash} requests for the top-N most recently active non-focused sessions (throttled, <=2 in flight, paused while a turn streams), merging replies through the existing onHistory path so the local cache lands warm and current before the user taps. It must only touch router.logs and the disk cache — never router.currentId or _chat for non-viewed sessions."
+status = "active"
+level = "task"
+category = "feature"
+urgency = "high"
+order = 60
+created = 2026-08-07
+tags = ["polish", "performance"]
+
+[[task]]
+id = "use-digest-sweep"
+title = "Use the server digest sweep to prioritize prefetch instead of discarding it"
+description = "Child of [polish-efficiency-epic] via [scope-session-switch-lag]. The server already pushes a digest sweep on connect but the client throws it away (VoiceControllerMessages.kt:210-215, 'protocol no-op'). Replace that branch with a recordServerDigest sink and have the prefetcher fetch only sessions whose server hash differs from the locally held hash, newest-active first. Keep the per-attach have_hash round trip as the authoritative staleness check; digests are for prioritization only."
+status = "active"
+level = "task"
+category = "refactor"
+urgency = "normal"
+order = 70
+created = 2026-08-07
+tags = ["polish", "performance"]
+
+[[task]]
+id = "history-off-inbound-loop"
+title = "Serve history/digest off the gateway connection's serial inbound loop"
+description = "Child of [polish-efficiency-epic] via [scope-session-switch-lag]. Inbound messages dispatch serially per connection (gateway/conn.go:34), so on a switch the history request queues behind attach's transcript stats, and any concurrent discover/browse/turn blocks both. Run serveHistory (gateway/ops_history.go) in a goroutine with a small per-connection semaphore and per-session in-flight coalescing so prefetch bursts can't stampede; sends already serialize through wmu so write ordering stays safe."
+status = "active"
+level = "task"
+category = "bug"
+urgency = "high"
+order = 80
+created = 2026-08-07
+tags = ["polish", "performance"]
+
+[[task]]
+id = "memoize-chain-stats"
+title = "Memoize chain stats so attach+history don't double-stat the transcript chain"
+description = "Child of [polish-efficiency-epic] via [scope-session-switch-lag]. On every switch, attach's SessionContextUsage (session/driver.go:706) and history's DisplayDigest (driver.go:519) each stat the entire transcript chain within milliseconds of each other — for SSH-hosted sessions that's a network round trip per file, twice. Add a short-TTL (~1-2s) per-session chainParts memo in the driver so the second call reuses the first's signature."
+status = "active"
+level = "task"
+category = "bug"
+urgency = "normal"
+order = 90
+created = 2026-08-07
+tags = ["polish", "performance"]
