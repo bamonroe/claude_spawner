@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "store-atomic-insert"
+title = "Atomic name allocation in Store: Insert under one lock; purge stale index keys"
+description = "Child of [polish-efficiency-epic] via [scope-phantom-duplicate-sessions]. uniqueName + Put is a TOCTOU race: two concurrent adoptions/spawns in the same dir both compute 'spawner' and the second Put silently overwrites the first in byName — the record vanishes from List() (the missing-names symptom) while staying live in byID. Add Store.Insert(rec) that resolves a unique name and inserts into both indices under one lock, replacing every uniqueName+Put pair; make Put delete stale byName keys and Delete purge every chain id from byID. Cover with a concurrent-adoption test asserting no record ever drops from List()."
+status = "finished"
+level = "task"
+category = "bug"
+created = 2026-08-07
+completed = 2026-08-07
+tags = ["reliability"]
+
+[[task]]
 id = "no-implicit-adopt"
 title = "Never implicitly adopt on attach-by-id miss — fail loudly instead"
 description = "Child of [polish-efficiency-epic] via [scope-phantom-duplicate-sessions]. Drop the adoptDiscoveredID fallback from doAttachBy (ops_session.go:104-109); an unresolvable id answers attach_failed{reason:unknown_session} and nothing else. Adoption stays an explicit user action (adopt, rename_discovered, discover sheet). Log the miss with id, dir, and whether a transcript exists so this bug class is diagnosable, not silent."

@@ -81,18 +81,6 @@ created = 2026-08-07
 tags = ["polish", "performance"]
 
 [[task]]
-id = "store-atomic-insert"
-title = "Atomic name allocation in Store: Insert under one lock; purge stale index keys"
-description = "Child of [polish-efficiency-epic] via [scope-phantom-duplicate-sessions]. uniqueName + Put is a TOCTOU race: two concurrent adoptions/spawns in the same dir both compute 'spawner' and the second Put silently overwrites the first in byName — the record vanishes from List() (the missing-names symptom) while staying live in byID. Add Store.Insert(rec) that resolves a unique name and inserts into both indices under one lock, replacing every uniqueName+Put pair; make Put delete stale byName keys and Delete purge every chain id from byID. Cover with a concurrent-adoption test asserting no record ever drops from List()."
-status = "active"
-level = "task"
-category = "bug"
-urgency = "high"
-order = 130
-created = 2026-08-07
-tags = ["reliability"]
-
-[[task]]
 id = "broadcast-context-reset"
 title = "Broadcast context_reset id rotations to every device"
 description = "Child of [polish-efficiency-epic] via [scope-phantom-duplicate-sessions]. context_reset after compress/clear (turns.go:266, doClear) reaches only sinks bound to that session's job hub, so a device switched away at the wrong moment keeps the retired id — the setup for the phantom-session bug. Add a server-wide broadcast of old_id→new_id (like broadcastRenamed) plus an unsolicited discovered push, and have the client remap attachHistory, digestHeld, and the sidebar row by old id."
