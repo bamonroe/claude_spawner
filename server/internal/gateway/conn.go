@@ -56,6 +56,10 @@ type conn struct {
 
 	digestSweeping atomic.Bool // a transcript-digest sweep is running off the inbound loop; see startDigestSweep
 
+	historyMu   sync.Mutex      // guards historySem/historyBusy init and mutation (read loop + history goroutines)
+	historySem  chan struct{}   // bounds concurrent off-loop history reads; see startHistory
+	historyBusy map[string]bool // sessions with a top-page history read in flight (coalesces prefetch bursts)
+
 	attachedMu    sync.Mutex       // guards attached for cross-goroutine readers; see setAttached
 	attached      *session.Session // non-nil when in passthrough mode
 	prevSessionID string           // session_id of the session attached just before this one — the "swap" target (survives renames)

@@ -10,6 +10,58 @@ import (
 	"github.com/bam/claude_spawner/server/internal/session"
 )
 
+// historyConcurrency bounds how many history reads one connection runs at once.
+// History is served OFF the inbound loop (see startHistory), so a burst of
+// prefetch requests could otherwise open one transcript read per request; a
+// small pool keeps the disk/SSH fan-out bounded while still letting a switch's
+// history overlap an attach.
+const historyConcurrency = 4
+
+// startHistory serves a history request off the connection's serial inbound
+// loop. Inbound messages dispatch one at a time, so serving history inline made
+// a switch's history request queue behind attach's transcript stats — and any
+// concurrent discover/browse/turn blocked both. The read itself is safe off the
+// loop: it touches only the store and the driver (both internally locked), and
+// replies serialize through wmu like every other cross-goroutine send.
+//
+// Top-page requests (before == nil) coalesce per session: a request arriving
+// while one for the same session is already in flight is dropped, because the
+// running read's reply answers it too — that stops a prefetch burst from
+// stampeding the same transcript. Paging requests (before != nil) always run;
+// their cursors differ, so each reply is distinct.
+func (c *conn) startHistory(sessionID, name string, before *int, limit int, haveHash string) {
+	key := sessionID
+	if key == "" {
+		key = name
+	}
+	c.historyMu.Lock()
+	if c.historySem == nil {
+		c.historySem = make(chan struct{}, historyConcurrency)
+		c.historyBusy = make(map[string]bool)
+	}
+	if before == nil {
+		if c.historyBusy[key] {
+			c.historyMu.Unlock()
+			return
+		}
+		c.historyBusy[key] = true
+	}
+	sem := c.historySem
+	c.historyMu.Unlock()
+	go func() {
+		if before == nil {
+			defer func() {
+				c.historyMu.Lock()
+				delete(c.historyBusy, key)
+				c.historyMu.Unlock()
+			}()
+		}
+		sem <- struct{}{}
+		defer func() { <-sem }()
+		c.serveHistory(sessionID, name, before, limit, haveHash)
+	}()
+}
+
 // serveHistory returns a page of a session's past conversation, read from
 // Claude's transcript on disk. `before` is the exclusive index cursor (nil =
 // most recent page); the app pages older by passing the oldest index it holds.
