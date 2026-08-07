@@ -51,7 +51,7 @@ App:   (attached — now everything you say is dictated to Claude Code)
 
 All prefixed with **"hey buddy"**:
 
-- `spawn a new session` — one-shot when you give enough ("new session called bugfix in data on opencode
+- `spawn a new session` — one-shot when you give enough ("new session called bugfix in data on zen
   with sandbox profile"), else an interactive dialog. Name, location, provider, and profile are all
   optional; unspoken ones default (home directory, Claude, your default profile)
 - `attach to <name>`
@@ -599,7 +599,7 @@ declares how to invoke it and how to read its output, so they share one interfac
   it turn to turn. Needs `codex` installed and logged in (`codex login`); host turns run over SSH, so
   set `SPAWNER_SSH_CODEX_BIN` if `codex` isn't on the host's `PATH` (and `SPAWNER_SANDBOX_CODEX_BIN`
   for the sandbox target, analogous to the per-target Claude binaries).
-- **opencode** (local **Ollama** models) — `opencode run --format json`; like Codex it captures
+- **Ollama** (through opencode) — `opencode run --format json`; like Codex it captures
   opencode's own `ses_…` session id and resumes it turn to turn. Its models are the `ollama/*`
   catalogue, so **runs stay entirely on-box** against local weights — no cloud round-trip. Needs
   `opencode` installed with an **Ollama provider** in `~/.config/opencode/opencode.jsonc` (an
@@ -617,6 +617,10 @@ declares how to invoke it and how to read its output, so they share one interfac
     wire into opencode stays hidden — opencode couldn't run it anyway. If the discovery probe ever
     fails (opencode unreachable), the picker falls back to a built-in `qwen2.5-coder` / `llama3.1`
     pair so it's never empty.
+- **Zen** (OpenCode Zen subscription through opencode) — also runs through `opencode run --format
+  json`, but uses OpenCode Zen's `opencode/*` model catalogue instead of local Ollama. Connect Zen in
+  opencode first, then the server discovers it with `opencode models opencode`; if discovery fails,
+  the picker keeps a small built-in Zen fallback list.
 - **Antigravity** (Google's Gemini-powered `agy` CLI) — `agy --prompt` in its non-interactive
   "print" mode, with `--output-format stream-json` for the machine-readable event stream (a real
   flag, just missing from `agy --help`). It offers the Gemini 3.x models (Pro and Flash, plus hosted
@@ -629,8 +633,9 @@ declares how to invoke it and how to read its output, so they share one interfac
   reports cache *reads* but no cache-write count, and exposes no context-window size — so an agy
   session shows token counts per turn but no cache-warm indicator and no context-remaining badge.
 
-Pick the backend when you spawn — by **voice**, "hey buddy, spawn a codex session" (or "…on
-opencode") creates that backend's session; a plain spawn uses Claude. In the **visual New-session picker** (the app or
+Pick the backend when you spawn — by **voice**, "hey buddy, spawn a codex session", "…on
+ollama", or "…on zen" creates that backend's session; a plain spawn uses Claude. The older spoken
+"opencode" selector still maps to Ollama. In the **visual New-session picker** (the app or
 the browser client), a backend chip row (shown when more than one backend is available) and a model
 chip row let you choose both before starting. The new session is stamped with that backend and its
 default model.
@@ -640,9 +645,8 @@ the spawner picks for you, plus a short catalogue you can switch between by voic
 
 - **"hey buddy, list models"** — speaks the attached session's backend catalogue, numbered, marking
   the current one (Claude: `opus` / `sonnet` / `fable`; Codex on a ChatGPT-account plan: `gpt-5.5`
-  and its low/high reasoning presets — the account decides which model ids are selectable; opencode:
-  whatever it's configured to run, discovered live and named by model id, e.g. `qwen2.5-coder:7b` /
-  `llama3.1:8b`).
+  and its low/high reasoning presets — the account decides which model ids are selectable; Ollama
+  and Zen: whatever opencode is configured to run, discovered live and named by model id).
 - **"hey buddy, use model 2"** — switches to that numbered model (say the number — "two" or "2").
   Selecting by **number** is deliberate: it sidesteps having to pronounce awkward model names. The
   choice is durable on the session and takes effect on your next message.

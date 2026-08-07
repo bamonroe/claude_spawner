@@ -387,6 +387,8 @@ func TestParseSpawn(t *testing.T) {
 		{"spawn a codex session", false, "", "codex", "", ""},
 		{"spawn a codex session in git personal", false, "git personal", "codex", "", ""},
 		{"spawn a session on codex", false, "", "codex", "", ""},
+		{"spawn a session on ollama", false, "", "ollama", "", ""},
+		{"spawn a zen session", false, "", "zen", "", ""},
 		{"spawn a new codex project in data askii", true, "data askii", "codex", "", ""},
 		// "codex" in path position (not a selector) stays part of the location.
 		{"spawn a session in data codex work", false, "data codex work", "", "", ""},
@@ -401,7 +403,7 @@ func TestParseSpawn(t *testing.T) {
 		{"spawn a session profile sandbox", false, "", "", "sandbox", ""},
 		{"spawn a session in data with bare metal profile", false, "data", "", "bare metal", ""},
 		// Everything at once: name, location, provider, and profile.
-		{"new session called api in data on opencode with sandbox profile", false, "data", "opencode", "sandbox", "api"},
+		{"new session called api in data on opencode with sandbox profile", false, "data", "ollama", "sandbox", "api"},
 	}
 	for _, c := range cases {
 		got := Parse(c.in)

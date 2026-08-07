@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -88,5 +89,32 @@ func TestSettingsPutValidates(t *testing.T) {
 	}
 	if err := s.Put("claude", "", []string{"opus", "bogus"}, 0); err == nil {
 		t.Error("expected error for a bogus voice alias")
+	}
+}
+
+func TestSettingsCanonicalizesAlias(t *testing.T) {
+	reg := &Registry{byID: map[string]*Agent{}}
+	reg.register(&Agent{
+		ID: "ollama", Aliases: []string{"opencode"}, Name: "Ollama",
+		DefaultModel: "qwen2.5-coder:7b",
+		Models:       []Model{{Alias: "qwen2.5-coder:7b"}, {Alias: "llama3.1:8b"}},
+	})
+	path := filepath.Join(t.TempDir(), "providers.json")
+	if err := os.WriteFile(path, []byte(`{"providers":[{"agent":"opencode","default_model":"llama3.1:8b","voice_models":["llama3.1:8b"],"updated_at":7}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := OpenSettingsStore(path, reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ollama, _ := reg.Get("ollama")
+	if got := s.DefaultModel(ollama); got != "llama3.1:8b" {
+		t.Fatalf("legacy opencode setting default = %q, want llama3.1:8b", got)
+	}
+	if err := s.Put("opencode", "qwen2.5-coder:7b", nil, 8); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.DefaultModel(ollama); got != "qwen2.5-coder:7b" {
+		t.Fatalf("alias put default = %q, want qwen2.5-coder:7b", got)
 	}
 }

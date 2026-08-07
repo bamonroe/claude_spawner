@@ -69,7 +69,7 @@ func OpenSettingsStore(path string, reg *Registry) (*SettingsStore, error) {
 	}
 	for _, st := range list {
 		if ag, ok := reg.Get(st.Agent); ok {
-			s.byID[st.Agent] = sanitize(ag, st.DefaultModel, st.VoiceModels, st.UpdatedAt)
+			s.byID[ag.ID] = sanitize(ag, st.DefaultModel, st.VoiceModels, st.UpdatedAt)
 		}
 	}
 	return s, nil
@@ -197,6 +197,7 @@ func (s *SettingsStore) Put(agentID, defaultModel string, voiceModels []string, 
 	if !ok {
 		return fmt.Errorf("unknown backend %q", agentID)
 	}
+	agentID = ag.ID
 	if defaultModel != "" {
 		if _, ok := hasModel(ag, defaultModel); !ok {
 			return fmt.Errorf("backend %q has no model %q", agentID, defaultModel)

@@ -116,7 +116,11 @@ func main() {
 			session.TargetHost:    hostCodexBin,
 			session.TargetSandbox: cfg.SandboxCodexBin,
 		},
-		"opencode": {
+		"ollama": {
+			session.TargetHost:    hostOpencodeBin,
+			session.TargetSandbox: cfg.SandboxOpencodeBin,
+		},
+		"zen": {
 			session.TargetHost:    hostOpencodeBin,
 			session.TargetSandbox: cfg.SandboxOpencodeBin,
 		},

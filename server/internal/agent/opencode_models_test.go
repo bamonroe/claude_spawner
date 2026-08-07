@@ -2,7 +2,7 @@ package agent
 
 import "testing"
 
-// parseOpencodeModels turns `opencode models ollama` stdout into a catalogue: the
+// parseOpencodeModels turns `opencode models <provider>` stdout into a catalogue: the
 // full line is the -m Flag, the alias is the provider-stripped tail, blanks and
 // dups are dropped, and separators become spoken forms.
 func TestParseOpencodeModels(t *testing.T) {
@@ -40,9 +40,9 @@ func TestParseOpencodeModelsSkipsNonIDs(t *testing.T) {
 // Discovery replaces the compiled fallback everywhere the catalogue is read, and
 // leaving it unset keeps the compiled list — the two mechanisms the feature promises.
 func TestCatalogFallbackAndDiscovery(t *testing.T) {
-	oc := opencode()
+	oc := ollama()
 	if !oc.CanDiscover() {
-		t.Fatal("opencode should advertise discovery")
+		t.Fatal("Ollama should advertise discovery")
 	}
 	if len(oc.Catalog()) != 2 {
 		t.Fatalf("pre-discovery catalog should be the compiled fallback (2), got %d", len(oc.Catalog()))
@@ -58,5 +58,19 @@ func TestCatalogFallbackAndDiscovery(t *testing.T) {
 	oc.SetDiscovered(nil)
 	if len(oc.Catalog()) != 1 {
 		t.Fatalf("empty discovery must not clear the catalogue, got %d", len(oc.Catalog()))
+	}
+}
+
+func TestZenProviderDiscovery(t *testing.T) {
+	z := zen()
+	if z.ID != "zen" || z.Name != "Zen" {
+		t.Fatalf("zen identity = id %q name %q", z.ID, z.Name)
+	}
+	if len(z.DiscoverArgs) != 2 || z.DiscoverArgs[0] != "models" || z.DiscoverArgs[1] != "opencode" {
+		t.Fatalf("zen discovery args = %v, want models opencode", z.DiscoverArgs)
+	}
+	got := parseOpencodeModels([]byte("opencode/gpt-5.5\nopencode/claude-sonnet-4-5\n"))
+	if len(got) != 2 || got[0].Alias != "gpt-5.5" || got[0].Flag != "opencode/gpt-5.5" {
+		t.Fatalf("zen models parsed wrong: %+v", got)
 	}
 }

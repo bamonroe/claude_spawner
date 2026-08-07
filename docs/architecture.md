@@ -205,13 +205,13 @@ Status: **implemented** (`internal/agent`). The `Executor` seam above answers *w
 and parse it — so the server drives more than `claude`.
 
 - An **`Agent`** (`internal/agent`) is a **self-contained** headless backend, one file per backend
-  (`claude.go`, `codex.go`): an id (persisted on the session), a `Bin` (the command to launch), a
+  (`claude.go`, `codex.go`, `opencode.go`): an id (persisted on the session), a `Bin` (the command to launch), a
   `DefaultModel`, a catalogue of selectable `Models` (each by a short spoken alias —
   `opus`/`sonnet`/`fable`, or Codex's presets). The `Models` slice is the compiled
   **fallback**: a backend may also declare **live discovery** (`DiscoverArgs` + `ParseModels`) —
   a command whose stdout lists the models it can *currently* run — and when a probe succeeds the
   discovered catalogue **shadows** `Models` everywhere it's read (`Agent.Catalog`, guarded for the
-  runtime refresh). So a backend fronting an external model store (opencode → Ollama) reports its
+  runtime refresh). So a backend fronting an external model store (opencode → Ollama or Zen) reports its
   real list with no rebuild, while backends with a fixed set (Claude, Codex) just carry `Models`. It
   also has a per-backend **arg builder**
   (`Agent.Args(TurnSpec)`) that emits that backend's exact command line, its own **stream parser**
@@ -238,19 +238,20 @@ so `Agent.SelfAssignsID` tells `Turn` to adopt the id `ParseTurn` returns in
 `TurnResult.SessionID` rather than supplying one. Model availability
 can be **plan-dependent** (on a ChatGPT-account Codex, only `gpt-5.5` is `-m`-selectable, so its
 alternates are reasoning-effort presets); the registry is the single place that catalogue lives.
-*opencode* (`opencode run` / `run -s <id>`, `--format json` JSONL) drives **local Ollama** models:
-like Codex it **self-assigns** its session id (a `ses_…` id on every event), its models are the
-`ollama/*` catalogue served by the provider block in the host user's `~/.config/opencode/opencode.jsonc`
-(pointed at the local Ollama server), and `--auto` is its skip-permissions equivalent. It is also
-the first backend to use **live model discovery**: `DiscoverArgs` runs `opencode models ollama` on
-the host and `ParseModels` turns each `ollama/<id>` line into a model, so whatever opencode is
-configured to run appears in the app automatically — pulling a new Ollama model and wiring it into
-`opencode.jsonc` (both the user's job — the server treats opencode as the source of truth for what's
-runnable) is all it takes, no server rebuild. `Driver.RefreshModels` runs the probe over the SSH
-pool at boot (before the provider overlay is validated) and, throttled, on each client connect. It
-persists
+*Ollama* and *Zen* are both opencode-backed (`opencode run` / `run -s <id>`, `--format json` JSONL):
+like Codex they **self-assign** a session id (a `ses_…` id on every event), and `--auto` is the
+skip-permissions equivalent. Ollama advertises the local `ollama/*` catalogue served by the provider
+block in the host user's `~/.config/opencode/opencode.jsonc` (pointed at the local Ollama server).
+Zen advertises OpenCode Zen's subscription catalogue, whose opencode model ids use the `opencode/*`
+prefix. Both use **live model discovery**: `DiscoverArgs` runs `opencode models ollama` or
+`opencode models opencode` on the host and `ParseModels` strips the provider prefix into the model
+alias, so whatever opencode is configured to run appears in the app automatically. Pulling or adding
+models and wiring them into opencode remains the user's job — the server treats opencode as the
+source of truth for what's runnable. `Driver.RefreshModels` runs the probes over the SSH pool at boot
+(before the provider overlay is validated) and, throttled, on each client connect. opencode persists
 sessions in a SQLite DB rather than flat files, so its transcript reader shells out to opencode's own
-commands (see below). *Antigravity* (Google's Gemini-powered `agy` CLI) is driven with
+commands (see below). The older persisted/spoken `opencode` backend id remains an alias for Ollama.
+*Antigravity* (Google's Gemini-powered `agy` CLI) is driven with
 `agy --prompt` (non-interactive "print" mode) plus **`--output-format stream-json`** — a flag absent
 from `agy --help` but real (the binary's own flag table names `text, json, stream-json`), which turns
 the turn into a newline-delimited event stream like every other backend's. `parseAgyStream` reads it:
@@ -371,7 +372,7 @@ wiring**, and nothing in the gateway, executors, or clients changes:
    its `ParseTurn` (stream → `TurnResult`, fanning live events out via `TurnCallbacks`). Add parser
    tests beside it (`parse_test.go` has the pattern, with real captured event shapes).
    - **Optional — live model discovery.** If the backend fronts an external, user-managed model set
-     (like opencode → Ollama) rather than a fixed catalogue, declare `DiscoverArgs` (the argv whose
+     (like opencode → Ollama or Zen) rather than a fixed catalogue, declare `DiscoverArgs` (the argv whose
      stdout lists runnable models) and `ParseModels` (stdout → `[]Model`). `Driver.RefreshModels`
      runs it over the host SSH pool and installs the result via `Agent.SetDiscovered`; `Models` stays
      as the fallback when a probe fails. Keep discovered aliases in the same scheme as the fallback
@@ -587,7 +588,7 @@ uppercase letters by voice. Acceptable; documented in `docs/commands.md`.
                                   lists the chosen host's FS over SSH from "/" (not the local roots)
     messages.go                 wire message constructors
     *_test.go                   httptest+ws integration (auth, spawn, dictation, ask, stream)
-  internal/agent/               AI backend registry: Agent type + Registry (agent.go), shared turn vocabulary (turn.go), one self-contained file per backend (claude.go, codex.go, opencode.go)
+  internal/agent/               AI backend registry: Agent type + Registry (agent.go), shared turn vocabulary (turn.go), one self-contained file per backend family (claude.go, codex.go, opencode.go)
   internal/session/session.go   headless driver: Driver.Turn (per-agent args + parser), parseStream/parseCodexStream
   internal/session/executor.go  pluggable Executor: HostExecutor (direct exec) + SandboxExecutor (runtime)
   internal/session/store.go     durable session registry (file-backed, atomic writes); Session.Target/Container

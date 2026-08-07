@@ -59,9 +59,10 @@ just a pointer to this file.)
   in the AI backend registry, see `docs/architecture.md`. Codex's per-target binaries are
   `SPAWNER_SSH_CODEX_BIN` for host/SSH turns and `SPAWNER_SANDBOX_CODEX_BIN` for the sandbox;
   opencode's are `SPAWNER_SSH_OPENCODE_BIN` (host/SSH, default `opencode`) and
-  `SPAWNER_SANDBOX_OPENCODE_BIN` (sandbox, default `opencode`). The opencode backend drives local
-  Ollama models — its model catalogue is `ollama/*`, resolved via the provider block in the host
-  user's `~/.config/opencode/opencode.jsonc`, which must point at the running Ollama server.
+  `SPAWNER_SANDBOX_OPENCODE_BIN` (sandbox, default `opencode`). The Ollama and Zen backends both
+  run through opencode. Ollama uses the local `ollama/*` catalogue resolved from the host user's
+  `~/.config/opencode/opencode.jsonc`; Zen uses OpenCode Zen's `opencode/*` catalogue after the
+  user connects a Zen subscription in opencode.
   Antigravity's (Google's Gemini-powered `agy` CLI) per-target binaries are `SPAWNER_SSH_AGY_BIN`
   (host/SSH, default `agy`) and `SPAWNER_SANDBOX_AGY_BIN` (sandbox, default `agy`). Antigravity is
   driven non-interactively via `agy --prompt --output-format stream-json`, whose event stream carries

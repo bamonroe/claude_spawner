@@ -21,6 +21,19 @@ func TestDefaultRegistryHasClaude(t *testing.T) {
 	if r.Resolve("nope") != c {
 		t.Error("unknown id should resolve to the default agent")
 	}
+	o, ok := r.Get("ollama")
+	if !ok {
+		t.Fatal("ollama not registered")
+	}
+	if r.Resolve("opencode") != o {
+		t.Error("legacy opencode id should resolve to Ollama")
+	}
+	if r.CanonicalID("opencode") != "ollama" {
+		t.Errorf("canonical opencode id = %q, want ollama", r.CanonicalID("opencode"))
+	}
+	if _, ok := r.Get("zen"); !ok {
+		t.Fatal("zen not registered")
+	}
 }
 
 func TestModelResolution(t *testing.T) {

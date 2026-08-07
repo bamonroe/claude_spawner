@@ -9,8 +9,7 @@
 // agent it uses and which model; the session Driver asks the agent to build the
 // turn's args and parse the result rather than hardcoding Claude's behavior.
 //
-// Two backends ship today, each self-contained in its own file: Claude Code
-// (claude.go) and Codex CLI (codex.go). Adding a backend is a new file in this
+// Each backend ships in its own file. Adding a backend is a new file in this
 // package plus a [Default] registration — the full checklist lives in
 // docs/architecture.md ("Adding an AI backend"). Where a turn runs (host /
 // sandbox / SSH) stays the Executor's job — an Agent is orthogonal to it, so
@@ -100,6 +99,9 @@ type Agent struct {
 	// ID is the stable identifier persisted on a session (e.g. "claude"). It
 	// keys the registry and never changes once sessions reference it.
 	ID string
+	// Aliases are legacy or spoken ids that resolve to this agent but are not
+	// advertised in List. They let persisted records survive a provider rename.
+	Aliases []string
 	// Name is the human-facing display name (e.g. "Claude Code").
 	Name string
 	// Bin is the backend's default command (path or PATH name), e.g. "codex". The
@@ -130,7 +132,7 @@ type Agent struct {
 	// DiscoverArgs, when non-empty, is the argv (after the backend's binary) of a
 	// command whose stdout lists the models the backend can currently run, one per
 	// line — the mechanism that lets a backend report its live catalogue (e.g.
-	// opencode's `models ollama`) instead of relying only on the compiled Models.
+	// opencode's `models <provider>`) instead of relying only on the compiled Models.
 	// The session layer runs it on the host and hands the stdout to ParseModels.
 	// Empty means "no discovery — always use Models".
 	DiscoverArgs []string
@@ -255,6 +257,14 @@ func (r *Registry) Resolve(id string) *Agent {
 	return r.Default()
 }
 
+// CanonicalID returns the advertised id for id, or "" if id is unknown.
+func (r *Registry) CanonicalID(id string) string {
+	if a, ok := r.byID[id]; ok {
+		return a.ID
+	}
+	return ""
+}
+
 // Default is the agent a new session gets when none is chosen, and the fallback
 // for an empty/unknown id. It is the first registered agent.
 func (r *Registry) Default() *Agent {
@@ -273,7 +283,8 @@ func Default() *Registry {
 	r := &Registry{byID: map[string]*Agent{}}
 	r.register(claude())
 	r.register(codex())
-	r.register(opencode())
+	r.register(ollama())
+	r.register(zen())
 	r.register(antigravity())
 	return r
 }
@@ -281,4 +292,7 @@ func Default() *Registry {
 func (r *Registry) register(a *Agent) {
 	r.order = append(r.order, a)
 	r.byID[a.ID] = a
+	for _, alias := range a.Aliases {
+		r.byID[alias] = a
+	}
 }

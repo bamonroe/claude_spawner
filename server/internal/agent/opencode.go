@@ -7,47 +7,81 @@ import (
 	"strings"
 )
 
-// The opencode CLI backend, self-contained: registry entry, per-turn command
-// line, and the `opencode run --format json` event parser. opencode is driven
-// against a local Ollama server (the models below are `ollama/*`, resolved via
-// the provider block in the host user's ~/.config/opencode/opencode.jsonc), so a
-// session runs entirely on-box against local weights — no cloud round-trip.
+// opencode CLI-backed providers: registry entries, per-turn command line, and
+// the `opencode run --format json` event parser. Ollama and Zen share the same
+// opencode runner and transcript layout; they differ only in the provider/model
+// prefix passed to opencode and the discovery probe.
 
-// opencode builds the opencode CLI backend entry. opencode runs
+// ollama builds the local Ollama provider exposed through opencode. The legacy
+// "opencode" id remains an alias so older sessions and provider overrides still
+// resolve here, while the UI advertises the clearer "Ollama" backend.
+func ollama() *Agent {
+	return opencodeProvider(opencodeProviderSpec{
+		ID:           "ollama",
+		Aliases:      []string{"opencode"},
+		Name:         "Ollama",
+		Provider:     "ollama",
+		DefaultModel: "qwen2.5-coder:7b",
+		Models: []Model{
+			{Alias: "qwen2.5-coder:7b", Flag: "ollama/qwen2.5-coder:7b", Spoken: []string{"qwen", "coder", "qwen coder", "qwen two five", "qwen 2.5"}},
+			{Alias: "llama3.1:8b", Flag: "ollama/llama3.1:8b", Spoken: []string{"llama", "llama three", "llama 3", "llama 3.1"}},
+		},
+	})
+}
+
+// zen builds the OpenCode Zen subscription provider exposed through opencode.
+// OpenCode documents Zen model ids with the `opencode/<model-id>` prefix, so the
+// backend probes and runs provider "opencode" while advertising itself as Zen.
+func zen() *Agent {
+	return opencodeProvider(opencodeProviderSpec{
+		ID:           "zen",
+		Name:         "Zen",
+		Provider:     "opencode",
+		DefaultModel: "gpt-5.5",
+		Models: []Model{
+			{Alias: "gpt-5.5", Flag: "opencode/gpt-5.5", Spoken: []string{"gpt five five", "five five"}},
+			{Alias: "claude-sonnet-4-5", Flag: "opencode/claude-sonnet-4-5", Spoken: []string{"sonnet", "sonnet four five", "claude sonnet"}},
+			{Alias: "gemini-3.1-pro", Flag: "opencode/gemini-3.1-pro", Spoken: []string{"gemini pro", "pro"}},
+			{Alias: "qwen3.7-plus", Flag: "opencode/qwen3.7-plus", Spoken: []string{"qwen plus"}},
+		},
+	})
+}
+
+type opencodeProviderSpec struct {
+	ID           string
+	Aliases      []string
+	Name         string
+	Provider     string
+	DefaultModel string
+	Models       []Model
+}
+
+// opencodeProvider builds one opencode-backed entry. opencode runs
 // non-interactively via `opencode run`; like Codex it mints its OWN session id
 // (a `ses_...` id announced as `sessionID` on every stream event) rather than
-// accepting a caller-supplied one, so the first turn omits any id and the
-// session driver adopts it from the stream. Resume replays via
-// `opencode run -s <id>`. The working directory is the process cwd (set by the
-// Executor), so no --dir is needed. Models are the local Ollama models the
-// provider config exposes; the flag is opencode's `provider/model` form.
+// accepting a caller-supplied one, so the first turn omits any id and the session
+// driver adopts it from the stream. Resume replays via `opencode run -s <id>`.
+// The working directory is the process cwd (set by the Executor), so no --dir is
+// needed. Models use opencode's `provider/model` form.
 //
 // Transcript: opencode persists sessions in a SQLite database, so it declares
 // TranscriptOpencode — its reader (session/opencode_transcript.go) shells out to
 // opencode's own `export`/`session delete` commands to replay history and read
 // context usage on reattach.
-func opencode() *Agent {
+func opencodeProvider(spec opencodeProviderSpec) *Agent {
 	return &Agent{
-		ID:            "opencode",
-		Name:          "opencode (Ollama)",
+		ID:            spec.ID,
+		Aliases:       spec.Aliases,
+		Name:          spec.Name,
 		Bin:           "opencode",
 		Transcript:    TranscriptOpencode,
 		SelfAssignsID: true,
-		DefaultModel:  "qwen2.5-coder:7b",
-		// Compiled fallback list, used only if live discovery (DiscoverArgs below)
-		// fails. Aliases match discovery's scheme — the bare `ollama/<id>` tail — so
-		// a stored default/voice override stays valid whether the catalogue is
-		// discovered or falls back. The curated Spoken forms give the two staple
-		// models nicer voice handles than the auto-generated ones.
-		Models: []Model{
-			{Alias: "qwen2.5-coder:7b", Flag: "ollama/qwen2.5-coder:7b", Spoken: []string{"qwen", "coder", "qwen coder", "qwen two five", "qwen 2.5"}},
-			{Alias: "llama3.1:8b", Flag: "ollama/llama3.1:8b", Spoken: []string{"llama", "llama three", "llama 3", "llama 3.1"}},
-		},
-		// Live discovery: `opencode models ollama` prints one `ollama/<id>` per line
-		// — the models opencode is actually configured to run against Ollama. This
-		// replaces the compiled pair above whenever the probe succeeds, so a model
-		// added to opencode's config appears in the app with no server rebuild.
-		DiscoverArgs: []string{"models", "ollama"},
+		DefaultModel:  spec.DefaultModel,
+		Models:        spec.Models,
+		// Live discovery replaces the compiled fallback whenever opencode reports
+		// the provider's configured models, so catalogue changes appear in the app
+		// without a server rebuild.
+		DiscoverArgs: []string{"models", spec.Provider},
 		ParseModels:  parseOpencodeModels,
 		build: func(a *Agent, s TurnSpec, m Model) []string {
 			args := []string{"run"}
@@ -193,7 +227,7 @@ func parseOpencodeStream(r io.Reader, cb TurnCallbacks) (TurnResult, error) {
 	return res, nil
 }
 
-// parseOpencodeModels turns the stdout of `opencode models ollama` into a model
+// parseOpencodeModels turns the stdout of `opencode models <provider>` into a model
 // catalogue. Each non-empty line is a `provider/model` id (e.g.
 // "ollama/qwen2.5-coder:7b"); the full line is the Flag handed to `-m`, and the
 // alias is the tail after the provider so it reads as the bare model id

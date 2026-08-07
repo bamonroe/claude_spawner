@@ -52,7 +52,7 @@ fun ProvidersSettings(controller: ProvidersController, onBack: () -> Unit) {
 
     SettingsScaffold("Providers", onBack) {
         Text(
-            "Providers are the AI backends the server can run (Claude, Codex, opencode). The backends "
+            "Providers are the AI backends the server can run (Claude, Codex, Ollama, Zen). The backends "
                 + "and their model lists are fixed on the server — here you choose, per backend, the model "
                 + "a new session starts on, and which models the voice “list models” / “use model N” "
                 + "commands read out. Hiding a model from voice keeps it in the visual picker.",
