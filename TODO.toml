@@ -36,21 +36,6 @@ created = 2026-08-08
 tags = ["perf", "lag"]
 
 [[task]]
-id = "centralize-ssh-bindings-without-serializing-scale-the-per-host-channel-budget"
-title = "Centralize SSH bindings without serializing: scale the per-host channel budget"
-description = """
-Centralizing every host interaction behind ONE pooled SSH client per host (ssh_pool.go, ssh_channels.go) was right as a seam, but the implementation serializes independent work: all of a host's traffic — the live turn stream, foreground history reads, the 8-way digest sweep, prefetch, autocompress stats — shares one connection's small channel budget (sshMaxStreamChannels = 4, 8-slot budget in ssh_channels.go:46), so unrelated operations queue behind each other. The centralization and the serialization are separable: keep the pool as the single seam, but let it hold N connections per host and hand out channels across them (open another connection when the budget saturates, reap idle extras), and/or size budgets by operation class so bulk background reads can't starve the interactive stream. Scope the right shape — multi-connection pool vs larger negotiated channel ceiling vs priority classes — measure a host's real channel ceiling, then add the concrete tasks.
-
-Do NOT rebuild/recreate the server for this work: land the commits and background an image build only (see CLAUDE.md)."""
-status = "active"
-level = "scope"
-category = "refactor"
-urgency = "normal"
-order = 110
-created = 2026-08-08
-tags = ["perf", "lag"]
-
-[[task]]
 id = "incremental-transcript-reads-for-opencode-codex-and-antigravity-backends"
 title = "Incremental transcript reads for opencode, codex and antigravity backends"
 description = """
@@ -235,3 +220,51 @@ urgency = "normal"
 order = 270
 created = 2026-08-08
 tags = ["history", "delta", "android"]
+
+[[task]]
+id = "measure-a-host-s-real-ssh-channel-ceiling-before-resizing-the-budget"
+title = "Measure a host's real SSH channel ceiling before resizing the budget"
+description = "Parent scope: centralize-ssh-bindings. sshMaxChannels=8 / sshMaxStreamChannels=4 (session/ssh_channels.go:46) are guesses under OpenSSH's default MaxSessions=10. Before adding connections, establish the real number: read sshd_config MaxSessions on the loopback/dev target, and add a small diagnostic that opens channels on one pooled client until the peer refuses, logging the count reached. Record the measured ceiling in docs/architecture.md next to the pool description so the budget constants stop being folklore. No behaviour change. Do NOT rebuild/recreate the server."
+status = "active"
+level = "task"
+category = "chore"
+urgency = "normal"
+order = 280
+created = 2026-08-08
+tags = ["ssh"]
+
+[[task]]
+id = "multi-connection-ssh-pool-n-clients-per-host-channels-handed-out-across-them"
+title = "Multi-connection SSH pool: N clients per host, channels handed out across them"
+description = "Parent scope: centralize-ssh-bindings. Keep SSHPool as the single seam but stop making one TCP connection the unit of concurrency. Split poolEntry (session/ssh_pool.go:48) so it holds a slice of conns — each {client *ssh.Client, chans channelBudget, lastUsed time.Time} — instead of one client + one budget. openChannel (ssh_channels.go:122) picks the least-loaded conn whose budget has a free slot, and dials an ADDITIONAL connection for that host when every existing one is saturated, up to a per-host cap; only when the cap is reached does a caller block on a slot as it does today. Per-conn dial still serializes under the entry lock and honours the negative dial cache. drop() must evict only the offending conn, not the host's whole entry — the point of the change is that one dead or busy connection can't punish the others. Keep the stream sub-budget per connection so turns still can't starve probes. Do NOT rebuild/recreate the server."
+status = "active"
+level = "task"
+category = "refactor"
+urgency = "normal"
+order = 290
+created = 2026-08-08
+tags = ["ssh"]
+
+[[task]]
+id = "reap-idle-extra-ssh-connections-per-host"
+title = "Reap idle extra SSH connections per host"
+description = "Parent scope: centralize-ssh-bindings. Follow-on to the multi-connection pool: overflow connections opened during a burst (a digest sweep, a prefetch storm) must not linger forever. Close and remove any conn beyond the first that has had no channel in flight for an idle window, on a low-frequency sweep or lazily at openChannel time; the primary connection stays cached as today with its keepalive. Never close a conn holding a slot. Do NOT rebuild/recreate the server."
+status = "active"
+level = "task"
+category = "refactor"
+urgency = "normal"
+order = 300
+created = 2026-08-08
+tags = ["ssh"]
+
+[[task]]
+id = "make-the-ssh-per-host-connection-and-channel-caps-configurable"
+title = "Make the SSH per-host connection and channel caps configurable"
+description = "Parent scope: centralize-ssh-bindings. Expose the pool sizing as SPAWNER_SSH_MAX_CONNS (per-host connection cap) and SPAWNER_SSH_MAX_CHANNELS (per-connection channel budget) in internal/config, defaulting to today's values, and document both in docs/config.md — the internal/docsync drift test requires each var backticked there. Lets a host with a raised MaxSessions be tuned without a rebuild of the constants. Do NOT rebuild/recreate the server."
+status = "active"
+level = "task"
+category = "feature"
+urgency = "low"
+order = 310
+created = 2026-08-08
+tags = ["ssh", "config"]

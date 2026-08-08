@@ -14,6 +14,20 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "centralize-ssh-bindings-without-serializing-scale-the-per-host-channel-budget"
+title = "Centralize SSH bindings without serializing: scale the per-host channel budget"
+description = """
+Centralizing every host interaction behind ONE pooled SSH client per host (ssh_pool.go, ssh_channels.go) was right as a seam, but the implementation serializes independent work: all of a host's traffic — the live turn stream, foreground history reads, the 8-way digest sweep, prefetch, autocompress stats — shares one connection's small channel budget (sshMaxStreamChannels = 4, 8-slot budget in ssh_channels.go:46), so unrelated operations queue behind each other. The centralization and the serialization are separable: keep the pool as the single seam, but let it hold N connections per host and hand out channels across them (open another connection when the budget saturates, reap idle extras), and/or size budgets by operation class so bulk background reads can't starve the interactive stream. Scope the right shape — multi-connection pool vs larger negotiated channel ceiling vs priority classes — measure a host's real channel ceiling, then add the concrete tasks.
+
+Do NOT rebuild/recreate the server for this work: land the commits and background an image build only (see CLAUDE.md)."""
+status = "finished"
+level = "scope"
+category = "refactor"
+created = 2026-08-08
+completed = 2026-08-08
+tags = ["perf", "lag"]
+
+[[task]]
 id = "delta-history-wire-protocol-send-appended-messages-instead-of-a-whole-page"
 title = "Delta history wire protocol: send appended messages instead of a whole page"
 description = """
