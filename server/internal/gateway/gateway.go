@@ -274,6 +274,7 @@ func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
 	c.wmu.Lock()
 	c.closed = true
 	c.wmu.Unlock()
+	c.closeOutbox()
 	if c.attached != nil {
 		c.srv.unbindJob(c, recID(c.attached))
 	}
@@ -370,16 +371,30 @@ func (s *Server) WaitForInflight(ctx context.Context) bool {
 // broadcast sends a message to every currently-connected app (best-effort; a
 // failed write to a dropped socket is ignored).
 func (s *Server) broadcast(v any) {
+	for _, c := range s.connSnapshot() {
+		c.post(v)
+	}
+}
+
+// connSnapshot copies the live connection set so a fan-out runs without holding
+// connsMu (a slow write must never block accept/close).
+func (s *Server) connSnapshot() []*conn {
 	s.connsMu.Lock()
+	defer s.connsMu.Unlock()
 	cs := make([]*conn, 0, len(s.conns))
 	for c := range s.conns {
 		cs = append(cs, c)
 	}
-	s.connsMu.Unlock()
-	for _, c := range cs {
-		c.send(v)
-	}
+	return cs
 }
+
+// Broadcasts hand each recipient its frame with conn.post and never block on
+// the write. Serially calling send here was the bug: a broadcast often runs ON
+// the initiating device's read loop (doClear's "cleared." read-back follows a
+// context_reset fan-out), and one wedged or backgrounded device delayed
+// everyone else's frame — and the initiator's own confirmation — by up to
+// writeWait per stuck socket. Ordering per client is unaffected: each
+// connection's outbox drains in enqueue order.
 
 // broadcastRenamed pushes the `renamed` title update to every connection attached
 // to the just-renamed session — the initiator plus any other device the user has
@@ -401,16 +416,10 @@ func (s *Server) broadcast(v any) {
 // matches on by the carried session_id. Connections attached to another session,
 // or none, are skipped.
 func (s *Server) broadcastRenamed(rec *session.Session, old, newName string) {
-	s.connsMu.Lock()
-	cs := make([]*conn, 0, len(s.conns))
-	for c := range s.conns {
-		cs = append(cs, c)
-	}
-	s.connsMu.Unlock()
 	msg := msgRenamed(old, newName, recID(rec))
-	for _, c := range cs {
+	for _, c := range s.connSnapshot() {
 		if c.attachedSession() == rec {
-			c.send(msg)
+			c.post(msg)
 		}
 	}
 }
@@ -425,16 +434,10 @@ func (s *Server) broadcastRenamed(rec *session.Session, old, newName string) {
 // goroutine) so its sidebar row re-keys immediately rather than on its next
 // manual refresh.
 func (s *Server) broadcastContextReset(name, oldID, newID string, preserved bool) {
-	s.connsMu.Lock()
-	cs := make([]*conn, 0, len(s.conns))
-	for c := range s.conns {
-		cs = append(cs, c)
-	}
-	s.connsMu.Unlock()
 	msg := msgContextReset(name, oldID, newID, preserved)
-	for _, c := range cs {
-		c.send(msg)
-		c.doDiscover()
+	for _, c := range s.connSnapshot() {
+		c.post(msg)
+		c.doDiscover() // already runs off this goroutine
 	}
 }
 
@@ -457,16 +460,10 @@ func (s *Server) broadcastNotice(rec *session.Session, text string) {
 	if len(text) > noticeMax {
 		text = strings.TrimSpace(text[:noticeMax]) + "…"
 	}
-	s.connsMu.Lock()
-	cs := make([]*conn, 0, len(s.conns))
-	for c := range s.conns {
-		cs = append(cs, c)
-	}
-	s.connsMu.Unlock()
 	msg := msgNotice(recName(rec), recID(rec), text)
-	for _, c := range cs {
+	for _, c := range s.connSnapshot() {
 		if c.attachedSession() != rec {
-			c.send(msg)
+			c.post(msg)
 		}
 	}
 }

@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"log"
 	"strings"
 	"sync"
@@ -53,6 +54,15 @@ type conn struct {
 
 	wmu    sync.Mutex // guards writes (job goroutines also write) AND closed
 	closed bool       // set once the connection is gone (guards job delivery)
+
+	// outbox: every JSON frame goes through one writer goroutine, so writes are
+	// ordered per connection no matter which goroutine produced them, and a
+	// broadcast can hand off a frame without waiting on a wedged socket.
+	outMu      sync.Mutex
+	outCond    *sync.Cond // signalled when outQ grows or the outbox closes
+	outQ       []outFrame
+	outRunning bool // writeLoop is alive
+	outDone    bool // outbox closed; further frames fail fast
 
 	digestSweeping atomic.Bool // a transcript-digest sweep is running off the inbound loop; see startDigestSweep
 	discovering    atomic.Bool // a discover build is running off the inbound loop; see doDiscover
@@ -147,7 +157,100 @@ func (c *conn) fastTranscriber() transcribe.Transcriber {
 // send writes a JSON message to the client, returning any write error (also used
 // by job sinks to tell a delivered result from one lost to a dropped socket).
 func (c *conn) send(v any) error {
+	return <-c.enqueue(v, true)
+}
+
+// post queues a frame and returns immediately, without waiting for it to reach
+// the wire. It is what broadcasts use: the sender must not be held hostage by
+// one wedged recipient's writeWait, but the frame must still land in the order
+// it was produced relative to this connection's other frames — which is exactly
+// what the outbox gives, and what a bare `go send(...)` would not (a clear's
+// "cleared." read-back could overtake the context_reset that caused it).
+func (c *conn) post(v any) {
+	c.enqueue(v, false)
+}
+
+// outFrame is one queued write. done is nil for fire-and-forget posts.
+type outFrame struct {
+	v    any
+	done chan error
+}
+
+// enqueue stamps the frame, appends it to this connection's outbox, and makes
+// sure the single writer goroutine is running. The returned channel yields the
+// write error (buffered, so nothing blocks on an abandoned waiter); for a post
+// it is nil-safe to ignore.
+func (c *conn) enqueue(v any, wait bool) chan error {
 	c.stampSession(v)
+	f := outFrame{v: v}
+	if wait {
+		f.done = make(chan error, 1)
+	}
+	c.outMu.Lock()
+	if c.outDone {
+		c.outMu.Unlock()
+		if f.done != nil {
+			f.done <- errConnClosed
+		}
+		return f.done
+	}
+	if c.outCond == nil {
+		c.outCond = sync.NewCond(&c.outMu)
+	}
+	c.outQ = append(c.outQ, f)
+	if !c.outRunning {
+		c.outRunning = true
+		go c.writeLoop()
+	}
+	c.outCond.Signal()
+	c.outMu.Unlock()
+	return f.done
+}
+
+// errConnClosed is returned for a frame enqueued after the outbox was shut
+// down — same meaning to a job sink as a failed socket write: undelivered.
+var errConnClosed = errors.New("connection closed")
+
+// writeLoop is the ONE goroutine that writes to this socket, draining the
+// outbox in order. Serializing here is what makes "frames arrive in the order
+// they were produced" an invariant of the connection rather than a property of
+// whoever happened to call send.
+func (c *conn) writeLoop() {
+	for {
+		c.outMu.Lock()
+		for len(c.outQ) == 0 {
+			if c.outDone {
+				c.outRunning = false
+				c.outMu.Unlock()
+				return
+			}
+			c.outCond.Wait()
+		}
+		f := c.outQ[0]
+		c.outQ = c.outQ[1:]
+		c.outMu.Unlock()
+
+		err := c.writeNow(f.v)
+		if f.done != nil {
+			f.done <- err
+		}
+	}
+}
+
+// closeOutbox stops the writer once the queue drains. Frames enqueued after
+// this fail fast rather than queueing against a dead socket.
+func (c *conn) closeOutbox() {
+	c.outMu.Lock()
+	c.outDone = true
+	if c.outCond != nil {
+		c.outCond.Broadcast()
+	}
+	c.outMu.Unlock()
+}
+
+// writeNow puts one JSON frame on the wire. Only writeLoop calls it; wmu still
+// guards the socket because sendBinary (TTS audio) writes from the speak worker.
+func (c *conn) writeNow(v any) error {
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
 	if c.ws == nil {

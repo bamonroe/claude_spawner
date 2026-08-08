@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "parallelize-broadcast-fan-out-one-wedged-device-must-not-stall-the-rest"
+title = "Parallelize broadcast fan-out: one wedged device must not stall the rest"
+description = "broadcastContextReset (gateway.go:424-437) — and the same shape in broadcast (:369), broadcastRenamed (:400), broadcastNotice (:449) — loops the connection snapshot serially ON THE CALLER'S GOROUTINE, doing c.send then c.doDiscover per connection. send takes that conn's write mutex with writeWait=10s (gateway.go:211), so one wedged or backgrounded device stalls the initiating device's confirmation (e.g. the 'cleared.' reply after doClear runs the whole fan-out on the initiator's read loop) for up to 10s per stuck socket. The recipients are independent: fan out one goroutine per connection — per-client frame ordering is preserved because each conn's frames still serialize under its own wmu. Also memoize the tmux list-panes fork (tmux/tmux.go:32-46) for ~1s: a single clear currently triggers one doDiscover — and thus one tmux fork — per connected device."
+status = "finished"
+level = "task"
+category = "bug"
+created = 2026-08-08
+completed = 2026-08-08
+tags = ["perf", "lag"]
+
+[[task]]
 id = "delete-session-batch-the-purge-run-it-async-remove-the-row-optimistically"
 title = "Delete session: batch the purge, run it async, remove the row optimistically"
 description = "Deleting a session is 10-30 serial SSH round trips before the sidebar row disappears: deleteByIDs (claudefs.go:547) loops ids serially and purgeByID (claudefs.go:523) does 3-4 execs per id (findByID glob, rm -f, rm -rf sidecar, rm -rf state); DeleteSessionAll (driver.go:835-848) repeats that per archived History segment plus the current chain — and a much-cleared session has many PriorIDs. Then removeSandbox blocks on 'docker rm -f' before sendSessionList/doDiscover (ops_discover.go:345-349, same in removeSession ops_session.go:439-448), and ops_discover.go:312 forks tmux list-panes inline. The app (MainScreen.kt:493) waits for the discovered push to drop the row. Three independent fixes: (a) collapse the purge into ONE rm -rf listing every derived path — ids are UUID-validated so the paths are safe to join; (b) drop the registry record and push the refreshed lists FIRST, then run the purge + container remove in a goroutine (already best-effort); (c) remove the row optimistically client-side — the server's next discovered push is authoritative and restores it if the delete failed. Related: allow-deleting-sessions-whose-host-is-unreachable."
