@@ -2,6 +2,8 @@ package session
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -164,5 +166,48 @@ func TestExportMessagesUnquotesUserText(t *testing.T) {
 		if m.Role == "user" && strings.HasPrefix(m.Text, `"`) && strings.HasSuffix(m.Text, `"`) {
 			t.Errorf("user message still wrapped in opencode's quotes: %q", m.Text)
 		}
+	}
+}
+
+// chainSig lets a digest be cached instead of re-exporting the whole chain, so it
+// must (a) hold steady while the opencode store is untouched, (b) change when a
+// turn lands — including one that only reaches the write-ahead log — and (c) opt
+// out honestly when there is no store to describe.
+func TestOpencodeChainSig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	var fs opencodeFS // remote nil = local, per the hermetic-test path
+	ids := []string{"ses_a", "ses_b"}
+
+	if _, ok := fs.chainSig(ids); ok {
+		t.Fatal("chainSig reported a signature with no opencode store on disk")
+	}
+
+	store := filepath.Join(home, ".local", "share", "opencode")
+	if err := os.MkdirAll(store, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db := filepath.Join(store, "opencode.db")
+	if err := os.WriteFile(db, []byte("sqlite"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sig, ok := fs.chainSig(ids)
+	if !ok || sig == "" {
+		t.Fatalf("chainSig on an existing store = %q, ok %v", sig, ok)
+	}
+	if again, _ := fs.chainSig(ids); again != sig {
+		t.Errorf("chainSig changed with no write: %q then %q", sig, again)
+	}
+	if other, _ := fs.chainSig([]string{"ses_a"}); other == sig {
+		t.Error("chainSig ignored the id chain: a shorter chain signed the same")
+	}
+
+	// A turn that only reaches the -wal must still move the signature; signing the
+	// database alone would call this chain unchanged.
+	if err := os.WriteFile(filepath.Join(store, "opencode.db-wal"), []byte("pending"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if withWAL, _ := fs.chainSig(ids); withWAL == sig {
+		t.Error("chainSig unchanged after a write landed in the -wal")
 	}
 }

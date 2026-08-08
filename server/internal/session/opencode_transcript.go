@@ -2,7 +2,10 @@ package session
 
 import (
 	"encoding/json"
+	"fmt"
+	"os"
 	"os/exec"
+	"path"
 	"strings"
 )
 
@@ -254,11 +257,73 @@ func (fs opencodeFS) deleteByIDs(ids []string) (int, error) {
 	return n, nil
 }
 
-// chainSig opts out: opencode has no transcript file to stat — the reader shells
-// out to opencode's own export command — so there is nothing cheap to compare
-// and the digest is recomputed every time. Explicit rather than inherited, so
-// the embedded claudeFS can't hand back a signature for unrelated files.
-func (fs opencodeFS) chainSig([]string) (string, bool) { return "", false }
+// opencodeStorePaths are the SQLite files opencode keeps its sessions in,
+// relative to the host user's home. The -wal companion matters as much as the
+// database itself: a just-written turn can sit entirely in the write-ahead log
+// while opencode.db's own size and mtime are untouched, so signing only the
+// database would report "unchanged" for a session that just grew.
+var opencodeStorePaths = []string{
+	".local/share/opencode/opencode.db",
+	".local/share/opencode/opencode.db-wal",
+}
+
+// chainSig signs the opencode store rather than the chain. There is no per-session
+// file to stat — history comes from `opencode export`, which is the expensive call
+// the signature exists to avoid — but every session lives in one SQLite database,
+// and any write to any session bumps that database's size/mtime (or its -wal's).
+// So stat'ing the store and folding in the ids gives the contract a valid, cheap
+// answer: an unchanged signature means no session changed, hence this chain didn't.
+// It is deliberately conservative in the other direction — an unrelated session's
+// turn changes the signature and costs one recompute — which is the cheap side of
+// the trade against re-exporting the whole chain on every digest.
+//
+// ok=false when neither store file can be stat'd (no opencode data yet, or an
+// unreadable host), so the caller falls back to recomputing instead of trusting a
+// signature that describes nothing.
+func (fs opencodeFS) chainSig(ids []string) (string, bool) {
+	home, ok := fs.home()
+	if !ok {
+		return "", false
+	}
+	var b strings.Builder
+	any := false
+	for _, rel := range opencodeStorePaths {
+		size, mod, ok := fs.stat(path.Join(home, rel))
+		if !ok {
+			continue // absent (no -wal in the common case) — sign what exists
+		}
+		any = true
+		fmt.Fprintf(&b, "%s:%d:%d;", rel, size, mod.UnixNano())
+	}
+	if !any {
+		return "", false
+	}
+	fmt.Fprintf(&b, "ids:%s", strings.Join(ids, ","))
+	return b.String(), true
+}
+
+// home resolves the session host's home directory: locally the server process's
+// own, remotely the target's (the reader holds no config, and the remote user's
+// home need not match the server's). Resolved once per chainSig so signing both
+// store files costs one extra round trip, not one per file.
+func (fs opencodeFS) home() (string, bool) {
+	if fs.remote == nil {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", false
+		}
+		return home, true
+	}
+	out, err := fs.remote.output(`printf %s "$HOME"`)
+	if err != nil {
+		return "", false
+	}
+	home := strings.TrimSpace(string(out))
+	if home == "" {
+		return "", false
+	}
+	return home, true
+}
 
 // opencodeUnquote undoes the double-quote wrapping opencode puts around a user
 // message it received as a CLI argument: `opencode run -- <prompt>` stores the
