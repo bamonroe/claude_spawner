@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "move-digest-usage-cache-file-rewrites-off-the-lock"
+title = "Move digest/usage cache file rewrites off the lock"
+description = "usagecache.go:86-110 and digestcache.go:82-104: every Put marshals the ENTIRE entries map and does a CreateTemp+write+rename while holding the mutex. The 8-way digest sweep serializes behind N whole-file rewrites, and every turn end pays one on the critical-ish path. Restructure so Get/Put contend only on the in-memory map and persistence is a debounced/coalesced async flush (marshal a snapshot outside the lock); crash-loss of a few recent digests is fine since they recompute. Keep the invariant at the cache interface, not with an ad-hoc goroutine per Put."
+status = "finished"
+level = "task"
+category = "refactor"
+created = 2026-08-08
+completed = 2026-08-08
+tags = ["perf"]
+
+[[task]]
 id = "auto-compress-scan-stop-driving-host-reads-for-idle-sessions"
 title = "Auto-compress scan: stop driving host reads for idle sessions"
 description = "The 5s autoCompressLoop calls SessionContextUsage for every started session, which drives a chainSig stat batch (and, on a miss, a full transcript/export read) per session per tick on every host. An idle session's context cannot change by construction — only a turn moves it — so the ticker should consume the last known usage (updated when a turn completes) and never initiate host I/O itself. This is what turned an opencode signature bug into a visible process storm; related to tame-the-autocompress-ticker-s-ssh-stat-storm."
