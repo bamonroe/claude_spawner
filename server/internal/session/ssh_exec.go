@@ -50,10 +50,10 @@ func (e SSHExecutor) Start(ctx context.Context, s *Session, prof *ExecProfile, b
 		return nil, err
 	}
 	proc, err := e.run(ctx, host, client, s, prof, bin, args)
-	// A channel-open refusal means the connection is busy, not dead: dropping it
-	// would take down every other operation sharing it. Only re-dial on a real
-	// transport error.
-	if err != nil && !isChannelOpenErr(err) {
+	// Only re-dial on a real transport error — see shouldRedial: a busy connection
+	// and a failed remote command both look like errors and neither means the link
+	// is dead, and dropping it takes down every other operation sharing it.
+	if shouldRedial(err) {
 		// The pooled connection may have died since the last turn; evict and re-dial
 		// once. A fresh client that still fails is a real error.
 		e.Pool.drop(host, client)

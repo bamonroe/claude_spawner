@@ -113,7 +113,7 @@ func (p *SSHPool) WriteFile(ctx context.Context, host, path string, data []byte)
 		return err
 	}
 	err = p.writeRemote(ctx, host, client, path, data)
-	if err != nil && !isChannelOpenErr(err) {
+	if shouldRedial(err) {
 		p.drop(host, client)
 		client, derr := p.client(host)
 		if derr != nil {
@@ -162,10 +162,10 @@ func (p *SSHPool) Run(ctx context.Context, host, cmd string) ([]byte, error) {
 		return nil, err
 	}
 	out, err := p.runRemote(ctx, host, client, cmd)
-	// A channel-open refusal means the connection is BUSY, not dead — dropping it
-	// would tear down every other operation sharing it (a running turn included)
-	// and re-dial for nothing. Only a transport error earns a re-dial.
-	if err != nil && !isChannelOpenErr(err) {
+	// Only a transport error earns a re-dial: dropping the client tears down every
+	// other operation sharing it (a running turn included). See shouldRedial for
+	// the two errors that look fatal and aren't.
+	if shouldRedial(err) {
 		p.drop(host, client)
 		client, derr := p.client(host)
 		if derr != nil {
@@ -186,7 +186,7 @@ func (p *SSHPool) Stream(ctx context.Context, host, inner string) (Proc, error) 
 		return nil, err
 	}
 	proc, err := p.streamRemote(ctx, host, client, inner)
-	if err != nil && !isChannelOpenErr(err) {
+	if shouldRedial(err) {
 		p.drop(host, client)
 		client, derr := p.client(host)
 		if derr != nil {
