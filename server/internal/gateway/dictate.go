@@ -16,11 +16,14 @@ func (c *conn) dictate(text string) {
 		c.send(msgSay("attach to a session first."))
 		return
 	}
-	// Reconcile detached background jobs at the turn boundary (before the prompt is
-	// built) so a job that finished since the last turn gets its completion note
-	// staged into PendingNotes now. Safe here: no turn is in flight yet, so this
-	// doesn't race the running turn's own store.Put (the one-writer invariant).
-	c.srv.reconcileJobs(c.attached, true)
+	// Reconcile detached background jobs at the turn boundary — OFF this goroutine.
+	// It's an SSH round-trip (up to its 8s timeout) and this is the connection's
+	// serial read loop, so running it inline delayed the whole turn (and everything
+	// queued behind it) before Claude was even started. Concurrent is safe by
+	// construction: reconcileJobs claims the session's writer slot itself, and
+	// startTurn below preempts it and waits for it to let go, so at most it loses
+	// the race and its notes land on the NEXT turn instead of this one.
+	go c.srv.reconcileJobs(c.attached, true)
 	prompt := text
 	// A prior "compress" left a compacted summary of the old context to carry into
 	// this fresh session_id; prepend it to the FIRST dictation so Claude continues
@@ -32,12 +35,14 @@ func (c *conn) dictate(text string) {
 	// started earlier has finished, then clear them (unconditionally — unlike the
 	// compress seed, which is gated on !Started). stripInjected strips this back off
 	// stored history so the echoed view stays clean.
-	if len(c.attached.PendingNotes) > 0 {
-		prompt = jobNotesPreamble(c.attached.PendingNotes) + prompt
-		c.attached.Mutate(func(s *session.Session) { s.PendingNotes = nil })
-		if err := c.srv.store.Put(c.attached); err != nil {
-			log.Printf("dictate[%s]: persist cleared notes: %v", c.attached.Name, err)
-		}
+	// Read them under the record's lock: the reconcile launched above may be
+	// appending concurrently. Consumed notes are cleared BY COUNT after startTurn
+	// claims the writer slot (below), so a note staged in between survives instead
+	// of being wiped by a blanket nil.
+	var notes []string
+	c.attached.Read(func(s *session.Session) { notes = append(notes, s.PendingNotes...) })
+	if len(notes) > 0 {
+		prompt = jobNotesPreamble(notes) + prompt
 	}
 	if c.brief {
 		// Opt-in: nudge Claude toward short, TTS-friendly replies. Only the prompt
@@ -62,6 +67,22 @@ func (c *conn) dictate(text string) {
 	if !c.srv.startTurn(c.attached, prompt, primeAsk, primeJobs) {
 		c.send(msgSay("still working on the last one."))
 		return
+	}
+	// The turn now owns the session's single writer slot (startTurn preempted any
+	// reconcile and waited for it to release), so this is the safe point to drop the
+	// notes we just injected — dropping exactly the ones consumed, by count.
+	if len(notes) > 0 {
+		n := len(notes)
+		c.attached.Mutate(func(s *session.Session) {
+			if n >= len(s.PendingNotes) {
+				s.PendingNotes = nil
+			} else {
+				s.PendingNotes = append([]string(nil), s.PendingNotes[n:]...)
+			}
+		})
+		if err := c.srv.store.Put(c.attached); err != nil {
+			log.Printf("dictate[%s]: persist cleared notes: %v", c.attached.Name, err)
+		}
 	}
 	// Mirror the prompt onto any other devices attached to this session.
 	c.srv.echoUserPrompt(c.attached.SessionID, text, c)

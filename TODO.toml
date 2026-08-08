@@ -129,18 +129,6 @@ created = 2026-08-08
 tags = ["perf"]
 
 [[task]]
-id = "don-t-run-the-background-job-ssh-reconcile-inline-before-every-turn"
-title = "Don't run the background-job SSH reconcile inline before every turn"
-description = "Every dictation pays a synchronous SSH round trip before the turn even starts: dictate.go:23 calls reconcileJobs(c.attached, true) inline, which unconditionally runs 'spawner-job list --json' on the target over SSH (bgjobs.go:76, 8s timeout) plus a store.Put — before the prompt is built, before startTurn, before the '🤔 thinking…' activity frame (turns.go:56), all while blocking the connection's serial read loop so even the transcript echo queues. Fix: run the reconcile concurrently with startTurn and fold newly-found job notes into the NEXT turn's prompt — PendingNotes is already a queue, the single-writer claim already prevents racing the turn's store.Put, and the reconciler is preempt-safe (bgjobs.go:101-106); the only semantic change is a job-completion note landing one turn later. Also move the inflight marker's synchronous file write+rename (turns.go:50 → inflight.go:41-47) off the read loop into the turn goroutine."
-status = "active"
-level = "task"
-category = "bug"
-urgency = "high"
-order = 150
-created = 2026-08-08
-tags = ["perf", "lag"]
-
-[[task]]
 id = "delete-session-batch-the-purge-run-it-async-remove-the-row-optimistically"
 title = "Delete session: batch the purge, run it async, remove the row optimistically"
 description = "Deleting a session is 10-30 serial SSH round trips before the sidebar row disappears: deleteByIDs (claudefs.go:547) loops ids serially and purgeByID (claudefs.go:523) does 3-4 execs per id (findByID glob, rm -f, rm -rf sidecar, rm -rf state); DeleteSessionAll (driver.go:835-848) repeats that per archived History segment plus the current chain — and a much-cleared session has many PriorIDs. Then removeSandbox blocks on 'docker rm -f' before sendSessionList/doDiscover (ops_discover.go:345-349, same in removeSession ops_session.go:439-448), and ops_discover.go:312 forks tmux list-panes inline. The app (MainScreen.kt:493) waits for the discovered push to drop the row. Three independent fixes: (a) collapse the purge into ONE rm -rf listing every derived path — ids are UUID-validated so the paths are safe to join; (b) drop the registry record and push the refreshed lists FIRST, then run the purge + container remove in a goroutine (already best-effort); (c) remove the row optimistically client-side — the server's next discovered push is authoritative and restores it if the delete failed. Related: allow-deleting-sessions-whose-host-is-unreachable."

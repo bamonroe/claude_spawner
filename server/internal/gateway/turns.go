@@ -47,10 +47,15 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk, primeJo
 		return false
 	}
 
-	s.inflight.add(sessionID) // persist "running" so a restart can flag it interrupted
-	turnID := newTurnID()     // shared by every output frame of this turn — the client's dedup key
+	turnID := newTurnID() // shared by every output frame of this turn — the client's dedup key
 	log.Printf("turn[%s] input: %q", name, logField(text))
 	go func() {
+		// Persist "running" (so a restart can flag the turn interrupted) from the turn
+		// goroutine, not the caller's: it's a file write + rename, and startTurn is
+		// called from the connection's serial read loop where that latency lands in
+		// front of the user's turn. The claim above already happened, so the ordering
+		// that matters (one writer per session) is unaffected.
+		s.inflight.add(sessionID)
 		defer s.inflight.remove(sessionID)
 		j.flushPending() // redeliver an earlier reply whose send failed, now that we're writing again
 		j.emit(msgActivity("🤔 thinking…"))

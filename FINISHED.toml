@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "don-t-run-the-background-job-ssh-reconcile-inline-before-every-turn"
+title = "Don't run the background-job SSH reconcile inline before every turn"
+description = "Every dictation pays a synchronous SSH round trip before the turn even starts: dictate.go:23 calls reconcileJobs(c.attached, true) inline, which unconditionally runs 'spawner-job list --json' on the target over SSH (bgjobs.go:76, 8s timeout) plus a store.Put — before the prompt is built, before startTurn, before the '🤔 thinking…' activity frame (turns.go:56), all while blocking the connection's serial read loop so even the transcript echo queues. Fix: run the reconcile concurrently with startTurn and fold newly-found job notes into the NEXT turn's prompt — PendingNotes is already a queue, the single-writer claim already prevents racing the turn's store.Put, and the reconciler is preempt-safe (bgjobs.go:101-106); the only semantic change is a job-completion note landing one turn later. Also move the inflight marker's synchronous file write+rename (turns.go:50 → inflight.go:41-47) off the read loop into the turn goroutine."
+status = "finished"
+level = "task"
+category = "bug"
+created = 2026-08-08
+completed = 2026-08-08
+tags = ["perf", "lag"]
+
+[[task]]
 id = "make-clear-context-feel-instant-stop-dropping-and-refetching-an-unchanged-chat-log"
 title = "Make clear-context feel instant: stop dropping and refetching an unchanged chat log"
 description = "Server-side doClear (gateway/ops_session.go:363) is cheap — id rotation + store.Put, no SSH — but the app makes it feel slow: onContextReset (androidMain VoiceControllerMessages.kt:291-320, web twin WebAppControllerMessages.kt:132) calls dropSessionCache(oldId), switches the view to the fresh id (now an EMPTY cache), and requestFreshHistory with no have_hash — so the user stares at a blank chat while serveHistory misses the digest fast path (ops_history.go:124), re-parses the whole PriorIDs chain over SSH, and ships every message body back. But a CLEAR is byte-identical for display: it only appends the old id to PriorIDs; nothing on disk changes. Fix: on context_reset, RE-KEY the cached log, cursors, and held digest oldId→newId and keep rendering (row indexes are stable because the chain is append-only), refreshing in the background at most — or at minimum keep the log and send the held hash so the server answers 'unchanged'. Distinguish clear (content preserved) from compress (content rewritten — keep dropping) via a flag on the context_reset frame. CAUTION: set_agent's rotation DOES drop the chain (ops_discover.go:221 sets PriorIDs=nil) — that path must keep invalidating. Server side, check whether a fresh not-yet-written session_id makes chainSig return ok=false and the digest uncacheable until the first turn; if so treat a missing current transcript as a describable empty part. Protocol change → docs/protocol.md + both clients in the same pass."
