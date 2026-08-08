@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "fix-duplicated-and-badly-parsed-user-messages"
+title = "Fix duplicated and badly parsed user messages"
+description = "From Screenshot_20260808_072445_Claude Spawner.jpg: the chat shows a spoken/text user turn twice, and one duplicate includes quoted instruction text instead of the clean message. Investigate the input/transcript path and chat rendering so one canonical user message is shown with the intended parsed content."
+status = "finished"
+level = "task"
+category = "bug"
+created = 2026-08-08
+completed = 2026-08-08
+tags = ["android", "chat", "transcription"]
+
+[[task]]
 id = "expose-failed-turn-root-cause-in-chat"
 title = "Expose failed turn root cause in chat"
 description = "From Screenshot_20260808_072445_Claude Spawner.jpg: a failed assistant turn appears as generic status plus turn_failed: opencode stream ended without a text message. Preserve and display the actionable upstream failure cause so the user can tell why the turn failed."

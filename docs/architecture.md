@@ -255,7 +255,12 @@ models and wiring them into opencode remains the user's job — the server treat
 source of truth for what's runnable. `Driver.RefreshModels` runs the probes over the SSH pool at boot
 (before the provider overlay is validated) and, throttled, on each client connect. opencode persists
 sessions in a SQLite DB rather than flat files, so its transcript reader shells out to opencode's own
-commands (see below). The older persisted/spoken `opencode` backend id remains an alias for Ollama.
+commands (see below). That reader also **unquotes user messages**: opencode stores a prompt passed
+as a CLI argument wrapped in double quotes and exports it that way, and those two bytes make the
+replayed text differ from what was sent — enough that the gateway's `stripInjected` misses its own
+trailing scaffolding and the app can no longer match the replayed row to the live one, so the
+message appears twice. It's undone at the reader, so every consumer sees the user's actual text.
+The older persisted/spoken `opencode` backend id remains an alias for Ollama.
 *Antigravity* (Google's Gemini-powered `agy` CLI) is driven with
 `agy --prompt` (non-interactive "print" mode) plus **`--output-format stream-json`** — a flag absent
 from `agy --help` but real (the binary's own flag table names `text, json, stream-json`), which turns
@@ -288,7 +293,11 @@ by `codexFS` (`internal/session/codex_transcript.go`). opencode keeps sessions i
 (`internal/session/opencode_transcript.go`) instead shells out to opencode's own stable commands over
 the same SSH seam — `opencode export <id>` for history (mapping its message/part JSON, taking each
 turn's context size from the last `step-finish` part's tokens, since the session-level `info.tokens`
-is summed across turns) and `opencode session delete <id>` for removal. Antigravity keys its store by
+is summed across turns) and `opencode session delete <id>` for removal. It also **unwraps the double
+quotes opencode puts around a user message** it took as a CLI argument: those two bytes aren't the
+user's words, and every exact-text consumer downstream breaks on them — the gateway's `stripInjected`
+stops recognizing its own trailing scaffolding, and the app can no longer match the replayed row
+against the live one, so the message shows twice with the "(Reply briefly…)" hint attached. Antigravity keys its store by
 *brain-dir* ids — which are the conversation ids it announces, recorded per session in
 `Session.AgyBrainIDs` — so `antigravityFS` replays those brain transcripts, each brain's
 `transcript.jsonl` becoming one user row (unwrapped from agy's `<USER_REQUEST>` envelope) plus one

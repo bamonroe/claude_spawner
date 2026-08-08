@@ -2,6 +2,7 @@ package session
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -106,6 +107,62 @@ func TestValidOpencodeID(t *testing.T) {
 	for _, id := range bad {
 		if validOpencodeID(id) {
 			t.Errorf("validOpencodeID(%q) = true, want false", id)
+		}
+	}
+}
+
+// opencode stores a CLI-supplied user message wrapped in its own double quotes.
+// Leaving them on breaks every exact-text consumer downstream (the gateway's
+// scaffolding strip, the app's live-vs-history dedupe), so the reader unwraps it.
+func TestExportMessagesUnwrapsOpencodeQuotes(t *testing.T) {
+	const quoted = `{"messages":[
+    {"info":{"id":"msg_u1","role":"user","time":{"created":1000}},
+     "parts":[{"type":"text","text":"\"do the next todo\n\n(Reply briefly, in plain sentences suitable for text-to-speech.)\""}]},
+    {"info":{"id":"msg_a1","role":"assistant","time":{"created":2000}},
+     "parts":[{"type":"text","text":"\"quoted assistant prose stays\""}]}
+  ]}`
+	var ex opencodeExport
+	if err := json.Unmarshal([]byte(quoted), &ex); err != nil {
+		t.Fatal(err)
+	}
+	msgs := exportMessages(ex)
+	if len(msgs) != 2 {
+		t.Fatalf("got %d messages, want 2", len(msgs))
+	}
+	want := "do the next todo\n\n(Reply briefly, in plain sentences suitable for text-to-speech.)"
+	if msgs[0].Text != want {
+		t.Errorf("user text = %q, want %q", msgs[0].Text, want)
+	}
+	// Only the user message carries opencode's argv quoting; assistant prose is
+	// the model's own words and must not be rewritten.
+	if msgs[1].Text != `"quoted assistant prose stays"` {
+		t.Errorf("assistant text was rewritten: %q", msgs[1].Text)
+	}
+}
+
+// opencode stores a user prompt as the quoted CLI argument it received
+// (`"…"`). The reader must hand back the user's own text: the quotes break both
+// the gateway's scaffolding strip and the app's live-vs-history dedupe, which
+// showed the message twice — once quoted with the "(Reply briefly…)" hint still
+// attached.
+func TestExportMessagesUnquotesUserText(t *testing.T) {
+	cases := map[string]string{
+		`"can you use the todo skill"`: "can you use the todo skill",
+		`"he said "hi" to me"`:         `he said "hi" to me`,
+		"unquoted prompt":              "unquoted prompt",
+		`"unterminated`:                `"unterminated`,
+		`say "yes"`:                    `say "yes"`,
+	}
+	for in, want := range cases {
+		if got := opencodeUnquote(in); got != want {
+			t.Errorf("opencodeUnquote(%q) = %q, want %q", in, got, want)
+		}
+	}
+
+	ex := parseExport(t)
+	for _, m := range exportMessages(ex) {
+		if m.Role == "user" && strings.HasPrefix(m.Text, `"`) && strings.HasSuffix(m.Text, `"`) {
+			t.Errorf("user message still wrapped in opencode's quotes: %q", m.Text)
 		}
 	}
 }

@@ -19,15 +19,3 @@ add_proposed_work = "Add proposed features and tests as new tasks rather than lo
 remove_dropped_items = "Remove dropped items with a one-line why (`scripts/todo.sh remove <id> --reason`)."
 finish_work = "When a task is fully finished (built, tested, documented), run `scripts/todo.sh done <id>` to move it to FINISHED.toml — in the same commit that completes the work."
 scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/KMP app + web client. The historical phase roadmap stays in README.md."
-
-[[task]]
-id = "fix-duplicated-and-badly-parsed-user-messages"
-title = "Fix duplicated and badly parsed user messages"
-description = "From Screenshot_20260808_072445_Claude Spawner.jpg: the chat shows a spoken/text user turn twice, and one duplicate includes quoted instruction text instead of the clean message. Investigate the input/transcript path and chat rendering so one canonical user message is shown with the intended parsed content."
-status = "active"
-level = "task"
-category = "bug"
-urgency = "high"
-order = 20
-created = 2026-08-08
-tags = ["android", "chat", "transcription"]

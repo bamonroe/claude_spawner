@@ -166,6 +166,9 @@ func exportMessages(ex opencodeExport) []Message {
 			}
 		}
 		t := strings.TrimSpace(text.String())
+		if role == "user" {
+			t = opencodeUnquote(t)
+		}
 		if t == "" {
 			continue // tool-only / empty turn: nothing to replay
 		}
@@ -256,3 +259,25 @@ func (fs opencodeFS) deleteByIDs(ids []string) (int, error) {
 // and the digest is recomputed every time. Explicit rather than inherited, so
 // the embedded claudeFS can't hand back a signature for unrelated files.
 func (fs opencodeFS) chainSig([]string) (string, bool) { return "", false }
+
+// opencodeUnquote undoes the double-quote wrapping opencode puts around a user
+// message it received as a CLI argument: `opencode run -- <prompt>` stores the
+// prompt as `"<prompt>"`, quotes included, and `opencode export` hands it back
+// that way. Those two bytes are not the user's words, and leaving them on breaks
+// two things downstream that both match on exact text: the gateway's
+// stripInjected no longer recognizes its own trailing scaffolding (so the
+// "(Reply briefly…)" hint leaks into the replayed bubble), and the app can no
+// longer match a replayed row against the live row it already shows (so the
+// message appears twice). Stripping it here — at the reader, where the backend's
+// storage quirk is — means every consumer sees the text the user actually sent.
+//
+// Only one matching leading AND trailing quote is removed. A message the user
+// really did wrap in quotes therefore loses them in replay — two cosmetic
+// characters, against a bubble that otherwise duplicates and leaks scaffolding on
+// every opencode turn.
+func opencodeUnquote(t string) string {
+	if len(t) < 2 || t[0] != '"' || t[len(t)-1] != '"' {
+		return t
+	}
+	return strings.TrimSpace(t[1 : len(t)-1])
+}
