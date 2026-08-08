@@ -21,18 +21,6 @@ finish_work = "When a task is fully finished (built, tested, documented), run `s
 scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/KMP app + web client. The historical phase roadmap stays in README.md."
 
 [[task]]
-id = "history-serve-stop-re-assembling-and-double-copying-the-whole-log-per-refresh"
-title = "History serve: stop re-assembling and double-copying the whole log per refresh"
-description = "Every turn invalidates the whole-log display memo (keyed on the full chain sig, displaymemo.go:51), so the post-turn refresh re-concats all segments, re-indexes every message (driver.go:792-828), and copies the full slice twice (displaymemo.go:61,70) — O(total messages) work to serve a 30-row page after appending one message. The transcript BYTES are already incremental (extendParse/tail -c +N, transcript.go:377-467); the in-memory assembly is not. Also the have_hash fast path (ops_history.go:123) structurally never hits right after a turn. Scope an incremental path: extend the memoized whole-log in place when only the current chain grew, and/or serve the top page without materializing the whole chain. Also note opencode/codex/antigravity have no incremental parse at all (a miss re-runs 'opencode export' per id over SSH), and one indescribable archived segment makes a session's digest permanently uncacheable (driver.go:766). Produce concrete tasks."
-status = "active"
-level = "scope"
-category = "refactor"
-urgency = "normal"
-order = 70
-created = 2026-08-08
-tags = ["perf", "lag"]
-
-[[task]]
 id = "prioritize-foreground-history-over-transcript-prefetch"
 title = "Prioritize foreground history over transcript prefetch"
 description = "The app's TranscriptPrefetcher (net/TranscriptPrefetcher.kt:86) runs up to 2 background history fetches for recently-active sessions, kicked by discovered pushes, landed replies, and turn end; the server allows 4 concurrent history reads per connection (ops_history.go:18) fanning SSH probes into the per-host channel budget (ssh_channels.go:46, 4 stream channels). A foreground refresh of the session the user is looking at can queue behind prefetch traffic, capped only by the 30s remote probe timeout. Scope a priority lane: either the server distinguishes foreground vs prefetch history requests (protocol flag) and schedules accordingly, or the client pauses the prefetcher while a foreground refresh or gap-fill is in flight. Related: reconnect gap-fill pages 30 rows per sequential round trip — consider a bigger gap-fill limit while at it."
@@ -127,3 +115,51 @@ urgency = "normal"
 order = 210
 created = 2026-08-08
 tags = ["perf"]
+
+[[task]]
+id = "history-memo-hand-out-read-only-slices-instead-of-copying-the-whole-log"
+title = "History memo: hand out read-only slices instead of copying the whole log"
+description = "displayMemo copies the full []Message slice on every get and put (displaymemo.go:61,70 for the whole log; :83,95 per archived segment), so even a memo HIT on a large session costs an O(total) slice copy. The copies exist only because serveHistory mutates Text in place (ops_history.go:143-152). Make the memo return read-only slices and move that mutation onto a copy of the PAGE instead, turning four O(total) copies into one O(page). Self-contained; extend displaymemo_test.go."
+status = "active"
+level = "task"
+category = "refactor"
+urgency = "normal"
+order = 71
+created = 2026-08-08
+tags = ["history", "perf"]
+
+[[task]]
+id = "split-the-display-log-into-a-cached-archived-prefix-plus-a-rebuilt-current-tail"
+title = "Split the display log into a cached archived prefix plus a rebuilt current tail"
+description = "readDisplayHistory (driver.go:823-868) rebuilds and re-indexes the ENTIRE log after every turn, because chainParts.cur changes and invalidates the whole-log memo. But parts.segs (the archived segments) are a stable prefix and parts.cur is the only mover. Cache the concatenated archived prefix as one memo entry keyed on the segment sigs alone, then only re-read and re-index the current chain, starting the index loop (driver.go:862) at len(prefix). Makes per-turn assembly O(current chain) instead of O(whole log). Touches driver.go:823-868, chainParts (:697-725) and displaymemo.go. Do the memo copy-removal task first."
+status = "active"
+level = "task"
+category = "refactor"
+urgency = "normal"
+order = 72
+created = 2026-08-08
+tags = ["history", "perf"]
+
+[[task]]
+id = "per-part-digest-cacheability-so-one-unsignable-segment-does-not-poison-the-session"
+title = "Per-part digest cacheability so one unsignable segment does not poison the session"
+description = "chainParts.ok (driver.go:795-804) is all-or-nothing: if any single archived segment or the current chain fails to sign, parts.ok goes false and the durable digest cache plus memo storage are disabled for the WHOLE session permanently (see DisplayDigest driver.go:646-668). Make cacheability per-part so a mixed-backend or partly-indescribable session keeps the benefit for the parts that do sign."
+status = "active"
+level = "task"
+category = "refactor"
+urgency = "low"
+order = 74
+created = 2026-08-08
+tags = ["history"]
+
+[[task]]
+id = "delta-history-wire-protocol-send-appended-messages-instead-of-a-whole-page"
+title = "Delta history wire protocol: send appended messages instead of a whole page"
+description = "The have_hash fast path (ops_history.go:118-123) is all-or-nothing per page and structurally never hits right after a turn: the client's have_hash is by definition the pre-turn digest, so any activity forces a full readDisplayHistory plus a full page over the wire. Design a delta variant where a client holding a validated prefix gets only the appended messages. Needs a prefix hash the server can cheaply validate (key on (count, prefix-hash) plus Message.ID, NOT Index, which is rewritten on every re-index and unsafe across clear/compress rotations), a msgHistory variant in docs/protocol.md, and a client-side merge in the Kotlin client — this is the one unit that crosses into the app, so it is drift-tested on both sides. Scope it into concrete tasks."
+status = "active"
+level = "scope"
+category = "feature"
+urgency = "normal"
+order = 73
+created = 2026-08-08
+tags = ["history", "protocol"]

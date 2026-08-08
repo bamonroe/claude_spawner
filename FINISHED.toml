@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "history-serve-stop-re-assembling-and-double-copying-the-whole-log-per-refresh"
+title = "History serve: stop re-assembling and double-copying the whole log per refresh"
+description = "Every turn invalidates the whole-log display memo (keyed on the full chain sig, displaymemo.go:51), so the post-turn refresh re-concats all segments, re-indexes every message (driver.go:792-828), and copies the full slice twice (displaymemo.go:61,70) — O(total messages) work to serve a 30-row page after appending one message. The transcript BYTES are already incremental (extendParse/tail -c +N, transcript.go:377-467); the in-memory assembly is not. Also the have_hash fast path (ops_history.go:123) structurally never hits right after a turn. Scope an incremental path: extend the memoized whole-log in place when only the current chain grew, and/or serve the top page without materializing the whole chain. Also note opencode/codex/antigravity have no incremental parse at all (a miss re-runs 'opencode export' per id over SSH), and one indescribable archived segment makes a session's digest permanently uncacheable (driver.go:766). Produce concrete tasks."
+status = "finished"
+level = "scope"
+category = "refactor"
+created = 2026-08-08
+completed = 2026-08-08
+tags = ["perf", "lag"]
+
+[[task]]
 id = "tame-the-autocompress-ticker-s-ssh-stat-storm"
 title = "Tame the autocompress ticker's SSH stat storm"
 description = "autoCompressLoop (gateway/autocompress.go:72-120) ticks every 5s and SEQUENTIALLY calls SessionContextUsage for every session in the store; each is a chainSig stat walk over SSH, and the 1.5s sig memo never survives to the next tick, so nothing caches. When warm/auto compress is enabled this is a continuous stream of serialized SSH round trips drawing from the same per-host channel budget (ssh_channels.go) the live turn stream and history reads need — and with an unreachable host in the store, each tick also eats dial timeouts. Scope the fix: candidates are (a) event-driven — only re-check a session after ITS turn completes, since context only grows on turns; (b) reuse the turn's own reported usage instead of re-statting; (c) a much longer tick with a sig-memo TTL that covers it. Decide which invariant the loop actually needs, then add the concrete task(s)."
