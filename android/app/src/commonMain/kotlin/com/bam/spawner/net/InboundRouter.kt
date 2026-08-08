@@ -286,6 +286,21 @@ class InboundRouter(
         }
     }
 
+    /**
+     * The true context size for a session, arriving just after that turn's closing
+     * `output` (which carried only the turn's aggregate as a provisional badge — the
+     * server reads the real number off the reply's critical path so nothing waits on
+     * an SSH transcript read). Correct both the meter and the closing row's badge, so
+     * the live view matches what a reattach/history refetch would show.
+     */
+    fun onContextUsage(msg: ServerMsg.ContextUsage) {
+        val u = msg.usage ?: return
+        val sid = keyOf(msg.sessionId)
+        attachUsageToLastClaude(sid, u, logs[sid]?.lastOrNull { it.role == Role.CLAUDE }?.turnStats)
+        val ageMs = if (msg.usageAt > 0) (nowEpochSeconds() - msg.usageAt) * 1000 else 0L
+        usageFor(sid, TurnUsageInfo(u, nowMonotonicMs() - ageMs.coerceIn(0, 6 * 60 * 1000L)))
+    }
+
     fun onActivity(msg: ServerMsg.Activity) {
         // A live breadcrumb proves the turn is running server-side (it survived a
         // reconnect): mark it in flight and disarm the interruption watchdog.

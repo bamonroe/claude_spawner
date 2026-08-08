@@ -21,18 +21,6 @@ finish_work = "When a task is fully finished (built, tested, documented), run `s
 scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/KMP app + web client. The historical phase roadmap stays in README.md."
 
 [[task]]
-id = "don-t-block-the-end-of-turn-output-frame-on-sessioncontextusage"
-title = "Don't block the end-of-turn output frame on SessionContextUsage"
-description = "gateway/turns.go:167 (and bgnotify.go:179) call driver.SessionContextUsage(sess) BEFORE j.finish(msgOutput(...)) sends the reply. This is a guaranteed cache miss by construction — the turn just appended to the transcript so the chain sig changed — and the miss costs serial SSH stat execs per transcript id plus a tail -c read of up to 32MB (transcript.go:536-544), all in the critical path of every reply the user is waiting to hear. Ship the output frame immediately using the turn's own usage for the badge, then compute the true context usage async and push a follow-up usage frame (the protocol already has per-session usage updates). This is the most direct cause of 'lag between turns'."
-status = "active"
-level = "task"
-category = "bug"
-urgency = "high"
-order = 20
-created = 2026-08-08
-tags = ["perf", "lag"]
-
-[[task]]
 id = "batch-chainsig-stats-into-one-ssh-exec-per-host"
 title = "Batch chainSig stats into one SSH exec per host"
 description = "A freshness check is currently N serial SSH round trips: statChainSig (claudefs.go:613) loops the id chain calling fs.stat, one 'sh -c stat' exec per transcript file (claudefs.go:224-246), and displayChainParts (driver.go:760) repeats that for every archived segment plus the current chain. A session cleared/compressed many times has a long chain, so a single 'is my history current?' check fans out many round trips; the 1.5s sig memo (driver.go:722) only collapses one tap's burst. Batch it: one 'stat -c \"%s %Y\" a b c...' exec per host for the whole chain (all segments included), so a freshness check is one round trip. This multiplies through everything: digest sweep, history serve, context usage."

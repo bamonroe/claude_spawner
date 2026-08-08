@@ -458,6 +458,20 @@ func msgOutput(name, text, turn string, chunk bool, usage *session.Usage, stats 
 	return m
 }
 
+// msgContextUsage corrects the context-size meter after a turn. The closing
+// `output` frame ships the turn's own aggregate usage so the reply is never held
+// up, but that aggregate sums every cycle of an agentic loop and so overstates
+// the real context window. The true size — the transcript's last assistant
+// message, the same number attach reports — is read off the critical path and
+// pushed here, keyed by `session_id` so a client that has since switched away
+// ignores it.
+func msgContextUsage(name, sessionID string, cx *session.ContextSnapshot) map[string]any {
+	return map[string]any{
+		"type": "context_usage", "name": name, "session_id": sessionID,
+		"usage": cx.Usage, "usage_at": cx.At,
+	}
+}
+
 // msgRateLimit reports the Claude subscription's usage-window state (from the
 // stream-json rate_limit_event) so the app can show the plan's session limit —
 // which window is binding, when it resets, and a coarse status. Not spoken.

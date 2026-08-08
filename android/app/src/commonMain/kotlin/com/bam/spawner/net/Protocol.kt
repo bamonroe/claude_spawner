@@ -85,6 +85,10 @@ sealed interface ServerMsg {
          *  adjacency rule in SessionSync.dedupe. */
         fun liveKey(): String = if (seq > 0 && turn.isNotEmpty()) "$turn:$seq" else ""
     }
+    // The session's TRUE context-window size, pushed just after a turn's closing
+    // Output (whose `usage` is only the turn's aggregate — see docs/protocol.md
+    // `context_usage`). Corrects the meter and the closing row's badge.
+    data class ContextUsage(val name: String, val sessionId: String, val usage: TokenUsage?, val usageAt: Long = 0) : ServerMsg
     data class History(val name: String, val messages: List<HistMsg>, val more: Boolean, val count: Int = 0, val hash: String = "", val unchanged: Boolean = false, val sessionId: String = "") : ServerMsg
     data class ReadLast(val count: Int) : ServerMsg
     data class Discovered(val sessions: List<DiscoveredInfo>) : ServerMsg
@@ -156,6 +160,7 @@ sealed interface ServerMsg {
                 "renamed" -> Renamed(o.str("old"), o.str("name"), o.str("session_id"))
                 "notice" -> Notice(o.str("name"), o.str("session_id"), o.str("text"))
                 "output" -> Output(o.str("name"), o.str("text"), o.bool("chunk", false), readUsage(o.obj("usage")), o.long("usage_at"), o.str("turn"), o.str("session_id"), readTurnStats(o), o.long("seq"))
+                "context_usage" -> ContextUsage(o.str("name"), o.str("session_id"), readUsage(o.obj("usage")), o.long("usage_at"))
                 "history" -> History(o.str("name"), readHist(o.arr("messages")), o.bool("more"), o.int("count", 0), o.str("hash"), o.bool("unchanged", false), o.str("session_id"))
                 "read_last" -> ReadLast(o.int("count", 1))
                 "discovered" -> Discovered(readDiscovered(o.arr("sessions")))

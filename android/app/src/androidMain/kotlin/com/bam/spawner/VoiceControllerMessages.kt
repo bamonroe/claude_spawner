@@ -186,6 +186,7 @@ internal fun VoiceController.onMessage(msg: ServerMsg) {
         is ServerMsg.Output -> router.onOutput(msg)
         is ServerMsg.ContextReset -> onContextReset(msg)
         is ServerMsg.Activity -> router.onActivity(msg)
+        is ServerMsg.ContextUsage -> router.onContextUsage(msg)
         is ServerMsg.Transcribing -> onTranscribing(msg)
         is ServerMsg.SpeechGate -> _speechGate.value = msg
         is ServerMsg.RestartStatus -> restartIndicators(msg).let { (building, pending) ->

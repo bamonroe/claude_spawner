@@ -173,13 +173,12 @@ func (s *Server) startJobNotify(sess *session.Session, notes []string) bool {
 		if perr := s.store.Put(sess); perr != nil {
 			log.Printf("jobnotify[%s] persist cleared notes: %v", name, perr)
 		}
-		// Read the true context size the way attach/dictate do (last assistant message),
-		// not the turn's aggregate usage, so the badge matches.
-		badge := turnUsage
-		if cx := s.driver.SessionContextUsage(sess); cx != nil {
-			badge = cx.Usage
-		}
-		j.finish(msgOutput(name, reply, turnID, false, &badge, &turnStats{Turns: res.Turns, Total: turnUsage}))
+		// Ship the reply first with the turn's own usage as a provisional badge; the
+		// true context size (last assistant message in the transcript) is read off the
+		// critical path and pushed as a follow-up `context_usage` frame, exactly as a
+		// dictated turn does.
+		j.finish(msgOutput(name, reply, turnID, false, &turnUsage, &turnStats{Turns: res.Turns, Total: turnUsage}))
+		s.pushContextUsage(j, sess)
 		// The spoken outcome only reaches devices attached to THIS session. In eager
 		// mode the whole point is that nobody is attached, so also push a one-frame
 		// heads-up to every device that's connected but looking elsewhere — it

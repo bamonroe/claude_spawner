@@ -158,19 +158,15 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk, primeJo
 			j.finish(stampTurn(msgAsk(name, qs), turnID))
 			return
 		}
-		// The context-size badge must reflect the CURRENT context window, not the turn's
-		// AGGREGATE usage. The result event sums every internal tool-step of an agentic
-		// turn (each re-reads the whole context), so turnUsage can be many times the real
-		// context and bounces with tool-use count. Read the true size the way attach does
-		// — the transcript's last assistant message — so live matches on-attach.
-		badge := turnUsage
-		if cx := s.driver.SessionContextUsage(sess); cx != nil {
-			badge = cx.Usage
-		}
-		// The closing frame also carries the turn's cycle count + aggregate usage
-		// (turnUsage is the result event's per-turn total, summed over every cycle),
-		// which the detailed badge shows next to the context snapshot.
-		j.finish(msgOutput(name, reply, turnID, false, &badge, &turnStats{Turns: res.Turns, Total: turnUsage}))
+		// The closing frame carries the turn's cycle count + aggregate usage (turnUsage
+		// is the result event's per-turn total, summed over every cycle), which the
+		// detailed badge shows next to the context snapshot. It ships IMMEDIATELY with
+		// the turn's own usage as a provisional badge — the true context size is read
+		// off-path by pushContextUsage below, because that read is a guaranteed cache
+		// miss (this turn just changed the transcript) costing SSH execs the user would
+		// otherwise wait through before hearing the reply.
+		j.finish(msgOutput(name, reply, turnID, false, &turnUsage, &turnStats{Turns: res.Turns, Total: turnUsage}))
+		s.pushContextUsage(j, sess)
 	}()
 	return true
 }
@@ -498,4 +494,23 @@ func (s *Server) rekeyJob(oldID, newID string) {
 		s.jobs[newID] = j
 		j.sessionID.Store(newID) // frames now stamp the rotated id (see sessionID)
 	}
+}
+
+// pushContextUsage computes the session's true context size off the reply's
+// critical path and pushes it to every attached connection as a `context_usage`
+// frame. The read is a guaranteed cache miss right after a turn — the transcript
+// just changed, so the chain signature did too — and costs serial SSH stats plus
+// a transcript tail; doing it before the closing `output` frame made the user
+// wait through it to hear every reply. Live-only: if nobody is attached the frame
+// is dropped, and the next attach reads the same number from the transcript.
+func (s *Server) pushContextUsage(j *sessionJob, sess *session.Session) {
+	go func() {
+		cx := s.driver.SessionContextUsage(sess)
+		if cx == nil {
+			return
+		}
+		var name, sessionID string
+		sess.Read(func(r *session.Session) { name, sessionID = r.Name, r.SessionID })
+		j.emit(msgContextUsage(name, sessionID, cx))
+	}()
 }

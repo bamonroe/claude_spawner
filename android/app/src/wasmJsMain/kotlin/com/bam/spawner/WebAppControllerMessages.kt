@@ -138,6 +138,7 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
             }
         }
         is ServerMsg.Activity -> router.onActivity(msg)
+        is ServerMsg.ContextUsage -> router.onContextUsage(msg)
         is ServerMsg.Transcribing -> _micText.value = "transcribing…" // committed clip being re-transcribed
         is ServerMsg.SpeechGate -> _speechGate.value = msg
         is ServerMsg.RestartStatus -> restartIndicators(msg).let { (building, pending) ->
