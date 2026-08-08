@@ -39,6 +39,15 @@ data class WhisperDownloadInfo(
  * Extends [HostsIdentitiesController] (which already contributes `connected`/`hosts`/
  * `identities` and their editing methods) so a single interface covers the whole UI.
  */
+/**
+ * The one rule for turning a `restart_status` message into the toolbar's two bits, so
+ * both clients agree: a build/rebuild is "in flight" only between its `started` and its
+ * terminal phase, and the pending bit is whatever the server says it is (it owns it).
+ * A `bounce` never shows the spinner — it's fast and it clears pending on its own.
+ */
+fun restartIndicators(msg: ServerMsg.RestartStatus): Pair<Boolean, Boolean> =
+    Pair(msg.phase == "started" && msg.mode != "bounce", msg.restartPending)
+
 interface AppController : HostsIdentitiesController, ProfilesController, ProvidersController, SpokenTokensController, ShellCommandsController {
     // --- Connection / status -------------------------------------------------
     val status: StateFlow<String>
@@ -99,6 +108,12 @@ interface AppController : HostsIdentitiesController, ProfilesController, Provide
     // i.e. SPAWNER_DENOISE_URL is set) — the audio-settings denoise toggle only
     // takes effect then.
     val serverDenoiseAvailable: StateFlow<Boolean>
+    // Server restart progress (the `restart_status` message), for the sessions-toolbar
+    // indicators. [restartBuilding] is true while a settings-launched build/rebuild is
+    // underway; [restartPending] means an image is built that the running container
+    // isn't on yet, so a bounce is outstanding (rehydrated from hello_ok on reconnect).
+    val restartBuilding: StateFlow<Boolean>
+    val restartPending: StateFlow<Boolean>
     // Kokoro's voice catalogue + the server-default voice (from the tts_voices
     // reply; both empty until the server offers TTS) — feeds the voice picker.
     val ttsVoices: StateFlow<List<String>>

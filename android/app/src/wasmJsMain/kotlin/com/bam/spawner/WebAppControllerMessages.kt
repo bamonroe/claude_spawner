@@ -78,6 +78,10 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
             _serverTtsAvailable.value = msg.tts
             if (msg.tts) client?.send(Outbound.ttsVoices()) // fetch the voice-picker catalogue
             _serverDenoiseAvailable.value = msg.denoise
+            // The server re-states the pending bit on reconnect (we missed any
+            // restart_status while the socket was down); nothing is building yet.
+            _restartPending.value = msg.restartPending
+            _restartBuilding.value = false
             discover()
             client?.send(Outbound.digest()) // validate the in-memory transcript cache (bodies-free)
             if (prefs.lastSession.isNotBlank()) {
@@ -136,6 +140,10 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
         is ServerMsg.Activity -> router.onActivity(msg)
         is ServerMsg.Transcribing -> _micText.value = "transcribing…" // committed clip being re-transcribed
         is ServerMsg.SpeechGate -> _speechGate.value = msg
+        is ServerMsg.RestartStatus -> restartIndicators(msg).let { (building, pending) ->
+            _restartBuilding.value = building
+            _restartPending.value = pending
+        }
         is ServerMsg.Files -> router.onFiles(msg)
         is ServerMsg.Diff -> router.onDiff(msg)
         is ServerMsg.RateLimit -> _rateLimit.value = msg.info

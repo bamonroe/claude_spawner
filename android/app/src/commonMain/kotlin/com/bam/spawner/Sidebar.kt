@@ -1,7 +1,9 @@
 package com.bam.spawner
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -24,9 +26,11 @@ import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SystemUpdateAlt
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -42,7 +46,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -94,6 +102,9 @@ fun Sidebar(
     onCheckUsage: () -> Unit,
     pinned: Boolean = false,
     onTogglePinned: ((Boolean) -> Unit)? = null,
+    connected: Boolean = true,
+    restartBuilding: Boolean = false,
+    restartPending: Boolean = false,
 ) {
     // Which card is expanded in place (keyed by a stable id, falling back to the dir
     // for a still-discovered session with no session id yet). Only one at a time.
@@ -103,6 +114,32 @@ fun Sidebar(
         // permanently (the chat shifts over) instead of overlaying it from the ☰ button.
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("Sessions", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+            // Server status, right of the title: a green/red socket dot, plus — while a
+            // settings-launched build runs — a spinner, and once that build is done but
+            // the container hasn't been bounced onto it, a "restart pending" glyph.
+            if (restartBuilding) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp).semantics { contentDescription = "Server build running" },
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.width(8.dp))
+            } else if (restartPending) {
+                Icon(
+                    Icons.Filled.SystemUpdateAlt,
+                    contentDescription = "Server restart pending",
+                    tint = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+            }
+            Box(
+                Modifier.size(10.dp)
+                    .clip(CircleShape)
+                    .background(if (connected) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error)
+                    .semantics { contentDescription = if (connected) "Connected" else "Disconnected" }
+            )
+            Spacer(Modifier.width(4.dp))
             if (onTogglePinned != null) {
                 IconButton(onClick = { onTogglePinned(!pinned) }) {
                     Icon(

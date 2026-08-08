@@ -206,6 +206,11 @@ class WebAppController(internal val prefs: Prefs) : AppController {
     // Whether the connected server offers server-side denoise (hello_ok `denoise`).
     internal val _serverDenoiseAvailable = MutableStateFlow(false)
     override val serverDenoiseAvailable: StateFlow<Boolean> = _serverDenoiseAvailable.asStateFlow()
+    // Server restart progress for the sessions-toolbar indicators (see AppController).
+    internal val _restartBuilding = MutableStateFlow(false)
+    override val restartBuilding: StateFlow<Boolean> = _restartBuilding.asStateFlow()
+    internal val _restartPending = MutableStateFlow(false)
+    override val restartPending: StateFlow<Boolean> = _restartPending.asStateFlow()
     // Kokoro's voice catalogue + server default (tts_voices reply; feeds the picker).
     internal val _ttsVoices = MutableStateFlow<List<String>>(emptyList())
     override val ttsVoices: StateFlow<List<String>> = _ttsVoices.asStateFlow()

@@ -115,6 +115,8 @@ fun MainScreen(
 
     val status by controller.status.collectAsState()
     val connected by controller.connected.collectAsState()
+    val restartBuilding by controller.restartBuilding.collectAsState()
+    val restartPending by controller.restartPending.collectAsState()
     val chat by controller.chat.collectAsState()
     val hasMoreHistory by controller.hasMoreHistory.collectAsState()
     val scrollTick by controller.scrollTick.collectAsState()
@@ -218,6 +220,9 @@ fun MainScreen(
             // Pinning from the overlay docks it (and closes the overlay behind it);
             // unpinning from the docked rail hides it back behind the ☰ button.
             onTogglePinned = { on -> setPinned(on); if (on) onNavigated() },
+            connected = connected,
+            restartBuilding = restartBuilding,
+            restartPending = restartPending,
         )
     }
     // The chat column (top bar → list → status bars → input bar). [onMenu] is null in

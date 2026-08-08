@@ -188,6 +188,10 @@ internal fun VoiceController.onMessage(msg: ServerMsg) {
         is ServerMsg.Activity -> router.onActivity(msg)
         is ServerMsg.Transcribing -> onTranscribing(msg)
         is ServerMsg.SpeechGate -> _speechGate.value = msg
+        is ServerMsg.RestartStatus -> restartIndicators(msg).let { (building, pending) ->
+            _restartBuilding.value = building
+            _restartPending.value = pending
+        }
         is ServerMsg.Files -> router.onFiles(msg)
         is ServerMsg.Diff -> router.onDiff(msg)
         is ServerMsg.RateLimit -> _rateLimit.value = msg.info // plan session-limit readout (sidebar)
@@ -255,6 +259,10 @@ internal fun VoiceController.onHelloOk(msg: ServerMsg.HelloOk) {
     _serverTtsAvailable.value = msg.tts
     if (msg.tts) client?.send(Outbound.ttsVoices()) // fetch the voice-picker catalogue
     _serverDenoiseAvailable.value = msg.denoise
+    // A reconnect can't see the restart_status we missed, so the server re-states the
+    // pending bit here; nothing is building from our point of view at connect time.
+    _restartPending.value = msg.restartPending
+    _restartBuilding.value = false
     discover() // the drawer lists ALL machine sessions (discovery is the source)
     client?.send(Outbound.digest()) // validate the offline transcript cache (bodies-free)
     settings.lastSession.takeIf { it.isNotEmpty() }?.let {

@@ -785,6 +785,14 @@ staged but the running container isn't on it yet — which the app also receives
 reconnects, so it can keep offering the one-tap bounce. The server speaks a line when a build is
 ready or a rebuild fails.
 
+The **sessions toolbar** (top of the drawer, right of the "Sessions" title) shows all of this at a
+glance: a small **green dot** while the WebSocket is connected and a **red** one when it isn't, a
+**spinner** while a build or rebuild is running, and an **update glyph** once a build has finished
+but the container hasn't been bounced onto the new image yet. The spinner and glyph clear themselves
+when the bounce lands, and the pending glyph comes back after a reconnect (from `hello_ok`) so it
+survives the very restart it's reporting on. A plain *bounce* is fast enough that it shows no
+spinner. Every indicator carries a spoken content description for screen readers.
+
 ## Building & running from source (local dev)
 
 The supported **deployment** is the container above. For quick local iteration you can also build
