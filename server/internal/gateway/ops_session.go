@@ -435,7 +435,10 @@ func (c *conn) removeSession(name string) bool {
 	}
 	// Purge every on-disk trace of the session (transcript, sidecar, per-session
 	// state) across every backend it ran — not just the registry record — so nothing
-	// about it is left on disk. Best-effort: a purge error still drops the record below.
+	// about it is left on disk. Best-effort AND non-blocking: a purge error still drops
+	// the record below, and a segment whose host is unreachable is deferred to the
+	// driver's PurgeQueue (retried when the host is back) instead of grinding through
+	// an SSH dial timeout per file — deleting a session on a dead box is instant.
 	if _, err := c.srv.driver.DeleteSessionAll(s); err != nil {
 		log.Printf("delete session %s transcripts: %v", snap.Name, err)
 	}

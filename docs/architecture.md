@@ -450,6 +450,18 @@ retry window instead of paying another full dial timeout — serialized, at that
 lock. This is what keeps one unreachable machine from turning a digest sweep, a chainSig batch, or a
 context-usage read into minutes of stall: a dead host costs microseconds per call, not 15 s.
 
+The pool also answers the question **non-blockingly**: `SSHPool.Down(host)` reports whether a host
+is inside that window without ever waiting on the entry lock (a dial in flight answers "unknown"),
+so work that should *degrade* rather than hang can ask first. **Session delete** is the case that
+needs it. Purging a session's transcripts walks its whole chain — several remote commands per id,
+per backend segment — so deleting a session on an offline box used to appear hung, and it was
+exactly the session the user most wanted gone. The two halves are now split at the seam: the
+registry record is dropped immediately, and any segment whose host is down becomes an owed item in
+the durable **`PurgeQueue`** (`state/purges.json`, alongside `digests.json`/`usage.json`) — one
+entry per (agent, host, id-set), deduped, surviving restarts. `purgeRetryLoop` (gateway, every
+6 min) retries each owed purge once its host answers again and drops it when it succeeds, so the
+remote cleanup is deferred, never leaked.
+
 `Session.Host` is **always an explicit name** — there is no implicit "empty means localhost"
 default. The loopback machine is the host name **`localhost`** (`session.LocalHost`), handled
 exactly like any other SSH host (dialed over loopback SSH with the config defaults). It is **not a

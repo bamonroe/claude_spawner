@@ -57,7 +57,9 @@ All prefixed with **"hey buddy"**:
 - `attach to <name>`
 - `detach`
 - `list sessions`
-- `kill session <name>`
+- `kill session <name>` — drops the session and wipes its transcripts. If the machine it ran on is
+  unreachable, the delete still completes **immediately**: the session goes away now, and the
+  leftover remote files are swept up automatically the next time that host is back online.
 - `rename to <name>` / `call this <name>` — rename the session you're attached to
 - `what's the status` / `what's it doing`
 - `read last` / `read last 3` — re-read Claude's recent replies aloud

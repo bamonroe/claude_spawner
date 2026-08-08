@@ -84,6 +84,11 @@ type Driver struct {
 	// Set via SetUsageCache.
 	usage *UsageCache
 
+	// purges is the durable queue of remote transcript purges owed by deletes that
+	// happened while the host was unreachable. Nil is fine — a delete then purges
+	// inline as before (and blocks on a dead host). Set via SetPurgeQueue.
+	purges *PurgeQueue
+
 	// displayOnce/displayMemoized lazily build the in-memory display-history memo,
 	// so a Driver built as a struct literal (tests, minimal callers) still has one.
 	displayOnce     sync.Once
@@ -615,6 +620,10 @@ func (d *Driver) SetDigests(c *DigestCache) { d.digests = c }
 // tail, as before).
 func (d *Driver) SetUsageCache(c *UsageCache) { d.usage = c }
 
+// SetPurgeQueue installs the durable deferred-purge queue. Nil disables deferral:
+// a delete then always purges inline, blocking on an unreachable host.
+func (d *Driver) SetPurgeQueue(q *PurgeQueue) { d.purges = q }
+
 // display returns the driver's display-history memo, building it on first use.
 func (d *Driver) display() *displayMemo {
 	d.displayOnce.Do(func() { d.displayMemoized = newDisplayMemo() })
@@ -836,15 +845,59 @@ func (d *Driver) DeleteSessionAll(live *Session) (int, error) {
 	rec := live.Snapshot() // pure reader: one locked view of the whole chain
 	total := 0
 	for _, seg := range rec.History {
-		n, err := d.transcriptReaderFor(seg.Agent, seg.Host).deleteByIDs(seg.IDs)
+		n, err := d.purgeSegment(rec.Name, seg.Agent, seg.Host, seg.IDs)
 		if err != nil {
 			log.Printf("delete session[%s]: purge archived %s segment: %v", rec.Name, seg.Agent, err)
 		}
 		total += n
 	}
-	n, err := d.transcriptReaderFor(rec.Agent, rec.Host).deleteByIDs(d.currentHistoryIDs(rec))
+	n, err := d.purgeSegment(rec.Name, rec.Agent, rec.Host, d.currentHistoryIDs(rec))
 	total += n
 	return total, err
+}
+
+// purgeSegment deletes one backend segment's transcripts, DEFERRING instead of
+// stalling when its host is known unreachable: the debt goes to the PurgeQueue and
+// the caller returns immediately. This is what makes "delete a session on a dead
+// box" instant — the alternative is a dial timeout per remote command, which read
+// to the user as a hung delete on the very session they were trying to be rid of.
+// Without a queue wired it falls back to attempting the purge (previous behavior).
+func (d *Driver) purgeSegment(name, agentID, host string, ids []string) (int, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	if d.purges != nil {
+		if err, down := d.hostPool().Down(host); down {
+			log.Printf("delete session[%s]: %s host %q is down (%v) — deferring purge of %d id(s)",
+				name, agentID, host, err, len(ids))
+			d.purges.Add(PurgeItem{Session: name, Agent: agentID, Host: host, IDs: ids, Created: time.Now()})
+			return 0, nil
+		}
+	}
+	n, err := d.transcriptReaderFor(agentID, host).deleteByIDs(ids)
+	if err != nil && d.purges != nil {
+		// The host looked up but the purge failed (it went away mid-delete, or a
+		// command timed out). Owe it rather than leaking the files.
+		d.purges.Add(PurgeItem{Session: name, Agent: agentID, Host: host, IDs: ids, Created: time.Now()})
+	}
+	return n, err
+}
+
+// RetryPurges attempts every deferred purge whose host is reachable again and
+// drops the ones that succeed. Cheap and safe to call on a ticker: items on a
+// still-down host cost one non-blocking Down() check each.
+func (d *Driver) RetryPurges() int {
+	return d.purges.Resolve(func(it PurgeItem) bool {
+		if _, down := d.hostPool().Down(it.Host); down {
+			return false
+		}
+		n, err := d.transcriptReaderFor(it.Agent, it.Host).deleteByIDs(it.IDs)
+		if err != nil {
+			return false
+		}
+		log.Printf("deferred purge for deleted session[%s] on host %q: removed %d file(s)", it.Session, it.Host, n)
+		return true
+	})
 }
 
 // LastContextUsage returns a session's live context snapshot (last usage-bearing

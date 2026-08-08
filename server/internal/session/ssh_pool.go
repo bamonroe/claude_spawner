@@ -96,6 +96,34 @@ func (e *poolEntry) markUp() {
 	e.backoff = 0
 }
 
+// Down reports whether a host is currently inside its negative-dial-cache window,
+// and the error to fail with. It is the cheap, NON-BLOCKING "is this host known
+// unreachable?" question: unlike client(), it never waits on the entry lock, so a
+// caller can ask while another goroutine is mid-dial and get "unknown" rather than
+// stalling for the dial timeout. Used by work that must degrade instead of hang —
+// a session delete against an offline box defers its remote purge (see PurgeQueue)
+// rather than grinding through a dial timeout per file.
+//
+// Not-down is not a promise of reachability: a cold host, or one being dialed right
+// now, answers false. Treat true as "definitely down", false as "try it".
+func (p *SSHPool) Down(name string) (error, bool) {
+	if p == nil {
+		return nil, false
+	}
+	if name == "" {
+		name = LocalHost
+	}
+	e := p.entry(name)
+	if !e.mu.TryLock() {
+		return nil, false // a dial is in flight; don't wait on it just to answer
+	}
+	defer e.mu.Unlock()
+	if e.client != nil {
+		return nil, false
+	}
+	return e.down(time.Now())
+}
+
 // NewSSHPool validates the global config (building the shared known_hosts
 // verification) and returns a ready, empty pool. Per-host auth/user is built at
 // dial time. hosts is the app-managed registry that resolves a Session.Host name to

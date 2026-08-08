@@ -56,6 +56,10 @@ func main() {
 	// Durable last-context-usage cache, alongside it: attach blocks its ack on this
 	// snapshot, and re-reading the transcript tail is the slowest thing in that path.
 	driver.SetUsageCache(session.OpenUsageCache(filepath.Join(filepath.Dir(cfg.StatePath), "usage.json")))
+	// Durable queue of remote transcript purges owed by deletes made while a host
+	// was unreachable, so deleting a session on an offline box is instant and the
+	// cleanup still happens when that box comes back.
+	driver.SetPurgeQueue(session.OpenPurgeQueue(filepath.Join(filepath.Dir(cfg.StatePath), "purges.json")))
 	driver.RestartCmd = cfg.RestartCmd
 	driver.RebuildStatusFile = cfg.RebuildStatusFile
 	driver.ClaudeExtraArgs = cfg.ClaudeExtraArgs

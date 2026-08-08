@@ -93,18 +93,6 @@ created = 2026-08-08
 tags = ["perf", "lag"]
 
 [[task]]
-id = "allow-deleting-sessions-whose-host-is-unreachable"
-title = "Allow deleting sessions whose host is unreachable"
-description = "Deleting a session on a dead host effectively doesn't work: removeSession (gateway/ops_session.go:417) calls driver.DeleteSessionAll before dropping the registry record, and for a session on an unreachable host (e.g. bam on mom right now) that purge grinds through repeated 15s SSH dial timeouts, so the delete appears to hang and the user can't get rid of the session — the very session causing the sweep lag. The purge is already best-effort (an error still drops the record), so make the failure FAST and the cleanup durable: when the host is unreachable (fail fast via the SSH pool's negative dial cache once that lands), drop the registry record immediately and leave a tombstone (session/tombstone.go seam) recording the remote purge still owed, retried when the host is next reachable. Verify the tmuxMgr.ClaudeDirs guard doesn't also stall on remote hosts. Related: ssh-pool-negative-dial-cache-for-unreachable-hosts."
-status = "active"
-level = "task"
-category = "bug"
-urgency = "high"
-order = 90
-created = 2026-08-08
-tags = ["perf", "lag"]
-
-[[task]]
 id = "attach-must-not-block-the-inbound-loop-on-a-context-usage-ssh-read"
 title = "Attach must not block the inbound loop on a context-usage SSH read"
 description = "The attach handler runs inline on the connection's one-message-at-a-time inbound loop, and msgAttached embeds driver.SessionContextUsage (gateway/ops_session.go:176, :192, :227) — a chainSig SSH stat walk plus up to a 32MB tail read on a miss. While that runs, every other inbound message from that device (dictation, history requests, taps) queues behind it. Send the attached frame immediately without the usage badge (or with the cached value), then compute usage async and push the existing usage-update frame — same shape as the end-of-turn fix (see don-t-block-the-end-of-turn-output-frame-on-sessioncontextusage). Audit the dispatch table (gateway.go:540+) for any other handler that does SSH work inline on the loop; history/digest/discover already moved off it, attach didn't."

@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "allow-deleting-sessions-whose-host-is-unreachable"
+title = "Allow deleting sessions whose host is unreachable"
+description = "Deleting a session on a dead host effectively doesn't work: removeSession (gateway/ops_session.go:417) calls driver.DeleteSessionAll before dropping the registry record, and for a session on an unreachable host (e.g. bam on mom right now) that purge grinds through repeated 15s SSH dial timeouts, so the delete appears to hang and the user can't get rid of the session — the very session causing the sweep lag. The purge is already best-effort (an error still drops the record), so make the failure FAST and the cleanup durable: when the host is unreachable (fail fast via the SSH pool's negative dial cache once that lands), drop the registry record immediately and leave a tombstone (session/tombstone.go seam) recording the remote purge still owed, retried when the host is next reachable. Verify the tmuxMgr.ClaudeDirs guard doesn't also stall on remote hosts. Related: ssh-pool-negative-dial-cache-for-unreachable-hosts."
+status = "finished"
+level = "task"
+category = "bug"
+created = 2026-08-08
+completed = 2026-08-08
+tags = ["perf", "lag"]
+
+[[task]]
 id = "don-t-block-the-end-of-turn-output-frame-on-sessioncontextusage"
 title = "Don't block the end-of-turn output frame on SessionContextUsage"
 description = "gateway/turns.go:167 (and bgnotify.go:179) call driver.SessionContextUsage(sess) BEFORE j.finish(msgOutput(...)) sends the reply. This is a guaranteed cache miss by construction — the turn just appended to the transcript so the chain sig changed — and the miss costs serial SSH stat execs per transcript id plus a tail -c read of up to 32MB (transcript.go:536-544), all in the critical path of every reply the user is waiting to hear. Ship the output frame immediately using the turn's own usage for the badge, then compute the true context usage async and push a follow-up usage frame (the protocol already has per-session usage updates). This is the most direct cause of 'lag between turns'."
