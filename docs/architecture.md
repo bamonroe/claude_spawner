@@ -530,6 +530,17 @@ earlier version called `SessionContextUsage` per session per tick, one chain-sig
 each, which showed up as a continuous process storm on remote hosts (and dial timeouts for an
 unreachable one). Apply the same rule to any new background scan.
 
+**And when a background task does touch the host, an error from it must not evict the shared
+connection.** `shouldRedial` (`session/ssh_channels.go`) is the pool's single answer to "is this
+connection broken?", because the remedy — drop and re-dial — tears down every other channel on it,
+a live turn's stream included. Two errors look fatal and are not: a channel-open refusal (the
+peer's `MaxSessions` ceiling: busy, not dead) and a **remote command's non-zero exit status** (the
+channel opened, the command ran and chose to fail). Both bugs met in the deferred-purge retry: its
+command exited 1 whenever the files were already gone — the *successful* outcome — so the item
+never resolved, and every six-minute retry dropped the host's connection and killed whatever turn
+was streaming on it. Route new pooled operations through `shouldRedial` rather than re-deriving the
+condition, and make remote commands report shell-level success honestly (`exit 0`).
+
 ### Sandbox sessions (also without host root)
 
 For `sandbox`-target sessions the container's lifetime is **bound to the session**, not the turn:
