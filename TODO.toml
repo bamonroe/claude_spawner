@@ -127,3 +127,51 @@ urgency = "high"
 order = 90
 created = 2026-08-08
 tags = ["perf", "lag"]
+
+[[task]]
+id = "attach-must-not-block-the-inbound-loop-on-a-context-usage-ssh-read"
+title = "Attach must not block the inbound loop on a context-usage SSH read"
+description = "The attach handler runs inline on the connection's one-message-at-a-time inbound loop, and msgAttached embeds driver.SessionContextUsage (gateway/ops_session.go:176, :192, :227) — a chainSig SSH stat walk plus up to a 32MB tail read on a miss. While that runs, every other inbound message from that device (dictation, history requests, taps) queues behind it. Send the attached frame immediately without the usage badge (or with the cached value), then compute usage async and push the existing usage-update frame — same shape as the end-of-turn fix (see don-t-block-the-end-of-turn-output-frame-on-sessioncontextusage). Audit the dispatch table (gateway.go:540+) for any other handler that does SSH work inline on the loop; history/digest/discover already moved off it, attach didn't."
+status = "active"
+level = "task"
+category = "bug"
+urgency = "high"
+order = 100
+created = 2026-08-08
+tags = ["perf", "lag"]
+
+[[task]]
+id = "centralize-ssh-bindings-without-serializing-scale-the-per-host-channel-budget"
+title = "Centralize SSH bindings without serializing: scale the per-host channel budget"
+description = "Centralizing every host interaction behind ONE pooled SSH client per host (ssh_pool.go, ssh_channels.go) was right as a seam, but the implementation serializes independent work: all of a host's traffic — the live turn stream, foreground history reads, the 8-way digest sweep, prefetch, autocompress stats — shares one connection's small channel budget (sshMaxStreamChannels = 4, 8-slot budget in ssh_channels.go:46), so unrelated operations queue behind each other. The centralization and the serialization are separable: keep the pool as the single seam, but let it hold N connections per host and hand out channels across them (open another connection when the budget saturates, reap idle extras), and/or size budgets by operation class so bulk background reads can't starve the interactive stream. Scope the right shape — multi-connection pool vs larger negotiated channel ceiling vs priority classes — measure a host's real channel ceiling, then add the concrete tasks."
+status = "active"
+level = "scope"
+category = "refactor"
+urgency = "normal"
+order = 110
+created = 2026-08-08
+tags = ["perf", "lag"]
+
+[[task]]
+id = "incremental-transcript-reads-for-opencode-codex-and-antigravity-backends"
+title = "Incremental transcript reads for opencode, codex and antigravity backends"
+description = "Only the claude reader parses incrementally (extendParse/readFrom, transcript.go:377-467, sends just appended bytes via tail -c +N). opencode, codex and antigravity re-read everything on any miss — an opencode miss re-runs 'opencode export <id>' over SSH per id in the chain (opencode_transcript.go:56-60). Additionally, one indescribable archived segment flips chainParts.ok false (driver.go:766), making that session's digest and display memo PERMANENTLY uncacheable — every sweep and refresh does the full read forever. Two fixes at the reader seam: give the remaining backends an incremental (or at least memoized-by-sig per-id) read path, and make segment describability per-segment rather than all-or-nothing so one odd segment doesn't uncache the whole session. Related: the history-serve scope item covers the in-memory assembly side."
+status = "active"
+level = "task"
+category = "refactor"
+urgency = "normal"
+order = 120
+created = 2026-08-08
+tags = ["perf"]
+
+[[task]]
+id = "bound-the-discovery-cwd-walk-over-the-projects-dir"
+title = "Bound the discovery cwd walk over the projects dir"
+description = "The discovery walk's cwds() (claudefs.go:338) reads a 64KiB head per unregistered transcript to recover each session's cwd; on the real projects dir (~286 files / ~560MB, cited at claudefs.go:309) that's a heavy sweep of SSH reads. It runs off the request path behind a 15s memo (attach_discover.go:26), so it's not user-blocking, but it still burns the shared per-host SSH channel budget while foreground work is running. Cache cwd per transcript id durably (it never changes for a given file), skip files whose size+mtime are unchanged, and consider batching the heads into fewer execs."
+status = "active"
+level = "task"
+category = "refactor"
+urgency = "low"
+order = 130
+created = 2026-08-08
+tags = ["perf"]
