@@ -92,20 +92,140 @@ func putCachedSnap(path string, size int64, mod time.Time, snap *ContextSnapshot
 // is parsed on top of. Entries are replaced, never invalidated.
 var (
 	claudeParseMu    sync.Mutex
-	claudeParseCache = map[string]*claudeParse{}
+	claudeParseCache = map[string]incParse{}
 )
 
-func getCachedParse(key string) (*claudeParse, bool) {
+func getCachedParse(key string) (incParse, bool) {
 	claudeParseMu.Lock()
 	defer claudeParseMu.Unlock()
 	p, ok := claudeParseCache[key]
 	return p, ok
 }
 
-func putCachedParse(key string, p *claudeParse) {
+func putCachedParse(key string, p incParse) {
 	claudeParseMu.Lock()
 	claudeParseCache[key] = p
 	claudeParseMu.Unlock()
+}
+
+// incParse is one backend's RESUMABLE parse of an append-only, line-oriented
+// transcript. Everything that makes such a parse resumable — statting, deciding
+// between an exact hit, an extension and a full re-parse, proving the file really
+// was only appended to, and caching the state — is generic, and lives ONCE in
+// readIncremental. A backend supplies only the two things that are actually
+// backend-specific: how a single line folds into its state, and how that state
+// renders to messages.
+//
+// It exists because "parse only the appended bytes" was originally written for
+// Claude alone, so every other backend re-read and re-parsed whole transcripts on
+// any change — the reads that matter (history right after a turn, the digest
+// sweep) being exactly the ones guaranteed to miss.
+type incParse interface {
+	// line folds one complete transcript line (no trailing newline) into the state.
+	line(raw []byte)
+	// state exposes the shared append bookkeeping readIncremental drives.
+	state() *appendState
+	// cloneParse deep-copies the parse: an extension must never mutate the cached
+	// base, which other goroutines may be reading.
+	cloneParse() incParse
+	// messages renders the parse to a PRIVATE copy — callers re-index and rewrite
+	// Text — with any still-open mid-scan state applied to that copy only.
+	messages() []Message
+}
+
+// appendState is the byte-level bookkeeping every incParse shares: which stat the
+// parse corresponds to, how far into the file it got, and the proof-of-append tail.
+type appendState struct {
+	size int64     // stat at the time of the parse: the exact-hit key
+	mod  time.Time //  "
+	// parsed is how many bytes of the file the parse covers, always ending on a
+	// line boundary — a trailing partial line (a turn mid-write) is left unconsumed
+	// so it gets parsed whole on the next read.
+	parsed int64
+	// overlap is the tail of the parsed region, re-read and compared on every
+	// extension to prove the file really was only appended to.
+	overlap []byte
+}
+
+func (s *appendState) state() *appendState { return s }
+
+// clone copies the state's own byte slice so an extension can't alias the base's.
+func (s appendState) clone() appendState {
+	s.overlap = append([]byte(nil), s.overlap...)
+	return s
+}
+
+// advance records that `full` (whole lines only, starting at the parse's current
+// offset) has been folded in, and keeps its tail as the next extension's proof.
+func (s *appendState) advance(full []byte) {
+	s.parsed += int64(len(full))
+	if len(full) >= overlapBytes {
+		s.overlap = append([]byte(nil), full[len(full)-overlapBytes:]...)
+		return
+	}
+	keep := append(s.overlap, full...)
+	if len(keep) > overlapBytes {
+		keep = keep[len(keep)-overlapBytes:]
+	}
+	s.overlap = append([]byte(nil), keep...)
+}
+
+// consumeInto folds the next chunk of a file into p. data must begin on a line
+// boundary; a trailing partial line is deliberately not consumed.
+func consumeInto(p incParse, data []byte) {
+	rest := data
+	consumed := 0
+	for {
+		i := bytes.IndexByte(rest, '\n')
+		if i < 0 {
+			break // partial line: leave it for the next read
+		}
+		p.line(rest[:i])
+		rest = rest[i+1:]
+		consumed += i + 1
+	}
+	p.state().advance(data[:consumed])
+}
+
+// readIncremental is THE read path for an append-only, line-oriented transcript,
+// shared by every backend whose store is one (Claude, Codex): an exact stat hit
+// returns the cached parse, growth parses only the appended bytes on top of it,
+// and anything else falls back to a full read. newParse builds an empty state.
+//
+// Returns (nil, nil) for an empty path or a file that doesn't exist yet, matching
+// the "missing file → empty history" convention every reader follows.
+func (fs claudeFS) readIncremental(ctx context.Context, path string, newParse func() incParse) ([]Message, error) {
+	if path == "" {
+		return nil, nil
+	}
+	key := fs.cacheKey(path)
+	size, mod, statOK := fs.stat(ctx, path)
+	base, hasBase := getCachedParse(key)
+	if statOK && hasBase && base.state().size == size && base.state().mod.Equal(mod) {
+		return base.messages(), nil // unchanged since the last parse
+	}
+	// Grown since the last parse: read and parse only the appended bytes.
+	if statOK && hasBase && size > base.state().parsed {
+		if st, ok := fs.extendParse(ctx, path, base); ok {
+			st.state().size, st.state().mod = size, mod
+			putCachedParse(key, st)
+			return st.messages(), nil
+		}
+	}
+	data, err := fs.readAll(ctx, path)
+	if err != nil {
+		if fs.isMissing(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	st := newParse()
+	consumeInto(st, data)
+	if statOK {
+		st.state().size, st.state().mod = size, mod
+		putCachedParse(key, st)
+	}
+	return st.messages(), nil
 }
 
 // claudeParse is a RESUMABLE parse of one Claude transcript: the messages
@@ -118,16 +238,8 @@ func putCachedParse(key string, p *claudeParse) {
 // megabytes. So the reads that matter — the history the app asks for right after
 // a turn, and the digest sweep — were the ones guaranteed to miss.
 type claudeParse struct {
-	size int64     // stat at the time of the parse: the exact-hit key
-	mod  time.Time //  "
+	appendState
 	msgs []Message
-	// parsed is how many bytes of the file msgs covers, always ending on a line
-	// boundary — a trailing partial line (a turn mid-write) is left unconsumed so
-	// it gets parsed whole on the next read.
-	parsed int64
-	// overlap is the tail of the parsed region, re-read and compared on every
-	// extension to prove the file really was only appended to.
-	overlap []byte
 	// Mid-scan agentic-loop rollup for the dictation currently open: every
 	// assistant line counts as one cycle (tool-only ones too, which never become
 	// messages), and their usages sum the way the live stream's `result` event
@@ -148,41 +260,13 @@ const overlapBytes = 512
 // newClaudeParse starts an empty parse (lastClaude = -1: no dictation open yet).
 func newClaudeParse() *claudeParse { return &claudeParse{lastClaude: -1} }
 
-// clone copies a parse so an extension never mutates the cached base (which other
-// goroutines may be reading).
-func (p *claudeParse) clone() *claudeParse {
+// cloneParse copies a parse so an extension never mutates the cached base (which
+// other goroutines may be reading).
+func (p *claudeParse) cloneParse() incParse {
 	c := *p
 	c.msgs = append([]Message(nil), p.msgs...)
-	c.overlap = append([]byte(nil), p.overlap...)
+	c.appendState = p.appendState.clone()
 	return &c
-}
-
-// consume parses the next chunk of the file, which must begin on a line boundary.
-// A trailing partial line is not consumed.
-func (p *claudeParse) consume(data []byte) {
-	rest := data
-	consumed := 0
-	for {
-		i := bytes.IndexByte(rest, '\n')
-		if i < 0 {
-			break // partial line: leave it for the next read
-		}
-		p.line(rest[:i])
-		rest = rest[i+1:]
-		consumed += i + 1
-	}
-	p.parsed += int64(consumed)
-	// Keep the tail of what we just parsed as the next extension's proof.
-	full := data[:consumed]
-	if len(full) >= overlapBytes {
-		p.overlap = append([]byte(nil), full[len(full)-overlapBytes:]...)
-	} else {
-		keep := append(p.overlap, full...)
-		if len(keep) > overlapBytes {
-			keep = keep[len(keep)-overlapBytes:]
-		}
-		p.overlap = append([]byte(nil), keep...)
-	}
 }
 
 // line folds one transcript JSONL line into the parse.
@@ -384,37 +468,7 @@ func ReadTranscript(ctx context.Context, path string) ([]Message, error) {
 // this claudeFS reads. Returns an empty slice (no error) if the path is empty or
 // the file doesn't exist yet.
 func (fs claudeFS) readTranscript(ctx context.Context, path string) ([]Message, error) {
-	if path == "" {
-		return nil, nil
-	}
-	key := fs.cacheKey(path)
-	size, mod, statOK := fs.stat(ctx, path)
-	base, hasBase := getCachedParse(key)
-	if statOK && hasBase && base.size == size && base.mod.Equal(mod) {
-		return base.messages(), nil // unchanged since the last parse
-	}
-	// Grown since the last parse: read and parse only the appended bytes.
-	if statOK && hasBase && size > base.parsed {
-		if st, ok := fs.extendParse(ctx, path, base); ok {
-			st.size, st.mod = size, mod
-			putCachedParse(key, st)
-			return st.messages(), nil
-		}
-	}
-	data, err := fs.readAll(ctx, path)
-	if err != nil {
-		if fs.isMissing(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	st := newClaudeParse()
-	st.consume(data)
-	if statOK {
-		st.size, st.mod = size, mod
-		putCachedParse(key, st)
-	}
-	return st.messages(), nil
+	return fs.readIncremental(ctx, path, func() incParse { return newClaudeParse() })
 }
 
 // readAll returns a transcript's whole contents. (The remote backend's `open`
@@ -432,10 +486,11 @@ func (fs claudeFS) readAll(ctx context.Context, path string) ([]byte, error) {
 // returning the extended state. ok is false when the extension can't be trusted
 // (the overlap check failed, or the read errored) and the caller must re-parse
 // the whole file.
-func (fs claudeFS) extendParse(ctx context.Context, path string, base *claudeParse) (*claudeParse, bool) {
-	off := base.parsed - int64(len(base.overlap))
+func (fs claudeFS) extendParse(ctx context.Context, path string, base incParse) (incParse, bool) {
+	bs := base.state()
+	off := bs.parsed - int64(len(bs.overlap))
 	data, err := fs.readFrom(ctx, path, off)
-	if err != nil || int64(len(data)) < int64(len(base.overlap)) {
+	if err != nil || int64(len(data)) < int64(len(bs.overlap)) {
 		return nil, false
 	}
 	// The append-only invariant is an assumption about how Claude Code writes, not
@@ -443,11 +498,11 @@ func (fs claudeFS) extendParse(ctx context.Context, path string, base *claudePar
 	// otherwise be silently mis-parsed. Re-reading a little of the ALREADY-parsed
 	// region and checking it byte-for-byte is what makes the assumption verified
 	// rather than trusted, and it rides along in the same read, so it's free.
-	if !bytes.Equal(data[:len(base.overlap)], base.overlap) {
+	if !bytes.Equal(data[:len(bs.overlap)], bs.overlap) {
 		return nil, false
 	}
-	st := base.clone()
-	st.consume(data[len(base.overlap):])
+	st := base.cloneParse()
+	consumeInto(st, data[len(bs.overlap):])
 	return st, true
 }
 

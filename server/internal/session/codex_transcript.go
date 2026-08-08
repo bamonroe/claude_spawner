@@ -188,83 +188,86 @@ func (u codexTokenUsage) usage() Usage {
 // slice (no error), matching claudeFS.readTranscript. Overrides the embedded
 // claudeFS parser (which expects Claude's schema).
 func (fs codexFS) readTranscript(ctx context.Context, path string) ([]Message, error) {
-	if path == "" {
-		return nil, nil
-	}
-	key := fs.cacheKey(path)
-	size, mod, statOK := fs.stat(ctx, path)
-	if statOK {
-		if m, hit := getCachedMsgs(key, size, mod); hit {
-			return append([]Message(nil), m...), nil // copy: callers re-index / mutate Text
-		}
-	}
-	f, err := fs.open(ctx, path)
-	if err != nil {
-		if fs.isMissing(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	defer f.Close()
+	return fs.readIncremental(ctx, path, func() incParse { return newCodexParse() })
+}
 
-	sc := newLineScanner(f)
-	var out []Message
-	idx, lastClaude := 0, -1
-	for sc.Scan() {
-		var l codexRolloutLine
-		if json.Unmarshal(sc.Bytes(), &l) != nil {
-			continue
+// codexParse is the resumable parse of one Codex rollout (see incParse). Rollouts
+// are append-only and grow for the life of a session, so re-scanning the whole
+// file on every change made the reads that matter — history right after a turn,
+// the digest sweep — the ones guaranteed to be slowest.
+//
+// lastClaude is the mid-scan state that makes resuming exact: a turn's token_count
+// and its assistant response_item both land AFTER the agent_message they belong
+// to, and either can arrive in a later append, so the pending row's position has
+// to survive across chunks rather than being rediscovered.
+type codexParse struct {
+	appendState
+	msgs       []Message
+	idx        int
+	lastClaude int
+}
+
+// newCodexParse starts an empty parse (lastClaude = -1: no claude row pending).
+func newCodexParse() *codexParse { return &codexParse{lastClaude: -1} }
+
+func (p *codexParse) cloneParse() incParse {
+	c := *p
+	c.msgs = append([]Message(nil), p.msgs...)
+	c.appendState = p.appendState.clone()
+	return &c
+}
+
+// messages returns a private copy — callers re-index and rewrite Text.
+func (p *codexParse) messages() []Message { return append([]Message(nil), p.msgs...) }
+
+// line folds one rollout JSONL line into the parse.
+func (p *codexParse) line(raw []byte) {
+	var l codexRolloutLine
+	if json.Unmarshal(raw, &l) != nil {
+		return
+	}
+	switch l.Type {
+	case "event_msg":
+		var ev codexEventPayload
+		if json.Unmarshal(l.Payload, &ev) != nil {
+			return
 		}
-		switch l.Type {
-		case "event_msg":
-			var p codexEventPayload
-			if json.Unmarshal(l.Payload, &p) != nil {
-				continue
+		switch ev.Type {
+		case "user_message", "agent_message":
+			role := "user"
+			if ev.Type == "agent_message" {
+				role = "claude"
 			}
-			switch p.Type {
-			case "user_message", "agent_message":
-				role := "user"
-				if p.Type == "agent_message" {
-					role = "claude"
-				}
-				if strings.TrimSpace(p.Message) == "" {
-					continue
-				}
-				out = append(out, Message{Index: idx, Role: role, Text: p.Message, Ts: parseTs(l.Timestamp)})
-				if role == "claude" {
-					lastClaude = len(out) - 1
-				}
-				idx++
-			case "token_count":
-				// The turn's usage lands after its agent_message; badge that message.
-				if lastClaude >= 0 {
-					u := p.Info.LastTokenUsage.usage()
-					if u.Input+u.CacheRead > 0 {
-						out[lastClaude].Usage = &u
-					}
-				}
+			if strings.TrimSpace(ev.Message) == "" {
+				return
 			}
-		case "response_item":
-			// Each assistant response_item immediately follows its agent_message
-			// twin and carries the durable msg_… id that twin lacks. Pin it to the
-			// pending claude row when the prose matches — the id-empty guard keeps a
-			// skipped/empty agent_message from stealing the previous row's id.
-			var ri codexResponseItem
-			if json.Unmarshal(l.Payload, &ri) != nil || ri.Type != "message" || ri.Role != "assistant" || ri.ID == "" {
-				continue
+			p.msgs = append(p.msgs, Message{Index: p.idx, Role: role, Text: ev.Message, Ts: parseTs(l.Timestamp)})
+			if role == "claude" {
+				p.lastClaude = len(p.msgs) - 1
 			}
-			if lastClaude >= 0 && out[lastClaude].ID == "" && out[lastClaude].Text == ri.text() {
-				out[lastClaude].ID = ri.ID
+			p.idx++
+		case "token_count":
+			// The turn's usage lands after its agent_message; badge that message.
+			if p.lastClaude >= 0 {
+				u := ev.Info.LastTokenUsage.usage()
+				if u.Input+u.CacheRead > 0 {
+					p.msgs[p.lastClaude].Usage = &u
+				}
 			}
 		}
+	case "response_item":
+		// Each assistant response_item immediately follows its agent_message twin
+		// and carries the durable msg_… id that twin lacks. Pin it to the pending
+		// claude row when the prose matches — the id-empty guard keeps a
+		// skipped/empty agent_message from stealing the previous row's id.
+		var ri codexResponseItem
+		if json.Unmarshal(l.Payload, &ri) != nil || ri.Type != "message" || ri.Role != "assistant" || ri.ID == "" {
+			return
+		}
+		if p.lastClaude >= 0 && p.msgs[p.lastClaude].ID == "" && p.msgs[p.lastClaude].Text == ri.text() {
+			p.msgs[p.lastClaude].ID = ri.ID
+		}
 	}
-	if err := sc.Err(); err != nil {
-		return out, err // don't cache a partial read
-	}
-	if statOK {
-		putCachedMsgs(key, size, mod, out)
-	}
-	return out, nil
 }
 
 // lastUsageInFile scans one rollout for the last token_count line, returning its

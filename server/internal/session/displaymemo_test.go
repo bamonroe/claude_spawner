@@ -41,7 +41,7 @@ func rewriteSameStat(t *testing.T, path, body string) {
 func dropFileCaches(t *testing.T) {
 	t.Helper()
 	claudeParseMu.Lock()
-	claudeParseCache = map[string]*claudeParse{}
+	claudeParseCache = map[string]incParse{}
 	claudeParseMu.Unlock()
 	transcriptCacheMu.Lock()
 	transcriptCache = map[string]transcriptCacheEntry{}
