@@ -1,11 +1,6 @@
 package session
 
-import (
-	"encoding/json"
-	"os"
-	"path/filepath"
-	"sync"
-)
+// (persistence lives in jsonStore — see jsonstore.go)
 
 // UsageCache remembers each session's last context snapshot (the token sizes of
 // its most recent usage-bearing turn) across restarts, keyed by a cheap freshness
@@ -26,13 +21,12 @@ import (
 // used to. A nil snapshot is cached too: a fresh session with no usage anywhere is
 // exactly the case that pays the full 32 MiB escalation for nothing.
 //
-// Safe for concurrent use. Persistence is best-effort: a cache that can't be read
-// or written costs speed, never correctness.
+// Safe for concurrent use. Persistence is best-effort and asynchronous (see
+// jsonStore): a cache that can't be read or written costs speed, never
+// correctness.
 type UsageCache struct {
-	path string
-
-	mu      sync.Mutex
-	entries map[string]usageEntry // session_id → last snapshot + the signature it was read at
+	// session_id → last snapshot + the signature it was read at
+	store *jsonStore[usageEntry]
 }
 
 type usageEntry struct {
@@ -44,19 +38,16 @@ type usageEntry struct {
 // OpenUsageCache loads the cache at path, or returns an empty one if it's missing
 // or unreadable. path may be "" for a memory-only cache (tests).
 func OpenUsageCache(path string) *UsageCache {
-	c := &UsageCache{path: path, entries: map[string]usageEntry{}}
-	if path == "" {
-		return c
+	return &UsageCache{store: openJSONStore[usageEntry](path, ".usage-*")}
+}
+
+// Sync blocks until every snapshot recorded so far is on disk. Tests use it;
+// nothing on a request path should.
+func (c *UsageCache) Sync() {
+	if c == nil {
+		return
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return c
-	}
-	var loaded map[string]usageEntry
-	if json.Unmarshal(data, &loaded) == nil && loaded != nil {
-		c.entries = loaded
-	}
-	return c
+	c.store.sync()
 }
 
 // Get returns the cached snapshot for key when it was read at exactly this
@@ -67,9 +58,7 @@ func (c *UsageCache) Get(key, sig string) (*ContextSnapshot, bool) {
 	if c == nil || sig == "" {
 		return nil, false
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	e, found := c.entries[key]
+	e, found := c.store.get(key)
 	if !found || e.Sig != sig {
 		return nil, false
 	}
@@ -89,9 +78,7 @@ func (c *UsageCache) Last(key string) *ContextSnapshot {
 	if c == nil {
 		return nil
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	e, found := c.entries[key]
+	e, found := c.store.get(key)
 	if !found || e.Usage == nil {
 		return nil
 	}
@@ -99,33 +86,25 @@ func (c *UsageCache) Last(key string) *ContextSnapshot {
 	return &snap
 }
 
-// Put records a snapshot against the signature it was read at and persists the
-// cache. An empty sig is dropped: with nothing to invalidate against, a stale
-// snapshot would leave the app showing the wrong context size indefinitely.
+// Put records a snapshot against the signature it was read at; the store
+// persists it asynchronously. An empty sig is dropped: with nothing to
+// invalidate against, a stale snapshot would leave the app showing the wrong
+// context size indefinitely.
 func (c *UsageCache) Put(key, sig string, snap *ContextSnapshot) {
 	if c == nil || sig == "" {
 		return
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	e, found := c.entries[key]
-	if found && e.Sig == sig && sameSnapshot(e.Usage, snap) {
-		return // unchanged; no need to rewrite the file
-	}
-	stored := snap
-	if snap != nil {
-		v := *snap
-		stored = &v
-	}
-	c.entries[key] = usageEntry{Sig: sig, Usage: stored}
-	data, err := json.Marshal(c.entries)
-	if err != nil || c.path == "" {
-		return
-	}
-	// Marshal AND write under the lock, for the reason DigestCache.Put documents:
-	// concurrent Puts writing outside the lock let an earlier snapshot of the map
-	// land after a later one, silently dropping sessions from the file.
-	c.write(data)
+	c.store.update(key, func(e usageEntry, found bool) (usageEntry, bool) {
+		if found && e.Sig == sig && sameSnapshot(e.Usage, snap) {
+			return e, false // unchanged; nothing to persist
+		}
+		stored := snap
+		if snap != nil {
+			v := *snap // copy: the caller must not be able to edit the cache in place
+			stored = &v
+		}
+		return usageEntry{Sig: sig, Usage: stored}, true
+	})
 }
 
 func sameSnapshot(a, b *ContextSnapshot) bool {
@@ -133,26 +112,4 @@ func sameSnapshot(a, b *ContextSnapshot) bool {
 		return a == b
 	}
 	return *a == *b
-}
-
-// write replaces the cache file atomically, so a crash mid-write can't leave a
-// truncated file that reads back as an empty cache.
-func (c *UsageCache) write(data []byte) {
-	tmp, err := os.CreateTemp(filepath.Dir(c.path), ".usage-*")
-	if err != nil {
-		return
-	}
-	name := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(name)
-		return
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(name)
-		return
-	}
-	if err := os.Rename(name, c.path); err != nil {
-		os.Remove(name)
-	}
 }

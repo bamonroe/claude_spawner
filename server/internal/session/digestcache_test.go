@@ -14,6 +14,7 @@ func TestDigestCacheRoundTripsAcrossReopen(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "digests.json")
 	c := OpenDigestCache(path)
 	c.Put("sess-1", "sig-a", 42, "hash-a")
+	c.Sync()
 
 	// Reopening is the case that matters: a restart must not lose the cache, which
 	// is the whole reason it's on disk.
@@ -68,6 +69,7 @@ func TestDigestCacheToleratesUnreadableFile(t *testing.T) {
 		t.Fatal("a corrupt file must read back as empty, not as a hit")
 	}
 	c.Put("sess", "sig", 1, "h") // must not panic, and must repair the file
+	c.Sync()
 	if _, _, ok := OpenDigestCache(corrupt).Get("sess", "sig"); !ok {
 		t.Fatal("a Put after a corrupt read should leave a readable cache")
 	}
@@ -163,6 +165,7 @@ func TestDigestCacheConcurrentPutsAllPersist(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
+	c.Sync()
 
 	reopened := OpenDigestCache(path)
 	for i := range n {
@@ -171,6 +174,49 @@ func TestDigestCacheConcurrentPutsAllPersist(t *testing.T) {
 		if !ok || count != i || hash != "hash-"+key {
 			t.Fatalf("%s missing from the persisted cache: (%d, %q, %v)", key, count, hash, ok)
 		}
+	}
+}
+
+// Persistence is asynchronous and coalesced, so the thing that must hold is that
+// the LAST value written for a key is the one on disk — a burst of rapid Puts
+// must not leave an earlier snapshot as the survivor.
+func TestDigestCacheCoalescedFlushKeepsTheNewestValue(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "digests.json")
+	c := OpenDigestCache(path)
+	for i := range 50 {
+		c.Put("sess", fmt.Sprintf("sig-%d", i), i, fmt.Sprintf("hash-%d", i))
+	}
+	c.Sync()
+
+	count, hash, ok := OpenDigestCache(path).Get("sess", "sig-49")
+	if !ok || count != 49 || hash != "hash-49" {
+		t.Fatalf("persisted value = (%d, %q, %v), want the newest (49, hash-49, true)", count, hash, ok)
+	}
+}
+
+// Put must not touch the disk: it edits the in-memory map and lets the store's
+// debounced writer coalesce. A burst that used to be N whole-file rewrites
+// (marshal+CreateTemp+rename per Put, under the lock) is now one, and no caller
+// waits on it.
+func TestDigestCachePutDoesNotWriteInline(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "digests.json")
+	c := OpenDigestCache(path)
+
+	start := time.Now()
+	for i := range 500 {
+		key := fmt.Sprintf("sess-%03d", i)
+		c.Put(key, "sig-"+key, i, "hash-"+key)
+	}
+	if elapsed := time.Since(start); elapsed > flushDebounce {
+		t.Fatalf("500 Puts took %s — they are still writing inline", elapsed)
+	}
+	if _, err := os.Stat(path); err == nil {
+		t.Fatal("a Put wrote the cache file synchronously")
+	}
+
+	c.Sync() // ...and the coalesced write still persists all of them
+	if _, _, ok := OpenDigestCache(path).Get("sess-499", "sig-sess-499"); !ok {
+		t.Fatal("the debounced flush lost entries")
 	}
 }
 

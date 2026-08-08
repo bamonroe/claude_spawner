@@ -11,6 +11,7 @@ func TestUsageCacheRoundTripsAcrossReopen(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "usage.json")
 	c := OpenUsageCache(path)
 	c.Put("sess", "sig-1", &ContextSnapshot{Usage: Usage{Input: 7}, At: 99})
+	c.Sync()
 
 	got, ok := OpenUsageCache(path).Get("sess", "sig-1")
 	if !ok || got == nil || got.Usage.Input != 7 || got.At != 99 {
