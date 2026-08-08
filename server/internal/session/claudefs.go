@@ -544,7 +544,15 @@ func (fs claudeFS) purgeByID(id string) (bool, error) {
 
 // deleteByIDs fully purges each session_id (transcript + sidecar + per-session
 // state), leaving dir-mates intact. Returns how many transcripts existed.
+//
+// On a remote host this is ONE exec for the whole batch: the serial form paid
+// three or four SSH round trips per id (glob, rm, rm -rf sidecar, rm -rf state),
+// which is what made deleting a much-cleared session — many rotated prior ids —
+// take ten to thirty round trips before the row disappeared.
 func (fs claudeFS) deleteByIDs(ids []string) (int, error) {
+	if fs.remote != nil {
+		return fs.deleteByIDsRemote(ids)
+	}
 	n := 0
 	for _, id := range ids {
 		had, err := fs.purgeByID(id)
@@ -552,6 +560,48 @@ func (fs claudeFS) deleteByIDs(ids []string) (int, error) {
 			return n, err
 		}
 		if had {
+			n++
+		}
+	}
+	return n, nil
+}
+
+// deleteByIDsRemote is deleteByIDs' batched remote form: a single shell command
+// that, for every id, reports whether a transcript existed and then removes the
+// transcript, its sibling sidecar dir, and every per-session state dir. The globs
+// stand in for the opaque project-dir encoding, so no separate lookup is needed;
+// an unmatched glob stays literal and `rm -rf` on it is a no-op. Every id is
+// UUID-validated before it reaches the command.
+func (fs claudeFS) deleteByIDsRemote(ids []string) (int, error) {
+	var safe []string
+	for _, id := range ids {
+		if looksLikeUUID(id) {
+			safe = append(safe, id)
+		}
+	}
+	if len(safe) == 0 {
+		return 0, nil
+	}
+	defer func() {
+		for _, id := range safe {
+			fs.forgetPath(id) // the paths are about to stop existing
+		}
+	}()
+	var state strings.Builder
+	for _, sub := range perSessionStateDirs {
+		state.WriteString(` "$HOME/.claude/` + sub + `/$id"`)
+	}
+	cmd := `for id in ` + strings.Join(safe, " ") + `; do ` +
+		`for p in "$HOME/.claude/projects/"*/"$id.jsonl"; do [ -e "$p" ] && echo "$id"; done; ` +
+		`rm -rf "$HOME/.claude/projects/"*/"$id.jsonl" "$HOME/.claude/projects/"*/"$id"` + state.String() + `; ` +
+		`done`
+	out, err := fs.remote.output(cmd)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if strings.TrimSpace(line) != "" {
 			n++
 		}
 	}

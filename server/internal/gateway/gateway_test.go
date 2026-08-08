@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -228,6 +229,7 @@ func newSandboxTestServer(t *testing.T) (*httptest.Server, string, *Server) {
 // without a container runtime.
 type fakeSandbox struct {
 	ensured map[string]string // container name -> dir
+	mu      sync.Mutex
 	removed []string
 }
 
@@ -244,6 +246,17 @@ func (f *fakeSandbox) Ensure(_ context.Context, sess *session.Session, _ *sessio
 
 }
 func (f *fakeSandbox) Remove(_ context.Context, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.removed = append(f.removed, name)
 	return nil
+}
+
+// removedNames is the race-free read of Remove's log: a session delete now runs
+// the container removal in the background, so tests poll this rather than read
+// the slice straight after the session_list frame.
+func (f *fakeSandbox) removedNames() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.removed...)
 }

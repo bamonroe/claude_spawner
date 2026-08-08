@@ -318,23 +318,11 @@ func (c *conn) doDeleteDiscovered(sessionID string) {
 	// unregistered row stands for the WHOLE directory (discover collapses a dir's
 	// loose transcripts into a single adoptable row), so wipe every transcript in
 	// that dir — otherwise deleting one just re-surfaces the row on a dir-mate.
-	var err error
 	if rec != nil {
-		// Backend-aware full purge across every backend the session ran: the current
-		// chain (current + rotated prior ids) plus any archived cross-backend History
-		// segments — transcript, sidecar, and per-session state for Claude; rollout
-		// files for Codex. Leaves any dir-mates that have their own rows.
-		_, err = c.srv.driver.DeleteSessionAll(rec)
-	} else {
-		// Unregistered rows come from the discovery scan on the loopback host
-		// (TranscriptPathByID above reads the same place), so delete there.
-		_, err = c.srv.driver.DeleteSessionsForDir(c.ctx, "", sessionID, dir)
-	}
-	if err != nil {
-		c.fail("internal", err.Error())
-		return
-	}
-	if rec != nil {
+		// Drop the record and push the refreshed lists FIRST, then purge in the
+		// background: the row exists because the registry says so, and the disk
+		// wipe (a backend-aware purge across every backend the session ran) plus
+		// the container remove are best-effort work nothing here waits on.
 		if c.attached != nil && recID(c.attached) == recID(rec) {
 			c.doDetach()
 		}
@@ -342,11 +330,22 @@ func (c *conn) doDeleteDiscovered(sessionID string) {
 		if derr := c.srv.store.Delete(name); derr != nil {
 			log.Printf("delete session record %s: %v", name, derr)
 		}
-		c.removeSandbox(rec) // destroy the session's container, if any
 		c.srv.dropJob(recID(rec))
+		c.purgeAsync(rec, name, c.doDiscover)
+	} else {
+		// Unregistered rows come from the discovery scan on the loopback host
+		// (TranscriptPathByID above reads the same place), so delete there. There's
+		// no record to drop, so this one is what makes the row go away — it has to
+		// finish before the refreshed discovery is pushed.
+		if _, err := c.srv.driver.DeleteSessionsForDir(c.ctx, "", sessionID, dir); err != nil {
+			c.fail("internal", err.Error())
+			return
+		}
 	}
 	c.sendSessionList()
-	c.doDiscover()
+	if rec == nil {
+		c.doDiscover()
+	}
 }
 
 // serveHistory returns a page of a session's past conversation, read from

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/bam/claude_spawner/server/internal/session"
 )
@@ -183,8 +184,17 @@ func TestSpawnAsksTargetWhenSandboxConfigured(t *testing.T) {
 	// Deleting the session must destroy its container.
 	send(t, ws, map[string]any{"type": "delete", "name": name})
 	readUntil(t, ws, "session_list")
-	if len(fake.removed) != 1 || fake.removed[0] != rec.Container {
-		t.Errorf("Remove calls = %v, want [%q]", fake.removed, rec.Container)
+	// The purge + container removal are deliberately off the delete path, so wait
+	// for the background pass rather than assuming it finished with the frame.
+	var removed []string
+	for i := 0; i < 100; i++ {
+		if removed = fake.removedNames(); len(removed) > 0 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if len(removed) != 1 || removed[0] != rec.Container {
+		t.Errorf("Remove calls = %v, want [%q]", removed, rec.Container)
 	}
 }
 

@@ -507,7 +507,12 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
     override fun adopt(sessionId: String, dir: String) = client?.send(Outbound.adopt(sessionId, dir)).let {}
 
     /** Permanently delete a discovered session's transcript from disk. */
-    override fun deleteDiscovered(sessionId: String) = client?.send(Outbound.deleteDiscovered(sessionId)).let {}
+    // Optimistic: drop the row now, don't wait on the server's purge. The server's
+    // next `discovered` push is authoritative and puts it back if the delete failed.
+    override fun deleteDiscovered(sessionId: String) {
+        _discovered.value = _discovered.value.filterNot { it.sessionId == sessionId }
+        client?.send(Outbound.deleteDiscovered(sessionId))
+    }
 
     /** Give a discovered session a custom name (registers it by dir if needed). */
     override fun renameDiscovered(sessionId: String, dir: String, newName: String) =

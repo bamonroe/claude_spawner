@@ -375,7 +375,12 @@ class WebAppController(internal val prefs: Prefs) : AppController {
 
     override fun discover() { client?.send(Outbound.discover()) }
     override fun adopt(sessionId: String, dir: String) { client?.send(Outbound.adopt(sessionId, dir)) }
-    override fun deleteDiscovered(sessionId: String) { client?.send(Outbound.deleteDiscovered(sessionId)) }
+    // Optimistic: drop the row now; the server's next `discovered` push is
+    // authoritative and restores it if the delete failed.
+    override fun deleteDiscovered(sessionId: String) {
+        _discovered.value = _discovered.value.filterNot { it.sessionId == sessionId }
+        client?.send(Outbound.deleteDiscovered(sessionId))
+    }
     override fun renameDiscovered(sessionId: String, dir: String, newName: String) {
         client?.send(Outbound.renameDiscovered(sessionId, dir, newName))
     }

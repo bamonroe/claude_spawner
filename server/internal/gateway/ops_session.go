@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"path/filepath"
@@ -460,16 +461,17 @@ func (c *conn) removeSession(name string) bool {
 	// the record below, and a segment whose host is unreachable is deferred to the
 	// driver's PurgeQueue (retried when the host is back) instead of grinding through
 	// an SSH dial timeout per file — deleting a session on a dead box is instant.
-	if _, err := c.srv.driver.DeleteSessionAll(s); err != nil {
-		log.Printf("delete session %s transcripts: %v", snap.Name, err)
-	}
+	//
+	// It also runs AFTER the record is dropped and the refreshed list is pushed, in
+	// its own goroutine: the row should disappear the moment the session stops
+	// existing to the registry, not after every file and the container are gone.
 	if err := c.srv.store.Delete(snap.Name); err != nil {
 		c.fail("internal", err.Error())
 		return false
 	}
-	c.removeSandbox(s) // destroy the session's container, if any
 	c.srv.dropJob(snap.SessionID)
 	c.sendSessionList()
+	c.purgeAsync(s, snap.Name, nil)
 	return true
 }
 
@@ -628,6 +630,29 @@ func (c *conn) ensureSandbox(s *session.Session) {
 
 // removeSandbox best-effort destroys a session's persistent container on delete.
 // Logged, never fatal — a runtime hiccup must not block removing the record.
+// purgeAsync wipes a deleted session's on-disk traces and its container off the
+// caller's path. Both are best-effort and neither is observable to the client —
+// the only thing the app waits on is the refreshed session list, which the caller
+// has already sent. Context is detached so a client disconnecting mid-delete
+// doesn't leave a container behind.
+// `then`, if non-nil, runs once the purge is done — the discovery re-scan has to
+// wait for it, or it would re-surface the just-deleted transcript as an
+// adoptable row.
+func (c *conn) purgeAsync(s *session.Session, name string, then func()) {
+	ctx := context.WithoutCancel(c.ctx)
+	go func() {
+		if _, err := c.srv.driver.DeleteSessionAll(s); err != nil {
+			log.Printf("delete session %s transcripts: %v", name, err)
+		}
+		if err := c.srv.driver.RemoveContainer(ctx, s); err != nil {
+			log.Printf("sandbox remove for %s: %v", name, err)
+		}
+		if then != nil {
+			then()
+		}
+	}()
+}
+
 func (c *conn) removeSandbox(s *session.Session) {
 	if err := c.srv.driver.RemoveContainer(c.ctx, s); err != nil {
 		log.Printf("sandbox remove for %s: %v", recName(s), err)
