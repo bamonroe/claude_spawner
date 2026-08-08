@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "auto-compress-scan-stop-driving-host-reads-for-idle-sessions"
+title = "Auto-compress scan: stop driving host reads for idle sessions"
+description = "The 5s autoCompressLoop calls SessionContextUsage for every started session, which drives a chainSig stat batch (and, on a miss, a full transcript/export read) per session per tick on every host. An idle session's context cannot change by construction — only a turn moves it — so the ticker should consume the last known usage (updated when a turn completes) and never initiate host I/O itself. This is what turned an opencode signature bug into a visible process storm; related to tame-the-autocompress-ticker-s-ssh-stat-storm."
+status = "finished"
+level = "task"
+category = "refactor"
+created = 2026-08-08
+completed = 2026-08-08
+tags = []
+
+[[task]]
 id = "digest-sweep-per-session-deadline-and-partial-results"
 title = "Digest sweep: per-session deadline and partial results"
 description = "serveDigests (gateway/ops_history.go:205) holds the entire digests frame until every session answers, so one slow/dead host delays the app's connect-time cache validation — and therefore its history refresh — by minutes. Even with the SSH negative dial cache in place, a generally slow host shouldn't gate all the others. Give each session's DisplayDigest a deadline (context timeout threaded through the driver/reader seam, not a wrapper) and send the frame with the sessions that answered; a session that missed the deadline is simply omitted, which the app already treats as 'keep the cached transcript'. Depends-on/related: ssh-pool-negative-dial-cache-for-unreachable-hosts."

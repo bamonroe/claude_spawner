@@ -1,7 +1,6 @@
 package gateway
 
 import (
-	"context"
 	"log"
 	"time"
 )
@@ -70,6 +69,15 @@ func (s *Server) firedAutoCompress(sessionID string, at int64) bool {
 // autoCompressLoop is the server-owned monitor: every tick it scans started
 // sessions and compresses any over the token limit — immediately (auto) or in the
 // last autoCompressLead of their warm-cache window (warm). Started once from New().
+//
+// The scan is strictly zero-I/O: it consumes the last *known* context usage
+// (Driver.CachedSessionContextUsage) and never initiates a host read. That's not
+// an optimization, it's the invariant — an idle session's context cannot change by
+// construction, only a turn moves it, so a timer has nothing new to learn. The
+// authoritative value is refreshed by the events that can actually change it (turn
+// completion via pushContextUsage, attach), and this loop reads what they left
+// behind. Calling SessionContextUsage here instead cost one chain-signature stat
+// batch per session per host every tick — a visible process storm on remote hosts.
 func (s *Server) autoCompressLoop() {
 	t := time.NewTicker(autoCompressTick)
 	defer t.Stop()
@@ -86,7 +94,7 @@ func (s *Server) autoCompressLoop() {
 			if !snap.Started || s.isBusy(snap.SessionID) {
 				continue // nothing to compress, or a turn is already running
 			}
-			cx := s.driver.SessionContextUsage(context.Background(), sess)
+			cx := s.driver.CachedSessionContextUsage(sess)
 			if cx == nil || cx.At == 0 {
 				continue
 			}

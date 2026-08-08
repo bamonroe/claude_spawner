@@ -151,15 +151,3 @@ urgency = "normal"
 order = 210
 created = 2026-08-08
 tags = ["perf"]
-
-[[task]]
-id = "auto-compress-scan-stop-driving-host-reads-for-idle-sessions"
-title = "Auto-compress scan: stop driving host reads for idle sessions"
-description = "The 5s autoCompressLoop calls SessionContextUsage for every started session, which drives a chainSig stat batch (and, on a miss, a full transcript/export read) per session per tick on every host. An idle session's context cannot change by construction — only a turn moves it — so the ticker should consume the last known usage (updated when a turn completes) and never initiate host I/O itself. This is what turned an opencode signature bug into a visible process storm; related to tame-the-autocompress-ticker-s-ssh-stat-storm."
-status = "active"
-level = "task"
-category = "refactor"
-urgency = "high"
-order = 220
-created = 2026-08-08
-tags = []
