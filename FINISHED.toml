@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "sessions-toolbar-status-indicators-connection-rebuild-restart-needed"
+title = "Sessions toolbar status indicators: connection, rebuild, restart-needed"
+description = "Add small status icons to the sessions toolbar in the app: (1) a dot that is green when the WebSocket is connected to the server and red when disconnected; (2) a spinner/rotating indicator while a server rebuild is underway, shown only for rebuilds launched from the server tab in settings (we do not track arbitrary/externally-started rebuilds); (3) an indicator that a container restart (bounce) is pending once a build has finished, so the user knows to tap restart. Needs server-side progress/finished signalling for settings-launched builds over the existing WebSocket protocol (docs/protocol.md) plus the Compose UI in the sessions toolbar."
+status = "finished"
+level = "scope"
+category = "feature"
+created = 2026-08-08
+completed = 2026-08-08
+tags = ["app", "ui", "protocol"]
+
+[[task]]
 id = "fix-duplicated-and-badly-parsed-user-messages"
 title = "Fix duplicated and badly parsed user messages"
 description = "From Screenshot_20260808_072445_Claude Spawner.jpg: the chat shows a spoken/text user turn twice, and one duplicate includes quoted instruction text instead of the clean message. Investigate the input/transcript path and chat rendering so one canonical user message is shown with the intended parsed content."

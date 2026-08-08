@@ -19,3 +19,39 @@ add_proposed_work = "Add proposed features and tests as new tasks rather than lo
 remove_dropped_items = "Remove dropped items with a one-line why (`scripts/todo.sh remove <id> --reason`)."
 finish_work = "When a task is fully finished (built, tested, documented), run `scripts/todo.sh done <id>` to move it to FINISHED.toml — in the same commit that completes the work."
 scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/KMP app + web client. The historical phase roadmap stays in README.md."
+
+[[task]]
+id = "server-broadcast-build-progress-finished-for-settings-launched-restarts"
+title = "Server: broadcast build progress/finished for settings-launched restarts"
+description = "Today doRestart (server/internal/gateway/ops_misc.go) fires driver.Restart and only broadcasts a 'say'; the host command is setsid-detached over the SSH pool, so nothing reports when a 'build' actually finishes. Add a new outbound message (e.g. restart_status: {mode, phase: started|finished|failed, error?}) broadcast to every client, and track completion of the detached rebuild (either keep the SSH channel open for the non-detached 'build' mode, or have deploy/rebuild-container.sh write a marker the server watches). Server holds the pending-bounce bit (image built, container not yet recreated) so a reconnecting app learns it from hello_ok. Update docs/protocol.md and android net/Protocol.kt in the same pass — internal/docsync drift-tests both."
+status = "active"
+level = "task"
+category = "feature"
+urgency = "normal"
+order = 20
+created = 2026-08-08
+tags = ["protocol", "server"]
+
+[[task]]
+id = "app-connection-dot-in-the-sessions-toolbar"
+title = "App: connection dot in the sessions toolbar"
+description = "Add a small green/red dot to the sessions toolbar (the header Row in Sidebar.kt ~line 104) reflecting WebSocket connectivity. The state already exists — 'connected' is contributed by HostsIdentitiesController and surfaced on AppController — so this is UI only: dot + content description, green when connected, red when not. Verify on the Dockerized emulator per the android-dev skill."
+status = "active"
+level = "task"
+category = "feature"
+urgency = "normal"
+order = 30
+created = 2026-08-08
+tags = ["android"]
+
+[[task]]
+id = "app-rebuild-spinner-and-restart-pending-indicator-in-the-sessions-toolbar"
+title = "App: rebuild spinner and restart-pending indicator in the sessions toolbar"
+description = "Consume the new restart_status message (see server-broadcast-build-progress-finished-for-settings-launched-restarts) in InboundRouter.kt, hold the state on AppController, and render in the sessions toolbar: a rotating spinner while a settings-launched build is underway, and a distinct 'restart pending' icon once the build finished but the container hasn't been bounced. Clear the pending bit when a bounce/rebuild completes; rehydrate it from hello_ok after a reconnect. Only builds launched from the settings server tab are tracked. Document in README.md."
+status = "active"
+level = "task"
+category = "feature"
+urgency = "normal"
+order = 40
+created = 2026-08-08
+tags = ["android"]
