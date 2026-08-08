@@ -505,6 +505,19 @@ networking can't reach the host as `localhost` — that's a
 deployment where you'd delete the `localhost` entry and register the host (and any others) as
 explicit remotes instead.
 
+### Timers never read the host: event-driven refresh, cached reads
+
+Because every read is an SSH round trip drawing from a per-host channel budget the live turn stream
+also needs, **no periodic loop may initiate host I/O**. Recurring scans consume the last *known*
+value and are refreshed by the events that can actually change it. The auto-compress monitor
+(`gateway/autocompress.go`) is the canonical case: it ticks every few seconds over every started
+session but only reads `Driver.CachedSessionContextUsage` (pure memory). An idle session's context
+cannot change by construction — only a turn moves it — so the timer has nothing new to learn, and
+the authoritative value is written back by turn completion (`pushContextUsage`) and attach. The
+earlier version called `SessionContextUsage` per session per tick, one chain-signature stat batch
+each, which showed up as a continuous process storm on remote hosts (and dial timeouts for an
+unreachable one). Apply the same rule to any new background scan.
+
 ### Sandbox sessions (also without host root)
 
 For `sandbox`-target sessions the container's lifetime is **bound to the session**, not the turn:
