@@ -117,18 +117,6 @@ created = 2026-08-08
 tags = ["perf"]
 
 [[task]]
-id = "history-memo-hand-out-read-only-slices-instead-of-copying-the-whole-log"
-title = "History memo: hand out read-only slices instead of copying the whole log"
-description = "displayMemo copies the full []Message slice on every get and put (displaymemo.go:61,70 for the whole log; :83,95 per archived segment), so even a memo HIT on a large session costs an O(total) slice copy. The copies exist only because serveHistory mutates Text in place (ops_history.go:143-152). Make the memo return read-only slices and move that mutation onto a copy of the PAGE instead, turning four O(total) copies into one O(page). Self-contained; extend displaymemo_test.go."
-status = "active"
-level = "task"
-category = "refactor"
-urgency = "normal"
-order = 71
-created = 2026-08-08
-tags = ["history", "perf"]
-
-[[task]]
 id = "split-the-display-log-into-a-cached-archived-prefix-plus-a-rebuilt-current-tail"
 title = "Split the display log into a cached archived prefix plus a rebuilt current tail"
 description = "readDisplayHistory (driver.go:823-868) rebuilds and re-indexes the ENTIRE log after every turn, because chainParts.cur changes and invalidates the whole-log memo. But parts.segs (the archived segments) are a stable prefix and parts.cur is the only mover. Cache the concatenated archived prefix as one memo entry keyed on the segment sigs alone, then only re-read and re-index the current chain, starting the index loop (driver.go:862) at len(prefix). Makes per-turn assembly O(current chain) instead of O(whole log). Touches driver.go:823-868, chainParts (:697-725) and displaymemo.go. Do the memo copy-removal task first."

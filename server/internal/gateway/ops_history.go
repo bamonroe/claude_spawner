@@ -149,17 +149,26 @@ func (c *conn) serveHistory(sessionID, name string, before *int, limit int, have
 	// digest (count/hash) is over the full stored transcript, not this display page,
 	// so omitting a display row doesn't disturb the app's freshness check or paging
 	// (each kept row carries its own transcript index).
-	kept := page[:0]
+	c.send(msgHistory(recID(s), name, stripPage(page), more, count, hash, false))
+}
+
+// stripPage applies the scaffolding strip to one display page, returning a NEW
+// slice: DisplayHistory hands back a read-only log (a memo hit aliases the cache),
+// so rewriting Text in place would serve stripped text to every later reader. The
+// copy is O(page), which is what lets the memo skip its O(whole log) copy per hit.
+func stripPage(page []session.Message) []session.Message {
+	kept := make([]session.Message, 0, len(page))
 	for i := range page {
-		if page[i].Role == "user" {
-			page[i].Text = stripInjected(page[i].Text)
-			if strings.TrimSpace(page[i].Text) == "" {
+		m := page[i]
+		if m.Role == "user" {
+			m.Text = stripInjected(m.Text)
+			if strings.TrimSpace(m.Text) == "" {
 				continue
 			}
 		}
-		kept = append(kept, page[i])
+		kept = append(kept, m)
 	}
-	c.send(msgHistory(recID(s), name, kept, more, count, hash, false))
+	return kept
 }
 
 // serveDigests reports every registered session's transcript digest (message

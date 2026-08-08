@@ -18,9 +18,12 @@ import "sync"
 //     their signature never changes again — a session that keeps producing output
 //     misses `whole` on every turn but still never re-reads its archives.
 //
-// Both levels hand out COPIES: callers mutate the messages they get (serveHistory
-// strips injected scaffolding in place, over a slice that aliases the page), and a
-// memo that shared its backing array would hand the next caller stripped text.
+// Both levels hand out READ-ONLY slices, shared with the stored entry rather than
+// copied. Copying was once needed because serveHistory stripped injected
+// scaffolding in place, over a slice aliasing the memo's array — but that made
+// even a HIT cost an O(total-messages) copy on every get and put. The mutation now
+// happens on a fresh copy of the requested PAGE (gateway.serveHistory), so the memo
+// hands out its arrays directly: callers MUST NOT mutate the messages they get.
 //
 // Safe for concurrent use. Purely a speed cache: a miss costs a read, never
 // correctness, and an empty signature (a backend that can't describe its chain
@@ -47,7 +50,7 @@ func newDisplayMemo() *displayMemo {
 }
 
 // getWhole returns the assembled log for a session when it was read at exactly
-// this signature. An empty sig is never a hit.
+// this signature. An empty sig is never a hit. The result is read-only.
 func (m *displayMemo) getWhole(sessionID, sig string) ([]Message, bool) {
 	if m == nil || sig == "" {
 		return nil, false
@@ -58,18 +61,20 @@ func (m *displayMemo) getWhole(sessionID, sig string) ([]Message, bool) {
 	if !ok || e.sig != sig {
 		return nil, false
 	}
-	return append([]Message(nil), e.msgs...), true
+	return e.msgs, true
 }
 
+// putWhole stores msgs by reference: the caller must not mutate it afterwards.
 func (m *displayMemo) putWhole(sessionID, sig string, msgs []Message) {
 	if m == nil || sig == "" {
 		return
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.whole[sessionID] = memoEntry{sig: sig, msgs: append([]Message(nil), msgs...)}
+	m.whole[sessionID] = memoEntry{sig: sig, msgs: msgs}
 }
 
+// getSegment returns one archived segment's messages. The result is read-only.
 func (m *displayMemo) getSegment(key string) ([]Message, bool) {
 	if m == nil || key == "" {
 		return nil, false
@@ -80,9 +85,10 @@ func (m *displayMemo) getSegment(key string) ([]Message, bool) {
 	if !ok {
 		return nil, false
 	}
-	return append([]Message(nil), msgs...), true
+	return msgs, true
 }
 
+// putSegment stores msgs by reference: the caller must not mutate it afterwards.
 func (m *displayMemo) putSegment(key string, msgs []Message) {
 	if m == nil || key == "" {
 		return
@@ -92,5 +98,5 @@ func (m *displayMemo) putSegment(key string, msgs []Message) {
 	if len(m.segments) >= memoSegmentCap {
 		m.segments = map[string][]Message{}
 	}
-	m.segments[key] = append([]Message(nil), msgs...)
+	m.segments[key] = msgs
 }

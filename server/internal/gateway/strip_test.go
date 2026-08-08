@@ -3,6 +3,8 @@ package gateway
 import (
 	"strings"
 	"testing"
+
+	"github.com/bam/claude_spawner/server/internal/session"
 )
 
 // stripInjected must invert exactly the scaffolding dictate() appends, so history
@@ -106,5 +108,26 @@ func TestStripInjectedSurvivesWhitespaceDrift(t *testing.T) {
 	orphan := seedRecapOpen + "a recap with no close marker"
 	if got := stripInjected(orphan); got != orphan {
 		t.Errorf("an unterminated recap must be left untouched, got %q", got)
+	}
+}
+
+// TestStripPageLeavesSourceUntouched pins the read-only contract with the display
+// memo: the page handed to stripPage may alias the cached log, so stripping must
+// not rewrite it in place — otherwise every later reader gets the stripped text.
+func TestStripPageLeavesSourceUntouched(t *testing.T) {
+	raw := "do the thing" + briefSuffix + askInstruction
+	page := []session.Message{
+		{Role: "user", Text: raw},
+		{Role: "assistant", Text: "sure"},
+	}
+	kept := stripPage(page)
+	if page[0].Text != raw {
+		t.Fatalf("stripPage mutated its input: %q", page[0].Text)
+	}
+	if len(kept) != 2 {
+		t.Fatalf("want 2 rows, got %d", len(kept))
+	}
+	if kept[0].Text == raw {
+		t.Fatal("stripPage did not strip the scaffolding")
 	}
 }

@@ -137,10 +137,11 @@ func TestDisplayMemo_ArchivedSegmentSurvivesCurrentGrowth(t *testing.T) {
 	}
 }
 
-// TestDisplayMemo_HandsOutCopies guards the memo against its caller: serveHistory
-// strips injected scaffolding in place, over a page that aliases this slice, so a
-// memo sharing its backing array would serve the stripped text to everyone after.
-func TestDisplayMemo_HandsOutCopies(t *testing.T) {
+// TestDisplayMemo_HitCostsNoCopy pins the read-only contract: a memo hit hands back
+// the cached array itself rather than an O(total-messages) copy. Callers that need
+// to rewrite text (gateway.serveHistory strips injected scaffolding) must copy the
+// page they touch — see serveHistory.
+func TestDisplayMemo_HitCostsNoCopy(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	id := "ffffffff-ffff-4fff-8fff-ffffffffffff"
@@ -152,15 +153,17 @@ func TestDisplayMemo_HandsOutCopies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	first[0].Text = "MUTATED"
 	dropFileCaches(t)
 
 	second, err := d.ReadDisplayHistory(context.Background(), rec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second[0].Text != "user-one" {
-		t.Fatalf("caller's mutation reached the memo: got %q", second[0].Text)
+	if len(first) == 0 || len(second) != len(first) {
+		t.Fatalf("unexpected lengths: %d vs %d", len(first), len(second))
+	}
+	if &first[0] != &second[0] {
+		t.Fatal("memo hit copied the log; it should share the cached array")
 	}
 }
 

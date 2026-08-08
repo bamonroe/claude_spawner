@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "history-memo-hand-out-read-only-slices-instead-of-copying-the-whole-log"
+title = "History memo: hand out read-only slices instead of copying the whole log"
+description = "displayMemo copies the full []Message slice on every get and put (displaymemo.go:61,70 for the whole log; :83,95 per archived segment), so even a memo HIT on a large session costs an O(total) slice copy. The copies exist only because serveHistory mutates Text in place (ops_history.go:143-152). Make the memo return read-only slices and move that mutation onto a copy of the PAGE instead, turning four O(total) copies into one O(page). Self-contained; extend displaymemo_test.go."
+status = "finished"
+level = "task"
+category = "refactor"
+created = 2026-08-08
+completed = 2026-08-08
+tags = ["history", "perf"]
+
+[[task]]
 id = "history-serve-stop-re-assembling-and-double-copying-the-whole-log-per-refresh"
 title = "History serve: stop re-assembling and double-copying the whole log per refresh"
 description = "Every turn invalidates the whole-log display memo (keyed on the full chain sig, displaymemo.go:51), so the post-turn refresh re-concats all segments, re-indexes every message (driver.go:792-828), and copies the full slice twice (displaymemo.go:61,70) — O(total messages) work to serve a 30-row page after appending one message. The transcript BYTES are already incremental (extendParse/tail -c +N, transcript.go:377-467); the in-memory assembly is not. Also the have_hash fast path (ops_history.go:123) structurally never hits right after a turn. Scope an incremental path: extend the memoized whole-log in place when only the current chain grew, and/or serve the top page without materializing the whole chain. Also note opencode/codex/antigravity have no incremental parse at all (a miss re-runs 'opencode export' per id over SSH), and one indescribable archived segment makes a session's digest permanently uncacheable (driver.go:766). Produce concrete tasks."

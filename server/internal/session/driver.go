@@ -669,7 +669,8 @@ func (d *Driver) DisplayDigest(ctx context.Context, live *Session) (count int, h
 }
 
 // DisplayHistory returns a session's full display history together with its
-// digest, computing the chain's freshness signature ONCE for both.
+// digest, computing the chain's freshness signature ONCE for both. As with
+// ReadDisplayHistory, msgs is read-only.
 //
 // It's what the history op should call on a digest miss: DisplayDigest followed by
 // ReadDisplayHistory would stat the whole chain twice (a round trip per transcript
@@ -812,6 +813,9 @@ func (d *Driver) displayChainParts(ctx context.Context, rec *Session) chainParts
 // logged and skipped (best-effort scrollback); only the current backend's read fails
 // the call, matching pre-split behavior. With no History this equals the old
 // ReadTranscriptChain(current) exactly.
+//
+// The returned slice is READ-ONLY: on a memo hit it is the memo's own array (see
+// displayMemo). Callers that need to rewrite message text must copy first.
 func (d *Driver) ReadDisplayHistory(ctx context.Context, live *Session) ([]Message, error) {
 	rec := live.Snapshot() // pure reader: History/Agent/ids from one locked view
 	return d.readDisplayHistory(ctx, rec, d.displayChainParts(ctx, rec))
