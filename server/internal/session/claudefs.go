@@ -222,27 +222,67 @@ func (fs claudeFS) listDirTranscripts(dir string) []string {
 // when the file can't be stat'd, so the caller parses uncached rather than trusting
 // a stale cache entry.
 func (fs claudeFS) stat(path string) (size int64, mod time.Time, ok bool) {
+	st, hit := fs.statMany([]string{path})[path]
+	return st.size, st.mod, hit
+}
+
+// fileStat is one path's size and mtime, as returned by statMany.
+type fileStat struct {
+	size int64
+	mod  time.Time
+}
+
+// statMany stats a batch of paths in ONE remote exec (chunked), returning only the
+// paths that stat'd — a missing entry means "couldn't stat", the same signal
+// stat's ok=false carries. This is the seam every freshness check goes through:
+// signing a chain of N transcripts is one round trip, not N.
+func (fs claudeFS) statMany(paths []string) map[string]fileStat {
+	out := make(map[string]fileStat, len(paths))
+	if len(paths) == 0 {
+		return out
+	}
 	if fs.remote == nil {
-		fi, err := os.Stat(path)
-		if err != nil {
-			return 0, time.Time{}, false
+		for _, p := range paths {
+			if fi, err := os.Stat(p); err == nil {
+				out[p] = fileStat{size: fi.Size(), mod: fi.ModTime()}
+			}
 		}
-		return fi.Size(), fi.ModTime(), true
+		return out
 	}
-	out, err := fs.remote.output(`stat -c '%s %Y' ` + shellQuote(path) + ` 2>/dev/null`)
-	if err != nil {
-		return 0, time.Time{}, false
+	for start := 0; start < len(paths); start += cwdsChunk {
+		end := min(start+cwdsChunk, len(paths))
+		var cmd strings.Builder
+		cmd.WriteString("for p in")
+		for _, p := range paths[start:end] {
+			cmd.WriteString(" " + shellQuote(p))
+		}
+		// One "path<TAB>size mtime" line per file; a file that doesn't stat prints
+		// just the path, so it's simply absent from the map.
+		// The path is printed separately from stat's format so a '%' in a path
+		// can never be read as a format directive.
+		cmd.WriteString(`; do printf '%s\t' "$p"; stat -c '%s %Y' "$p" 2>/dev/null; echo; done`)
+		blob, err := fs.remote.output(cmd.String())
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(string(blob), "\n") {
+			path, rest, ok := strings.Cut(strings.TrimRight(line, "\r"), "\t")
+			if !ok {
+				continue
+			}
+			fields := strings.Fields(rest)
+			if len(fields) != 2 {
+				continue // no stat output: the file isn't there
+			}
+			sz, err1 := strconv.ParseInt(fields[0], 10, 64)
+			secs, err2 := strconv.ParseInt(fields[1], 10, 64)
+			if err1 != nil || err2 != nil {
+				continue
+			}
+			out[path] = fileStat{size: sz, mod: time.Unix(secs, 0)}
+		}
 	}
-	parts := strings.Fields(strings.TrimSpace(string(out)))
-	if len(parts) != 2 {
-		return 0, time.Time{}, false
-	}
-	sz, err1 := strconv.ParseInt(parts[0], 10, 64)
-	secs, err2 := strconv.ParseInt(parts[1], 10, 64)
-	if err1 != nil || err2 != nil {
-		return 0, time.Time{}, false
-	}
-	return sz, time.Unix(secs, 0), true
+	return out
 }
 
 // open returns a reader over a transcript's contents. For the remote backend the
@@ -660,32 +700,64 @@ func (d *Driver) claudeFSFor(host string) claudeFS {
 // that fails transiently is the same shape as one that fails because the file is
 // missing, and that's safe here: the entry it pins is replaced as soon as the
 // stat works again.
+// The whole chain is stat'd in ONE batch (statMany), so a freshness check is a
+// single round trip however long the chain is; only ids whose memoized path failed
+// to stat cost a second, smaller batch after re-resolving.
 func statChainSig(fs claudeFS, resolve func(string) string, ids []string) (string, bool) {
-	var b strings.Builder
-	for _, id := range ids {
-		path := resolve(id)
+	paths := make([]string, len(ids))
+	var want []string
+	for i, id := range ids {
+		paths[i] = resolve(id)
+		if paths[i] != "" {
+			want = append(want, paths[i])
+		}
+	}
+	stats := fs.statMany(want)
+
+	// The memoized path no longer stats: re-resolve once before believing the file
+	// is gone, so a project-dir rename or an out-of-band move recovers immediately
+	// instead of reporting a permanently absent chain. Retries batch together too.
+	var retry []string
+	retryFor := map[int]string{}
+	for i, path := range paths {
 		if path == "" {
-			b.WriteString(id)
+			continue
+		}
+		if _, ok := stats[path]; ok {
+			continue
+		}
+		fs.forgetPath(ids[i])
+		if again := resolve(ids[i]); again != "" && again != path {
+			retryFor[i] = again
+			retry = append(retry, again)
+		}
+	}
+	if len(retry) > 0 {
+		found := fs.statMany(retry)
+		for i, again := range retryFor {
+			if st, ok := found[again]; ok {
+				// The re-resolved path is what the signature now describes; a
+				// retry that also fails keeps the original path's ":absent".
+				paths[i] = again
+				stats[again] = st
+			}
+		}
+	}
+
+	var b strings.Builder
+	for i, path := range paths {
+		if path == "" {
+			b.WriteString(ids[i])
 			b.WriteString(":absent;")
 			continue
 		}
-		size, mod, ok := fs.stat(path)
+		st, ok := stats[path]
 		if !ok {
-			// The memoized path no longer stats: re-resolve once before believing
-			// the file is gone, so a project-dir rename or an out-of-band move
-			// recovers immediately instead of reporting a permanently absent chain.
-			fs.forgetPath(id)
-			if again := resolve(id); again != "" && again != path {
-				if size, mod, ok = fs.stat(again); ok {
-					fmt.Fprintf(&b, "%s:%d:%d;", again, size, mod.UnixNano())
-					continue
-				}
-			}
 			b.WriteString(path)
 			b.WriteString(":absent;")
 			continue
 		}
-		fmt.Fprintf(&b, "%s:%d:%d;", path, size, mod.UnixNano())
+		fmt.Fprintf(&b, "%s:%d:%d;", path, st.size, st.mod.UnixNano())
 	}
 	return b.String(), true
 }

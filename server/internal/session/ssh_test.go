@@ -464,3 +464,50 @@ func TestSSHProcStopReleases(t *testing.T) {
 	}
 	_ = io.Discard
 }
+
+// TestLiveSSHStatManyBatch proves the batched stat — the seam every chain-freshness
+// check goes through — agrees with the local backend for a mixed batch: ordinary
+// files, a name with a space and a '%' (which must never reach stat's format), and
+// a missing path (absent from the map, never a bogus zero entry). Gated on
+// SPAWNER_SSH_LIVE=1.
+func TestLiveSSHStatManyBatch(t *testing.T) {
+	if os.Getenv("SPAWNER_SSH_LIVE") != "1" {
+		t.Skip("set SPAWNER_SSH_LIVE=1 to run the live statMany test")
+	}
+	dir := t.TempDir()
+	var paths []string
+	for _, name := range []string{"a.jsonl", "odd %s name.jsonl", "b.jsonl"} {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(strings.Repeat("x", len(name))), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		paths = append(paths, p)
+	}
+	paths = append(paths, filepath.Join(dir, "missing.jsonl"))
+
+	pool, err := NewSSHPool(SSHConfig{}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewSSHPool: %v", err)
+	}
+	defer pool.Close()
+	remote := claudeFS{remote: &sshFS{pool: pool, host: "localhost"}}
+
+	got := remote.statMany(paths)
+	want := localClaudeFS.statMany(paths)
+	if len(got) != len(want) {
+		t.Fatalf("statMany returned %d entries, local returned %d", len(got), len(want))
+	}
+	for p, w := range want {
+		g, ok := got[p]
+		if !ok {
+			t.Errorf("statMany missed %q", p)
+			continue
+		}
+		if g.size != w.size || !g.mod.Equal(w.mod) {
+			t.Errorf("statMany(%q) = %d/%v, local = %d/%v", p, g.size, g.mod, w.size, w.mod)
+		}
+	}
+	if _, ok := got[filepath.Join(dir, "missing.jsonl")]; ok {
+		t.Error("statMany reported a stat for a missing file")
+	}
+}

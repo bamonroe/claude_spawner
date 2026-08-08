@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "batch-chainsig-stats-into-one-ssh-exec-per-host"
+title = "Batch chainSig stats into one SSH exec per host"
+description = "A freshness check is currently N serial SSH round trips: statChainSig (claudefs.go:613) loops the id chain calling fs.stat, one 'sh -c stat' exec per transcript file (claudefs.go:224-246), and displayChainParts (driver.go:760) repeats that for every archived segment plus the current chain. A session cleared/compressed many times has a long chain, so a single 'is my history current?' check fans out many round trips; the 1.5s sig memo (driver.go:722) only collapses one tap's burst. Batch it: one 'stat -c \"%s %Y\" a b c...' exec per host for the whole chain (all segments included), so a freshness check is one round trip. This multiplies through everything: digest sweep, history serve, context usage."
+status = "finished"
+level = "task"
+category = "refactor"
+created = 2026-08-08
+completed = 2026-08-08
+tags = ["perf", "lag"]
+
+[[task]]
 id = "parallelize-broadcast-fan-out-one-wedged-device-must-not-stall-the-rest"
 title = "Parallelize broadcast fan-out: one wedged device must not stall the rest"
 description = "broadcastContextReset (gateway.go:424-437) — and the same shape in broadcast (:369), broadcastRenamed (:400), broadcastNotice (:449) — loops the connection snapshot serially ON THE CALLER'S GOROUTINE, doing c.send then c.doDiscover per connection. send takes that conn's write mutex with writeWait=10s (gateway.go:211), so one wedged or backgrounded device stalls the initiating device's confirmation (e.g. the 'cleared.' reply after doClear runs the whole fan-out on the initiator's read loop) for up to 10s per stuck socket. The recipients are independent: fan out one goroutine per connection — per-client frame ordering is preserved because each conn's frames still serialize under its own wmu. Also memoize the tmux list-panes fork (tmux/tmux.go:32-46) for ~1s: a single clear currently triggers one doDiscover — and thus one tmux fork — per connected device."

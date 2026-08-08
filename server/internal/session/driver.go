@@ -766,17 +766,39 @@ func (d *Driver) chainSig(agentID, host string, ids []string) (string, bool) {
 
 // displayChainParts stats every transcript ReadDisplayHistory would read — each
 // archived segment plus the current chain, in that order — once.
+//
+// Each chain signs itself in a single batched stat (statChainSig), and the parts
+// are signed CONCURRENTLY, so a session with a long archived history costs one
+// round trip's latency rather than one per segment.
 func (d *Driver) displayChainParts(rec *Session) chainParts {
 	p := chainParts{segs: make([]string, len(rec.History)), ok: true}
+	oks := make([]bool, len(rec.History))
+	var wg sync.WaitGroup
 	for i, seg := range rec.History {
-		if sig, ok := d.chainSig(seg.Agent, seg.Host, seg.IDs); ok {
-			p.segs[i] = seg.Agent + "@" + sig
-		} else {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if sig, ok := d.chainSig(seg.Agent, seg.Host, seg.IDs); ok {
+				p.segs[i], oks[i] = seg.Agent+"@"+sig, true
+			}
+		}()
+	}
+	var curSig string
+	var curOK bool
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		curSig, curOK = d.chainSig(rec.Agent, rec.Host, d.currentHistoryIDs(rec))
+	}()
+	wg.Wait()
+
+	for _, ok := range oks {
+		if !ok {
 			p.ok = false
 		}
 	}
-	if sig, ok := d.chainSig(rec.Agent, rec.Host, d.currentHistoryIDs(rec)); ok {
-		p.cur = rec.Agent + "@" + sig
+	if curOK {
+		p.cur = rec.Agent + "@" + curSig
 	} else {
 		p.ok = false
 	}
