@@ -22,7 +22,7 @@ import kotlinx.serialization.json.putJsonObject
  * JVM-only and this file is now shared between the Android and web clients).
  */
 sealed interface ServerMsg {
-    data class HelloOk(val serverVersion: String, val whisperModel: String, val whisperModelFast: String = "", val whisperModels: List<String> = emptyList(), val whisperModelsLocal: List<String> = emptyList(), val tts: Boolean = false, val denoise: Boolean = false) : ServerMsg
+    data class HelloOk(val serverVersion: String, val whisperModel: String, val whisperModelFast: String = "", val whisperModels: List<String> = emptyList(), val whisperModelsLocal: List<String> = emptyList(), val tts: Boolean = false, val denoise: Boolean = false, val restartPending: Boolean = false) : ServerMsg
     // The resident servers' current models, server-global: accurate ("full") +
     // fast draft/detection ("quick"; empty = no fast server configured). `models`
     // is the English-model catalogue offered as a picker; `local` is the subset
@@ -111,6 +111,11 @@ sealed interface ServerMsg {
     // server-default voice, for the audio-settings picker. error non-empty
     // (tts disabled, voices unavailable) = no catalogue.
     data class TtsVoices(val voices: List<String>, val defaultVoice: String, val error: String) : ServerMsg
+    // How a server restart is going: mode is build/bounce/rebuild, phase is
+    // started|finished|failed (error non-empty only on failed). restartPending = an
+    // image is built that the running container isn't on yet, so a bounce is
+    // outstanding (also delivered in hello_ok on reconnect).
+    data class RestartStatus(val mode: String, val phase: String, val error: String, val restartPending: Boolean) : ServerMsg
     data class SpeechMode(val summaryOnly: Boolean) : ServerMsg // speak only the final result (intermediate steps beep) vs everything
     data class Listing(val path: String, val parent: String, val entries: List<BrowseEntry>) : ServerMsg
     data class FileSaved(val path: String) : ServerMsg // an upload landed on the target host
@@ -132,7 +137,7 @@ sealed interface ServerMsg {
         fun parse(raw: String): ServerMsg {
             val o = json.parseToJsonElement(raw).jsonObject
             return when (o.str("type")) {
-                "hello_ok" -> HelloOk(o.str("server_version"), o.str("whisper_model"), o.str("whisper_model_fast"), readStrings(o.arr("whisper_models")), readStrings(o.arr("whisper_models_local")), o.bool("tts"), o.bool("denoise"))
+                "hello_ok" -> HelloOk(o.str("server_version"), o.str("whisper_model"), o.str("whisper_model_fast"), readStrings(o.arr("whisper_models")), readStrings(o.arr("whisper_models_local")), o.bool("tts"), o.bool("denoise"), o.bool("restart_pending"))
                 "whisper_model" -> WhisperModel(o.str("model"), o.str("fast_model"), readStrings(o.arr("whisper_models")), readStrings(o.arr("whisper_models_local")))
                 "whisper_download" -> WhisperDownload(o.str("model"), o.bool("fast"), o.long("received"), o.long("total"), o.bool("done"), o.str("error"))
                 "say" -> Say(o.str("text"), o.str("turn"), o.str("session_id"))
@@ -171,6 +176,7 @@ sealed interface ServerMsg {
                 "speak_audio" -> SpeakAudio(o.str("id"), o.str("codec"))
                 "speak_end" -> SpeakEnd(o.str("id"), o.str("error"))
                 "tts_voices" -> TtsVoices(readStrings(o.arr("voices")), o.str("default"), o.str("error"))
+                "restart_status" -> RestartStatus(o.str("mode"), o.str("phase"), o.str("error"), o.bool("restart_pending"))
                 "speech_mode" -> SpeechMode(o.bool("summary_only"))
                 "listing" -> Listing(o.str("path"), o.str("parent"), readEntries(o.arr("entries")))
                 "file_saved" -> FileSaved(o.str("path"))

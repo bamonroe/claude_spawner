@@ -776,6 +776,15 @@ gateway. The button has a **Rebuild from source** checkbox (default on): leave i
 pick up server changes, or clear it for a fast *bounce* that relaunches from the current build without
 recompiling. Full design in [`docs/architecture.md`](./docs/architecture.md).
 
+Because that script is launched **detached**, the SSH call returns immediately and says nothing about
+whether the build worked — so the script appends its progress to a status file on the host
+(`SPAWNER_REBUILD_STATUS_FILE`, default `/tmp/spawner-rebuild.status`) and the server polls it and
+pushes each phase to every connected client as a `restart_status` message (`started`, then `finished`
+or `failed` with the reason). A finished **build** also sets a *pending bounce* bit — a new image is
+staged but the running container isn't on it yet — which the app also receives in `hello_ok` when it
+reconnects, so it can keep offering the one-tap bounce. The server speaks a line when a build is
+ready or a rebuild fails.
+
 ## Building & running from source (local dev)
 
 The supported **deployment** is the container above. For quick local iteration you can also build

@@ -66,9 +66,17 @@ func (c *conn) doSummaryOnly(arg string) {
 // leaves the running container in place (no bounce, so the caller's live session keeps
 // going); "bounce" recreates the container from the existing image without recompiling;
 // "rebuild" (the default, and empty from the voice command) builds then recreates.
+// Progress is reported to every client as `restart_status` (started → finished /
+// failed): the host command is setsid-detached, so its own return says nothing about
+// whether the build succeeded — the driver watches the host's status file for that.
+// A finished `build` sets the server's pending-bounce bit (image staged, container
+// still on the old one), which the app also reads from `hello_ok` on reconnect; a
+// finished bounce/rebuild clears it.
 func (c *conn) doRestart(mode string) {
 	go func() {
-		if err := c.srv.driver.Restart(context.Background(), mode); err != nil {
+		if err := c.srv.driver.Restart(context.Background(), mode, func(phase, errText string) {
+			c.srv.noteRestartPhase(mode, phase, errText)
+		}); err != nil {
 			c.fail("restart_failed", err.Error())
 			return
 		}
@@ -83,6 +91,45 @@ func (c *conn) doRestart(mode string) {
 		}
 		c.srv.broadcast(msgSay(text))
 	}()
+}
+
+// noteRestartPhase records a restart's progress and broadcasts it as
+// `restart_status`. It owns the pending-bounce bit: a finished `build` staged a new
+// image the running container isn't on yet (set it), while a finished bounce/rebuild
+// means the container now runs the current image (clear it). A finished build or any
+// failure also gets a spoken line, since those are the phases a listening user acts
+// on; started is silent (doRestart already said what it's doing).
+func (s *Server) noteRestartPhase(mode, phase, errText string) {
+	if mode == "" {
+		mode = "rebuild"
+	}
+	s.restartMu.Lock()
+	switch {
+	case phase != "finished":
+		// leave the bit as it is; a failed build stages nothing new
+	case mode == "build":
+		s.restartPending = true
+	default:
+		s.restartPending = false
+	}
+	pending := s.restartPending
+	s.restartMu.Unlock()
+
+	s.broadcast(msgRestartStatus(mode, phase, errText, pending))
+	switch {
+	case phase == "failed":
+		s.broadcast(msgSay("the server " + mode + " failed: " + errText))
+	case phase == "finished" && mode == "build":
+		s.broadcast(msgSay("the new server image is ready — tap restart when you want to switch to it."))
+	}
+}
+
+// restartPendingBit reports whether an image has been built that the running
+// container isn't on yet, for `hello_ok` on (re)connect.
+func (s *Server) restartPendingBit() bool {
+	s.restartMu.Lock()
+	defer s.restartMu.Unlock()
+	return s.restartPending
 }
 
 // abortTurn cancels the running turn on the attached session (kills the claude

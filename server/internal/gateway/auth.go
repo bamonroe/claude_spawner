@@ -53,7 +53,7 @@ func (c *conn) authenticate() bool {
 	// The whisper model is server-global: the app reads it here rather than pushing
 	// its own (so two clients don't bounce it), and changes it via set_whisper_model.
 	model, fastModel := c.srv.currentWhisperModels()
-	c.send(msgHelloOK("ws", model, fastModel, c.srv.catalogWhisperModels(), c.srv.availableWhisperModels(), c.srv.tts != nil, c.srv.denoiser != nil))
+	c.send(msgHelloOK("ws", model, fastModel, c.srv.catalogWhisperModels(), c.srv.availableWhisperModels(), c.srv.tts != nil, c.srv.denoiser != nil, c.srv.restartPendingBit()))
 	// Baseline the gate indicator on connect: a fresh client has no idea whether the
 	// gate is even active for it, and setGate only speaks on transitions.
 	c.send(msgSpeechGate(c.gateActive(), c.gateOpen))

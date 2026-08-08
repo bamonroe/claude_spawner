@@ -57,6 +57,7 @@ func main() {
 	// snapshot, and re-reading the transcript tail is the slowest thing in that path.
 	driver.SetUsageCache(session.OpenUsageCache(filepath.Join(filepath.Dir(cfg.StatePath), "usage.json")))
 	driver.RestartCmd = cfg.RestartCmd
+	driver.RebuildStatusFile = cfg.RebuildStatusFile
 	driver.ClaudeExtraArgs = cfg.ClaudeExtraArgs
 	// First-run starter profiles, seeded from the flat sandbox config. Written once
 	// to SPAWNER_PROFILES; after that the app owns the catalogue. bare-metal (host)

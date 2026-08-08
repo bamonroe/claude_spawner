@@ -165,6 +165,11 @@ type Config struct {
 	// own teardown as the container is recreated.
 	// Empty disables restart (the app's button reports it isn't configured).
 	RestartCmd string
+	// RebuildStatusFile is the path ON THE HOST where deploy/rebuild-container.sh
+	// records the rebuild's progress. Because RestartCmd is setsid-detached, this
+	// file is how the server learns when a build actually finished, so it can push
+	// `restart_status` to the apps. Empty disables that reporting.
+	RebuildStatusFile string
 	// TLSCert and TLSKey are the PEM cert/key files for serving wss:// (HTTPS).
 	// Both or neither: setting one without the other is a config error. When both
 	// are set the listener serves TLS; empty means plain ws:// (fine behind a
@@ -241,6 +246,7 @@ func Load() (*Config, error) {
 		SandboxRunArgs:       strings.Fields(os.Getenv("SPAWNER_SANDBOX_RUN_ARGS")),
 		ClaudeExtraArgs:      strings.Fields(os.Getenv("SPAWNER_CLAUDE_EXTRA_ARGS")),
 		RestartCmd:           os.Getenv("SPAWNER_RESTART_CMD"),
+		RebuildStatusFile:    env("SPAWNER_REBUILD_STATUS_FILE", "/tmp/spawner-rebuild.status"),
 		TLSCert:              os.Getenv("SPAWNER_TLS_CERT"),
 		TLSKey:               os.Getenv("SPAWNER_TLS_KEY"),
 		TLSClientCA:          os.Getenv("SPAWNER_TLS_CLIENT_CA"),

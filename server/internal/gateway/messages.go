@@ -160,7 +160,7 @@ func msgProfiles(reg *session.ProfileRegistry) map[string]any {
 	return map[string]any{"type": "profiles", "profiles": profiles, "default": reg.DefaultName()}
 }
 
-func msgHelloOK(sessionID, whisperModel, whisperFastModel string, whisperModels, whisperModelsLocal []string, tts, denoise bool) map[string]any {
+func msgHelloOK(sessionID, whisperModel, whisperFastModel string, whisperModels, whisperModelsLocal []string, tts, denoise, restartPending bool) map[string]any {
 	if whisperModels == nil {
 		whisperModels = []string{}
 	}
@@ -172,6 +172,9 @@ func msgHelloOK(sessionID, whisperModel, whisperFastModel string, whisperModels,
 		"whisper_model": whisperModel, "whisper_model_fast": whisperFastModel,
 		"whisper_models": whisperModels, "whisper_models_local": whisperModelsLocal,
 		"tts": tts, "denoise": denoise,
+		// restart_pending: an image was built but the container isn't running it yet,
+		// so a reconnecting app learns the bounce is still outstanding.
+		"restart_pending": restartPending,
 	}
 }
 
@@ -569,6 +572,20 @@ func msgTTSVoices(voices []string, def, errStr string) map[string]any {
 // (summary_only true: intermediate streamed steps beep instead of being read
 // aloud) or everything (false). Sent by the "summary only" / "speak everything"
 // voice commands; the app's audio settings has the same switch.
+// msgRestartStatus reports how a server restart is going, broadcast to every
+// client. `mode` is the restart mode that was asked for (build/bounce/rebuild) and
+// `phase` is one of started, finished, failed — the host script is setsid-detached,
+// so without this nothing would ever say when a `build` actually completed.
+// `error` carries the reason on a failed phase, empty otherwise. `restart_pending`
+// is the server's pending-bounce bit: a new image is built but the container hasn't
+// been recreated onto it yet, so the app can offer a bounce.
+func msgRestartStatus(mode, phase, errText string, pending bool) map[string]any {
+	return map[string]any{
+		"type": "restart_status", "mode": mode, "phase": phase,
+		"error": errText, "restart_pending": pending,
+	}
+}
+
 func msgSpeechMode(summaryOnly bool) map[string]any {
 	return map[string]any{"type": "speech_mode", "summary_only": summaryOnly}
 }

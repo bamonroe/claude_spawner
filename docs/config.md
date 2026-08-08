@@ -164,3 +164,10 @@ just a pointer to this file.)
   **`bounce`** recreates the container from the existing image (fast, no code change, no rebuild),
   and **`rebuild`** (the default, and the voice command) does a `--no-cache` recompile then recreate.
   Commands with no `%REBUILD%` token always rebuild. See `deploy/README.md`.
+- Rebuild progress: `SPAWNER_REBUILD_STATUS_FILE` — path **on the host** where
+  `deploy/rebuild-container.sh` appends `phase=started|finished|failed mode=<mode>` lines (default
+  `/tmp/spawner-rebuild.status`). Because the restart command is `setsid`-detached, its SSH call
+  returns long before the work is done; the server truncates this file, then polls it over the same
+  SSH pool and pushes each phase to every client as `restart_status` — that's how a `build` reports
+  completion and how the app learns a bounce is pending. Empty disables the reporting (the restart
+  itself still fires, silently).

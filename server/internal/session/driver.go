@@ -67,6 +67,13 @@ type Driver struct {
 	// relaunches the server for the app's "restart" button. Empty disables restart.
 	// See Driver.Restart.
 	RestartCmd string
+	// RebuildStatusFile is the path ON THE HOST where deploy/rebuild-container.sh
+	// records the rebuild's progress (`phase=…` lines). The restart command is
+	// setsid-detached, so the SSH call returns instantly and this file is the only
+	// way to learn when the build actually finished; Restart truncates it before
+	// launching and then polls it. Empty disables progress reporting (the restart
+	// still fires; the caller just never hears back).
+	RebuildStatusFile string
 
 	// digests is the durable transcript-digest cache used by DisplayDigest. Nil is
 	// fine — every digest is then recomputed from a full parse. Set via SetDigests.
@@ -308,6 +315,14 @@ func (d *Driver) ReconcileContainers(ctx context.Context, known map[string]bool)
 	return removed, nil
 }
 
+const (
+	// rebuildPollEvery is how often Restart's watcher re-reads the host status file.
+	rebuildPollEvery = 3 * time.Second
+	// rebuildWatchTimeout bounds that watch: a --no-cache image build takes minutes,
+	// so this is generous, but it stops the app's spinner from spinning forever.
+	rebuildWatchTimeout = 60 * time.Minute
+)
+
 // Restart fires the configured RestartCmd to rebuild and relaunch the server (the
 // app's "restart" button). When a host SSH pool is configured the command runs on
 // the host over that Go-native connection; otherwise it runs locally, detached in
@@ -324,7 +339,15 @@ func (d *Driver) ReconcileContainers(ctx context.Context, known map[string]bool)
 // deploy/rebuild-container.sh as its first arg (the script builds and/or recreates
 // accordingly). Commands without the token run unchanged — an older config always does
 // a full rebuild.
-func (d *Driver) Restart(ctx context.Context, mode string) error {
+//
+// onPhase reports the rebuild's progress to the caller: "started" as soon as the
+// command is away, then exactly one terminal "finished" or "failed" (with the
+// error text) once the detached host script reports back through
+// RebuildStatusFile. It must be non-nil and is called from another goroutine.
+func (d *Driver) Restart(ctx context.Context, mode string, onPhase func(phase, errText string)) error {
+	if onPhase == nil {
+		onPhase = func(string, string) {}
+	}
 	if d.RestartCmd == "" {
 		return fmt.Errorf("server restart is not configured (set SPAWNER_RESTART_CMD)")
 	}
@@ -345,12 +368,25 @@ func (d *Driver) Restart(ctx context.Context, mode string) error {
 	// was the only reason the container needed an /etc/passwd entry.
 	if pool := d.hostPool(); pool != nil {
 		log.Printf("restart: launching over ssh pool on %s: %q", LocalHost, cmdStr)
+		// Clear any status left by a previous rebuild BEFORE launching, so the watcher
+		// can't read a stale terminal phase and report this run finished instantly.
+		if d.RebuildStatusFile != "" {
+			if _, err := pool.Run(ctx, LocalHost, "rm -f "+shellQuote(d.RebuildStatusFile)); err != nil {
+				log.Printf("restart: clearing status file failed: %v", err)
+			}
+		}
+		onPhase("started", "")
 		go func() {
 			// Background ctx: the caller's ctx dies with the request, but the rebuild
 			// is already detached on the host — don't let a cancel signal the channel.
 			if _, err := pool.Run(context.Background(), LocalHost, cmdStr); err != nil {
 				log.Printf("restart command failed: %v", err)
+				onPhase("failed", err.Error())
+				return
 			}
+			// The command returned instantly (it setsid-detaches the real work), so
+			// poll the host status file for the actual outcome.
+			d.watchRebuild(pool, onPhase)
 		}()
 		return nil
 	}
@@ -363,12 +399,73 @@ func (d *Driver) Restart(ctx context.Context, mode string) error {
 		return err
 	}
 	log.Printf("restart: launched %q", cmdStr)
+	onPhase("started", "")
 	go func() {
 		if err := cmd.Wait(); err != nil {
 			log.Printf("restart command failed: %v", err)
+			onPhase("failed", err.Error())
+			return
 		}
+		onPhase("finished", "")
 	}()
 	return nil
+}
+
+// watchRebuild polls the host's rebuild status file until it reports a terminal
+// phase, then reports it. The file is written by deploy/rebuild-container.sh as
+// `phase=<started|finished|failed> mode=<m> [error=<text>]` lines (last line wins).
+// It gives up after rebuildWatchTimeout — a --no-cache image build is slow, but not
+// hours — reporting a failure so the app never hangs on a spinner forever.
+func (d *Driver) watchRebuild(pool *SSHPool, onPhase func(phase, errText string)) {
+	if d.RebuildStatusFile == "" {
+		return // no progress reporting configured; the restart itself still ran
+	}
+	read := "cat " + shellQuote(d.RebuildStatusFile) + " 2>/dev/null || true"
+	deadline := time.Now().Add(rebuildWatchTimeout)
+	for time.Now().Before(deadline) {
+		time.Sleep(rebuildPollEvery)
+		out, err := pool.Run(context.Background(), LocalHost, read)
+		if err != nil {
+			// The container is being recreated under us on bounce/rebuild — the SSH
+			// hop dying is expected there, not a build failure. Keep polling.
+			continue
+		}
+		phase, errText := lastRebuildPhase(string(out))
+		switch phase {
+		case "finished", "failed":
+			onPhase(phase, errText)
+			return
+		}
+	}
+	onPhase("failed", "timed out waiting for the rebuild to report back")
+}
+
+// lastRebuildPhase parses the final `phase=…` line of the status file, returning
+// the phase and the error text (only set on `failed`). Empty phase = nothing
+// conclusive yet.
+func lastRebuildPhase(s string) (phase, errText string) {
+	for _, line := range strings.Split(s, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "phase=") {
+			continue
+		}
+		phase, errText = "", ""
+		for _, field := range strings.Fields(line) {
+			k, v, ok := strings.Cut(field, "=")
+			if !ok {
+				continue
+			}
+			switch k {
+			case "phase":
+				phase = v
+			case "error":
+				// error=… is the rest of the line, spaces and all.
+				_, after, _ := strings.Cut(line, "error=")
+				errText = strings.TrimSpace(after)
+			}
+		}
+	}
+	return phase, errText
 }
 
 // hostPool returns the SSH connection pool used for host turns. In production the

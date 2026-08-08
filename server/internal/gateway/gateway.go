@@ -86,6 +86,9 @@ type Server struct {
 	acCfg          autoCompressCfg  // global auto-compress preference (set by the app over the wire)
 	acFired        map[string]int64 // session_id -> last turn `At` we auto-compressed, for dedup
 
+	restartMu      sync.Mutex
+	restartPending bool // a `build` finished: new image staged, container not yet bounced onto it
+
 	discoverMemo attachDiscovery // bounded, memoized on-disk session walk for attach resolution
 }
 

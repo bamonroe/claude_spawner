@@ -21,18 +21,6 @@ finish_work = "When a task is fully finished (built, tested, documented), run `s
 scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/KMP app + web client. The historical phase roadmap stays in README.md."
 
 [[task]]
-id = "server-broadcast-build-progress-finished-for-settings-launched-restarts"
-title = "Server: broadcast build progress/finished for settings-launched restarts"
-description = "Today doRestart (server/internal/gateway/ops_misc.go) fires driver.Restart and only broadcasts a 'say'; the host command is setsid-detached over the SSH pool, so nothing reports when a 'build' actually finishes. Add a new outbound message (e.g. restart_status: {mode, phase: started|finished|failed, error?}) broadcast to every client, and track completion of the detached rebuild (either keep the SSH channel open for the non-detached 'build' mode, or have deploy/rebuild-container.sh write a marker the server watches). Server holds the pending-bounce bit (image built, container not yet recreated) so a reconnecting app learns it from hello_ok. Update docs/protocol.md and android net/Protocol.kt in the same pass — internal/docsync drift-tests both."
-status = "active"
-level = "task"
-category = "feature"
-urgency = "normal"
-order = 20
-created = 2026-08-08
-tags = ["protocol", "server"]
-
-[[task]]
 id = "app-connection-dot-in-the-sessions-toolbar"
 title = "App: connection dot in the sessions toolbar"
 description = "Add a small green/red dot to the sessions toolbar (the header Row in Sidebar.kt ~line 104) reflecting WebSocket connectivity. The state already exists — 'connected' is contributed by HostsIdentitiesController and surfaced on AppController — so this is UI only: dot + content description, green when connected, red when not. Verify on the Dockerized emulator per the android-dev skill."

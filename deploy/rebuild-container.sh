@@ -41,6 +41,22 @@ export SPAWNER_UID="$(id -u)" SPAWNER_GID="$(id -g)"
 #             command). A full --no-cache compile.
 MODE="${1:-rebuild}"
 
+# Progress marker the SERVER polls (SPAWNER_REBUILD_STATUS_FILE, same default). This
+# script is setsid-detached, so the server's SSH call returns before any work happens
+# and this file is the only way it can learn how the rebuild actually went — it pushes
+# each phase to the apps as `restart_status`. Last line wins; the EXIT trap always
+# writes a terminal phase, so a crash still reports failure rather than hanging the
+# app's spinner.
+STATUS_FILE="${SPAWNER_REBUILD_STATUS_FILE:-/tmp/spawner-rebuild.status}"
+status() { printf 'phase=%s mode=%s%s\n' "$1" "$MODE" "${2:+ error=$2}" >>"$STATUS_FILE" 2>/dev/null || true; }
+on_exit() {
+  rc=$?
+  if [ "$rc" -eq 0 ]; then status finished; else status failed "exited $rc (see /tmp/spawner-rebuild.log)"; fi
+}
+trap on_exit EXIT
+: >"$STATUS_FILE" 2>/dev/null || true
+status started
+
 case "$MODE" in
   build)  DO_BUILD=1; DO_RECREATE=0 ;;
   bounce) DO_BUILD=0; DO_RECREATE=1 ;;
