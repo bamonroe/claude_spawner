@@ -14,6 +14,20 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "incremental-transcript-reads-for-opencode-codex-and-antigravity-backends"
+title = "Incremental transcript reads for opencode, codex and antigravity backends"
+description = """
+Only the claude reader parses incrementally (extendParse/readFrom, transcript.go:377-467, sends just appended bytes via tail -c +N). opencode, codex and antigravity re-read everything on any miss — an opencode miss re-runs 'opencode export <id>' over SSH per id in the chain (opencode_transcript.go:56-60). Additionally, one indescribable archived segment flips chainParts.ok false (driver.go:766), making that session's digest and display memo PERMANENTLY uncacheable — every sweep and refresh does the full read forever. Two fixes at the reader seam: give the remaining backends an incremental (or at least memoized-by-sig per-id) read path, and make segment describability per-segment rather than all-or-nothing so one odd segment doesn't uncache the whole session. Related: the history-serve scope item covers the in-memory assembly side.
+
+Do NOT rebuild/recreate the server for this work: land the commits and background an image build only (see CLAUDE.md)."""
+status = "finished"
+level = "task"
+category = "refactor"
+created = 2026-08-08
+completed = 2026-08-08
+tags = ["perf"]
+
+[[task]]
 id = "centralize-ssh-bindings-without-serializing-scale-the-per-host-channel-budget"
 title = "Centralize SSH bindings without serializing: scale the per-host channel budget"
 description = """
