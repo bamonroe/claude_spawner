@@ -212,3 +212,36 @@ func TestOpencodeChainSig(t *testing.T) {
 		t.Error("chainSig unchanged after a write landed in the -wal")
 	}
 }
+
+// TestOpencodeExportCache pins the memo's two hit conditions. It never lets a
+// real `opencode export` run: there is no such binary under test, so a miss is
+// observable as ok=false, which is exactly what makes a hit unambiguous.
+func TestOpencodeExportCache(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	opencodeExportMu.Lock()
+	opencodeExportCache = map[string]opencodeExportEntry{}
+	opencodeExportMu.Unlock()
+
+	var fs opencodeFS // remote nil = local, per the hermetic-test path
+	ctx := context.Background()
+	var seeded opencodeExport
+	if err := json.Unmarshal([]byte(`{"messages":[{"info":{"id":"msg_a","role":"user"},"parts":[{"type":"text","text":"hi"}]}]}`), &seeded); err != nil {
+		t.Fatal(err)
+	}
+	opencodeExportMu.Lock()
+	opencodeExportCache[fs.cacheKey("ses_a")] = opencodeExportEntry{sig: "old", ex: seeded}
+	opencodeExportMu.Unlock()
+
+	// An immutable (rotated-away) id hits however stale the store signature is.
+	if ex, ok := fs.exportCached(ctx, "ses_a", "new", true, true); !ok || len(ex.Messages) != 1 {
+		t.Errorf("immutable id missed the memo: ok %v, %d messages", ok, len(ex.Messages))
+	}
+	// The live id hits only while the store signature still matches.
+	if ex, ok := fs.exportCached(ctx, "ses_a", "old", true, false); !ok || len(ex.Messages) != 1 {
+		t.Errorf("live id with a matching signature missed the memo: ok %v, %d messages", ok, len(ex.Messages))
+	}
+	if _, ok := fs.exportCached(ctx, "ses_a", "new", true, false); ok {
+		t.Error("live id served a memo entry exported under a stale store signature")
+	}
+}

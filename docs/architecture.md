@@ -337,8 +337,20 @@ seam rather than at the call sites:
   *resumable* (`claudeParse`): messages so far, the byte offset they cover, and the still-open
   dictation's turn rollup. A later read re-reads only the new bytes — plus a small overlap of the
   already-parsed region, compared byte-for-byte, so "append-only" is **verified**, not assumed; a
-  rewritten or truncated file falls back to a full re-parse. The older all-or-nothing (size, mtime)
-  cache remains for the context snapshot and the other backends' readers.
+  rewritten or truncated file falls back to a full re-parse. All of that — statting, choosing between
+  an exact hit, an extension and a re-parse, the overlap proof, the cache — is generic and lives once
+  in `readIncremental`; a backend supplies only an `incParse` (how one line folds into state, how that
+  state renders to messages). **Codex** rollouts are the same shape and go through the same seam
+  (`codexParse`), carrying the mid-scan `lastClaude` across appends because Codex writes a turn's
+  `token_count` and durable `msg_…` id on lines *after* the message they badge. The older
+  all-or-nothing (size, mtime) cache remains for the context snapshot.
+- **Backends without a per-session file memoize the whole read instead.** *opencode* keeps sessions in
+  one SQLite store and history comes from an `opencode export <id>` subprocess, so there is nothing to
+  stat per session and nothing to extend: exports are memoized per id, keyed on the store's signature
+  (`storeSig`). Crucially, every id in a chain but the last has been rotated away and can never gain
+  messages, so those hits stand however much the store moves — an unrelated session's turn re-exports
+  the live id only, not the whole chain. *Antigravity* needs neither: one brain is one turn, and an
+  archived brain's transcript never changes, so the stat-keyed parse cache already never misses on it.
 - **Resolve a session id to its path once.** The project-dir encoding follows the working directory,
   so a transcript's path is fixed for its lifetime; the remote lookup is memoized per host, and the
   entry is dropped whenever a resolved path stops working, so a move or delete self-heals.

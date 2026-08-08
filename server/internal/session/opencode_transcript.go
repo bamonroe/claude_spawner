@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path"
 	"strings"
+	"sync"
 )
 
 // opencodeFS reads an opencode session's past conversation so it replays on
@@ -133,6 +134,62 @@ func (fs opencodeFS) export(ctx context.Context, id string) (opencodeExport, boo
 	return ex, true
 }
 
+// opencodeExportCache memoizes `opencode export <id>` output per session id
+// (namespaced by host). The file-based backends get this for free — an unchanged
+// file's parse is cached on its stat — but opencode has no per-session file to
+// stat, so without a memo every chain read re-ran one export subprocess PER ID on
+// the host, over SSH, even when the chain hadn't moved.
+//
+// Each entry records the store signature it was exported under. A hit needs
+// either a matching signature or an immutable id (see exportCached).
+type opencodeExportEntry struct {
+	sig string // fs.storeSig at export time; "" when the store couldn't be signed
+	ex  opencodeExport
+}
+
+// opencodeExportCacheCap bounds the memo: ids rotate on clear/compress, so retired
+// ones would otherwise accumulate for the process's life. Far above any real
+// working set, and dropped wholesale rather than by an LRU we'd have to maintain.
+const opencodeExportCacheCap = 256
+
+var (
+	opencodeExportMu    sync.Mutex
+	opencodeExportCache = map[string]opencodeExportEntry{}
+)
+
+// exportCached is export behind the memo. sig/sigOK are the store signature for
+// this whole read, taken ONCE by the caller so a chain of N ids costs one stat
+// rather than N.
+//
+// immutable says the id can no longer gain messages — it is a rotated-away id, not
+// the chain's live one — and is what makes this pay off across turns: a stale
+// store signature (any opencode session anywhere writing) invalidates the live id
+// only, while the archived prefix of the chain, which is most of it, stays cached.
+func (fs opencodeFS) exportCached(ctx context.Context, id, sig string, sigOK, immutable bool) (opencodeExport, bool) {
+	key := fs.cacheKey(id)
+	opencodeExportMu.Lock()
+	e, hit := opencodeExportCache[key]
+	opencodeExportMu.Unlock()
+	if hit && (immutable || (sigOK && e.sig == sig)) {
+		return e.ex, true
+	}
+	ex, ok := fs.export(ctx, id)
+	if !ok {
+		return ex, false
+	}
+	stored := ""
+	if sigOK {
+		stored = sig
+	}
+	opencodeExportMu.Lock()
+	if len(opencodeExportCache) >= opencodeExportCacheCap {
+		opencodeExportCache = map[string]opencodeExportEntry{}
+	}
+	opencodeExportCache[key] = opencodeExportEntry{sig: stored, ex: ex}
+	opencodeExportMu.Unlock()
+	return ex, true
+}
+
 // exportMessages maps one exported session onto ordered conversation Messages.
 // Each message's text parts join into its prose (synthetic/ignored skipped);
 // tool-only / empty messages are dropped from the replay. A "claude" (assistant)
@@ -211,9 +268,12 @@ func exportContext(ex opencodeExport) *ContextSnapshot {
 // readTranscriptChain concatenates the exported conversations for ids (oldest
 // first) into one re-indexed history.
 func (fs opencodeFS) readTranscriptChain(ctx context.Context, ids []string) ([]Message, error) {
+	sig, sigOK := fs.storeSig(ctx) // once for the whole chain, not once per id
 	var all []Message
-	for _, id := range ids {
-		ex, ok := fs.export(ctx, id)
+	for i, id := range ids {
+		// Every id but the last has been rotated away and can no longer grow, so its
+		// export stays valid however much the store moves underneath it.
+		ex, ok := fs.exportCached(ctx, id, sig, sigOK, i < len(ids)-1)
 		if !ok {
 			continue
 		}
@@ -228,8 +288,9 @@ func (fs opencodeFS) readTranscriptChain(ctx context.Context, ids []string) ([]M
 // lastContextUsage returns the newest session's context snapshot, scanning ids
 // newest-first; nil if no id has a usage-bearing step yet.
 func (fs opencodeFS) lastContextUsage(ctx context.Context, ids []string) *ContextSnapshot {
+	sig, sigOK := fs.storeSig(ctx)
 	for i := len(ids) - 1; i >= 0; i-- {
-		ex, ok := fs.export(ctx, ids[i])
+		ex, ok := fs.exportCached(ctx, ids[i], sig, sigOK, i < len(ids)-1)
 		if !ok {
 			continue
 		}
@@ -291,6 +352,18 @@ var opencodeStorePaths = []string{
 // unreadable host), so the caller falls back to recomputing instead of trusting a
 // signature that describes nothing.
 func (fs opencodeFS) chainSig(ctx context.Context, ids []string) (string, bool) {
+	sig, ok := fs.storeSig(ctx)
+	if !ok {
+		return "", false
+	}
+	return fmt.Sprintf("%sids:%s", sig, strings.Join(ids, ",")), true
+}
+
+// storeSig is the id-independent half of chainSig: the signature of the opencode
+// store itself. Split out because the export memo keys on it too — it is the one
+// cheap "has any opencode session changed?" signal, and both callers should pay
+// for it once per read rather than once per id.
+func (fs opencodeFS) storeSig(ctx context.Context) (string, bool) {
 	home, ok := fs.home(ctx)
 	if !ok {
 		return "", false
@@ -308,7 +381,6 @@ func (fs opencodeFS) chainSig(ctx context.Context, ids []string) (string, bool) 
 	if !any {
 		return "", false
 	}
-	fmt.Fprintf(&b, "ids:%s", strings.Join(ids, ","))
 	return b.String(), true
 }
 
