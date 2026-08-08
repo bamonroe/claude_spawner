@@ -21,6 +21,13 @@ const (
 	// sshKeepaliveInterval is how often the pool pings a cached connection so a dead
 	// link is detected (and dropped, forcing the next turn to re-dial) promptly.
 	sshKeepaliveInterval = 30 * time.Second
+	// sshDialBackoffMin/Max bound the pool's negative dial cache: after a failed
+	// dial, further attempts to that host fail fast for this long instead of paying
+	// sshDialTimeout each. The window doubles on each consecutive failure up to Max
+	// and resets on the first success. An unreachable host costs microseconds, not
+	// minutes, for every caller (digest sweep, chainSig, context usage, turns).
+	sshDialBackoffMin = 30 * time.Second
+	sshDialBackoffMax = 5 * time.Minute
 )
 
 // SSHConfig describes how to reach remote hosts for SSH-native execution. One

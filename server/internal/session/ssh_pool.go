@@ -53,10 +53,48 @@ type poolEntry struct {
 	// not the client: a re-dial replaces the connection but the budget (and any
 	// slots still held by unwinding operations) carries across.
 	chans channelBudget
+	// Negative dial cache, guarded by mu. A host that fails to dial is marked down
+	// until downUntil; every caller in that window gets downErr immediately rather
+	// than serializing behind another full dial timeout. backoff doubles per
+	// consecutive failure (sshDialBackoffMin..Max) and all three reset on success.
+	downErr   error
+	downUntil time.Time
+	backoff   time.Duration
 }
 
 // budget returns this host's channel allowance.
 func (e *poolEntry) budget() *channelBudget { return &e.chans }
+
+// down reports whether the host is inside its negative-cache window, and the
+// error to fail fast with. Caller must hold e.mu.
+func (e *poolEntry) down(now time.Time) (error, bool) {
+	if e.downErr == nil || !now.Before(e.downUntil) {
+		return nil, false
+	}
+	return e.downErr, true
+}
+
+// markDown records a failed dial, widens the backoff window, and returns the
+// error every caller in that window will see — it names the host and when the
+// pool will try again, so a stalled sweep is attributable instead of silent.
+// Caller holds e.mu.
+func (e *poolEntry) markDown(now time.Time, host string, cause error) error {
+	if e.backoff <= 0 {
+		e.backoff = sshDialBackoffMin
+	} else {
+		e.backoff = min(e.backoff*2, sshDialBackoffMax)
+	}
+	e.downUntil = now.Add(e.backoff)
+	e.downErr = fmt.Errorf("host %q unreachable, not retrying for %s: %w", host, e.backoff, cause)
+	return e.downErr
+}
+
+// markUp clears the negative cache after a successful dial. Caller holds e.mu.
+func (e *poolEntry) markUp() {
+	e.downErr = nil
+	e.downUntil = time.Time{}
+	e.backoff = 0
+}
 
 // NewSSHPool validates the global config (building the shared known_hosts
 // verification) and returns a ready, empty pool. Per-host auth/user is built at
@@ -154,6 +192,11 @@ func (p *SSHPool) client(name string) (*ssh.Client, error) {
 	if e.client != nil {
 		return e.client, nil
 	}
+	// Fail fast while the host is known down: re-dialing an unreachable machine
+	// costs a full sshDialTimeout per caller, serialized on this very lock.
+	if err, ok := e.down(time.Now()); ok {
+		return nil, err
+	}
 	address, user, keyFile, password, port := p.resolve(name)
 	ccfg, err := p.clientConfig(user, keyFile, password)
 	if err != nil {
@@ -162,8 +205,9 @@ func (p *SSHPool) client(name string) (*ssh.Client, error) {
 	addr := net.JoinHostPort(address, portStr(port))
 	c, err := p.dial(addr, ccfg)
 	if err != nil {
-		return nil, fmt.Errorf("ssh dial %s: %w", addr, err)
+		return nil, e.markDown(time.Now(), name, fmt.Errorf("ssh dial %s: %w", addr, err))
 	}
+	e.markUp()
 	e.client = c
 	go p.keepalive(name, c)
 	return c, nil

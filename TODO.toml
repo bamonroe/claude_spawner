@@ -21,18 +21,6 @@ finish_work = "When a task is fully finished (built, tested, documented), run `s
 scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/KMP app + web client. The historical phase roadmap stays in README.md."
 
 [[task]]
-id = "ssh-pool-negative-dial-cache-for-unreachable-hosts"
-title = "SSH pool: negative dial cache for unreachable hosts"
-description = "Host 'mom' (100.64.0.13) is currently unreachable, and every SSH operation to it pays a fresh 15s dial timeout (sshDialTimeout, server/internal/session/ssh_config.go:20), serialized on the per-host entry lock (ssh_pool.go:49). There is no negative caching: client() (ssh_pool.go:148) re-dials on every call after a failure. Live evidence: every digest sweep in the last 24h took 90-160s (docker logs 'digest sweep: 14 session(s) ... in 1m39s'), and three stacked sweeps completed exactly 15s apart — the dial-timeout signature. Fix at the pool seam (the unifying interface): after a failed dial, record the failure in the poolEntry and fail fast for a backoff window (e.g. 30-60s with exponential backoff, reset on success), so every caller — digest sweep, chainSig, context usage, turns — degrades to milliseconds against a dead host instead of minutes. Expose the host-down state so callers/logs can name the host instead of silently timing out."
-status = "active"
-level = "task"
-category = "bug"
-urgency = "high"
-order = 10
-created = 2026-08-08
-tags = ["perf", "lag"]
-
-[[task]]
 id = "don-t-block-the-end-of-turn-output-frame-on-sessioncontextusage"
 title = "Don't block the end-of-turn output frame on SessionContextUsage"
 description = "gateway/turns.go:167 (and bgnotify.go:179) call driver.SessionContextUsage(sess) BEFORE j.finish(msgOutput(...)) sends the reply. This is a guaranteed cache miss by construction — the turn just appended to the transcript so the chain sig changed — and the miss costs serial SSH stat execs per transcript id plus a tail -c read of up to 32MB (transcript.go:536-544), all in the critical path of every reply the user is waiting to hear. Ship the output frame immediately using the turn's own usage for the badge, then compute the true context usage async and push a follow-up usage frame (the protocol already has per-session usage updates). This is the most direct cause of 'lag between turns'."

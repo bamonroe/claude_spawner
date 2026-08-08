@@ -443,6 +443,13 @@ field, **`Session.Host`** — orthogonal to the host/sandbox target. The **app o
 registry** (Settings → Hosts, persisted server-side as `hosts.json`); `Session.Host` names an entry
 there, or a bare hostname the pool dials literally with the `SPAWNER_SSH_*` defaults.
 
+Dialing is guarded by a **negative dial cache** in the pool. A failed dial marks that host's pool
+entry down for a backoff window (30 s, doubling per consecutive failure to a 5-minute cap, reset on
+the first success); every caller inside the window gets an immediate error naming the host and the
+retry window instead of paying another full dial timeout — serialized, at that, on the host's entry
+lock. This is what keeps one unreachable machine from turning a digest sweep, a chainSig batch, or a
+context-usage read into minutes of stall: a dead host costs microseconds per call, not 15 s.
+
 `Session.Host` is **always an explicit name** — there is no implicit "empty means localhost"
 default. The loopback machine is the host name **`localhost`** (`session.LocalHost`), handled
 exactly like any other SSH host (dialed over loopback SSH with the config defaults). It is **not a

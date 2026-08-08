@@ -1,7 +1,15 @@
 package session
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/pem"
+	"errors"
 	"net"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -81,4 +89,112 @@ func TestEntryIsPerNameAndStable(t *testing.T) {
 	if p.entry("beta") == a1 {
 		t.Fatal("distinct names must get distinct slots")
 	}
+}
+
+// After a failed dial the pool must not re-dial that host for a backoff window:
+// every caller (digest sweep, chainSig, context usage, a turn) would otherwise pay
+// a fresh sshDialTimeout, serialized on the host's entry lock — the signature of
+// 90-160s digest sweeps against one offline machine.
+func TestFailedDialIsNegativeCachedAndFailsFast(t *testing.T) {
+	// A port with nothing listening: the dial fails, which is all the negative
+	// cache needs. Counting connection attempts proves the second call never dialed.
+	closed, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	host, portText, _ := net.SplitHostPort(closed.Addr().String())
+	port, _ := strconv.Atoi(portText)
+	closed.Close()
+
+	pool := &SSHPool{
+		cfg:     SSHConfig{User: "nobody", Port: port, Timeout: time.Second, KeyFile: testKeyFile(t)},
+		entries: map[string]*poolEntry{},
+		hostKey: func(string, net.Addr, ssh.PublicKey) error { return nil },
+	}
+
+	first, err := pool.client(host)
+	if err == nil {
+		t.Fatal("expected the first dial to an unreachable host to fail")
+	}
+	_ = first
+	e := pool.entry(host)
+	if e.downErr == nil {
+		t.Fatal("a failed dial must mark the host down in the negative cache")
+	}
+	cached := e.downErr
+
+	_, err2 := pool.client(host)
+	if err2 == nil {
+		t.Fatal("expected the cached failure to be returned")
+	}
+	// The very same error value: a re-dial would have produced a fresh one.
+	if err2 != cached {
+		t.Fatalf("second call re-dialed instead of serving the negative cache: %v", err2)
+	}
+	if !strings.Contains(err2.Error(), host) {
+		t.Fatalf("the fail-fast error must name the host, got: %v", err2)
+	}
+	if e.backoff != sshDialBackoffMin {
+		t.Fatalf("backoff = %s after one failure, want %s (the second call must not widen it)", e.backoff, sshDialBackoffMin)
+	}
+}
+
+// The backoff window doubles per consecutive failure up to the cap, expires so a
+// recovered host is retried, and resets on a success.
+func TestNegativeDialCacheBackoffLifecycle(t *testing.T) {
+	e := &poolEntry{}
+	now := time.Now()
+
+	if _, down := e.down(now); down {
+		t.Fatal("a fresh entry must not be marked down")
+	}
+	e.markDown(now, "mom", errors.New("boom"))
+	if e.backoff != sshDialBackoffMin {
+		t.Fatalf("first failure backoff = %s, want %s", e.backoff, sshDialBackoffMin)
+	}
+	if _, down := e.down(now); !down {
+		t.Fatal("entry must be down inside its window")
+	}
+	// The window expires, so a host that came back is retried.
+	if _, down := e.down(now.Add(sshDialBackoffMin + time.Second)); down {
+		t.Fatal("entry must be retried once the backoff window expires")
+	}
+
+	e.markDown(now, "mom", errors.New("boom"))
+	if e.backoff != 2*sshDialBackoffMin {
+		t.Fatalf("second failure backoff = %s, want %s", e.backoff, 2*sshDialBackoffMin)
+	}
+	for range 10 {
+		e.markDown(now, "mom", errors.New("boom"))
+	}
+	if e.backoff != sshDialBackoffMax {
+		t.Fatalf("backoff = %s, want it capped at %s", e.backoff, sshDialBackoffMax)
+	}
+
+	e.markUp()
+	if _, down := e.down(now); down {
+		t.Fatal("a successful dial must clear the negative cache")
+	}
+	if e.backoff != 0 {
+		t.Fatalf("backoff = %s after success, want 0", e.backoff)
+	}
+}
+
+// testKeyFile writes a throwaway ed25519 private key so the pool has a usable
+// auth method and reaches the dial (rather than failing config-side first).
+func testKeyFile(t *testing.T) string {
+	t.Helper()
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, err := ssh.MarshalPrivateKey(priv, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "id_ed25519")
+	if err := os.WriteFile(path, pem.EncodeToMemory(block), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }

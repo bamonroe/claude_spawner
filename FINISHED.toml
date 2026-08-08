@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "ssh-pool-negative-dial-cache-for-unreachable-hosts"
+title = "SSH pool: negative dial cache for unreachable hosts"
+description = "Host 'mom' (100.64.0.13) is currently unreachable, and every SSH operation to it pays a fresh 15s dial timeout (sshDialTimeout, server/internal/session/ssh_config.go:20), serialized on the per-host entry lock (ssh_pool.go:49). There is no negative caching: client() (ssh_pool.go:148) re-dials on every call after a failure. Live evidence: every digest sweep in the last 24h took 90-160s (docker logs 'digest sweep: 14 session(s) ... in 1m39s'), and three stacked sweeps completed exactly 15s apart — the dial-timeout signature. Fix at the pool seam (the unifying interface): after a failed dial, record the failure in the poolEntry and fail fast for a backoff window (e.g. 30-60s with exponential backoff, reset on success), so every caller — digest sweep, chainSig, context usage, turns — degrades to milliseconds against a dead host instead of minutes. Expose the host-down state so callers/logs can name the host instead of silently timing out."
+status = "finished"
+level = "task"
+category = "bug"
+created = 2026-08-08
+completed = 2026-08-08
+tags = ["perf", "lag"]
+
+[[task]]
 id = "app-rebuild-spinner-and-restart-pending-indicator-in-the-sessions-toolbar"
 title = "App: rebuild spinner and restart-pending indicator in the sessions toolbar"
 description = "Consume the new restart_status message (see server-broadcast-build-progress-finished-for-settings-launched-restarts) in InboundRouter.kt, hold the state on AppController, and render in the sessions toolbar: a rotating spinner while a settings-launched build is underway, and a distinct 'restart pending' icon once the build finished but the container hasn't been bounced. Clear the pending bit when a bounce/rebuild completes; rehydrate it from hello_ok after a reconnect. Only builds launched from the settings server tab are tracked. Document in README.md."
