@@ -324,6 +324,15 @@ seam rather than at the call sites:
   the case that always missed; a session whose transcripts haven't moved since the snapshot was taken
   now answers from a stat. Callers holding a `*Session` go through `Driver.SessionContextUsage`;
   `LastContextUsage` (raw, uncached) remains for the id-only callers.
+- **The durable caches never write on the caller's thread.** `DigestCache` and `UsageCache` share one
+  mechanism (`jsonStore`): a `Put` only edits the in-memory map and bumps a version, and a single
+  background writer coalesces versions into at most one whole-file, atomically-renamed write per
+  debounce window. That matters because a `Put` used to marshal the entire map and do a
+  CreateTemp+write+rename *under the mutex* — the 8-way digest sweep serialized behind N whole-file
+  rewrites, and every turn end paid one. Since exactly one goroutine writes the file, snapshots land
+  in version order, so the lost-update bug that forced the old under-the-lock write can't recur.
+  Losing the last few milliseconds of entries to a crash is fine: both caches are accelerators whose
+  entries recompute. `Sync()` (tests only) blocks until what's been recorded is on disk.
 - **Parse only what was appended.** These transcripts are append-only, so the message parse is
   *resumable* (`claudeParse`): messages so far, the byte offset they cover, and the still-open
   dictation's turn rollup. A later read re-reads only the new bytes — plus a small overlap of the
