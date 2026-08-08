@@ -46,6 +46,23 @@ import kotlinx.coroutines.withContext
 // are stale (the conversation was wiped/summarized), and merging a small fresh page
 // over rows carrying the old indexes would leave duplicates — so we discard wholesale
 // and refetch instead.
+// remapSessionCache re-keys every cached/paged trace of a session id (in-memory maps,
+// bridge bookkeeping, and the on-disk file) from oldId to newId, keeping the rows. Used
+// for a `clear` rotation, which the server marks `preserved`: the clear only appends the
+// retired id to the session's chain, so the rendered log — and the row indexes the paging
+// cursors point at — are byte-identical. Keeping them is what makes a clear feel instant:
+// no blank chat, and the follow-up history call answers `unchanged` instead of shipping
+// every message body back.
+internal fun VoiceController.remapSessionCache(oldId: String, newId: String) {
+    router.logs.remove(oldId)?.let { router.logs[newId] = it }
+    router.oldest.remove(oldId)?.let { router.oldest[newId] = it }
+    router.hasMore.remove(oldId)?.let { router.hasMore[newId] = it }
+    loadingOlder.remove(oldId)
+    bridgeTo.remove(oldId) // no gap left to bridge on a retired id
+    if (loadedFromCache.remove(oldId)) loadedFromCache.add(newId)
+    cache.rename(oldId, newId)
+}
+
 internal fun VoiceController.dropSessionCache(id: String) {
     router.logs.remove(id)
     router.oldest.remove(id)
@@ -302,21 +319,25 @@ internal fun VoiceController.onContextReset(msg: ServerMsg.ContextReset) {
     // by-name bridge (the reset then only helps the attached device, as before).
     val oldId = msg.oldId.ifEmpty { if (_attachedName.value == msg.name) _attachedId.value else "" }
     if (oldId.isEmpty() || oldId == msg.sessionId) return
-    session.remapId(oldId, msg.sessionId) // swap/palette history + held digest
+    session.remapId(oldId, msg.sessionId, msg.preserved) // swap/palette history + held digest
     // Re-key the sidebar row in place so the list stays correct until the server's
     // refreshed discovered push (sent with the broadcast) lands.
     _discovered.value = _discovered.value.map {
         if (it.sessionId == oldId) it.copy(sessionId = msg.sessionId) else it
     }
     val wasViewing = router.currentId == oldId
-    dropSessionCache(oldId) // retired id's transcript wiped/summarized: forget rows + digests
+    // A `clear` preserves the rendered log byte-identical (it only appends the retired
+    // id to the session's chain), so re-key the cached rows onto the new id and keep
+    // showing them; only a `compress`, which rewrote the context, is worth blanking.
+    if (msg.preserved) remapSessionCache(oldId, msg.sessionId)
+    else dropSessionCache(oldId) // transcript summarized: forget rows + digests
     if (_attachedId.value == oldId) {
         _attachedId.value = msg.sessionId
         settings.lastSessionId = msg.sessionId
     }
     if (wasViewing) {
         showLog(msg.sessionId) // switch the view to the fresh id
-        session.requestFreshHistory(msg.sessionId, msg.name)
+        session.requestFreshHistory(msg.sessionId, msg.name) // rides have_hash → `unchanged` after a clear
     }
 }
 

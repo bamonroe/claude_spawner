@@ -377,8 +377,15 @@ func msgDetached() map[string]any {
 // that is NOT viewing this session (the frame is broadcast to every connection)
 // can remap whatever it keyed by the old id — its sidebar row, held digests,
 // cached history — instead of keeping a handle no session owns.
-func msgContextReset(name, oldID, sessionID string) map[string]any {
-	return map[string]any{"type": "context_reset", "name": name, "old_id": oldID, "session_id": sessionID}
+// `preserved` says whether the DISPLAY log survived the rotation byte-identical.
+// A `clear` only appends the retired id to the session's PriorIDs chain — nothing
+// on disk changes, so the rendered transcript is exactly what the device already
+// holds: it re-keys its cached rows/cursors/digest old_id→new id and keeps
+// rendering, with no blank chat and no full refetch. A `compress` runs a
+// summarize turn against the old id first (the transcript grows) and seeds a new
+// context, so it is NOT preserved and the device drops and refetches as before.
+func msgContextReset(name, oldID, sessionID string, preserved bool) map[string]any {
+	return map[string]any{"type": "context_reset", "name": name, "old_id": oldID, "session_id": sessionID, "preserved": preserved}
 }
 
 // msgRenamed tells the app that the currently-attached session was renamed

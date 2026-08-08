@@ -222,17 +222,26 @@ class SessionSync(private val host: Host) {
      * A context rotation (clear/compress) retired [oldId] for [newId] — broadcast to every
      * device, not just the one attached. Re-key the attach history in place so the swap
      * gesture and the radial palette keep pointing at the (same, live) session instead of a
-     * handle no session owns, and drop the old id's digest/freshness state: its transcript
-     * was wiped or summarized, so the next fetch re-establishes both under the new id.
+     * handle no session owns. When [preserved] (a `clear`: the retired id is only
+     * appended to the chain, nothing on disk changed) the held/server digests move to
+     * the new id so the follow-up refresh can answer `unchanged`; otherwise (a
+     * `compress`, which rewrote the context) they are dropped and re-established.
      */
-    fun remapId(oldId: String, newId: String) {
+    fun remapId(oldId: String, newId: String, preserved: Boolean = false) {
         if (oldId.isBlank() || newId.isBlank() || oldId == newId) return
         val next = history().map { if (it == oldId) newId else it }.distinct()
         if (next != attachHistory) {
             attachHistory = next
             host.saveAttachHistory(next)
         }
-        drop(oldId)
+        if (!preserved) { drop(oldId); return }
+        // A clear preserves the display log byte-identical, so the digest we hold for
+        // the old id still describes the new id's chain: carry it over instead of
+        // dropping it. The background refresh then rides the same `have_hash` and the
+        // server answers `unchanged` — no bodies, no blank chat.
+        digestHeld.remove(oldId)?.let { digestHeld[newId] = it }
+        serverDigest.remove(oldId)?.let { serverDigest[newId] = it }
+        if (freshPending == oldId) freshPending = null
     }
 
     /**

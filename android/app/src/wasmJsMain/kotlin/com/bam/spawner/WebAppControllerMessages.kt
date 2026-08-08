@@ -122,18 +122,22 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
             // session_id → meter reset only.
             val oldId = msg.oldId.ifEmpty { if (_attachedName.value == msg.name) _attachedId.value else "" }
             if (msg.sessionId.isNotEmpty() && oldId.isNotEmpty() && oldId != msg.sessionId) {
-                session.remapId(oldId, msg.sessionId) // swap/palette history + held digest
+                session.remapId(oldId, msg.sessionId, msg.preserved) // swap/palette history + held digest
                 val wasViewing = router.currentId == oldId
                 if (_attachedId.value == oldId) {
                     _attachedId.value = msg.sessionId
                     prefs.lastSessionId = msg.sessionId
                 }
                 if (wasViewing) router.currentId = msg.sessionId
-                router.dropSessionCache(oldId) // retired id's transcript wiped/summarized: forget rows + digests
+                // `preserved` (a clear) leaves the rendered log byte-identical — the
+                // retired id is only appended to the chain — so re-key the cached rows
+                // and keep rendering; a compress rewrote the context, so drop them.
+                if (msg.preserved) router.remapSessionCache(oldId, msg.sessionId)
+                else router.dropSessionCache(oldId) // transcript summarized: forget rows + digests
                 bridgeTo.remove(oldId) // no gap left to bridge on a retired id
                 if (wasViewing) {
-                    router.publish() // reflect the fresh (empty) new-id view
-                    session.requestFreshHistory(msg.sessionId, msg.name)
+                    router.publish() // keep showing the (re-keyed) log; empty after a compress
+                    session.requestFreshHistory(msg.sessionId, msg.name) // have_hash → `unchanged` after a clear
                 }
             }
         }

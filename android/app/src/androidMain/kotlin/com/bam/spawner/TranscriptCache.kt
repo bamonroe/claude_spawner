@@ -120,6 +120,25 @@ class TranscriptCache(private val dir: File, private val scope: CoroutineScope) 
         flush()
     }
 
+    /**
+     * Re-key a cached transcript from [old] to [new] — a `clear` rotation, whose
+     * rendered log is byte-identical (the retired id is only appended to the chain).
+     * Moves the memory + pending-write entries and renames the file, so the cached
+     * chat survives the rotation instead of being deleted and refetched.
+     */
+    fun rename(old: String, new: String) {
+        if (old == new) return
+        mem.remove(old)?.let { mem[new] = it }
+        dirty.remove(old)?.let { dirty[new] = it }
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                val from = fileFor(old)
+                val to = fileFor(new)
+                if (from.exists()) { to.delete(); if (!from.renameTo(to)) from.delete() }
+            }
+        }
+    }
+
     fun remove(name: String) {
         mem.remove(name)
         dirty.remove(name)

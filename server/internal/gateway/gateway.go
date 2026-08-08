@@ -424,14 +424,14 @@ func (s *Server) broadcastRenamed(rec *session.Session, old, newName string) {
 // a refreshed discovered list (served from the memoized walk, off this
 // goroutine) so its sidebar row re-keys immediately rather than on its next
 // manual refresh.
-func (s *Server) broadcastContextReset(name, oldID, newID string) {
+func (s *Server) broadcastContextReset(name, oldID, newID string, preserved bool) {
 	s.connsMu.Lock()
 	cs := make([]*conn, 0, len(s.conns))
 	for c := range s.conns {
 		cs = append(cs, c)
 	}
 	s.connsMu.Unlock()
-	msg := msgContextReset(name, oldID, newID)
+	msg := msgContextReset(name, oldID, newID, preserved)
 	for _, c := range cs {
 		c.send(msg)
 		c.doDiscover()

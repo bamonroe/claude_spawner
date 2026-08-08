@@ -423,7 +423,9 @@ func (c *conn) doClear() {
 	// device re-keys and refreshes this session's rows off it — no `attached`
 	// re-emit. Broadcast, not just this connection: a device switched away from
 	// the session would otherwise keep the retired id.
-	c.srv.broadcastContextReset(snap.Name, oldID, newID)
+	// preserved=true: a clear only appends the retired id to PriorIDs, so the
+	// rendered log is byte-identical — devices re-key and keep showing it.
+	c.srv.broadcastContextReset(snap.Name, oldID, newID, true)
 	c.send(msgSay("cleared. starting fresh — your history is still here."))
 }
 

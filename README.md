@@ -365,9 +365,10 @@ big chunks of a conversation even with no connection — and switching between s
 what you've already seen. Every time the app connects it asks the server for a lightweight **digest** of
 each session (a message count plus a content hash — no message bodies), and compares it against the cached
 copy. If the hash still matches, clicking into that session shows the cache and **transfers nothing**. If
-the hash changed, only that session is refetched (and if it merely grew, just the new tail). A `clear`/
-`compress` rewrites the transcript, which changes the hash — the app notices and pulls a fresh copy rather
-than stitching a stale one. The cache lives under the app's private storage and survives restarts; the
+the hash changed, only that session is refetched (and if it merely grew, just the new tail). A `compress`
+rewrites the transcript, which changes the hash — the app notices and pulls a fresh copy rather
+than stitching a stale one. (A `clear` doesn't: it leaves the rendered log byte-identical, so the
+app keeps its cache and the freshness check comes back `unchanged`.) The cache lives under the app's private storage and survives restarts; the
 hash is opaque to the app, so this stays correct without the phone and server having to agree on how it's
 computed.
 
@@ -407,7 +408,10 @@ each turn — which makes a long session progressively more expensive.
 - **"hey buddy, clear the context"** rotates to a fresh `session_id`: the next turn starts Claude
   with empty context (no re-read, no re-billing). Nothing is deleted — the old transcript stays on
   disk and still scrolls back in the app; Claude just stops seeing it. Use it when starting
-  unrelated work in the same directory.
+  unrelated work in the same directory. It is **instant on screen**: a clear changes nothing on
+  disk (it only retires the old id onto the session's chain), so the server marks the rotation
+  "preserved" and the app re-keys the chat it already has onto the new id instead of blanking it
+  and re-downloading the conversation.
 - **"hey buddy, compress the context"** is the `/compact` analogue: the server has Claude summarize
   the conversation, rotates to a fresh `session_id`, and prepends that summary to your next
   dictation — so Claude keeps a compact recap instead of the full transcript. Costs one model turn.

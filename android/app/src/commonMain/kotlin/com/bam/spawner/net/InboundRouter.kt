@@ -183,6 +183,20 @@ class InboundRouter(
      * clear/compress retires a session_id server-side: the old rows carry stale indexes and
      * merging a fresh page over them would duplicate, so discard wholesale and refetch.
      */
+    /**
+     * Re-key a session id's transcript state [oldId]→[newId] instead of forgetting it.
+     * Used for a `clear` rotation, which the server marks `preserved`: it only appends
+     * the retired id to the chain, so the rendered rows (and their stable indexes) are
+     * byte-identical — keeping them means the chat never blanks and the follow-up
+     * history call answers `unchanged`.
+     */
+    fun remapSessionCache(oldId: String, newId: String) {
+        logs.remove(oldId)?.let { logs[newId] = it }
+        hasMore.remove(oldId)?.let { hasMore[newId] = it }
+        oldest.remove(oldId)?.let { oldest[newId] = it }
+        if (oldId == currentId || newId == currentId) publish()
+    }
+
     fun dropSessionCache(id: String) {
         logs.remove(id)
         hasMore.remove(id)

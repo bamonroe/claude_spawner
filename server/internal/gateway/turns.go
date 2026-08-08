@@ -265,7 +265,9 @@ func (s *Server) startCompress(sess *session.Session) bool {
 		// the seeded next turn sets the new context size. Broadcast to every
 		// device — the hub's sinks only cover devices attached right now, and a
 		// device switched away would keep the retired id.
-		s.broadcastContextReset(name, oldID, newID)
+		// preserved=false: the summarize turn grew the old transcript, so the
+		// display log changed — devices drop their cached rows and refetch.
+		s.broadcastContextReset(name, oldID, newID, false)
 		j.finish(stampTurn(msgSay("compressed. carried a summary forward — your history is still here."), turnID))
 	}()
 	return true
