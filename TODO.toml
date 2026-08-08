@@ -179,7 +179,7 @@ tags = ["perf"]
 [[task]]
 id = "make-clear-context-feel-instant-stop-dropping-and-refetching-an-unchanged-chat-log"
 title = "Make clear-context feel instant: stop dropping and refetching an unchanged chat log"
-description = "Server-side doClear (gateway/ops_session.go:363) is cheap — id rotation + store.Put, no SSH — but the app makes it feel slow: onContextReset (androidMain VoiceControllerMessages.kt:291-320) calls dropSessionCache(oldId), switches the view to the fresh id (now an EMPTY cache), and requestFreshHistory — so the user stares at a blank/loading chat until serveHistory returns, which after a rotation is a guaranteed digest-cache miss (chain sig changed) and a full chain stat walk + re-assembly. But a CLEAR does not change the visible history at all — the transcript stays on disk and the display chain reads identically; only compress rewrites content. Fix: carry a preserved-vs-rewritten flag on the context_reset frame (clear=preserved, compress=rewritten); on preserved, the app re-keys its cached rows to the new id and keeps rendering them, refreshing in the background at most — the dropSessionCache path stays for compress. Server side, check whether a fresh (not-yet-written) session_id makes chainSig return ok=false and the session's digest uncacheable until the first turn; if so, treat a missing current transcript as a describable empty part. Protocol change → docs/protocol.md + both clients in the same pass."
+description = "Server-side doClear (gateway/ops_session.go:363) is cheap — id rotation + store.Put, no SSH — but the app makes it feel slow: onContextReset (androidMain VoiceControllerMessages.kt:291-320, web twin WebAppControllerMessages.kt:132) calls dropSessionCache(oldId), switches the view to the fresh id (now an EMPTY cache), and requestFreshHistory with no have_hash — so the user stares at a blank chat while serveHistory misses the digest fast path (ops_history.go:124), re-parses the whole PriorIDs chain over SSH, and ships every message body back. But a CLEAR is byte-identical for display: it only appends the old id to PriorIDs; nothing on disk changes. Fix: on context_reset, RE-KEY the cached log, cursors, and held digest oldId→newId and keep rendering (row indexes are stable because the chain is append-only), refreshing in the background at most — or at minimum keep the log and send the held hash so the server answers 'unchanged'. Distinguish clear (content preserved) from compress (content rewritten — keep dropping) via a flag on the context_reset frame. CAUTION: set_agent's rotation DOES drop the chain (ops_discover.go:221 sets PriorIDs=nil) — that path must keep invalidating. Server side, check whether a fresh not-yet-written session_id makes chainSig return ok=false and the digest uncacheable until the first turn; if so treat a missing current transcript as a describable empty part. Protocol change → docs/protocol.md + both clients in the same pass."
 status = "active"
 level = "task"
 category = "bug"
@@ -187,3 +187,87 @@ urgency = "high"
 order = 140
 created = 2026-08-08
 tags = ["perf", "lag", "ux"]
+
+[[task]]
+id = "don-t-run-the-background-job-ssh-reconcile-inline-before-every-turn"
+title = "Don't run the background-job SSH reconcile inline before every turn"
+description = "Every dictation pays a synchronous SSH round trip before the turn even starts: dictate.go:23 calls reconcileJobs(c.attached, true) inline, which unconditionally runs 'spawner-job list --json' on the target over SSH (bgjobs.go:76, 8s timeout) plus a store.Put — before the prompt is built, before startTurn, before the '🤔 thinking…' activity frame (turns.go:56), all while blocking the connection's serial read loop so even the transcript echo queues. Fix: run the reconcile concurrently with startTurn and fold newly-found job notes into the NEXT turn's prompt — PendingNotes is already a queue, the single-writer claim already prevents racing the turn's store.Put, and the reconciler is preempt-safe (bgjobs.go:101-106); the only semantic change is a job-completion note landing one turn later. Also move the inflight marker's synchronous file write+rename (turns.go:50 → inflight.go:41-47) off the read loop into the turn goroutine."
+status = "active"
+level = "task"
+category = "bug"
+urgency = "high"
+order = 150
+created = 2026-08-08
+tags = ["perf", "lag"]
+
+[[task]]
+id = "delete-session-batch-the-purge-run-it-async-remove-the-row-optimistically"
+title = "Delete session: batch the purge, run it async, remove the row optimistically"
+description = "Deleting a session is 10-30 serial SSH round trips before the sidebar row disappears: deleteByIDs (claudefs.go:547) loops ids serially and purgeByID (claudefs.go:523) does 3-4 execs per id (findByID glob, rm -f, rm -rf sidecar, rm -rf state); DeleteSessionAll (driver.go:835-848) repeats that per archived History segment plus the current chain — and a much-cleared session has many PriorIDs. Then removeSandbox blocks on 'docker rm -f' before sendSessionList/doDiscover (ops_discover.go:345-349, same in removeSession ops_session.go:439-448), and ops_discover.go:312 forks tmux list-panes inline. The app (MainScreen.kt:493) waits for the discovered push to drop the row. Three independent fixes: (a) collapse the purge into ONE rm -rf listing every derived path — ids are UUID-validated so the paths are safe to join; (b) drop the registry record and push the refreshed lists FIRST, then run the purge + container remove in a goroutine (already best-effort); (c) remove the row optimistically client-side — the server's next discovered push is authoritative and restores it if the delete failed. Related: allow-deleting-sessions-whose-host-is-unreachable."
+status = "active"
+level = "task"
+category = "bug"
+urgency = "high"
+order = 160
+created = 2026-08-08
+tags = ["perf", "lag", "ux"]
+
+[[task]]
+id = "parallelize-broadcast-fan-out-one-wedged-device-must-not-stall-the-rest"
+title = "Parallelize broadcast fan-out: one wedged device must not stall the rest"
+description = "broadcastContextReset (gateway.go:424-437) — and the same shape in broadcast (:369), broadcastRenamed (:400), broadcastNotice (:449) — loops the connection snapshot serially ON THE CALLER'S GOROUTINE, doing c.send then c.doDiscover per connection. send takes that conn's write mutex with writeWait=10s (gateway.go:211), so one wedged or backgrounded device stalls the initiating device's confirmation (e.g. the 'cleared.' reply after doClear runs the whole fan-out on the initiator's read loop) for up to 10s per stuck socket. The recipients are independent: fan out one goroutine per connection — per-client frame ordering is preserved because each conn's frames still serialize under its own wmu. Also memoize the tmux list-panes fork (tmux/tmux.go:32-46) for ~1s: a single clear currently triggers one doDiscover — and thus one tmux fork — per connected device."
+status = "active"
+level = "task"
+category = "bug"
+urgency = "high"
+order = 170
+created = 2026-08-08
+tags = ["perf", "lag"]
+
+[[task]]
+id = "set-agent-compute-the-handoff-recap-async-instead-of-on-the-read-loop"
+title = "set_agent: compute the handoff recap async instead of on the read loop"
+description = "doSetAgent reads the ENTIRE old backend's transcript chain over SSH on the connection's read loop (ops_discover.go:190 ReadTranscriptChain) before archiving the segment, persisting, and finally sending msgAttached + the refreshed lists (:229-246) — so the agent badge hangs while a whole chain parses. But the recap it builds is only consumed by the FIRST TURN on the new backend (PendingSeed, read in dictate.go:28). Rotate the record and answer immediately, then compute the recap in a goroutine and write it into PendingSeed under the session's writer claim before the next turn (a turn arriving first should wait on or skip the seed — decide the invariant at the seam). Client compounding to fix in the same pass: MainScreen.kt:549-553 fires renameDiscovered and setAgent back to back and waits for the pushes; the dialog can update its row optimistically like attach already does (VoiceController.kt:523)."
+status = "active"
+level = "task"
+category = "refactor"
+urgency = "normal"
+order = 180
+created = 2026-08-08
+tags = ["perf", "lag", "ux"]
+
+[[task]]
+id = "spawn-take-the-sandbox-create-off-the-confirmation-path-merge-the-mkdir-probes"
+title = "Spawn: take the sandbox create off the confirmation path, merge the mkdir probes"
+description = "Spawning blocks the confirmation on two SSH round trips plus three docker calls: browse.go:121 dirExists (SSH stat) then :135 makeDir (SSH mkdir) — mergeable into one 'mkdir -p && test' exec — then store.Insert, then ensureSandbox → SandboxExecutor.Ensure (executor.go:272-285: running probe, rm -f, create) before msgAttached finally sends (browse.go:172-175). ensureSandbox is documented best-effort and is ALREADY re-run lazily on the first turn (ops_session.go:589-599), so it can move wholesale into a goroutine after the attached frame — that alone removes seconds from a sandbox spawn."
+status = "active"
+level = "task"
+category = "refactor"
+urgency = "normal"
+order = 190
+created = 2026-08-08
+tags = ["perf", "lag"]
+
+[[task]]
+id = "browse-picker-client-side-listing-cache-and-off-loop-ssh-probes"
+title = "Browse picker: client-side listing cache and off-loop SSH probes"
+description = "Every tap in the directory picker is one blocking SSH round trip served inline on the connection's read loop (browse.go:19-35 → ssh_fs.go:28-52 ListDir), and the client (BrowseScreen.kt:216,222) holds a single listing flow with no per-path cache — so navigating back up re-fetches a directory it just displayed and the stale listing sits on screen until the reply lands. Fix both sides: serve browse off the read loop like history/digest already are; client keeps a small path→entries LRU (read-only data, invalidate on re-entry) so back-navigation renders instantly while a background refresh lands, and optionally prefetch the tapped child's subdirectories (idempotent read)."
+status = "active"
+level = "task"
+category = "feature"
+urgency = "normal"
+order = 200
+created = 2026-08-08
+tags = ["perf", "ux"]
+
+[[task]]
+id = "coalesce-store-put-stop-rewriting-the-whole-registry-on-every-mutation"
+title = "Coalesce store.Put: stop rewriting the whole registry on every mutation"
+description = "store.Put → flush (store.go:268-288, :339-380) snapshots every record, marshals the full list, and does a temp-file+rename — O(N) synchronous disk work for a single-field change, called on the read loop from doClear, doUseModel, doSetAgent, dictate.go:38, per-turn turns.go:146, and per-session from the job reconciler (making a sweep O(N²) writes). Readers are served from the in-memory maps, never the file, so a coalescing flusher is safe: mark dirty, flush on a short debounce, and flush synchronously on shutdown — the invariant is only 'at least one flush after the last mutation before exit'. Fix the correctness nit in the same pass: two concurrent flushes can land out of order today (unique temp names, last rename wins, store.go:365-380) — the debounced single flusher removes that race by construction."
+status = "active"
+level = "task"
+category = "refactor"
+urgency = "normal"
+order = 210
+created = 2026-08-08
+tags = ["perf"]
