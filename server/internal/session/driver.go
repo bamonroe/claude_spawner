@@ -725,6 +725,25 @@ func (p chainParts) sig() string {
 	return b.String()
 }
 
+// prefixSig is the key the archived prefix (every segment concatenated) memoizes
+// under: the segment signatures alone, deliberately excluding cur, so it survives
+// the turns that keep moving the current chain. Empty — never a hit — when any
+// segment is indescribable, or when there are no archived segments at all.
+func (p chainParts) prefixSig() string {
+	if len(p.segs) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, s := range p.segs {
+		if s == "" {
+			return ""
+		}
+		b.WriteString(s)
+		b.WriteByte('|')
+	}
+	return b.String()
+}
+
 // chainSigTTL is how long a memoized chainSig is served before the chain is
 // re-statted. It only needs to span the burst of lookups one user action fires
 // (attach + history land within milliseconds); anything longer just widens the
@@ -828,32 +847,48 @@ func (d *Driver) readDisplayHistory(ctx context.Context, rec *Session, parts cha
 	if msgs, ok := d.display().getWhole(rec.SessionID, parts.sig()); ok {
 		return msgs, nil
 	}
-	var all []Message
+	// The archived segments are a stable prefix; only the current chain moves. Serve
+	// the whole prefix — already concatenated and indexed — from one memo entry so a
+	// turn costs O(current chain), not O(whole log).
+	pkey := parts.prefixSig()
+	prefix, prefixHit := d.display().getPrefix(pkey)
 	degraded := false // a segment read failed: this log is short, don't memoize it
-	for i, seg := range rec.History {
-		key := ""
-		if i < len(parts.segs) {
-			key = parts.segs[i]
+	if !prefixHit {
+		prefix = nil
+		for i, seg := range rec.History {
+			key := ""
+			if i < len(parts.segs) {
+				key = parts.segs[i]
+			}
+			if msgs, ok := d.display().getSegment(key); ok {
+				prefix = append(prefix, msgs...)
+				continue
+			}
+			msgs, err := d.transcriptReaderFor(seg.Agent, seg.Host).readTranscriptChain(ctx, seg.IDs)
+			if err != nil {
+				log.Printf("display history[%s]: read archived %s segment: %v", rec.Name, seg.Agent, err)
+				degraded = true
+				continue
+			}
+			d.display().putSegment(key, msgs)
+			prefix = append(prefix, msgs...)
 		}
-		if msgs, ok := d.display().getSegment(key); ok {
-			all = append(all, msgs...)
-			continue
+		for i := range prefix {
+			prefix[i].Index = i
 		}
-		msgs, err := d.transcriptReaderFor(seg.Agent, seg.Host).readTranscriptChain(ctx, seg.IDs)
-		if err != nil {
-			log.Printf("display history[%s]: read archived %s segment: %v", rec.Name, seg.Agent, err)
-			degraded = true
-			continue
+		if !degraded {
+			d.display().putPrefix(pkey, prefix)
 		}
-		d.display().putSegment(key, msgs)
-		all = append(all, msgs...)
 	}
 	cur, err := d.transcriptReaderFor(rec.Agent, rec.Host).readTranscriptChain(ctx, d.currentHistoryIDs(rec))
 	if err != nil {
 		return nil, err
 	}
-	all = append(all, cur...)
-	for i := range all {
+	// Copy rather than append onto prefix: the memo's array is shared and read-only.
+	all := make([]Message, len(prefix)+len(cur))
+	copy(all, prefix)
+	copy(all[len(prefix):], cur)
+	for i := len(prefix); i < len(all); i++ {
 		all[i].Index = i
 	}
 	if !degraded {

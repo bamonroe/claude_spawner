@@ -137,6 +137,48 @@ func TestDisplayMemo_ArchivedSegmentSurvivesCurrentGrowth(t *testing.T) {
 	}
 }
 
+// TestDisplayMemo_PrefixSurvivesSegmentEviction is the point of the prefix level:
+// the archived segments are cached joined-and-indexed as ONE entry, so a turn that
+// only moves the current chain never walks the archive again. Clearing the
+// per-segment map leaves the prefix as the only thing that can still answer.
+func TestDisplayMemo_PrefixSurvivesSegmentEviction(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	archived := "aaaaaaa1-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	current := "aaaaaaa2-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	writeClaudeTranscript(t, home, archived, "old-user", "old-asst")
+	writeClaudeTranscript(t, home, current, "new-user", "new-asst")
+
+	d := NewDriver()
+	d.sigTTL = 0
+	rec := &Session{Name: "s", SessionID: current, History: []HistorySegment{{IDs: []string{archived}}}}
+	if _, err := d.ReadDisplayHistory(context.Background(), rec); err != nil {
+		t.Fatal(err)
+	}
+	// Drop every cache EXCEPT the prefix, and change the archive's bytes under a
+	// preserved stat: a re-read would surface "XXX-user".
+	rewriteSameStat(t, transcriptPathFor(home, archived), claudeTranscriptBody("XXX-user", "XXX-asst"))
+	dropFileCaches(t)
+	m := d.display()
+	m.mu.Lock()
+	m.segments = map[string][]Message{}
+	m.whole = map[string]memoEntry{}
+	m.mu.Unlock()
+
+	msgs, err := d.ReadDisplayHistory(context.Background(), rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 4 || msgs[0].Text != "old-user" {
+		t.Fatalf("archive not served from the prefix memo; got %+v", msgs)
+	}
+	for i := range msgs {
+		if msgs[i].Index != i {
+			t.Errorf("msg[%d].Index = %d, want %d", i, msgs[i].Index, i)
+		}
+	}
+}
+
 // TestDisplayMemo_HitCostsNoCopy pins the read-only contract: a memo hit hands back
 // the cached array itself rather than an O(total-messages) copy. Callers that need
 // to rewrite text (gateway.serveHistory strips injected scaffolding) must copy the

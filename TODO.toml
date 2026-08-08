@@ -141,21 +141,6 @@ created = 2026-08-08
 tags = ["perf"]
 
 [[task]]
-id = "split-the-display-log-into-a-cached-archived-prefix-plus-a-rebuilt-current-tail"
-title = "Split the display log into a cached archived prefix plus a rebuilt current tail"
-description = """
-readDisplayHistory (driver.go:823-868) rebuilds and re-indexes the ENTIRE log after every turn, because chainParts.cur changes and invalidates the whole-log memo. But parts.segs (the archived segments) are a stable prefix and parts.cur is the only mover. Cache the concatenated archived prefix as one memo entry keyed on the segment sigs alone, then only re-read and re-index the current chain, starting the index loop (driver.go:862) at len(prefix). Makes per-turn assembly O(current chain) instead of O(whole log). Touches driver.go:823-868, chainParts (:697-725) and displaymemo.go. Do the memo copy-removal task first.
-
-Do NOT rebuild/recreate the server for this work: land the commits and background an image build only (see CLAUDE.md)."""
-status = "active"
-level = "task"
-category = "refactor"
-urgency = "normal"
-order = 72
-created = 2026-08-08
-tags = ["history", "perf"]
-
-[[task]]
 id = "per-part-digest-cacheability-so-one-unsignable-segment-does-not-poison-the-session"
 title = "Per-part digest cacheability so one unsignable segment does not poison the session"
 description = """
