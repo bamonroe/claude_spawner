@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "make-clear-context-feel-instant-stop-dropping-and-refetching-an-unchanged-chat-log"
+title = "Make clear-context feel instant: stop dropping and refetching an unchanged chat log"
+description = "Server-side doClear (gateway/ops_session.go:363) is cheap — id rotation + store.Put, no SSH — but the app makes it feel slow: onContextReset (androidMain VoiceControllerMessages.kt:291-320, web twin WebAppControllerMessages.kt:132) calls dropSessionCache(oldId), switches the view to the fresh id (now an EMPTY cache), and requestFreshHistory with no have_hash — so the user stares at a blank chat while serveHistory misses the digest fast path (ops_history.go:124), re-parses the whole PriorIDs chain over SSH, and ships every message body back. But a CLEAR is byte-identical for display: it only appends the old id to PriorIDs; nothing on disk changes. Fix: on context_reset, RE-KEY the cached log, cursors, and held digest oldId→newId and keep rendering (row indexes are stable because the chain is append-only), refreshing in the background at most — or at minimum keep the log and send the held hash so the server answers 'unchanged'. Distinguish clear (content preserved) from compress (content rewritten — keep dropping) via a flag on the context_reset frame. CAUTION: set_agent's rotation DOES drop the chain (ops_discover.go:221 sets PriorIDs=nil) — that path must keep invalidating. Server side, check whether a fresh not-yet-written session_id makes chainSig return ok=false and the digest uncacheable until the first turn; if so treat a missing current transcript as a describable empty part. Protocol change → docs/protocol.md + both clients in the same pass."
+status = "finished"
+level = "task"
+category = "bug"
+created = 2026-08-08
+completed = 2026-08-08
+tags = ["perf", "lag", "ux"]
+
+[[task]]
 id = "attach-must-not-block-the-inbound-loop-on-a-context-usage-ssh-read"
 title = "Attach must not block the inbound loop on a context-usage SSH read"
 description = "The attach handler runs inline on the connection's one-message-at-a-time inbound loop, and msgAttached embeds driver.SessionContextUsage (gateway/ops_session.go:176, :192, :227) — a chainSig SSH stat walk plus up to a 32MB tail read on a miss. While that runs, every other inbound message from that device (dictation, history requests, taps) queues behind it. Send the attached frame immediately without the usage badge (or with the cached value), then compute usage async and push the existing usage-update frame — same shape as the end-of-turn fix (see don-t-block-the-end-of-turn-output-frame-on-sessioncontextusage). Audit the dispatch table (gateway.go:540+) for any other handler that does SSH work inline on the loop; history/digest/discover already moved off it, attach didn't."
