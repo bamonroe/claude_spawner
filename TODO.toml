@@ -19,27 +19,3 @@ add_proposed_work = "Add proposed features and tests as new tasks rather than lo
 remove_dropped_items = "Remove dropped items with a one-line why (`scripts/todo.sh remove <id> --reason`)."
 finish_work = "When a task is fully finished (built, tested, documented), run `scripts/todo.sh done <id>` to move it to FINISHED.toml — in the same commit that completes the work."
 scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/KMP app + web client. The historical phase roadmap stays in README.md."
-
-[[task]]
-id = "app-connection-dot-in-the-sessions-toolbar"
-title = "App: connection dot in the sessions toolbar"
-description = "Add a small green/red dot to the sessions toolbar (the header Row in Sidebar.kt ~line 104) reflecting WebSocket connectivity. The state already exists — 'connected' is contributed by HostsIdentitiesController and surfaced on AppController — so this is UI only: dot + content description, green when connected, red when not. Verify on the Dockerized emulator per the android-dev skill."
-status = "active"
-level = "task"
-category = "feature"
-urgency = "normal"
-order = 30
-created = 2026-08-08
-tags = ["android"]
-
-[[task]]
-id = "app-rebuild-spinner-and-restart-pending-indicator-in-the-sessions-toolbar"
-title = "App: rebuild spinner and restart-pending indicator in the sessions toolbar"
-description = "Consume the new restart_status message (see server-broadcast-build-progress-finished-for-settings-launched-restarts) in InboundRouter.kt, hold the state on AppController, and render in the sessions toolbar: a rotating spinner while a settings-launched build is underway, and a distinct 'restart pending' icon once the build finished but the container hasn't been bounced. Clear the pending bit when a bounce/rebuild completes; rehydrate it from hello_ok after a reconnect. Only builds launched from the settings server tab are tracked. Document in README.md."
-status = "active"
-level = "task"
-category = "feature"
-urgency = "normal"
-order = 40
-created = 2026-08-08
-tags = ["android"]
