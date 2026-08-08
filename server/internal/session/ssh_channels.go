@@ -57,6 +57,36 @@ var errChannelOpen = errors.New("ssh: could not open channel")
 // transport, so a caller knows not to evict the pooled client over it.
 func isChannelOpenErr(err error) bool { return errors.Is(err, errChannelOpen) }
 
+// isRemoteExitErr reports whether err is the REMOTE COMMAND's non-zero exit
+// status. That is the connection working perfectly: the channel opened, the
+// command ran, and it chose to fail. `grep` finding nothing, `[ -e ]` on a glob
+// that matched nothing, `rm` on an absent path — all of these are exit 1 on a
+// healthy link.
+func isRemoteExitErr(err error) bool {
+	var exit *ssh.ExitError
+	return errors.As(err, &exit)
+}
+
+// shouldRedial is the pool's single answer to "did this error mean the CONNECTION
+// is broken?" — the question every operation on a pooled client has to get right,
+// because the remedy (drop + re-dial) tears down every OTHER channel on that
+// connection, a running turn's stream included.
+//
+// Only a transport error qualifies. The two impostors are a channel-open refusal
+// (the peer's MaxSessions ceiling: busy, not dead) and a remote command's exit
+// status (the command failed, not the link). Treating an exit status as a dead
+// connection is not a theoretical worry: the deferred-purge retry ran a command
+// that exits 1 whenever the files it deletes are already gone, on a six-minute
+// ticker, and each pass dropped the shared connection out from under whatever turn
+// was streaming on it — the user saw "stream ended without a result event" every
+// six minutes, with nothing in the log connecting the two.
+//
+// It lives here, next to the budget, so the policy is a property of the pool
+// rather than a condition each of Run/WriteFile/Stream has to restate correctly.
+func shouldRedial(err error) bool {
+	return err != nil && !isChannelOpenErr(err) && !isRemoteExitErr(err)
+}
+
 // channelBudget is one pooled connection's channel allowance: a counting
 // semaphore with a slot per permitted concurrent channel.
 type channelBudget struct {
