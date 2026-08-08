@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -53,11 +54,11 @@ func validOpencodeID(id string) bool {
 // connection as a single shell line; a nil remote (hermetic tests) runs the
 // binary locally. Callers pass only fixed verbs plus an id already vetted by
 // validOpencodeID, so the plain space-join used for the remote command is safe.
-func (fs opencodeFS) run(args ...string) ([]byte, error) {
+func (fs opencodeFS) run(ctx context.Context, args ...string) ([]byte, error) {
 	if fs.remote == nil {
-		return exec.Command(opencodeReaderBin, args...).Output()
+		return exec.CommandContext(ctx, opencodeReaderBin, args...).Output()
 	}
-	return fs.remote.output(opencodeReaderBin + " " + strings.Join(args, " "))
+	return fs.remote.output(ctx, opencodeReaderBin+" "+strings.Join(args, " "))
 }
 
 // opencodeExport is the subset of `opencode export <id>` JSON we read: the
@@ -117,12 +118,12 @@ func stepUsage(t *struct {
 // command (missing/deleted session), or unparseable output all yield (zero, ok)
 // rather than an error, matching the "missing file → empty" convention of the
 // file-based readers.
-func (fs opencodeFS) export(id string) (opencodeExport, bool) {
+func (fs opencodeFS) export(ctx context.Context, id string) (opencodeExport, bool) {
 	var ex opencodeExport
 	if !validOpencodeID(id) {
 		return ex, false
 	}
-	out, err := fs.run("export", id)
+	out, err := fs.run(ctx, "export", id)
 	if err != nil {
 		return ex, false
 	}
@@ -209,10 +210,10 @@ func exportContext(ex opencodeExport) *ContextSnapshot {
 
 // readTranscriptChain concatenates the exported conversations for ids (oldest
 // first) into one re-indexed history.
-func (fs opencodeFS) readTranscriptChain(ids []string) ([]Message, error) {
+func (fs opencodeFS) readTranscriptChain(ctx context.Context, ids []string) ([]Message, error) {
 	var all []Message
 	for _, id := range ids {
-		ex, ok := fs.export(id)
+		ex, ok := fs.export(ctx, id)
 		if !ok {
 			continue
 		}
@@ -226,9 +227,9 @@ func (fs opencodeFS) readTranscriptChain(ids []string) ([]Message, error) {
 
 // lastContextUsage returns the newest session's context snapshot, scanning ids
 // newest-first; nil if no id has a usage-bearing step yet.
-func (fs opencodeFS) lastContextUsage(ids []string) *ContextSnapshot {
+func (fs opencodeFS) lastContextUsage(ctx context.Context, ids []string) *ContextSnapshot {
 	for i := len(ids) - 1; i >= 0; i-- {
-		ex, ok := fs.export(ids[i])
+		ex, ok := fs.export(ctx, ids[i])
 		if !ok {
 			continue
 		}
@@ -243,13 +244,13 @@ func (fs opencodeFS) lastContextUsage(ids []string) *ContextSnapshot {
 // best-effort: a delete that fails (e.g. the session is already gone) is skipped
 // rather than aborting the batch, so deleting a partly-removed set still clears
 // the rest. Returns the count actually removed.
-func (fs opencodeFS) deleteByIDs(ids []string) (int, error) {
+func (fs opencodeFS) deleteByIDs(ctx context.Context, ids []string) (int, error) {
 	n := 0
 	for _, id := range ids {
 		if !validOpencodeID(id) {
 			continue
 		}
-		if _, err := fs.run("session", "delete", id); err != nil {
+		if _, err := fs.run(ctx, "session", "delete", id); err != nil {
 			continue
 		}
 		n++
@@ -280,15 +281,15 @@ var opencodeStorePaths = []string{
 // ok=false when neither store file can be stat'd (no opencode data yet, or an
 // unreadable host), so the caller falls back to recomputing instead of trusting a
 // signature that describes nothing.
-func (fs opencodeFS) chainSig(ids []string) (string, bool) {
-	home, ok := fs.home()
+func (fs opencodeFS) chainSig(ctx context.Context, ids []string) (string, bool) {
+	home, ok := fs.home(ctx)
 	if !ok {
 		return "", false
 	}
 	var b strings.Builder
 	any := false
 	for _, rel := range opencodeStorePaths {
-		size, mod, ok := fs.stat(path.Join(home, rel))
+		size, mod, ok := fs.stat(ctx, path.Join(home, rel))
 		if !ok {
 			continue // absent (no -wal in the common case) — sign what exists
 		}
@@ -306,7 +307,7 @@ func (fs opencodeFS) chainSig(ids []string) (string, bool) {
 // own, remotely the target's (the reader holds no config, and the remote user's
 // home need not match the server's). Resolved once per chainSig so signing both
 // store files costs one extra round trip, not one per file.
-func (fs opencodeFS) home() (string, bool) {
+func (fs opencodeFS) home(ctx context.Context) (string, bool) {
 	if fs.remote == nil {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -314,7 +315,7 @@ func (fs opencodeFS) home() (string, bool) {
 		}
 		return home, true
 	}
-	out, err := fs.remote.output(`printf %s "$HOME"`)
+	out, err := fs.remote.output(ctx, `printf %s "$HOME"`)
 	if err != nil {
 		return "", false
 	}

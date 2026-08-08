@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 )
@@ -36,7 +37,7 @@ func TestReadDisplayHistory_MergesArchivedThenCurrent(t *testing.T) {
 	}
 	d := NewDriver()
 
-	msgs, err := d.ReadDisplayHistory(rec)
+	msgs, err := d.ReadDisplayHistory(context.Background(), rec)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +57,7 @@ func TestReadDisplayHistory_MergesArchivedThenCurrent(t *testing.T) {
 	// With no archived history the read equals just the current chain — the exact
 	// pre-split behavior, so old sessions are unaffected.
 	rec.History = nil
-	plain, err := d.ReadDisplayHistory(rec)
+	plain, err := d.ReadDisplayHistory(context.Background(), rec)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -56,7 +57,7 @@ func TestPurgeSegmentDefersWhenHostDown(t *testing.T) {
 	q := OpenPurgeQueue("")
 	d.SetPurgeQueue(q)
 
-	n, err := d.purgeSegment("s1", "claude", "mom", []string{"id-1"})
+	n, err := d.purgeSegment(context.Background(), "s1", "claude", "mom", []string{"id-1"})
 	if err != nil || n != 0 {
 		t.Fatalf("purgeSegment on a down host = (%d, %v), want (0, nil)", n, err)
 	}

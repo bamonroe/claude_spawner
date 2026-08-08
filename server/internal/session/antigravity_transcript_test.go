@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -41,7 +42,7 @@ func TestAgyReadTranscript(t *testing.T) {
 	home := t.TempDir()
 	path := writeAgyBrain(t, home, agyTestBrainID, agyBrainTranscript)
 	fs := antigravityFS{}
-	msgs, err := fs.readTranscript(path)
+	msgs, err := fs.readTranscript(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +71,7 @@ func TestAgyReadTranscript(t *testing.T) {
 	if want := parseTs("2026-07-20T12:03:01Z"); msgs[1].Ts != want {
 		t.Errorf("claude Ts = %d, want %d (the turn's last spoken step)", msgs[1].Ts, want)
 	}
-	if fs.lastContextUsage([]string{agyTestBrainID}) != nil {
+	if fs.lastContextUsage(context.Background(), []string{agyTestBrainID}) != nil {
 		t.Error("agy records no token usage; want nil context snapshot")
 	}
 }
@@ -86,7 +87,7 @@ func TestAgyReadTranscriptChain_ReindexesAndKeepsDurableIDs(t *testing.T) {
 	writeAgyBrain(t, home, idA, agyBrainTranscript)
 	writeAgyBrain(t, home, idB, agyBrainTranscript)
 	fs := antigravityFS{}
-	msgs, err := fs.readTranscriptChain([]string{idA, idB})
+	msgs, err := fs.readTranscriptChain(context.Background(), []string{idA, idB})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,13 +112,13 @@ func TestAgyFindByID(t *testing.T) {
 	t.Setenv("HOME", home)
 	fs := antigravityFS{}
 	want := filepath.Join(home, ".gemini", "antigravity-cli", "brain", agyTestBrainID, agyTranscriptRel)
-	if got := fs.findByID(agyTestBrainID); got != want {
+	if got := fs.findByID(context.Background(), agyTestBrainID); got != want {
 		t.Errorf("findByID = %q, want %q", got, want)
 	}
-	if got := fs.findByID("../etc/passwd"); got != "" {
+	if got := fs.findByID(context.Background(), "../etc/passwd"); got != "" {
 		t.Errorf("findByID(unsafe) = %q, want empty", got)
 	}
-	if got := fs.findByID(""); got != "" {
+	if got := fs.findByID(context.Background(), ""); got != "" {
 		t.Errorf("findByID(empty) = %q, want empty", got)
 	}
 }

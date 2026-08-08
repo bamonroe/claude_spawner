@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"log"
 	"strings"
 	"sync"
@@ -121,7 +122,7 @@ func (c *conn) serveHistory(sessionID, name string, before *int, limit int, have
 	// chain (tens of megabytes, over SSH) only to discard it — and because the
 	// gateway dispatches serially, it blocked every other request on the connection.
 	if before == nil && haveHash != "" {
-		if count, hash, _, err := c.srv.driver.DisplayDigest(s); err == nil && hash == haveHash {
+		if count, hash, _, err := c.srv.driver.DisplayDigest(c.ctx, s); err == nil && hash == haveHash {
 			c.send(msgHistory(recID(s), name, nil, false, count, hash, true))
 			return
 		}
@@ -131,7 +132,7 @@ func (c *conn) serveHistory(sessionID, name string, before *int, limit int, have
 	// `before != nil` skips the fast path above, so paging older messages used to
 	// re-parse the entire chain per page), and re-reads only the archived segments
 	// that actually changed, which for an archive is never.
-	msgs, count, hash, err := c.srv.driver.DisplayHistory(s)
+	msgs, count, hash, err := c.srv.driver.DisplayHistory(c.ctx, s)
 	if err != nil {
 		c.fail("history_failed", err.Error())
 		return
@@ -179,6 +180,19 @@ func (c *conn) serveHistory(sessionID, name string, before *int, limit int, have
 // much work the sweep tries to have in flight.
 const digestSweepConcurrency = 8
 
+// digestSessionDeadline caps how long ONE session's digest may take before the
+// sweep gives up on it and reports the rest. Without it the frame was held until
+// every session answered, so a single slow or half-dead host delayed the app's
+// whole connect-time cache validation — and therefore its history refresh — by
+// minutes. A session that misses the deadline is simply omitted from the frame,
+// which the app already treats as "keep the cached transcript" (the same thing an
+// unreadable session has always meant), and the next sweep tries it again.
+//
+// It is generous on purpose: a cold chain on a healthy remote host is a handful
+// of stats plus, on a digest miss, a full parse. This is the "this host is not
+// answering" threshold, not a latency target.
+const digestSessionDeadline = 8 * time.Second
+
 // startDigestSweep runs the sweep OFF the connection's inbound loop. The loop
 // handles one message at a time, so doing this inline made every other request —
 // attach, history, anything the user tapped — wait behind a full walk of every
@@ -210,7 +224,7 @@ func (c *conn) serveDigests() {
 	served := make([]bool, len(sessions))
 	sem := make(chan struct{}, digestSweepConcurrency)
 	var wg sync.WaitGroup
-	var hits atomic.Int64
+	var hits, timedOut atomic.Int64
 	started := time.Now()
 	for i, s := range sessions {
 		wg.Add(1)
@@ -218,11 +232,22 @@ func (c *conn) serveDigests() {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
+			// Per-session deadline: the read's own context, not a wrapper around a
+			// blocking call — the timeout reaches the SSH probes themselves, so a
+			// dead host's session releases its slot instead of pinning one for the
+			// full probe timeout while the other sessions wait behind it.
+			ctx, cancel := context.WithTimeout(c.ctx, digestSessionDeadline)
+			defer cancel()
 			// DisplayDigest, not ReadDisplayHistory: when the session's transcripts
 			// haven't moved this is a few stats instead of a full parse.
-			count, hash, cached, err := c.srv.driver.DisplayDigest(s)
+			count, hash, cached, err := c.srv.driver.DisplayDigest(ctx, s)
 			if err != nil {
-				return // unreadable: the app keeps whatever it already cached
+				// Unreadable, or out of time: either way the app keeps whatever it
+				// already cached for this session and the next sweep retries it.
+				if ctx.Err() != nil {
+					timedOut.Add(1)
+				}
+				return
 			}
 			if cached {
 				hits.Add(1)
@@ -242,8 +267,8 @@ func (c *conn) serveDigests() {
 	// Logged because this sweep is the one operation whose cost is invisible to the
 	// user (it runs in the background) yet dominates a cold connect: the hit count
 	// is how you tell a working digest cache from one that is silently missing.
-	log.Printf("digest sweep: %d session(s), %d cached, %d recomputed in %v",
-		len(sessions), hits.Load(), int64(len(out))-hits.Load(), time.Since(started).Round(time.Millisecond))
+	log.Printf("digest sweep: %d session(s), %d cached, %d recomputed, %d timed out in %v",
+		len(sessions), hits.Load(), int64(len(out))-hits.Load(), timedOut.Load(), time.Since(started).Round(time.Millisecond))
 	c.send(msgDigests(out))
 }
 

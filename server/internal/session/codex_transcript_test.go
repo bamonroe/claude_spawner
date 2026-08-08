@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -31,7 +32,7 @@ func TestCodexReadTranscript(t *testing.T) {
 		t.Fatal(err)
 	}
 	fs := codexFS{}
-	msgs, err := fs.readTranscript(path)
+	msgs, err := fs.readTranscript(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +74,7 @@ func TestCodexLastContextUsage(t *testing.T) {
 		t.Fatal(err)
 	}
 	fs := codexFS{}
-	cx := fs.lastUsageInFile(path)
+	cx := fs.lastUsageInFile(context.Background(), path)
 	if cx == nil {
 		t.Fatal("want a snapshot, got nil")
 	}
@@ -101,10 +102,10 @@ func TestCodexFindByID(t *testing.T) {
 		t.Fatal(err)
 	}
 	fs := codexFS{}
-	if got := fs.findByID(id); got != path {
+	if got := fs.findByID(context.Background(), id); got != path {
 		t.Errorf("findByID = %q, want %q", got, path)
 	}
-	if got := fs.findByID("no-such-id"); got != "" {
+	if got := fs.findByID(context.Background(), "no-such-id"); got != "" {
 		t.Errorf("findByID(missing) = %q, want empty", got)
 	}
 }

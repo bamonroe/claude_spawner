@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -38,7 +39,7 @@ func fullParse(t *testing.T, lines []string) []Message {
 	t.Helper()
 	p := filepath.Join(t.TempDir(), "reference.jsonl")
 	writeLines(t, p, lines)
-	msgs, err := localClaudeFS.readTranscript(p)
+	msgs, err := localClaudeFS.readTranscript(context.Background(), p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +57,7 @@ func TestIncrementalParse_MatchesFullParseAcrossAppends(t *testing.T) {
 	for n := 1; n <= 4; n++ {
 		lines = append(lines, convo(n)...)
 		writeLines(t, path, lines)
-		got, err := localClaudeFS.readTranscript(path)
+		got, err := localClaudeFS.readTranscript(context.Background(), path)
 		if err != nil {
 			t.Fatalf("append %d: %v", n, err)
 		}
@@ -77,7 +78,7 @@ func TestIncrementalParse_AppendMidLine(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "midwrite.jsonl")
 	lines := convo(1)
 	writeLines(t, path, lines)
-	if msgs, _ := localClaudeFS.readTranscript(path); len(msgs) != 2 {
+	if msgs, _ := localClaudeFS.readTranscript(context.Background(), path); len(msgs) != 2 {
 		t.Fatalf("baseline: %d messages, want 2", len(msgs))
 	}
 
@@ -91,13 +92,13 @@ func TestIncrementalParse_AppendMidLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.Close()
-	if msgs, _ := localClaudeFS.readTranscript(path); len(msgs) != 2 {
+	if msgs, _ := localClaudeFS.readTranscript(context.Background(), path); len(msgs) != 2 {
 		t.Fatalf("mid-write: %d messages, want the partial line ignored (2)", len(msgs))
 	}
 
 	// Complete it and add the rest of the turn.
 	writeLines(t, path, append(lines, next...))
-	got, err := localClaudeFS.readTranscript(path)
+	got, err := localClaudeFS.readTranscript(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +114,7 @@ func TestIncrementalParse_AppendMidLine(t *testing.T) {
 func TestIncrementalParse_DetectsRewrite(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "rewritten.jsonl")
 	writeLines(t, path, append(convo(1), convo(2)...))
-	if msgs, _ := localClaudeFS.readTranscript(path); len(msgs) != 4 {
+	if msgs, _ := localClaudeFS.readTranscript(context.Background(), path); len(msgs) != 4 {
 		t.Fatalf("baseline: %d messages, want 4", len(msgs))
 	}
 
@@ -121,7 +122,7 @@ func TestIncrementalParse_DetectsRewrite(t *testing.T) {
 	// size grew (which is what would tempt an incremental extension).
 	rewritten := append(append(convo(7), convo(8)...), convo(9)...)
 	writeLines(t, path, rewritten)
-	got, err := localClaudeFS.readTranscript(path)
+	got, err := localClaudeFS.readTranscript(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,11 +137,11 @@ func TestIncrementalParse_DetectsRewrite(t *testing.T) {
 func TestIncrementalParse_Truncation(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "truncated.jsonl")
 	writeLines(t, path, append(convo(1), convo(2)...))
-	if msgs, _ := localClaudeFS.readTranscript(path); len(msgs) != 4 {
+	if msgs, _ := localClaudeFS.readTranscript(context.Background(), path); len(msgs) != 4 {
 		t.Fatalf("baseline: %d messages, want 4", len(msgs))
 	}
 	writeLines(t, path, convo(1))
-	got, err := localClaudeFS.readTranscript(path)
+	got, err := localClaudeFS.readTranscript(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}

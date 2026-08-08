@@ -50,27 +50,27 @@ func TestLiveSSHClaudeFSMatchesLocal(t *testing.T) {
 	defer pool.Close()
 	remote := claudeFS{remote: &sshFS{pool: pool, host: "localhost"}}
 
-	if got := remote.transcriptCwd(path); got != cwd {
+	if got := remote.transcriptCwd(context.Background(), path); got != cwd {
 		t.Errorf("remote transcriptCwd = %q, want %q", got, cwd)
 	}
-	if got := localClaudeFS.transcriptCwd(path); got != cwd {
+	if got := localClaudeFS.transcriptCwd(context.Background(), path); got != cwd {
 		t.Errorf("local transcriptCwd = %q, want %q", got, cwd)
 	}
-	if got := remote.findByID(id); got != path {
+	if got := remote.findByID(context.Background(), id); got != path {
 		t.Errorf("remote findByID = %q, want %q", got, path)
 	}
-	lm, err := localClaudeFS.readTranscript(path)
+	lm, err := localClaudeFS.readTranscript(context.Background(), path)
 	if err != nil {
 		t.Fatalf("local readTranscript: %v", err)
 	}
-	rm, err := remote.readTranscript(path)
+	rm, err := remote.readTranscript(context.Background(), path)
 	if err != nil {
 		t.Fatalf("remote readTranscript: %v", err)
 	}
 	if len(lm) != 2 || len(rm) != 2 {
 		t.Fatalf("message counts local=%d remote=%d, want 2 each", len(lm), len(rm))
 	}
-	ds, err := remote.discoverSessions()
+	ds, err := remote.discoverSessions(context.Background())
 	if err != nil {
 		t.Fatalf("remote discoverSessions: %v", err)
 	}
@@ -127,8 +127,8 @@ func TestLiveSSHTailAndPathMemo(t *testing.T) {
 	remote := claudeFS{remote: &sshFS{pool: pool, host: "localhost"}}
 
 	for _, n := range []int64{64, 512, 1 << 20} {
-		rd, rWhole, rErr := remote.tailBytes(path, n)
-		ld, lWhole, lErr := localClaudeFS.tailBytes(path, n)
+		rd, rWhole, rErr := remote.tailBytes(context.Background(), path, n)
+		ld, lWhole, lErr := localClaudeFS.tailBytes(context.Background(), path, n)
 		if rErr != nil || lErr != nil {
 			t.Fatalf("tailBytes(%d): remote err=%v local err=%v", n, rErr, lErr)
 		}
@@ -139,16 +139,16 @@ func TestLiveSSHTailAndPathMemo(t *testing.T) {
 	}
 
 	// The bounded tail must still find the usage on the final line.
-	snap := remote.lastUsageInFile(path)
+	snap := remote.lastUsageInFile(context.Background(), path)
 	if snap == nil || snap.Usage.Input != 4242 || snap.Usage.CacheRead != 11 {
 		t.Errorf("remote lastUsageInFile = %+v, want input 4242 / cache_read 11", snap)
 	}
 
-	if got := remote.findByID(id); got != path {
+	if got := remote.findByID(context.Background(), id); got != path {
 		t.Fatalf("remote findByID = %q, want %q", got, path)
 	}
 	remote.forgetPath(id) // memo dropped: the next lookup must re-resolve, not fail
-	if got := remote.findByID(id); got != path {
+	if got := remote.findByID(context.Background(), id); got != path {
 		t.Errorf("remote findByID after forgetPath = %q, want %q", got, path)
 	}
 }
@@ -492,8 +492,8 @@ func TestLiveSSHStatManyBatch(t *testing.T) {
 	defer pool.Close()
 	remote := claudeFS{remote: &sshFS{pool: pool, host: "localhost"}}
 
-	got := remote.statMany(paths)
-	want := localClaudeFS.statMany(paths)
+	got := remote.statMany(context.Background(), paths)
+	want := localClaudeFS.statMany(context.Background(), paths)
 	if len(got) != len(want) {
 		t.Fatalf("statMany returned %d entries, local returned %d", len(got), len(want))
 	}

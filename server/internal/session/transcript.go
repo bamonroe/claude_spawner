@@ -2,6 +2,7 @@ package session
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -335,64 +336,72 @@ type ContextSnapshot struct {
 }
 
 // TranscriptPath locates a session's Claude transcript.
-func (s *Session) TranscriptPath() string { return TranscriptPathByID(s.SessionID) }
+func (s *Session) TranscriptPath(ctx context.Context) string {
+	return TranscriptPathByID(ctx, s.SessionID)
+}
 
 // TranscriptPathByID finds a LOCAL Claude transcript by session_id (globbed across
 // the opaque project-dir encoding). Returns "" if not found. For a specific host,
 // go through Driver.claudeFSFor.
-func TranscriptPathByID(sessionID string) string { return localClaudeFS.findByID(sessionID) }
+func TranscriptPathByID(ctx context.Context, sessionID string) string {
+	return localClaudeFS.findByID(ctx, sessionID)
+}
 
 // TranscriptPathByID finds a Claude transcript by session_id on the given host
 // (empty host = loopback over SSH when SSH-native is wired). Returns "" if absent.
-func (d *Driver) TranscriptPathByID(host, sessionID string) string {
-	return d.claudeFSFor(host).findByID(sessionID)
+func (d *Driver) TranscriptPathByID(ctx context.Context, host, sessionID string) string {
+	return d.claudeFSFor(host).findByID(ctx, sessionID)
 }
 
 // TranscriptCwd reads the working directory from a transcript on the given host
 // (empty host = loopback over SSH when SSH-native is wired).
-func (d *Driver) TranscriptCwd(host, path string) string {
-	return d.claudeFSFor(host).transcriptCwd(path)
+func (d *Driver) TranscriptCwd(ctx context.Context, host, path string) string {
+	return d.claudeFSFor(host).transcriptCwd(ctx, path)
 }
 
 // DeleteSessionsByIDs permanently removes the LOCAL transcript for each given
 // session_id (the file <session_id>.jsonl), leaving every OTHER session in the
 // same directory untouched. This is how one logical session is deleted — its
 // current id plus any rotated prior ids. Returns how many files were removed.
-func DeleteSessionsByIDs(ids []string) (int, error) { return localClaudeFS.deleteByIDs(ids) }
+func DeleteSessionsByIDs(ctx context.Context, ids []string) (int, error) {
+	return localClaudeFS.deleteByIDs(ctx, ids)
+}
 
 // DeleteSessionsForDir permanently removes EVERY LOCAL Claude transcript whose
 // working directory is `dir` (legacy whole-directory delete path; per-session
 // deletes go through DeleteSessionsByIDs). anySessionID locates the project folder.
-func DeleteSessionsForDir(anySessionID, dir string) (int, error) {
-	return localClaudeFS.deleteForDir(anySessionID, dir)
+func DeleteSessionsForDir(ctx context.Context, anySessionID, dir string) (int, error) {
+	return localClaudeFS.deleteForDir(ctx, anySessionID, dir)
 }
 
 // ReadTranscript parses a LOCAL transcript JSONL into ordered messages.
-func ReadTranscript(path string) ([]Message, error) { return localClaudeFS.readTranscript(path) }
+func ReadTranscript(ctx context.Context, path string) ([]Message, error) {
+	return localClaudeFS.readTranscript(ctx, path)
+}
 
 // readTranscript parses a transcript JSONL into ordered user/claude prose messages
 // (tool calls, tool results, and metadata lines are skipped) from whichever host
 // this claudeFS reads. Returns an empty slice (no error) if the path is empty or
 // the file doesn't exist yet.
-func (fs claudeFS) readTranscript(path string) ([]Message, error) {
+func (fs claudeFS) readTranscript(ctx context.Context, path string) ([]Message, error) {
 	if path == "" {
 		return nil, nil
 	}
 	key := fs.cacheKey(path)
-	size, mod, statOK := fs.stat(path)
+	size, mod, statOK := fs.stat(ctx, path)
 	base, hasBase := getCachedParse(key)
 	if statOK && hasBase && base.size == size && base.mod.Equal(mod) {
 		return base.messages(), nil // unchanged since the last parse
 	}
 	// Grown since the last parse: read and parse only the appended bytes.
 	if statOK && hasBase && size > base.parsed {
-		if st, ok := fs.extendParse(path, base); ok {
+		if st, ok := fs.extendParse(ctx, path, base); ok {
 			st.size, st.mod = size, mod
 			putCachedParse(key, st)
 			return st.messages(), nil
 		}
 	}
-	data, err := fs.readAll(path)
+	data, err := fs.readAll(ctx, path)
 	if err != nil {
 		if fs.isMissing(err) {
 			return nil, nil
@@ -410,8 +419,8 @@ func (fs claudeFS) readTranscript(path string) ([]Message, error) {
 
 // readAll returns a transcript's whole contents. (The remote backend's `open`
 // already buffers the file in memory, so this costs nothing extra there.)
-func (fs claudeFS) readAll(path string) ([]byte, error) {
-	f, err := fs.open(path)
+func (fs claudeFS) readAll(ctx context.Context, path string) ([]byte, error) {
+	f, err := fs.open(ctx, path)
 	if err != nil {
 		return nil, err
 	}
@@ -423,9 +432,9 @@ func (fs claudeFS) readAll(path string) ([]byte, error) {
 // returning the extended state. ok is false when the extension can't be trusted
 // (the overlap check failed, or the read errored) and the caller must re-parse
 // the whole file.
-func (fs claudeFS) extendParse(path string, base *claudeParse) (*claudeParse, bool) {
+func (fs claudeFS) extendParse(ctx context.Context, path string, base *claudeParse) (*claudeParse, bool) {
 	off := base.parsed - int64(len(base.overlap))
-	data, err := fs.readFrom(path, off)
+	data, err := fs.readFrom(ctx, path, off)
 	if err != nil || int64(len(data)) < int64(len(base.overlap)) {
 		return nil, false
 	}
@@ -443,9 +452,9 @@ func (fs claudeFS) extendParse(path string, base *claudeParse) (*claudeParse, bo
 }
 
 // readFrom returns a transcript's bytes from off to EOF.
-func (fs claudeFS) readFrom(path string, off int64) ([]byte, error) {
+func (fs claudeFS) readFrom(ctx context.Context, path string, off int64) ([]byte, error) {
 	if off <= 0 {
-		return fs.readAll(path)
+		return fs.readAll(ctx, path)
 	}
 	if fs.remote == nil {
 		f, err := os.Open(path)
@@ -459,7 +468,7 @@ func (fs claudeFS) readFrom(path string, off int64) ([]byte, error) {
 		return io.ReadAll(f)
 	}
 	// `tail -c +N` is 1-based on the byte offset.
-	out, err := fs.remote.output(fmt.Sprintf("tail -c +%d %s", off+1, shellQuote(path)))
+	out, err := fs.remote.output(ctx, fmt.Sprintf("tail -c +%d %s", off+1, shellQuote(path)))
 	if err != nil {
 		return nil, errRemoteMissing
 	}
@@ -472,17 +481,17 @@ func (fs claudeFS) readFrom(path string, off int64) ([]byte, error) {
 // files — e.g. a freshly-rotated session_id that hasn't run a turn yet —
 // contribute nothing. This is how a session "cleared" via context rotation still
 // shows its full history even though Claude only ever resumes the newest id.
-func ReadTranscriptChain(ids []string) ([]Message, error) {
-	return localClaudeFS.readTranscriptChain(ids)
+func ReadTranscriptChain(ctx context.Context, ids []string) ([]Message, error) {
+	return localClaudeFS.readTranscriptChain(ctx, ids)
 }
 
 // readTranscriptChain is ReadTranscriptChain against whichever host this claudeFS
 // reads (local or a remote host over SSH).
-func (fs claudeFS) readTranscriptChain(ids []string) ([]Message, error) {
+func (fs claudeFS) readTranscriptChain(ctx context.Context, ids []string) ([]Message, error) {
 	var all []Message
 	for _, id := range ids {
-		path := fs.findByID(id)
-		msgs, err := fs.readTranscript(path)
+		path := fs.findByID(ctx, id)
+		msgs, err := fs.readTranscript(ctx, path)
 		if err != nil {
 			return nil, err
 		}
@@ -492,8 +501,8 @@ func (fs claudeFS) readTranscriptChain(ids []string) ([]Message, error) {
 		// transcript is cheap to re-check and rare.
 		if len(msgs) == 0 && path != "" {
 			fs.forgetPath(id)
-			if again := fs.findByID(id); again != path {
-				if msgs, err = fs.readTranscript(again); err != nil {
+			if again := fs.findByID(ctx, id); again != path {
+				if msgs, err = fs.readTranscript(ctx, again); err != nil {
 					return nil, err
 				}
 			}
@@ -511,14 +520,14 @@ func (fs claudeFS) readTranscriptChain(ids []string) ([]Message, error) {
 // prefix = the live context size) and its timestamp. ids is oldest-first (as
 // from TranscriptIDs); the newest transcript carrying a usage-bearing assistant
 // line wins. Returns nil when none exists yet (a session that hasn't run a turn).
-func LastContextUsage(ids []string) *ContextSnapshot {
-	return localClaudeFS.lastContextUsage(ids)
+func LastContextUsage(ctx context.Context, ids []string) *ContextSnapshot {
+	return localClaudeFS.lastContextUsage(ctx, ids)
 }
 
 // lastContextUsage is LastContextUsage against whichever host this claudeFS reads.
-func (fs claudeFS) lastContextUsage(ids []string) *ContextSnapshot {
+func (fs claudeFS) lastContextUsage(ctx context.Context, ids []string) *ContextSnapshot {
 	for i := len(ids) - 1; i >= 0; i-- {
-		if cx := fs.lastUsageInFile(fs.findByID(ids[i])); cx != nil {
+		if cx := fs.lastUsageInFile(ctx, fs.findByID(ctx, ids[i])); cx != nil {
 			return cx
 		}
 	}
@@ -541,19 +550,19 @@ var usageTailBudgets = []int64{256 << 10, 4 << 20, 32 << 20}
 // of every turn (the context meter) and on every attach, against a file the turn
 // just appended to — so the parse cache never helps and the full read was paid in
 // full, every time.
-func (fs claudeFS) lastUsageInFile(path string) *ContextSnapshot {
+func (fs claudeFS) lastUsageInFile(ctx context.Context, path string) *ContextSnapshot {
 	if path == "" {
 		return nil
 	}
 	key := fs.cacheKey(path)
-	size, mod, statOK := fs.stat(path)
+	size, mod, statOK := fs.stat(ctx, path)
 	if statOK {
 		if snap, hit := getCachedSnap(key, size, mod); hit {
 			return snap
 		}
 	}
 	for _, budget := range usageTailBudgets {
-		data, whole, err := fs.tailBytes(path, budget)
+		data, whole, err := fs.tailBytes(ctx, path, budget)
 		if err != nil {
 			return nil
 		}

@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"log"
 	"time"
 )
@@ -85,7 +86,7 @@ func (s *Server) autoCompressLoop() {
 			if !snap.Started || s.isBusy(snap.SessionID) {
 				continue // nothing to compress, or a turn is already running
 			}
-			cx := s.driver.SessionContextUsage(sess)
+			cx := s.driver.SessionContextUsage(context.Background(), sess)
 			if cx == nil || cx.At == 0 {
 				continue
 			}

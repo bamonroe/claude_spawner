@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -44,7 +45,7 @@ func TestLastUsageInFile_ReadsFromTheTail(t *testing.T) {
 		`{"type":"user","message":{"content":"go on"}}`,
 		usageLine("900", "2", "2026-08-01T00:01:00Z"),
 	})
-	snap := localClaudeFS.lastUsageInFile(p)
+	snap := localClaudeFS.lastUsageInFile(context.Background(), p)
 	if snap == nil {
 		t.Fatal("no snapshot")
 	}
@@ -65,7 +66,7 @@ func TestLastUsageInFile_WidensPastHugeTrailingLines(t *testing.T) {
 	usageTailBudgets = []int64{1 << 10, 4 << 10, 1 << 20} // force two escalations
 	defer func() { usageTailBudgets = orig }()
 
-	snap := localClaudeFS.lastUsageInFile(p)
+	snap := localClaudeFS.lastUsageInFile(context.Background(), p)
 	if snap == nil {
 		t.Fatal("no snapshot: the read failed to widen past the trailing bulk line")
 	}
@@ -78,7 +79,7 @@ func TestLastUsageInFile_WidensPastHugeTrailingLines(t *testing.T) {
 // transcript that has no usage-bearing assistant line at all.
 func TestLastUsageInFile_NoUsage(t *testing.T) {
 	p := writeTranscriptLines(t, []string{`{"type":"user","message":{"content":"hello"}}`})
-	if snap := localClaudeFS.lastUsageInFile(p); snap != nil {
+	if snap := localClaudeFS.lastUsageInFile(context.Background(), p); snap != nil {
 		t.Fatalf("got %+v, want nil", snap)
 	}
 }
@@ -87,10 +88,10 @@ func TestLastUsageInFile_NoUsage(t *testing.T) {
 // its first line is a truncated fragment.
 func TestTailBytes_WholeFileFlag(t *testing.T) {
 	p := writeTranscriptLines(t, []string{"aaaa", "bbbb"})
-	if data, whole, err := localClaudeFS.tailBytes(p, 1<<20); err != nil || !whole || string(data) != "aaaa\nbbbb\n" {
+	if data, whole, err := localClaudeFS.tailBytes(context.Background(), p, 1<<20); err != nil || !whole || string(data) != "aaaa\nbbbb\n" {
 		t.Fatalf("full read: data=%q whole=%v err=%v", data, whole, err)
 	}
-	data, whole, err := localClaudeFS.tailBytes(p, 5)
+	data, whole, err := localClaudeFS.tailBytes(context.Background(), p, 5)
 	if err != nil || whole || string(data) != "bbbb\n" {
 		t.Fatalf("bounded read: data=%q whole=%v err=%v", data, whole, err)
 	}

@@ -524,7 +524,7 @@ func (d *Driver) RefreshModels(ctx context.Context) {
 // DeleteSessionsForDir removes a directory's Claude transcripts on the session's
 // host (empty host = local). Returns how many transcripts were removed.
 func (d *Driver) DeleteSessionsForDir(ctx context.Context, host, sessionID, dir string) (int, error) {
-	return d.claudeFSFor(host).deleteForDir(sessionID, dir)
+	return d.claudeFSFor(host).deleteForDir(ctx, sessionID, dir)
 }
 
 // MakeSpawnDir creates a brand-new project directory for a spawn. The caller is
@@ -538,15 +538,15 @@ func (d *Driver) MakeSpawnDir(ctx context.Context, dir string) error {
 // sidecar dir, and its per-session state, leaving dir-mates intact. Claude-format
 // only — use DeleteSession when the backend may be Codex.
 func (d *Driver) DeleteSessionByIDs(ctx context.Context, host string, ids []string) (int, error) {
-	return d.claudeFSFor(host).deleteByIDs(ids)
+	return d.claudeFSFor(host).deleteByIDs(ctx, ids)
 }
 
 // DeleteSession fully purges a session's on-disk state for its backend: the
 // Claude transcript + sidecar + per-session state dirs, or a Codex session's
 // rollout files. ids is the session's transcript chain (current + rotated prior
 // ids). host empty = local machine.
-func (d *Driver) DeleteSession(agentID, host string, ids []string) (int, error) {
-	return d.transcriptReaderFor(agentID, host).deleteByIDs(ids)
+func (d *Driver) DeleteSession(ctx context.Context, agentID, host string, ids []string) (int, error) {
+	return d.transcriptReaderFor(agentID, host).deleteByIDs(ctx, ids)
 }
 
 // transcriptReader reads a session's past conversation and context snapshot from
@@ -555,15 +555,15 @@ func (d *Driver) DeleteSession(agentID, host string, ids []string) (int, error) 
 // picks by the session's backend so a Codex session's rollout replays on reattach
 // (and is deleted) just like a Claude transcript.
 type transcriptReader interface {
-	readTranscriptChain(ids []string) ([]Message, error)
-	lastContextUsage(ids []string) *ContextSnapshot
-	deleteByIDs(ids []string) (int, error)
+	readTranscriptChain(ctx context.Context, ids []string) ([]Message, error)
+	lastContextUsage(ctx context.Context, ids []string) *ContextSnapshot
+	deleteByIDs(ctx context.Context, ids []string) (int, error)
 	// chainSig is a cheap freshness signature for a chain: two calls returning the
 	// same non-empty string mean readTranscriptChain would return the same
 	// messages. It's what lets a digest be cached across restarts without
 	// re-parsing (see DigestCache). ok=false means this backend can't describe the
 	// chain without doing the expensive read anyway — the caller then recomputes.
-	chainSig(ids []string) (sig string, ok bool)
+	chainSig(ctx context.Context, ids []string) (sig string, ok bool)
 }
 
 // transcriptReaderFor selects the on-disk reader for a session's backend (agent
@@ -588,8 +588,8 @@ func (d *Driver) transcriptReaderFor(agentID, host string) transcriptReader {
 // ReadTranscriptChain reads a session's full history (current + rotated prior ids)
 // from its host (empty host = local), re-indexed contiguously for pagination.
 // agentID selects the backend's on-disk format (Claude transcript vs Codex rollout).
-func (d *Driver) ReadTranscriptChain(agentID, host string, ids []string) ([]Message, error) {
-	return d.transcriptReaderFor(agentID, host).readTranscriptChain(ids)
+func (d *Driver) ReadTranscriptChain(ctx context.Context, agentID, host string, ids []string) ([]Message, error) {
+	return d.transcriptReaderFor(agentID, host).readTranscriptChain(ctx, ids)
 }
 
 // currentHistoryIDs returns the ids under which the session's CURRENT backend
@@ -643,21 +643,21 @@ func (d *Driver) display() *displayMemo {
 //
 // A backend that can't describe its chain cheaply (chainSig ok=false) falls back
 // to the full read, so correctness never depends on the cache being available.
-func (d *Driver) DisplayDigest(live *Session) (count int, hash string, cached bool, err error) {
+func (d *Driver) DisplayDigest(ctx context.Context, live *Session) (count int, hash string, cached bool, err error) {
 	rec := live.Snapshot() // pure reader: one locked view for sig + read
 	// Signature FIRST, then read. If a turn writes to the transcript in between,
 	// we store a newer digest under an older signature — the next call sees a
 	// changed signature, misses, and recomputes. Reading first and statting after
 	// would fail the other way: a newer signature pinned to an older digest, which
 	// never invalidates and leaves the app showing a stale transcript forever.
-	parts := d.displayChainParts(rec)
+	parts := d.displayChainParts(ctx, rec)
 	sig := parts.sig()
 	if parts.ok {
 		if count, hash, ok := d.digests.Get(rec.SessionID, sig); ok {
 			return count, hash, true, nil
 		}
 	}
-	msgs, err := d.readDisplayHistory(rec, parts)
+	msgs, err := d.readDisplayHistory(ctx, rec, parts)
 	if err != nil {
 		return 0, "", false, err
 	}
@@ -674,11 +674,11 @@ func (d *Driver) DisplayDigest(live *Session) (count int, hash string, cached bo
 // It's what the history op should call on a digest miss: DisplayDigest followed by
 // ReadDisplayHistory would stat the whole chain twice (a round trip per transcript
 // over SSH) and then re-derive a digest the cache may already hold.
-func (d *Driver) DisplayHistory(live *Session) (msgs []Message, count int, hash string, err error) {
+func (d *Driver) DisplayHistory(ctx context.Context, live *Session) (msgs []Message, count int, hash string, err error) {
 	rec := live.Snapshot()
-	parts := d.displayChainParts(rec)
+	parts := d.displayChainParts(ctx, rec)
 	sig := parts.sig()
-	msgs, err = d.readDisplayHistory(rec, parts)
+	msgs, err = d.readDisplayHistory(ctx, rec, parts)
 	if err != nil {
 		return nil, 0, "", err
 	}
@@ -734,9 +734,9 @@ const chainSigTTL = 1500 * time.Millisecond
 // the one seam every chain-freshness stat goes through (displayChainParts,
 // SessionContextUsage), so callers arriving within sigTTL of each other share
 // one stat walk instead of each re-statting the chain.
-func (d *Driver) chainSig(agentID, host string, ids []string) (string, bool) {
+func (d *Driver) chainSig(ctx context.Context, agentID, host string, ids []string) (string, bool) {
 	if d.sigTTL <= 0 {
-		return d.transcriptReaderFor(agentID, host).chainSig(ids)
+		return d.transcriptReaderFor(agentID, host).chainSig(ctx, ids)
 	}
 	key := agentID + "\x00" + host + "\x00" + strings.Join(ids, "\x00")
 	now := time.Now()
@@ -746,7 +746,7 @@ func (d *Driver) chainSig(agentID, host string, ids []string) (string, bool) {
 		return e.sig, e.ok
 	}
 	d.sigMu.Unlock()
-	sig, ok := d.transcriptReaderFor(agentID, host).chainSig(ids)
+	sig, ok := d.transcriptReaderFor(agentID, host).chainSig(ctx, ids)
 	d.sigMu.Lock()
 	if d.sigMemo == nil {
 		d.sigMemo = make(map[string]sigMemoEntry)
@@ -770,7 +770,7 @@ func (d *Driver) chainSig(agentID, host string, ids []string) (string, bool) {
 // Each chain signs itself in a single batched stat (statChainSig), and the parts
 // are signed CONCURRENTLY, so a session with a long archived history costs one
 // round trip's latency rather than one per segment.
-func (d *Driver) displayChainParts(rec *Session) chainParts {
+func (d *Driver) displayChainParts(ctx context.Context, rec *Session) chainParts {
 	p := chainParts{segs: make([]string, len(rec.History)), ok: true}
 	oks := make([]bool, len(rec.History))
 	var wg sync.WaitGroup
@@ -778,7 +778,7 @@ func (d *Driver) displayChainParts(rec *Session) chainParts {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if sig, ok := d.chainSig(seg.Agent, seg.Host, seg.IDs); ok {
+			if sig, ok := d.chainSig(ctx, seg.Agent, seg.Host, seg.IDs); ok {
 				p.segs[i], oks[i] = seg.Agent+"@"+sig, true
 			}
 		}()
@@ -788,7 +788,7 @@ func (d *Driver) displayChainParts(rec *Session) chainParts {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		curSig, curOK = d.chainSig(rec.Agent, rec.Host, d.currentHistoryIDs(rec))
+		curSig, curOK = d.chainSig(ctx, rec.Agent, rec.Host, d.currentHistoryIDs(rec))
 	}()
 	wg.Wait()
 
@@ -812,15 +812,15 @@ func (d *Driver) displayChainParts(rec *Session) chainParts {
 // logged and skipped (best-effort scrollback); only the current backend's read fails
 // the call, matching pre-split behavior. With no History this equals the old
 // ReadTranscriptChain(current) exactly.
-func (d *Driver) ReadDisplayHistory(live *Session) ([]Message, error) {
+func (d *Driver) ReadDisplayHistory(ctx context.Context, live *Session) ([]Message, error) {
 	rec := live.Snapshot() // pure reader: History/Agent/ids from one locked view
-	return d.readDisplayHistory(rec, d.displayChainParts(rec))
+	return d.readDisplayHistory(ctx, rec, d.displayChainParts(ctx, rec))
 }
 
 // readDisplayHistory is ReadDisplayHistory against an already-taken snapshot and
 // an already-computed chain signature, served from the display memo when nothing
 // it reads has moved (and per archived segment when only the current chain has).
-func (d *Driver) readDisplayHistory(rec *Session, parts chainParts) ([]Message, error) {
+func (d *Driver) readDisplayHistory(ctx context.Context, rec *Session, parts chainParts) ([]Message, error) {
 	if msgs, ok := d.display().getWhole(rec.SessionID, parts.sig()); ok {
 		return msgs, nil
 	}
@@ -835,7 +835,7 @@ func (d *Driver) readDisplayHistory(rec *Session, parts chainParts) ([]Message, 
 			all = append(all, msgs...)
 			continue
 		}
-		msgs, err := d.transcriptReaderFor(seg.Agent, seg.Host).readTranscriptChain(seg.IDs)
+		msgs, err := d.transcriptReaderFor(seg.Agent, seg.Host).readTranscriptChain(ctx, seg.IDs)
 		if err != nil {
 			log.Printf("display history[%s]: read archived %s segment: %v", rec.Name, seg.Agent, err)
 			degraded = true
@@ -844,7 +844,7 @@ func (d *Driver) readDisplayHistory(rec *Session, parts chainParts) ([]Message, 
 		d.display().putSegment(key, msgs)
 		all = append(all, msgs...)
 	}
-	cur, err := d.transcriptReaderFor(rec.Agent, rec.Host).readTranscriptChain(d.currentHistoryIDs(rec))
+	cur, err := d.transcriptReaderFor(rec.Agent, rec.Host).readTranscriptChain(ctx, d.currentHistoryIDs(rec))
 	if err != nil {
 		return nil, err
 	}
@@ -863,17 +863,17 @@ func (d *Driver) readDisplayHistory(rec *Session, parts chainParts) ([]Message, 
 // the current backend's chain. Use for a full session delete so a backend switched
 // away from doesn't orphan its transcripts. Returns the count removed; best-effort
 // per segment (a segment error is logged, not fatal).
-func (d *Driver) DeleteSessionAll(live *Session) (int, error) {
+func (d *Driver) DeleteSessionAll(ctx context.Context, live *Session) (int, error) {
 	rec := live.Snapshot() // pure reader: one locked view of the whole chain
 	total := 0
 	for _, seg := range rec.History {
-		n, err := d.purgeSegment(rec.Name, seg.Agent, seg.Host, seg.IDs)
+		n, err := d.purgeSegment(ctx, rec.Name, seg.Agent, seg.Host, seg.IDs)
 		if err != nil {
 			log.Printf("delete session[%s]: purge archived %s segment: %v", rec.Name, seg.Agent, err)
 		}
 		total += n
 	}
-	n, err := d.purgeSegment(rec.Name, rec.Agent, rec.Host, d.currentHistoryIDs(rec))
+	n, err := d.purgeSegment(ctx, rec.Name, rec.Agent, rec.Host, d.currentHistoryIDs(rec))
 	total += n
 	return total, err
 }
@@ -884,7 +884,7 @@ func (d *Driver) DeleteSessionAll(live *Session) (int, error) {
 // box" instant — the alternative is a dial timeout per remote command, which read
 // to the user as a hung delete on the very session they were trying to be rid of.
 // Without a queue wired it falls back to attempting the purge (previous behavior).
-func (d *Driver) purgeSegment(name, agentID, host string, ids []string) (int, error) {
+func (d *Driver) purgeSegment(ctx context.Context, name, agentID, host string, ids []string) (int, error) {
 	if len(ids) == 0 {
 		return 0, nil
 	}
@@ -896,7 +896,7 @@ func (d *Driver) purgeSegment(name, agentID, host string, ids []string) (int, er
 			return 0, nil
 		}
 	}
-	n, err := d.transcriptReaderFor(agentID, host).deleteByIDs(ids)
+	n, err := d.transcriptReaderFor(agentID, host).deleteByIDs(ctx, ids)
 	if err != nil && d.purges != nil {
 		// The host looked up but the purge failed (it went away mid-delete, or a
 		// command timed out). Owe it rather than leaking the files.
@@ -908,12 +908,12 @@ func (d *Driver) purgeSegment(name, agentID, host string, ids []string) (int, er
 // RetryPurges attempts every deferred purge whose host is reachable again and
 // drops the ones that succeed. Cheap and safe to call on a ticker: items on a
 // still-down host cost one non-blocking Down() check each.
-func (d *Driver) RetryPurges() int {
+func (d *Driver) RetryPurges(ctx context.Context) int {
 	return d.purges.Resolve(func(it PurgeItem) bool {
 		if _, down := d.hostPool().Down(it.Host); down {
 			return false
 		}
-		n, err := d.transcriptReaderFor(it.Agent, it.Host).deleteByIDs(it.IDs)
+		n, err := d.transcriptReaderFor(it.Agent, it.Host).deleteByIDs(ctx, it.IDs)
 		if err != nil {
 			return false
 		}
@@ -925,8 +925,8 @@ func (d *Driver) RetryPurges() int {
 // LastContextUsage returns a session's live context snapshot (last usage-bearing
 // turn) read from its host (empty host = local); nil if none yet. agentID selects
 // the backend's on-disk format.
-func (d *Driver) LastContextUsage(agentID, host string, ids []string) *ContextSnapshot {
-	return d.transcriptReaderFor(agentID, host).lastContextUsage(ids)
+func (d *Driver) LastContextUsage(ctx context.Context, agentID, host string, ids []string) *ContextSnapshot {
+	return d.transcriptReaderFor(agentID, host).lastContextUsage(ctx, ids)
 }
 
 // CachedSessionContextUsage is the last context snapshot known for a session
@@ -948,7 +948,7 @@ func (d *Driver) CachedSessionContextUsage(live *Session) *ContextSnapshot {
 // Prefer it over LastContextUsage anywhere a *Session is in hand — above all on
 // attach, which blocks the `attached` ack on this lookup. See UsageCache for why
 // the underlying read is expensive and why the in-memory cache can't cover it.
-func (d *Driver) SessionContextUsage(live *Session) *ContextSnapshot {
+func (d *Driver) SessionContextUsage(ctx context.Context, live *Session) *ContextSnapshot {
 	rec := live.Snapshot() // one locked view: the sig and the ids must describe the same moment
 	ids := rec.TranscriptIDs()
 	reader := d.transcriptReaderFor(rec.Agent, rec.Host)
@@ -956,14 +956,14 @@ func (d *Driver) SessionContextUsage(live *Session) *ContextSnapshot {
 	// landing in between stores a newer snapshot under an older signature, which
 	// simply misses next time. The reverse pins a newer signature to an older
 	// snapshot, which never invalidates.
-	sig, cacheable := d.chainSig(rec.Agent, rec.Host, ids)
+	sig, cacheable := d.chainSig(ctx, rec.Agent, rec.Host, ids)
 	if cacheable {
 		sig = rec.Agent + "@" + sig
 		if snap, ok := d.usage.Get(rec.SessionID, sig); ok {
 			return snap
 		}
 	}
-	snap := reader.lastContextUsage(ids)
+	snap := reader.lastContextUsage(ctx, ids)
 	if cacheable {
 		d.usage.Put(rec.SessionID, sig, snap)
 	}

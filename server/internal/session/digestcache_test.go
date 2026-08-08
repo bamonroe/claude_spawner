@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -90,9 +91,9 @@ func TestStatChainSigTracksSizeAndMtime(t *testing.T) {
 	if err := os.WriteFile(path, []byte("aaaa"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	resolve := func(string) string { return path }
+	resolve := func(context.Context, string) string { return path }
 
-	first, ok := statChainSig(localClaudeFS, resolve, []string{"id"})
+	first, ok := statChainSig(context.Background(), localClaudeFS, resolve, []string{"id"})
 	if !ok || first == "" {
 		t.Fatal("expected a usable signature")
 	}
@@ -100,7 +101,7 @@ func TestStatChainSigTracksSizeAndMtime(t *testing.T) {
 	if err := os.WriteFile(path, []byte("aaaaaaaa"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	grown, _ := statChainSig(localClaudeFS, resolve, []string{"id"})
+	grown, _ := statChainSig(context.Background(), localClaudeFS, resolve, []string{"id"})
 	if grown == first {
 		t.Fatal("a size change must change the signature")
 	}
@@ -113,7 +114,7 @@ func TestStatChainSigTracksSizeAndMtime(t *testing.T) {
 	if err := os.Chtimes(path, future, future); err != nil {
 		t.Fatal(err)
 	}
-	touched, _ := statChainSig(localClaudeFS, resolve, []string{"id"})
+	touched, _ := statChainSig(context.Background(), localClaudeFS, resolve, []string{"id"})
 	if touched == grown {
 		t.Fatal("a same-size rewrite with a new mtime must change the signature")
 	}
@@ -124,20 +125,20 @@ func TestStatChainSigTracksSizeAndMtime(t *testing.T) {
 func TestStatChainSigInvalidatesWhenAnAbsentTranscriptAppears(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "later.jsonl")
-	resolve := func(string) string {
+	resolve := func(context.Context, string) string {
 		if _, err := os.Stat(path); err != nil {
 			return ""
 		}
 		return path
 	}
-	absent, ok := statChainSig(localClaudeFS, resolve, []string{"id"})
+	absent, ok := statChainSig(context.Background(), localClaudeFS, resolve, []string{"id"})
 	if !ok {
 		t.Fatal("an absent transcript should still produce a signature")
 	}
 	if err := os.WriteFile(path, []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	present, _ := statChainSig(localClaudeFS, resolve, []string{"id"})
+	present, _ := statChainSig(context.Background(), localClaudeFS, resolve, []string{"id"})
 	if present == absent {
 		t.Fatal("a transcript appearing must change the signature")
 	}
@@ -182,9 +183,9 @@ func TestDigestCacheConcurrentPutsAllPersist(t *testing.T) {
 func TestStatChainSigHandlesADeterministicPathThatDoesNotExist(t *testing.T) {
 	dir := t.TempDir()
 	missing := filepath.Join(dir, "never-created.jsonl")
-	resolve := func(string) string { return missing } // deterministic, not a glob
+	resolve := func(context.Context, string) string { return missing } // deterministic, not a glob
 
-	sig, ok := statChainSig(localClaudeFS, resolve, []string{"id"})
+	sig, ok := statChainSig(context.Background(), localClaudeFS, resolve, []string{"id"})
 	if !ok {
 		t.Fatal("a deterministic path to a missing file must still be cacheable")
 	}
@@ -195,7 +196,7 @@ func TestStatChainSigHandlesADeterministicPathThatDoesNotExist(t *testing.T) {
 	if err := os.WriteFile(missing, []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if now, _ := statChainSig(localClaudeFS, resolve, []string{"id"}); now == sig {
+	if now, _ := statChainSig(context.Background(), localClaudeFS, resolve, []string{"id"}); now == sig {
 		t.Fatal("the signature must change once the transcript appears")
 	}
 }

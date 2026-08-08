@@ -1,6 +1,9 @@
 package gateway
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // purgeRetryTick is how often the server retries transcript purges owed by
 // deletes made while a host was unreachable. Deliberately slow: the debt is
@@ -18,6 +21,6 @@ func (s *Server) purgeRetryLoop() {
 	t := time.NewTicker(purgeRetryTick)
 	defer t.Stop()
 	for range t.C {
-		s.driver.RetryPurges()
+		s.driver.RetryPurges(context.Background())
 	}
 }

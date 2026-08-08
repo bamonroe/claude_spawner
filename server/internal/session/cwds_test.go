@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,7 +25,7 @@ func TestCwdsReadsOnlyABoundedHead(t *testing.T) {
 	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := localClaudeFS.cwds([]string{path})[path]; got != "/data/claude_spawner" {
+	if got := localClaudeFS.cwds(context.Background(), []string{path})[path]; got != "/data/claude_spawner" {
 		t.Fatalf("cwds = %q, want /data/claude_spawner", got)
 	}
 }
@@ -40,7 +41,7 @@ func TestCwdsBoundIsBytesNotLines(t *testing.T) {
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := localClaudeFS.cwds([]string{path})[path]; got != "" {
+	if got := localClaudeFS.cwds(context.Background(), []string{path})[path]; got != "" {
 		t.Fatalf("cwds = %q, want empty (cwd sits past the head budget)", got)
 	}
 }
@@ -54,7 +55,7 @@ func TestCwdsSkipsMissingAndCwdlessFiles(t *testing.T) {
 	if err := os.WriteFile(nocwd, []byte("{\"type\":\"summary\"}\nnot json\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	got := localClaudeFS.cwds([]string{missing, nocwd})
+	got := localClaudeFS.cwds(context.Background(), []string{missing, nocwd})
 	if _, ok := got[missing]; ok {
 		t.Fatal("missing file should not appear in the result")
 	}

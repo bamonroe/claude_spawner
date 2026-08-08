@@ -450,6 +450,15 @@ retry window instead of paying another full dial timeout — serialized, at that
 lock. This is what keeps one unreachable machine from turning a digest sweep, a chainSig batch, or a
 context-usage read into minutes of stall: a dead host costs microseconds per call, not 15 s.
 
+A host that is merely **slow** (dialable, but crawling) is handled the other way round: the whole
+transcript read path — `Driver.DisplayDigest`/`DisplayHistory`, the `transcriptReader` interface,
+and `claudeFS`'s SSH probes down to `SSHPool.Run` — takes a `context.Context`, so a caller's
+deadline reaches the remote command instead of being wrapped around a blocking call. The
+connect-time **digest sweep** uses that: each session gets its own deadline (8 s) and the frame is
+sent with whatever answered. A session that misses it is simply omitted, which the app already
+treats as "keep the cached transcript", and the next sweep retries it — so one slow box no longer
+gates every other session's cache validation.
+
 The pool also answers the question **non-blockingly**: `SSHPool.Down(host)` reports whether a host
 is inside that window without ever waiting on the entry lock (a dial in flight answers "unknown"),
 so work that should *degrade* rather than hang can ask first. **Session delete** is the case that

@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -88,7 +89,7 @@ func (s *Server) discoverSnapshot() ([]session.Discovered, bool) {
 // previous list and its timestamp alone, so a transient host outage doesn't
 // throw away a good memo.
 func (s *Server) refreshAttachDiscovery(done chan struct{}) {
-	found, err := s.driver.DiscoverSessions("")
+	found, err := s.driver.DiscoverSessions(context.Background(), "")
 	d := &s.discoverMemo
 	d.mu.Lock()
 	if err == nil {

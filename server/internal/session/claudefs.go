@@ -64,11 +64,12 @@ func (fs claudeFS) cacheKey(path string) string {
 // probes are inside the connection's channel budget: the digest sweep fans
 // several of them out at once, and un-budgeted they were what pushed a pooled
 // client past the peer's MaxSessions and got it wrongly dropped as stale.
-// The deadline bounds the wait for a channel slot as much as the command: these
-// probes have no caller-supplied context, and an unbounded wait behind a busy
-// connection would hang a history read rather than fail it.
-func (r *sshFS) output(cmd string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), remoteProbeTimeout)
+// The caller's context is honored and additionally capped at remoteProbeTimeout:
+// the deadline bounds the wait for a channel slot as much as the command, so an
+// unbounded wait behind a busy connection fails a read rather than hanging it. A
+// caller with a tighter deadline (the digest sweep's per-session budget) wins.
+func (r *sshFS) output(ctx context.Context, cmd string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, remoteProbeTimeout)
 	defer cancel()
 	return r.pool.Run(ctx, r.host, cmd)
 }
@@ -79,7 +80,7 @@ const remoteProbeTimeout = 30 * time.Second
 
 // listAllTranscripts returns every session transcript under ~/.claude/projects with
 // its mtime, newest-first ordering left to the caller.
-func (fs claudeFS) listAllTranscripts() ([]transcriptRef, error) {
+func (fs claudeFS) listAllTranscripts(ctx context.Context) ([]transcriptRef, error) {
 	if fs.remote == nil {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -98,7 +99,7 @@ func (fs claudeFS) listAllTranscripts() ([]transcriptRef, error) {
 	}
 	// One round trip: mtime + path for every transcript. `|| true` so a missing
 	// projects dir yields an empty list rather than a non-zero exit / error.
-	out, err := fs.remote.output(`find "$HOME/.claude/projects" -maxdepth 2 -name '*.jsonl' -printf '%T@ %p\n' 2>/dev/null || true`)
+	out, err := fs.remote.output(ctx, `find "$HOME/.claude/projects" -maxdepth 2 -name '*.jsonl' -printf '%T@ %p\n' 2>/dev/null || true`)
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +145,7 @@ func (fs claudeFS) forgetPath(sessionID string) {
 // findByID returns the transcript path for a session_id (globbed across the opaque
 // project-dir encoding), or "" if not found. A successful resolution is memoized;
 // see transcriptPathCache.
-func (fs claudeFS) findByID(sessionID string) string {
+func (fs claudeFS) findByID(ctx context.Context, sessionID string) string {
 	if sessionID == "" {
 		return ""
 	}
@@ -152,7 +153,7 @@ func (fs claudeFS) findByID(sessionID string) string {
 		// Local resolution is a filepath.Glob — cheap, and relative to $HOME, which
 		// is not part of the cache key. Only the remote backend (an SSH round trip
 		// per lookup) is worth memoizing, and it is the one that hurt.
-		return fs.resolveByID(sessionID)
+		return fs.resolveByID(ctx, sessionID)
 	}
 	key := fs.cacheKey(sessionID)
 	transcriptPathMu.Lock()
@@ -161,7 +162,7 @@ func (fs claudeFS) findByID(sessionID string) string {
 	if hit {
 		return cached
 	}
-	path := fs.resolveByID(sessionID)
+	path := fs.resolveByID(ctx, sessionID)
 	if path != "" {
 		transcriptPathMu.Lock()
 		transcriptPathCache[key] = path
@@ -171,7 +172,7 @@ func (fs claudeFS) findByID(sessionID string) string {
 }
 
 // resolveByID is findByID's uncached lookup: the actual glob on the target host.
-func (fs claudeFS) resolveByID(sessionID string) string {
+func (fs claudeFS) resolveByID(ctx context.Context, sessionID string) string {
 	if fs.remote == nil {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -186,7 +187,7 @@ func (fs claudeFS) resolveByID(sessionID string) string {
 	if !looksLikeUUID(sessionID) {
 		return "" // guard the value we interpolate into the remote glob
 	}
-	out, err := fs.remote.output(`ls -1d "$HOME/.claude/projects/"*/` + sessionID + `.jsonl 2>/dev/null || true`)
+	out, err := fs.remote.output(ctx, `ls -1d "$HOME/.claude/projects/"*/`+sessionID+`.jsonl 2>/dev/null || true`)
 	if err != nil {
 		return ""
 	}
@@ -200,12 +201,12 @@ func (fs claudeFS) resolveByID(sessionID string) string {
 
 // listDirTranscripts returns the *.jsonl transcripts in the same project folder as
 // dir (an absolute transcript-sibling directory on the target host).
-func (fs claudeFS) listDirTranscripts(dir string) []string {
+func (fs claudeFS) listDirTranscripts(ctx context.Context, dir string) []string {
 	if fs.remote == nil {
 		matches, _ := filepath.Glob(filepath.Join(dir, "*.jsonl"))
 		return matches
 	}
-	out, err := fs.remote.output(`ls -1d ` + shellQuote(dir) + `/*.jsonl 2>/dev/null || true`)
+	out, err := fs.remote.output(ctx, `ls -1d `+shellQuote(dir)+`/*.jsonl 2>/dev/null || true`)
 	if err != nil {
 		return nil
 	}
@@ -221,8 +222,8 @@ func (fs claudeFS) listDirTranscripts(dir string) []string {
 // stat returns a transcript's size and mtime (the parse-cache key). ok is false
 // when the file can't be stat'd, so the caller parses uncached rather than trusting
 // a stale cache entry.
-func (fs claudeFS) stat(path string) (size int64, mod time.Time, ok bool) {
-	st, hit := fs.statMany([]string{path})[path]
+func (fs claudeFS) stat(ctx context.Context, path string) (size int64, mod time.Time, ok bool) {
+	st, hit := fs.statMany(ctx, []string{path})[path]
 	return st.size, st.mod, hit
 }
 
@@ -236,7 +237,7 @@ type fileStat struct {
 // paths that stat'd — a missing entry means "couldn't stat", the same signal
 // stat's ok=false carries. This is the seam every freshness check goes through:
 // signing a chain of N transcripts is one round trip, not N.
-func (fs claudeFS) statMany(paths []string) map[string]fileStat {
+func (fs claudeFS) statMany(ctx context.Context, paths []string) map[string]fileStat {
 	out := make(map[string]fileStat, len(paths))
 	if len(paths) == 0 {
 		return out
@@ -261,7 +262,7 @@ func (fs claudeFS) statMany(paths []string) map[string]fileStat {
 		// The path is printed separately from stat's format so a '%' in a path
 		// can never be read as a format directive.
 		cmd.WriteString(`; do printf '%s\t' "$p"; stat -c '%s %Y' "$p" 2>/dev/null; echo; done`)
-		blob, err := fs.remote.output(cmd.String())
+		blob, err := fs.remote.output(ctx, cmd.String())
 		if err != nil {
 			continue
 		}
@@ -289,11 +290,11 @@ func (fs claudeFS) statMany(paths []string) map[string]fileStat {
 // whole file is fetched (cat) into memory — the working set is a handful of
 // sessions; a genuinely missing/unreadable file yields errRemoteMissing so the
 // caller treats it like a local os.IsNotExist.
-func (fs claudeFS) open(path string) (io.ReadCloser, error) {
+func (fs claudeFS) open(ctx context.Context, path string) (io.ReadCloser, error) {
 	if fs.remote == nil {
 		return os.Open(path)
 	}
-	out, err := fs.remote.output(`cat ` + shellQuote(path))
+	out, err := fs.remote.output(ctx, `cat `+shellQuote(path))
 	if err != nil {
 		return nil, errRemoteMissing
 	}
@@ -310,7 +311,7 @@ func (fs claudeFS) open(path string) (io.ReadCloser, error) {
 // reach tens of megabytes, and reading one through `open` is a full `cat` over
 // SSH — paid once per turn, right in the critical path, on a file the turn just
 // grew (so the parse cache is guaranteed cold).
-func (fs claudeFS) tailBytes(path string, n int64) (data []byte, whole bool, err error) {
+func (fs claudeFS) tailBytes(ctx context.Context, path string, n int64) (data []byte, whole bool, err error) {
 	if n <= 0 {
 		return nil, false, nil
 	}
@@ -334,7 +335,7 @@ func (fs claudeFS) tailBytes(path string, n int64) (data []byte, whole bool, err
 		}
 		return buf, off == 0, nil
 	}
-	out, err := fs.remote.output(fmt.Sprintf("tail -c %d %s", n, shellQuote(path)))
+	out, err := fs.remote.output(ctx, fmt.Sprintf("tail -c %d %s", n, shellQuote(path)))
 	if err != nil {
 		return nil, false, errRemoteMissing
 	}
@@ -375,7 +376,7 @@ const cwdPattern = `"cwd":"[^"\\]*"`
 // this loopback SSH channel sustains, i.e. ~44 s per sweep. Extracting remotely
 // makes the payload a few KB. Paths whose cwd can't be recovered are absent from
 // the result.
-func (fs claudeFS) cwds(paths []string) map[string]string {
+func (fs claudeFS) cwds(ctx context.Context, paths []string) map[string]string {
 	out := make(map[string]string, len(paths))
 	if fs.remote == nil {
 		for _, p := range paths {
@@ -397,7 +398,7 @@ func (fs claudeFS) cwds(paths []string) map[string]string {
 		// from failing the whole command.
 		fmt.Fprintf(&cmd, `; do printf '%%s\t' "$p"; { head -c %d "$p" 2>/dev/null | grep -aom1 %s || true; }; echo; done`,
 			cwdHeadBytes, shellQuote(cwdPattern))
-		blob, err := fs.remote.output(cmd.String())
+		blob, err := fs.remote.output(ctx, cmd.String())
 		if err != nil {
 			continue
 		}
@@ -449,14 +450,14 @@ func cwdFromMatch(match string) string {
 }
 
 // remove deletes a transcript file (idempotent; a missing file is not an error).
-func (fs claudeFS) remove(path string) error {
+func (fs claudeFS) remove(ctx context.Context, path string) error {
 	if fs.remote == nil {
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			return err
 		}
 		return nil
 	}
-	_, err := fs.remote.output(`rm -f ` + shellQuote(path))
+	_, err := fs.remote.output(ctx, `rm -f `+shellQuote(path))
 	return err
 }
 
@@ -476,8 +477,8 @@ func (fs claudeFS) isMissing(err error) bool {
 // adoptable rows): collapsing here starved registered dir-mates of their own
 // last-active time, sinking them to the bottom of the app's sidebar.
 // (Backend-neutral; see DiscoverSessions.)
-func (fs claudeFS) discoverSessions() ([]Discovered, error) {
-	refs, err := fs.listAllTranscripts()
+func (fs claudeFS) discoverSessions(ctx context.Context) ([]Discovered, error) {
+	refs, err := fs.listAllTranscripts(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -490,7 +491,7 @@ func (fs claudeFS) discoverSessions() ([]Discovered, error) {
 			paths = append(paths, ref.path)
 		}
 	}
-	dirByPath := fs.cwds(paths)
+	dirByPath := fs.cwds(ctx, paths)
 	out := make([]Discovered, 0, len(refs))
 	for _, ref := range refs {
 		id := strings.TrimSuffix(filepath.Base(ref.path), ".jsonl")
@@ -518,11 +519,11 @@ var perSessionStateDirs = []string{"tasks", "file-history", "session-env"}
 
 // removeAll recursively deletes a path (file or directory), tolerating absence —
 // the recursive counterpart to remove, for the per-session state directories.
-func (fs claudeFS) removeAll(path string) error {
+func (fs claudeFS) removeAll(ctx context.Context, path string) error {
 	if fs.remote == nil {
 		return os.RemoveAll(path)
 	}
-	_, err := fs.remote.output(`rm -rf ` + shellQuote(path))
+	_, err := fs.remote.output(ctx, `rm -rf `+shellQuote(path))
 	return err
 }
 
@@ -531,7 +532,7 @@ func (fs claudeFS) removeAll(path string) error {
 // projects/<dir>/<id>/ sidecar are handled by the caller (they hang off the
 // transcript path); this covers the state that lives outside projects/. id is
 // UUID-validated before it's interpolated into any path/shell command.
-func (fs claudeFS) purgeSessionState(id string) error {
+func (fs claudeFS) purgeSessionState(ctx context.Context, id string) error {
 	if !looksLikeUUID(id) {
 		return nil // never build a path/command from an untrusted value
 	}
@@ -552,7 +553,7 @@ func (fs claudeFS) purgeSessionState(id string) error {
 		// id is UUID-validated and sub is a constant, so $HOME can expand unquoted.
 		b.WriteString(` "$HOME/.claude/` + sub + `/` + id + `"`)
 	}
-	_, err := fs.remote.output("rm -rf" + b.String())
+	_, err := fs.remote.output(ctx, "rm -rf"+b.String())
 	return err
 }
 
@@ -560,23 +561,23 @@ func (fs claudeFS) purgeSessionState(id string) error {
 // projects/<dir>/<id>/ sidecar alongside it (subagents + tool results), and its
 // per-session state dirs. Missing paths are fine. Reports whether a transcript
 // existed, so callers can count real deletions.
-func (fs claudeFS) purgeByID(id string) (bool, error) {
+func (fs claudeFS) purgeByID(ctx context.Context, id string) (bool, error) {
 	had := false
 	defer fs.forgetPath(id) // the path is about to stop existing
-	if p := fs.findByID(id); p != "" {
+	if p := fs.findByID(ctx, id); p != "" {
 		// Transcript and sidecar share a stem: projects/<dir>/<id>.jsonl and
 		// projects/<dir>/<id>/. Deriving the sidecar from the found path hits the
 		// right (opaque) project-dir encoding without re-globbing.
 		sidecar := strings.TrimSuffix(p, ".jsonl")
-		if err := fs.remove(p); err != nil {
+		if err := fs.remove(ctx, p); err != nil {
 			return false, err
 		}
-		if err := fs.removeAll(sidecar); err != nil {
+		if err := fs.removeAll(ctx, sidecar); err != nil {
 			return true, err
 		}
 		had = true
 	}
-	if err := fs.purgeSessionState(id); err != nil {
+	if err := fs.purgeSessionState(ctx, id); err != nil {
 		return had, err
 	}
 	return had, nil
@@ -589,13 +590,13 @@ func (fs claudeFS) purgeByID(id string) (bool, error) {
 // three or four SSH round trips per id (glob, rm, rm -rf sidecar, rm -rf state),
 // which is what made deleting a much-cleared session — many rotated prior ids —
 // take ten to thirty round trips before the row disappeared.
-func (fs claudeFS) deleteByIDs(ids []string) (int, error) {
+func (fs claudeFS) deleteByIDs(ctx context.Context, ids []string) (int, error) {
 	if fs.remote != nil {
-		return fs.deleteByIDsRemote(ids)
+		return fs.deleteByIDsRemote(ctx, ids)
 	}
 	n := 0
 	for _, id := range ids {
-		had, err := fs.purgeByID(id)
+		had, err := fs.purgeByID(ctx, id)
 		if err != nil {
 			return n, err
 		}
@@ -612,7 +613,7 @@ func (fs claudeFS) deleteByIDs(ids []string) (int, error) {
 // stand in for the opaque project-dir encoding, so no separate lookup is needed;
 // an unmatched glob stays literal and `rm -rf` on it is a no-op. Every id is
 // UUID-validated before it reaches the command.
-func (fs claudeFS) deleteByIDsRemote(ids []string) (int, error) {
+func (fs claudeFS) deleteByIDsRemote(ctx context.Context, ids []string) (int, error) {
 	var safe []string
 	for _, id := range ids {
 		if looksLikeUUID(id) {
@@ -635,7 +636,7 @@ func (fs claudeFS) deleteByIDsRemote(ids []string) (int, error) {
 		`for p in "$HOME/.claude/projects/"*/"$id.jsonl"; do [ -e "$p" ] && echo "$id"; done; ` +
 		`rm -rf "$HOME/.claude/projects/"*/"$id.jsonl" "$HOME/.claude/projects/"*/"$id"` + state.String() + `; ` +
 		`done`
-	out, err := fs.remote.output(cmd)
+	out, err := fs.remote.output(ctx, cmd)
 	if err != nil {
 		return 0, err
 	}
@@ -650,18 +651,18 @@ func (fs claudeFS) deleteByIDsRemote(ids []string) (int, error) {
 
 // deleteForDir fully purges EVERY session whose working directory is dir (legacy
 // whole-directory delete). anySessionID locates the project folder.
-func (fs claudeFS) deleteForDir(anySessionID, dir string) (int, error) {
-	path := fs.findByID(anySessionID)
+func (fs claudeFS) deleteForDir(ctx context.Context, anySessionID, dir string) (int, error) {
+	path := fs.findByID(ctx, anySessionID)
 	if path == "" {
 		return 0, nil
 	}
 	n := 0
-	for _, f := range fs.listDirTranscripts(filepath.Dir(path)) {
-		if fs.transcriptCwd(f) != dir {
+	for _, f := range fs.listDirTranscripts(ctx, filepath.Dir(path)) {
+		if fs.transcriptCwd(ctx, f) != dir {
 			continue
 		}
 		id := strings.TrimSuffix(filepath.Base(f), ".jsonl")
-		if _, err := fs.purgeByID(id); err != nil {
+		if _, err := fs.purgeByID(ctx, id); err != nil {
 			return n, err
 		}
 		n++
@@ -703,16 +704,16 @@ func (d *Driver) claudeFSFor(host string) claudeFS {
 // The whole chain is stat'd in ONE batch (statMany), so a freshness check is a
 // single round trip however long the chain is; only ids whose memoized path failed
 // to stat cost a second, smaller batch after re-resolving.
-func statChainSig(fs claudeFS, resolve func(string) string, ids []string) (string, bool) {
+func statChainSig(ctx context.Context, fs claudeFS, resolve func(context.Context, string) string, ids []string) (string, bool) {
 	paths := make([]string, len(ids))
 	var want []string
 	for i, id := range ids {
-		paths[i] = resolve(id)
+		paths[i] = resolve(ctx, id)
 		if paths[i] != "" {
 			want = append(want, paths[i])
 		}
 	}
-	stats := fs.statMany(want)
+	stats := fs.statMany(ctx, want)
 
 	// The memoized path no longer stats: re-resolve once before believing the file
 	// is gone, so a project-dir rename or an out-of-band move recovers immediately
@@ -727,13 +728,13 @@ func statChainSig(fs claudeFS, resolve func(string) string, ids []string) (strin
 			continue
 		}
 		fs.forgetPath(ids[i])
-		if again := resolve(ids[i]); again != "" && again != path {
+		if again := resolve(ctx, ids[i]); again != "" && again != path {
 			retryFor[i] = again
 			retry = append(retry, again)
 		}
 	}
 	if len(retry) > 0 {
-		found := fs.statMany(retry)
+		found := fs.statMany(ctx, retry)
 		for i, again := range retryFor {
 			if st, ok := found[again]; ok {
 				// The re-resolved path is what the signature now describes; a
@@ -763,6 +764,6 @@ func statChainSig(fs claudeFS, resolve func(string) string, ids []string) (strin
 }
 
 // chainSig for Claude-style transcripts: stat each id's transcript.
-func (fs claudeFS) chainSig(ids []string) (string, bool) {
-	return statChainSig(fs, fs.findByID, ids)
+func (fs claudeFS) chainSig(ctx context.Context, ids []string) (string, bool) {
+	return statChainSig(ctx, fs, fs.findByID, ids)
 }

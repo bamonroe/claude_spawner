@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -26,7 +27,7 @@ type codexFS struct {
 // findByID returns the rollout path for a Codex thread_id (the trailing UUID in
 // the rollout filename), globbed across the date-partitioned session tree, or ""
 // if not found. Overrides claudeFS.findByID (which globs ~/.claude/projects).
-func (fs codexFS) findByID(sessionID string) string {
+func (fs codexFS) findByID(ctx context.Context, sessionID string) string {
 	if sessionID == "" {
 		return ""
 	}
@@ -44,7 +45,7 @@ func (fs codexFS) findByID(sessionID string) string {
 	if !looksLikeUUID(sessionID) {
 		return "" // guard the value we interpolate into the remote glob
 	}
-	out, err := fs.remote.output(`ls -1d "$HOME/.codex/sessions/"*/*/*/rollout-*-` + sessionID + `.jsonl 2>/dev/null || true`)
+	out, err := fs.remote.output(ctx, `ls -1d "$HOME/.codex/sessions/"*/*/*/rollout-*-`+sessionID+`.jsonl 2>/dev/null || true`)
 	if err != nil {
 		return ""
 	}
@@ -61,14 +62,14 @@ func (fs codexFS) findByID(sessionID string) string {
 // per-session state dirs like Claude — so removing it leaves nothing behind.
 // Overrides claudeFS.deleteByIDs (embedding gives no virtual dispatch, and the
 // Claude path glob wouldn't find a rollout under ~/.codex).
-func (fs codexFS) deleteByIDs(ids []string) (int, error) {
+func (fs codexFS) deleteByIDs(ctx context.Context, ids []string) (int, error) {
 	n := 0
 	for _, id := range ids {
-		p := fs.findByID(id)
+		p := fs.findByID(ctx, id)
 		if p == "" {
 			continue
 		}
-		if err := fs.remove(p); err != nil {
+		if err := fs.remove(ctx, p); err != nil {
 			return n, err
 		}
 		n++
@@ -80,10 +81,10 @@ func (fs codexFS) deleteByIDs(ids []string) (int, error) {
 // into one re-indexed conversation, mirroring claudeFS.readTranscriptChain but
 // against Codex's rollout files and parser. (Embedding gives no virtual dispatch,
 // so the chain/usage helpers are restated here to bind to codexFS's overrides.)
-func (fs codexFS) readTranscriptChain(ids []string) ([]Message, error) {
+func (fs codexFS) readTranscriptChain(ctx context.Context, ids []string) ([]Message, error) {
 	var all []Message
 	for _, id := range ids {
-		msgs, err := fs.readTranscript(fs.findByID(id))
+		msgs, err := fs.readTranscript(ctx, fs.findByID(ctx, id))
 		if err != nil {
 			return nil, err
 		}
@@ -98,9 +99,9 @@ func (fs codexFS) readTranscriptChain(ids []string) ([]Message, error) {
 // lastContextUsage returns the newest transcript's last context snapshot (the most
 // recent turn's token_count), scanning ids newest-first. Mirrors
 // claudeFS.lastContextUsage against Codex rollouts.
-func (fs codexFS) lastContextUsage(ids []string) *ContextSnapshot {
+func (fs codexFS) lastContextUsage(ctx context.Context, ids []string) *ContextSnapshot {
 	for i := len(ids) - 1; i >= 0; i-- {
-		if cx := fs.lastUsageInFile(fs.findByID(ids[i])); cx != nil {
+		if cx := fs.lastUsageInFile(ctx, fs.findByID(ctx, ids[i])); cx != nil {
 			return cx
 		}
 	}
@@ -186,18 +187,18 @@ func (u codexTokenUsage) usage() Usage {
 // rows reconcile across a re-index. Empty path / missing file yields an empty
 // slice (no error), matching claudeFS.readTranscript. Overrides the embedded
 // claudeFS parser (which expects Claude's schema).
-func (fs codexFS) readTranscript(path string) ([]Message, error) {
+func (fs codexFS) readTranscript(ctx context.Context, path string) ([]Message, error) {
 	if path == "" {
 		return nil, nil
 	}
 	key := fs.cacheKey(path)
-	size, mod, statOK := fs.stat(path)
+	size, mod, statOK := fs.stat(ctx, path)
 	if statOK {
 		if m, hit := getCachedMsgs(key, size, mod); hit {
 			return append([]Message(nil), m...), nil // copy: callers re-index / mutate Text
 		}
 	}
-	f, err := fs.open(path)
+	f, err := fs.open(ctx, path)
 	if err != nil {
 		if fs.isMissing(err) {
 			return nil, nil
@@ -268,18 +269,18 @@ func (fs codexFS) readTranscript(path string) ([]Message, error) {
 
 // lastUsageInFile scans one rollout for the last token_count line, returning its
 // context snapshot (nil if none/unreadable). Overrides the embedded Claude parser.
-func (fs codexFS) lastUsageInFile(path string) *ContextSnapshot {
+func (fs codexFS) lastUsageInFile(ctx context.Context, path string) *ContextSnapshot {
 	if path == "" {
 		return nil
 	}
 	key := fs.cacheKey(path)
-	size, mod, statOK := fs.stat(path)
+	size, mod, statOK := fs.stat(ctx, path)
 	if statOK {
 		if snap, hit := getCachedSnap(key, size, mod); hit {
 			return snap
 		}
 	}
-	f, err := fs.open(path)
+	f, err := fs.open(ctx, path)
 	if err != nil {
 		return nil
 	}
@@ -316,6 +317,6 @@ func (fs codexFS) lastUsageInFile(path string) *ContextSnapshot {
 // CLAUDE's layout, producing a signature for the wrong files — and a signature
 // that doesn't track the real transcripts is worse than none, because it would
 // pin a stale digest.
-func (fs codexFS) chainSig(ids []string) (string, bool) {
-	return statChainSig(fs.claudeFS, fs.findByID, ids)
+func (fs codexFS) chainSig(ctx context.Context, ids []string) (string, bool) {
+	return statChainSig(ctx, fs.claudeFS, fs.findByID, ids)
 }

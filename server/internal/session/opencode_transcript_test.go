@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -179,7 +180,7 @@ func TestOpencodeChainSig(t *testing.T) {
 	var fs opencodeFS // remote nil = local, per the hermetic-test path
 	ids := []string{"ses_a", "ses_b"}
 
-	if _, ok := fs.chainSig(ids); ok {
+	if _, ok := fs.chainSig(context.Background(), ids); ok {
 		t.Fatal("chainSig reported a signature with no opencode store on disk")
 	}
 
@@ -191,14 +192,14 @@ func TestOpencodeChainSig(t *testing.T) {
 	if err := os.WriteFile(db, []byte("sqlite"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	sig, ok := fs.chainSig(ids)
+	sig, ok := fs.chainSig(context.Background(), ids)
 	if !ok || sig == "" {
 		t.Fatalf("chainSig on an existing store = %q, ok %v", sig, ok)
 	}
-	if again, _ := fs.chainSig(ids); again != sig {
+	if again, _ := fs.chainSig(context.Background(), ids); again != sig {
 		t.Errorf("chainSig changed with no write: %q then %q", sig, again)
 	}
-	if other, _ := fs.chainSig([]string{"ses_a"}); other == sig {
+	if other, _ := fs.chainSig(context.Background(), []string{"ses_a"}); other == sig {
 		t.Error("chainSig ignored the id chain: a shorter chain signed the same")
 	}
 
@@ -207,7 +208,7 @@ func TestOpencodeChainSig(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(store, "opencode.db-wal"), []byte("pending"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if withWAL, _ := fs.chainSig(ids); withWAL == sig {
+	if withWAL, _ := fs.chainSig(context.Background(), ids); withWAL == sig {
 		t.Error("chainSig unchanged after a write landed in the -wal")
 	}
 }

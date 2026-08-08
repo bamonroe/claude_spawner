@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -88,7 +89,7 @@ func TestSessionContextUsage_ServesUnchangedChain(t *testing.T) {
 	d := NewDriver()
 	d.SetUsageCache(OpenUsageCache(""))
 	rec := &Session{Name: "s", SessionID: id}
-	first := d.SessionContextUsage(rec)
+	first := d.SessionContextUsage(context.Background(), rec)
 	if first == nil || first.Usage.Input != 11 {
 		t.Fatalf("first read = %+v, want input 11", first)
 	}
@@ -97,7 +98,7 @@ func TestSessionContextUsage_ServesUnchangedChain(t *testing.T) {
 	rewriteSameStat(t, filepath.Join(proj, id+".jsonl"), same)
 	dropFileCaches(t)
 
-	if got := d.SessionContextUsage(rec); got == nil || got.Usage.Input != 11 {
+	if got := d.SessionContextUsage(context.Background(), rec); got == nil || got.Usage.Input != 11 {
 		t.Fatalf("unchanged chain re-read from disk: %+v", got)
 	}
 }

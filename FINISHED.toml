@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "digest-sweep-per-session-deadline-and-partial-results"
+title = "Digest sweep: per-session deadline and partial results"
+description = "serveDigests (gateway/ops_history.go:205) holds the entire digests frame until every session answers, so one slow/dead host delays the app's connect-time cache validation — and therefore its history refresh — by minutes. Even with the SSH negative dial cache in place, a generally slow host shouldn't gate all the others. Give each session's DisplayDigest a deadline (context timeout threaded through the driver/reader seam, not a wrapper) and send the frame with the sessions that answered; a session that missed the deadline is simply omitted, which the app already treats as 'keep the cached transcript'. Depends-on/related: ssh-pool-negative-dial-cache-for-unreachable-hosts."
+status = "finished"
+level = "task"
+category = "feature"
+created = 2026-08-08
+completed = 2026-08-08
+tags = ["perf", "lag"]
+
+[[task]]
 id = "batch-chainsig-stats-into-one-ssh-exec-per-host"
 title = "Batch chainSig stats into one SSH exec per host"
 description = "A freshness check is currently N serial SSH round trips: statChainSig (claudefs.go:613) loops the id chain calling fs.stat, one 'sh -c stat' exec per transcript file (claudefs.go:224-246), and displayChainParts (driver.go:760) repeats that for every archived segment plus the current chain. A session cleared/compressed many times has a long chain, so a single 'is my history current?' check fans out many round trips; the 1.5s sig memo (driver.go:722) only collapses one tap's burst. Batch it: one 'stat -c \"%s %Y\" a b c...' exec per host for the whole chain (all segments included), so a freshness check is one round trip. This multiplies through everything: digest sweep, history serve, context usage."

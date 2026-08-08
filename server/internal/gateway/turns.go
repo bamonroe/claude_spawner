@@ -512,7 +512,7 @@ func (s *Server) rekeyJob(oldID, newID string) {
 // is dropped, and the next attach reads the same number from the transcript.
 func (s *Server) pushContextUsage(j *sessionJob, sess *session.Session) {
 	go func() {
-		cx := s.driver.SessionContextUsage(sess)
+		cx := s.driver.SessionContextUsage(context.Background(), sess)
 		if cx == nil {
 			return
 		}

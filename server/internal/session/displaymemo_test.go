@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -63,14 +64,14 @@ func TestDisplayMemo_ServesUnchangedChain(t *testing.T) {
 
 	d := NewDriver()
 	rec := &Session{Name: "s", SessionID: id}
-	if _, err := d.ReadDisplayHistory(rec); err != nil {
+	if _, err := d.ReadDisplayHistory(context.Background(), rec); err != nil {
 		t.Fatal(err)
 	}
 	// Same size, same mtime, different bytes: a real read would see "user-two".
 	rewriteSameStat(t, transcriptPathFor(home, id), claudeTranscriptBody("user-two", "asst-two"))
 	dropFileCaches(t)
 
-	msgs, err := d.ReadDisplayHistory(rec)
+	msgs, err := d.ReadDisplayHistory(context.Background(), rec)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +99,7 @@ func TestDisplayMemo_ArchivedSegmentSurvivesCurrentGrowth(t *testing.T) {
 	// display memo's own invalidation.
 	d.sigTTL = 0
 	rec := &Session{Name: "s", SessionID: current, History: []HistorySegment{{IDs: []string{archived}}}}
-	if _, err := d.ReadDisplayHistory(rec); err != nil {
+	if _, err := d.ReadDisplayHistory(context.Background(), rec); err != nil {
 		t.Fatal(err)
 	}
 	rewriteSameStat(t, transcriptPathFor(home, archived), claudeTranscriptBody("XXX-user", "XXX-asst"))
@@ -116,7 +117,7 @@ func TestDisplayMemo_ArchivedSegmentSurvivesCurrentGrowth(t *testing.T) {
 	f.Close()
 	os.Chtimes(cur, time.Now().Add(time.Second), time.Now().Add(time.Second))
 
-	msgs, err := d.ReadDisplayHistory(rec)
+	msgs, err := d.ReadDisplayHistory(context.Background(), rec)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,14 +148,14 @@ func TestDisplayMemo_HandsOutCopies(t *testing.T) {
 
 	d := NewDriver()
 	rec := &Session{Name: "s", SessionID: id}
-	first, err := d.ReadDisplayHistory(rec)
+	first, err := d.ReadDisplayHistory(context.Background(), rec)
 	if err != nil {
 		t.Fatal(err)
 	}
 	first[0].Text = "MUTATED"
 	dropFileCaches(t)
 
-	second, err := d.ReadDisplayHistory(rec)
+	second, err := d.ReadDisplayHistory(context.Background(), rec)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +175,7 @@ func TestDisplayHistory_MatchesDigest(t *testing.T) {
 
 	d := NewDriver()
 	rec := &Session{Name: "s", SessionID: id}
-	msgs, count, hash, err := d.DisplayHistory(rec)
+	msgs, count, hash, err := d.DisplayHistory(context.Background(), rec)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +183,7 @@ func TestDisplayHistory_MatchesDigest(t *testing.T) {
 	if count != wantCount || hash != wantHash {
 		t.Fatalf("DisplayHistory digest = (%d, %s), want (%d, %s)", count, hash, wantCount, wantHash)
 	}
-	dCount, dHash, _, err := d.DisplayDigest(rec)
+	dCount, dHash, _, err := d.DisplayDigest(context.Background(), rec)
 	if err != nil {
 		t.Fatal(err)
 	}

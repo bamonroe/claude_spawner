@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -40,7 +41,7 @@ func TestDeleteByIDsPurgesEverything(t *testing.T) {
 	mateFile := filepath.Join(proj, mate+".jsonl")
 	writeFile(t, mateFile, `{"cwd":"/data"}`+"\n")
 
-	n, err := (claudeFS{}).deleteByIDs([]string{id})
+	n, err := (claudeFS{}).deleteByIDs(context.Background(), []string{id})
 	if err != nil {
 		t.Fatal(err)
 	}

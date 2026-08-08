@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -83,7 +84,7 @@ func TestReadTranscriptParsesTimestamp(t *testing.T) {
 	if err := os.WriteFile(path, []byte(lines), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	msgs, err := ReadTranscript(path)
+	msgs, err := ReadTranscript(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +120,7 @@ func TestLastUsageInFile(t *testing.T) {
 	if err := os.WriteFile(path, []byte(lines), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cx := localClaudeFS.lastUsageInFile(path)
+	cx := localClaudeFS.lastUsageInFile(context.Background(), path)
 	if cx == nil {
 		t.Fatal("want a snapshot, got nil")
 	}
@@ -136,7 +137,7 @@ func TestLastUsageInFile(t *testing.T) {
 	if err := os.WriteFile(empty, []byte(`{"type":"user","message":{"content":"hi"}}`+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := localClaudeFS.lastUsageInFile(empty); got != nil {
+	if got := localClaudeFS.lastUsageInFile(context.Background(), empty); got != nil {
 		t.Errorf("want nil for usage-less transcript, got %+v", got)
 	}
 }
@@ -159,7 +160,7 @@ func TestReadTranscriptCarriesTurnUsage(t *testing.T) {
 	if err := os.WriteFile(path, []byte(lines), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	msgs, err := ReadTranscript(path)
+	msgs, err := ReadTranscript(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +200,7 @@ func TestReadTranscriptCarriesTurnRollup(t *testing.T) {
 	if err := os.WriteFile(path, []byte(lines), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	msgs, err := ReadTranscript(path)
+	msgs, err := ReadTranscript(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,10 +236,10 @@ func TestTranscriptCacheInvalidatesOnChange(t *testing.T) {
 	if err := os.WriteFile(path, []byte(first), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if msgs, _ := ReadTranscript(path); len(msgs) != 1 { // prime the message cache
+	if msgs, _ := ReadTranscript(context.Background(), path); len(msgs) != 1 { // prime the message cache
 		t.Fatalf("first read: want 1 message, got %d", len(msgs))
 	}
-	if snap := localClaudeFS.lastUsageInFile(path); snap != nil { // prime the snapshot cache (no usage yet)
+	if snap := localClaudeFS.lastUsageInFile(context.Background(), path); snap != nil { // prime the snapshot cache (no usage yet)
 		t.Fatalf("first snapshot: want nil, got %+v", snap)
 	}
 
@@ -254,14 +255,14 @@ func TestTranscriptCacheInvalidatesOnChange(t *testing.T) {
 	}
 	f.Close()
 
-	msgs, err := ReadTranscript(path)
+	msgs, err := ReadTranscript(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(msgs) != 2 {
 		t.Fatalf("after append: want 2 messages (cache must invalidate), got %d", len(msgs))
 	}
-	snap := localClaudeFS.lastUsageInFile(path)
+	snap := localClaudeFS.lastUsageInFile(context.Background(), path)
 	if snap == nil || snap.Usage.CacheRead != 50 {
 		t.Errorf("after append: snapshot = %+v, want CacheRead 50", snap)
 	}

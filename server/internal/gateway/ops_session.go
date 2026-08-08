@@ -16,7 +16,7 @@ func (c *conn) doList() {
 	// Speak the names from the unified (all-machine) list, newest first, using
 	// custom registry names where set. Cap the spoken count so a machine with
 	// dozens of sessions doesn't read a novel.
-	found, err := c.srv.driver.DiscoverSessions("")
+	found, err := c.srv.driver.DiscoverSessions(c.ctx, "")
 	if err != nil {
 		c.send(msgSay("couldn't list sessions."))
 		return
@@ -204,7 +204,7 @@ func (c *conn) selectClientSession(sessionID string) bool {
 func (c *conn) sendAttached(s *session.Session) {
 	c.send(msgAttached(s, c.srv.driver.CachedSessionContextUsage(s)))
 	go func() {
-		cx := c.srv.driver.SessionContextUsage(s)
+		cx := c.srv.driver.SessionContextUsage(c.ctx, s)
 		if cx == nil {
 			return
 		}
@@ -641,7 +641,7 @@ func (c *conn) ensureSandbox(s *session.Session) {
 func (c *conn) purgeAsync(s *session.Session, name string, then func()) {
 	ctx := context.WithoutCancel(c.ctx)
 	go func() {
-		if _, err := c.srv.driver.DeleteSessionAll(s); err != nil {
+		if _, err := c.srv.driver.DeleteSessionAll(c.ctx, s); err != nil {
 			log.Printf("delete session %s transcripts: %v", name, err)
 		}
 		if err := c.srv.driver.RemoveContainer(ctx, s); err != nil {

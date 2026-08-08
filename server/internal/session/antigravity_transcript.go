@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -54,7 +55,7 @@ const agyTranscriptRel = ".system_generated/logs/transcript.jsonl"
 // findByID returns the transcript.jsonl path for an antigravity brain dir id, or ""
 // if the id is empty / unsafe. Overrides claudeFS.findByID (which globs Claude's
 // projects tree). The path is deterministic (no glob) — the id IS the directory.
-func (fs antigravityFS) findByID(brainID string) string {
+func (fs antigravityFS) findByID(ctx context.Context, brainID string) string {
 	if brainID == "" || !looksLikeUUID(brainID) {
 		return "" // guard: the id is interpolated into a path (and a remote command)
 	}
@@ -72,10 +73,10 @@ func (fs antigravityFS) findByID(brainID string) string {
 // turn order AgyBrainIDs records) into one re-indexed conversation. Mirrors
 // claudeFS.readTranscriptChain against agy brains (embedding gives no virtual
 // dispatch, so it binds to antigravityFS's readTranscript override here).
-func (fs antigravityFS) readTranscriptChain(ids []string) ([]Message, error) {
+func (fs antigravityFS) readTranscriptChain(ctx context.Context, ids []string) ([]Message, error) {
 	var all []Message
 	for _, id := range ids {
-		msgs, err := fs.readTranscript(fs.findByID(id))
+		msgs, err := fs.readTranscript(ctx, fs.findByID(ctx, id))
 		if err != nil {
 			return nil, err
 		}
@@ -90,12 +91,14 @@ func (fs antigravityFS) readTranscriptChain(ids []string) ([]Message, error) {
 // lastContextUsage reports no snapshot: agy records no token accounting in its
 // transcript, so an agy session simply has no context badge. Overrides the embedded
 // Claude scanner.
-func (fs antigravityFS) lastContextUsage(ids []string) *ContextSnapshot { return nil }
+func (fs antigravityFS) lastContextUsage(ctx context.Context, ids []string) *ContextSnapshot {
+	return nil
+}
 
 // deleteByIDs is a deliberate no-op: the brain dirs are agy's own store (it may reuse
 // or reconcile them), and history replay only borrows them, so a spawner-side session
 // delete leaves them untouched.
-func (fs antigravityFS) deleteByIDs(ids []string) (int, error) { return 0, nil }
+func (fs antigravityFS) deleteByIDs(ctx context.Context, ids []string) (int, error) { return 0, nil }
 
 // readTranscript parses one brain transcript.jsonl into a single turn: the user's
 // request (USER_INPUT, unwrapped from agy's <USER_REQUEST> envelope; our own prompt
@@ -103,18 +106,18 @@ func (fs antigravityFS) deleteByIDs(ids []string) (int, error) { return 0, nil }
 // joined assistant reply (PLANNER_RESPONSE steps rejoined with blank lines, exactly as
 // reconstructAgyReply renders the live reply). Empty path / missing file yields an
 // empty slice (no error), matching claudeFS.readTranscript.
-func (fs antigravityFS) readTranscript(path string) ([]Message, error) {
+func (fs antigravityFS) readTranscript(ctx context.Context, path string) ([]Message, error) {
 	if path == "" {
 		return nil, nil
 	}
 	key := fs.cacheKey(path)
-	size, mod, statOK := fs.stat(path)
+	size, mod, statOK := fs.stat(ctx, path)
 	if statOK {
 		if m, hit := getCachedMsgs(key, size, mod); hit {
 			return append([]Message(nil), m...), nil // copy: callers re-index / mutate Text
 		}
 	}
-	f, err := fs.open(path)
+	f, err := fs.open(ctx, path)
 	if err != nil {
 		if fs.isMissing(err) {
 			return nil, nil
@@ -218,6 +221,6 @@ func agyBrainDirFromPath(path string) string {
 
 // chainSig stats the brain transcripts. Declared explicitly for the same reason
 // as codexFS.chainSig: the inherited claudeFS method would stat the wrong paths.
-func (fs antigravityFS) chainSig(ids []string) (string, bool) {
-	return statChainSig(fs.claudeFS, fs.findByID, ids)
+func (fs antigravityFS) chainSig(ctx context.Context, ids []string) (string, bool) {
+	return statChainSig(ctx, fs.claudeFS, fs.findByID, ids)
 }

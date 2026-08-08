@@ -187,7 +187,7 @@ func (c *conn) doSetAgent(sessionID, dir, agentID, modelAlias string) {
 		// here. A backend with no readable transcript (e.g. antigravity's null reader)
 		// yields an empty recap, so the switch is clean exactly as before.
 		var handoffSeed string
-		if msgs, err := c.srv.driver.ReadTranscriptChain(cur.Agent, cur.Host, cur.TranscriptIDs()); err != nil {
+		if msgs, err := c.srv.driver.ReadTranscriptChain(c.ctx, cur.Agent, cur.Host, cur.TranscriptIDs()); err != nil {
 			log.Printf("set_agent[%s]: read prior transcript for handoff: %v", cur.Name, err)
 		} else {
 			handoffSeed = formatHandoffRecap(msgs)
@@ -300,8 +300,8 @@ func (c *conn) doDeleteDiscovered(sessionID string) {
 	var dir string
 	if rec != nil {
 		dir = rec.Snapshot().Dir
-	} else if p := c.srv.driver.TranscriptPathByID("", sessionID); p != "" {
-		dir = c.srv.driver.TranscriptCwd("", p)
+	} else if p := c.srv.driver.TranscriptPathByID(c.ctx, "", sessionID); p != "" {
+		dir = c.srv.driver.TranscriptCwd(c.ctx, "", p)
 	}
 	if dir == "" {
 		c.fail("not_found", "no transcript or record for that session")

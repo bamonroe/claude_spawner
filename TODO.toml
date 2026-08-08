@@ -21,18 +21,6 @@ finish_work = "When a task is fully finished (built, tested, documented), run `s
 scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/KMP app + web client. The historical phase roadmap stays in README.md."
 
 [[task]]
-id = "digest-sweep-per-session-deadline-and-partial-results"
-title = "Digest sweep: per-session deadline and partial results"
-description = "serveDigests (gateway/ops_history.go:205) holds the entire digests frame until every session answers, so one slow/dead host delays the app's connect-time cache validation — and therefore its history refresh — by minutes. Even with the SSH negative dial cache in place, a generally slow host shouldn't gate all the others. Give each session's DisplayDigest a deadline (context timeout threaded through the driver/reader seam, not a wrapper) and send the frame with the sessions that answered; a session that missed the deadline is simply omitted, which the app already treats as 'keep the cached transcript'. Depends-on/related: ssh-pool-negative-dial-cache-for-unreachable-hosts."
-status = "active"
-level = "task"
-category = "feature"
-urgency = "normal"
-order = 40
-created = 2026-08-08
-tags = ["perf", "lag"]
-
-[[task]]
 id = "move-digest-usage-cache-file-rewrites-off-the-lock"
 title = "Move digest/usage cache file rewrites off the lock"
 description = "usagecache.go:86-110 and digestcache.go:82-104: every Put marshals the ENTIRE entries map and does a CreateTemp+write+rename while holding the mutex. The 8-way digest sweep serializes behind N whole-file rewrites, and every turn end pays one on the critical-ish path. Restructure so Get/Put contend only on the in-memory map and persistence is a debounced/coalesced async flush (marshal a snapshot outside the lock); crash-loss of a few recent digests is fine since they recompute. Keep the invariant at the cache interface, not with an ad-hoc goroutine per Put."
