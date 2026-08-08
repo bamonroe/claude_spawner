@@ -175,3 +175,15 @@ urgency = "low"
 order = 130
 created = 2026-08-08
 tags = ["perf"]
+
+[[task]]
+id = "make-clear-context-feel-instant-stop-dropping-and-refetching-an-unchanged-chat-log"
+title = "Make clear-context feel instant: stop dropping and refetching an unchanged chat log"
+description = "Server-side doClear (gateway/ops_session.go:363) is cheap — id rotation + store.Put, no SSH — but the app makes it feel slow: onContextReset (androidMain VoiceControllerMessages.kt:291-320) calls dropSessionCache(oldId), switches the view to the fresh id (now an EMPTY cache), and requestFreshHistory — so the user stares at a blank/loading chat until serveHistory returns, which after a rotation is a guaranteed digest-cache miss (chain sig changed) and a full chain stat walk + re-assembly. But a CLEAR does not change the visible history at all — the transcript stays on disk and the display chain reads identically; only compress rewrites content. Fix: carry a preserved-vs-rewritten flag on the context_reset frame (clear=preserved, compress=rewritten); on preserved, the app re-keys its cached rows to the new id and keeps rendering them, refreshing in the background at most — the dropSessionCache path stays for compress. Server side, check whether a fresh (not-yet-written) session_id makes chainSig return ok=false and the session's digest uncacheable until the first turn; if so, treat a missing current transcript as a describable empty part. Protocol change → docs/protocol.md + both clients in the same pass."
+status = "active"
+level = "task"
+category = "bug"
+urgency = "high"
+order = 140
+created = 2026-08-08
+tags = ["perf", "lag", "ux"]
