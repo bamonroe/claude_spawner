@@ -278,6 +278,15 @@ var opencodeStorePaths = []string{
 // turn changes the signature and costs one recompute — which is the cheap side of
 // the trade against re-exporting the whole chain on every digest.
 //
+// The signature folds in SIZE ONLY, deliberately NOT mtime. Opening the SQLite
+// store touches its mtime, and `opencode export` — the very call the signature
+// exists to avoid — opens the store. Signing mtime therefore made every read
+// invalidate its own cache entry: the 5-second auto-compress scan re-exported
+// every opencode session forever, spawning a steady stream of `opencode`
+// processes on the host that no user action explained. Size is the write-derived
+// signal (turns append to the database or its -wal); mtime, here, only describes
+// that somebody read.
+//
 // ok=false when neither store file can be stat'd (no opencode data yet, or an
 // unreadable host), so the caller falls back to recomputing instead of trusting a
 // signature that describes nothing.
@@ -289,12 +298,12 @@ func (fs opencodeFS) chainSig(ctx context.Context, ids []string) (string, bool) 
 	var b strings.Builder
 	any := false
 	for _, rel := range opencodeStorePaths {
-		size, mod, ok := fs.stat(ctx, path.Join(home, rel))
+		size, _, ok := fs.stat(ctx, path.Join(home, rel))
 		if !ok {
 			continue // absent (no -wal in the common case) — sign what exists
 		}
 		any = true
-		fmt.Fprintf(&b, "%s:%d:%d;", rel, size, mod.UnixNano())
+		fmt.Fprintf(&b, "%s:%d;", rel, size)
 	}
 	if !any {
 		return "", false
