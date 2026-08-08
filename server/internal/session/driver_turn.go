@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/bam/claude_spawner/server/internal/agent"
 )
@@ -115,10 +116,13 @@ func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool fun
 		})
 	}
 	if werr := proc.Wait(); werr != nil {
-		return TurnResult{}, fmt.Errorf("%s exited: %w", ag.ID, werr)
+		return TurnResult{}, withStderr(fmt.Errorf("%s exited: %w", ag.ID, werr), proc.Stderr())
 	}
 	if perr != nil {
-		return TurnResult{}, perr
+		// "stream ended without a text message" on its own tells the user nothing
+		// actionable — the real cause (provider unreachable, bad model, auth) went to
+		// stderr. Attach it so the chat shows why the turn failed.
+		return TurnResult{}, withStderr(perr, proc.Stderr())
 	}
 	// An antigravity conversation id IS the name of agy's on-disk brain directory,
 	// which is what the history reader replays. The generic self-assigning-backend
@@ -191,4 +195,25 @@ func (d *Driver) Usage(ctx context.Context) (string, error) {
 		return "", perr
 	}
 	return res.Reply, nil
+}
+
+// stderrCauseMax caps how much captured stderr is appended to a turn error. The
+// error becomes a chat bubble read aloud on a phone, so it keeps the tail (where
+// the cause is) short enough to stay readable.
+const stderrCauseMax = 600
+
+// withStderr appends the process's captured stderr to a turn error as the
+// actionable cause. A backend that dies without a usable stream ("stream ended
+// without a text message", "exited: status 1") says nothing on its own — stderr
+// is where "model not found" or "connection refused" actually is — so the two are
+// reported together, or err is returned unchanged when stderr was empty.
+func withStderr(err error, stderr string) error {
+	stderr = strings.TrimSpace(stderr)
+	if stderr == "" {
+		return err
+	}
+	if len(stderr) > stderrCauseMax {
+		stderr = "…" + stderr[len(stderr)-stderrCauseMax:]
+	}
+	return fmt.Errorf("%w: %s", err, stderr)
 }

@@ -108,6 +108,7 @@ func (p *SSHPool) streamRemote(ctx context.Context, host string, client *ssh.Cli
 	}
 	var pmu sync.Mutex
 	pgid := 0
+	tail := &stderrTail{}
 	go func() {
 		sc := bufio.NewScanner(stderr)
 		for sc.Scan() {
@@ -118,7 +119,11 @@ func (p *SSHPool) streamRemote(ctx context.Context, host string, client *ssh.Cli
 					pgid = n
 					pmu.Unlock()
 				}
+				continue
 			}
+			// Everything that isn't our own control sentinel is the backend's real
+			// stderr — keep its tail so a failed turn can report the cause.
+			_, _ = tail.Write([]byte(line + "\n"))
 		}
 	}()
 	// On abort, kill the remote process GROUP over a second channel on the same
@@ -136,7 +141,7 @@ func (p *SSHPool) streamRemote(ctx context.Context, host string, client *ssh.Cli
 		_ = sess.Signal(ssh.SIGKILL)
 		_ = sess.Close()
 	})
-	return &sshProc{sess: sess, stdout: stdout, stop: stop, release: release}, nil
+	return &sshProc{sess: sess, stdout: stdout, stderr: tail, stop: stop, release: release}, nil
 }
 
 // sshPGIDSentinel prefixes the line cancelableCommand writes to stderr carrying the
@@ -174,11 +179,14 @@ func (p *SSHPool) killRemoteGroup(ctx context.Context, host string, client *ssh.
 type sshProc struct {
 	sess    *ssh.Session
 	stdout  io.Reader
+	stderr  *stderrTail
 	stop    func() bool // cancels the ctx AfterFunc; from context.AfterFunc
 	release func()      // returns this turn's slot to the connection's channel budget
 }
 
 func (p *sshProc) Stdout() io.Reader { return p.stdout }
+
+func (p *sshProc) Stderr() string { return p.stderr.String() }
 
 func (p *sshProc) Wait() error {
 	if p.stop != nil {

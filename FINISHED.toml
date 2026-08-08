@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "expose-failed-turn-root-cause-in-chat"
+title = "Expose failed turn root cause in chat"
+description = "From Screenshot_20260808_072445_Claude Spawner.jpg: a failed assistant turn appears as generic status plus turn_failed: opencode stream ended without a text message. Preserve and display the actionable upstream failure cause so the user can tell why the turn failed."
+status = "finished"
+level = "task"
+category = "bug"
+created = 2026-08-08
+completed = 2026-08-08
+tags = ["android", "chat", "errors"]
+
+[[task]]
 id = "polish-efficiency-epic"
 title = "Polish and efficiency pass: fix UX lags and creeping bugs"
 description = "Umbrella epic for making the existing app pleasant, not for adding features. The Android APK (web client untested for ~a week) has accumulated polishy lag and small bugs: session switching is still laggy; the local transcript cache reads first but should be proactively refreshed from the server in the background; under server load, session names go missing and the app has spawned a duplicate session named after the directory (e.g. a new 'claude_spawner' session appearing alongside the existing 'spawner' session while rapidly swapping sessions, with no spawn requested). Work this epic by scoping concrete problem areas into child scope/task items and shipping them incrementally. Explicitly out of scope: any new feature."

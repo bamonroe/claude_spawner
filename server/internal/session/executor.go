@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 )
 
@@ -93,6 +94,43 @@ type Proc interface {
 	Stdout() io.Reader
 	// Wait blocks until the process exits and returns its exit error, if any.
 	Wait() error
+	// Stderr is the tail of everything the process wrote to stderr, or "" if it
+	// wrote nothing. It is the only place a backend's actionable failure cause
+	// lives when the stream itself ends without a usable event ("provider
+	// unreachable", "model not found", an auth error), so every executor captures
+	// it and Driver.Turn appends it to the turn error the user sees. Valid after
+	// Wait returns.
+	Stderr() string
+}
+
+// stderrTailMax caps the stderr text kept per process. Enough for a stack-ish
+// error blob, small enough that a chatty backend can't grow the turn error (and
+// the chat bubble carrying it) without bound.
+const stderrTailMax = 4000
+
+// stderrTail is an io.Writer that retains only the last stderrTailMax bytes
+// written to it — a bounded tail buffer, since a failure cause is at the END of
+// stderr. Safe for concurrent Write/String (the SSH drain goroutine writes while
+// Wait may read).
+type stderrTail struct {
+	mu  sync.Mutex
+	buf []byte
+}
+
+func (t *stderrTail) Write(p []byte) (int, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.buf = append(t.buf, p...)
+	if len(t.buf) > stderrTailMax {
+		t.buf = append(t.buf[:0], t.buf[len(t.buf)-stderrTailMax:]...)
+	}
+	return len(p), nil
+}
+
+func (t *stderrTail) String() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return strings.TrimSpace(string(t.buf))
 }
 
 // HostExecutor runs claude as a direct child process on the host, in its own
@@ -389,10 +427,14 @@ func startProcEnv(ctx context.Context, name string, args []string, dir, startErr
 	if err != nil {
 		return nil, err
 	}
+	// Capture stderr's tail rather than dropping it: it carries the backend's
+	// actionable failure cause when stdout ends without a usable event.
+	tail := &stderrTail{}
+	cmd.Stderr = tail
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("%s: %w", startErrPrefix, err)
 	}
-	return &cmdProc{cmd: cmd, stdout: stdout}, nil
+	return &cmdProc{cmd: cmd, stdout: stdout, stderr: tail}, nil
 }
 
 // cmdProc adapts an *exec.Cmd to Proc. Used by any executor that ultimately runs
@@ -401,7 +443,9 @@ func startProcEnv(ctx context.Context, name string, args []string, dir, startErr
 type cmdProc struct {
 	cmd    *exec.Cmd
 	stdout io.Reader
+	stderr *stderrTail
 }
 
 func (p *cmdProc) Stdout() io.Reader { return p.stdout }
 func (p *cmdProc) Wait() error       { return p.cmd.Wait() }
+func (p *cmdProc) Stderr() string    { return p.stderr.String() }

@@ -194,6 +194,11 @@ feature reduces to making that launch pluggable:
   `SSHExecutor` (SSH-native execution is unconditional; see below). A `sandbox` executor
   (`SandboxExecutor`) runs the turn inside a container. `Turn()` selects one and is otherwise
   unchanged — the NDJSON parsing, `Setpgid` group-kill, and event fan-out all stay put.
+  Every `Proc` also exposes **`Stderr()`**, a bounded tail of what the backend wrote to stderr.
+  That is where the actionable failure cause lives when stdout ends without a usable event
+  ("model not found", "connection refused", an auth error), so `Turn()` appends it to the turn
+  error — which the gateway sends as `turn_failed` and the app shows in chat. Without it the user
+  only ever saw the useless "stream ended without a text message".
 - An **execution-target field** on the `Session` record (`store.go`), set at spawn time and
   persisted in `sessions.json`, so host-vs-sandbox is a durable per-session property the spawn
   dialog chooses. Default = `host`.

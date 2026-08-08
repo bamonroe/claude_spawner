@@ -21,10 +21,14 @@ func (f *fakeExecutor) Start(ctx context.Context, s *Session, _ *ExecProfile, bi
 	return &fakeProc{r: strings.NewReader(line)}, nil
 }
 
-type fakeProc struct{ r io.Reader }
+type fakeProc struct {
+	r   io.Reader
+	err string // stderr the fake process "wrote"
+}
 
 func (p *fakeProc) Stdout() io.Reader { return p.r }
 func (p *fakeProc) Wait() error       { return nil }
+func (p *fakeProc) Stderr() string    { return p.err }
 
 func TestSandboxCreateArgs(t *testing.T) {
 	s := SandboxExecutor{
