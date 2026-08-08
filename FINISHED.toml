@@ -14,6 +14,20 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "delta-history-wire-protocol-send-appended-messages-instead-of-a-whole-page"
+title = "Delta history wire protocol: send appended messages instead of a whole page"
+description = """
+The have_hash fast path (ops_history.go:118-123) is all-or-nothing per page and structurally never hits right after a turn: the client's have_hash is by definition the pre-turn digest, so any activity forces a full readDisplayHistory plus a full page over the wire. Design a delta variant where a client holding a validated prefix gets only the appended messages. Needs a prefix hash the server can cheaply validate (key on (count, prefix-hash) plus Message.ID, NOT Index, which is rewritten on every re-index and unsafe across clear/compress rotations), a msgHistory variant in docs/protocol.md, and a client-side merge in the Kotlin client — this is the one unit that crosses into the app, so it is drift-tested on both sides. Scope it into concrete tasks.
+
+Do NOT rebuild/recreate the server for this work: land the commits and background an image build only (see CLAUDE.md)."""
+status = "finished"
+level = "scope"
+category = "feature"
+created = 2026-08-08
+completed = 2026-08-08
+tags = ["history", "protocol"]
+
+[[task]]
 id = "split-the-display-log-into-a-cached-archived-prefix-plus-a-rebuilt-current-tail"
 title = "Split the display log into a cached archived prefix plus a rebuilt current tail"
 description = """

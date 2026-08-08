@@ -156,16 +156,82 @@ created = 2026-08-08
 tags = ["history"]
 
 [[task]]
-id = "delta-history-wire-protocol-send-appended-messages-instead-of-a-whole-page"
-title = "Delta history wire protocol: send appended messages instead of a whole page"
-description = """
-The have_hash fast path (ops_history.go:118-123) is all-or-nothing per page and structurally never hits right after a turn: the client's have_hash is by definition the pre-turn digest, so any activity forces a full readDisplayHistory plus a full page over the wire. Design a delta variant where a client holding a validated prefix gets only the appended messages. Needs a prefix hash the server can cheaply validate (key on (count, prefix-hash) plus Message.ID, NOT Index, which is rewritten on every re-index and unsafe across clear/compress rotations), a msgHistory variant in docs/protocol.md, and a client-side merge in the Kotlin client — this is the one unit that crosses into the app, so it is drift-tested on both sides. Scope it into concrete tasks.
-
-Do NOT rebuild/recreate the server for this work: land the commits and background an image build only (see CLAUDE.md)."""
+id = "prefix-digest-helper-historyprefixdigest-over-the-display-log"
+title = "Prefix digest helper: HistoryPrefixDigest over the display log"
+description = "Foundation for delta history (parent scope: delta-history-wire-protocol). Add session.HistoryPrefixDigest(msgs []Message, n int) (count int, hash string) in transcript.go computing the SAME rolling sha256 as HistoryDigest but over msgs[:n], so a full-log digest and any prefix digest are directly comparable. HistoryDigest becomes HistoryPrefixDigest(msgs, len(msgs)). Key insight for the whole feature: the client NEVER computes a hash — it only echoes back digests the server issued (same contract as today's have_hash, see SessionSync.kt), so the hash function may stay server-private. Unit-test that the prefix digest of the first n rows equals the full digest of a log truncated to n, and that it keys on Message.ID when present and Index only as fallback (rotations rewrite Index). Do NOT rebuild/recreate the server."
 status = "active"
-level = "scope"
-category = "feature"
+level = "task"
+category = "refactor"
 urgency = "normal"
-order = 73
+order = 220
 created = 2026-08-08
 tags = ["history", "protocol"]
+
+[[task]]
+id = "delta-history-prefix-digest"
+title = "Prefix digest: incremental hash over the first N display messages"
+description = "HistoryDigest (session/transcript.go:653) is already a sequential sha256 fold over messages in order, so a prefix's digest is that fold stopped early. Add PrefixDigest(msgs []Message, n int) string, factoring HistoryDigest onto the same writer loop so the two can never diverge, plus tests asserting PrefixDigest(msgs, len(msgs)) == HistoryDigest(msgs). This is the cheap server-side validation a delta history page needs. Do NOT rebuild/recreate the server for this work: land the commits and background an image build only (see CLAUDE.md)."
+status = "active"
+level = "task"
+category = "feature"
+urgency = "normal"
+order = 230
+created = 2026-08-08
+tags = ["history", "delta"]
+
+[[task]]
+id = "delta-history-on-the-wire-server-sends-appended-rows-on-a-validated-prefix"
+title = "Delta history on the wire: server sends appended rows on a validated prefix"
+description = """
+Parent scope: delta-history-wire-protocol. Server half of the delta protocol.
+
+Inbound history gains have_prefix (string) and have_prefix_count (int) beside have_hash (gateway/messages.go + gateway.go dispatch + startHistory/serveHistory in ops_history.go). Outbound msgHistory gains prefix_hash/prefix_count (the digest of the display log up to and including the last row in THIS page, always sent so the client can echo it next time) and delta (bool) plus base_count (how many rows the client is expected to already hold).
+
+serveHistory flow on a top-page request (before == nil): keep the existing DisplayDigest fast path (unchanged) first; on a miss, after DisplayHistory, if have_prefix != "" and HistoryPrefixDigest(msgs, have_prefix_count) == have_prefix, reply with delta=true, base_count=have_prefix_count and ONLY stripPage(msgs[have_prefix_count:]) — no limit truncation of the tail is needed in the common post-turn case, but cap it and fall back to a normal page if the tail exceeds the limit. On mismatch fall back to today's full page unchanged. Paging (before != nil) is untouched.
+
+Anchor on the count+prefix-hash pair, never on Message.Index (rewritten by every re-index and unsafe across clear/compress rotations); Message.ID is what makes the digest stable.
+
+Document the new fields in docs/protocol.md (docsync drift test enforces payload field names). Extend gateway/digest_test.go: a matching prefix after an appended turn yields delta with only the new rows; a stale prefix yields a full page. Do NOT rebuild/recreate the server — land commits and background an image build only."""
+status = "active"
+level = "task"
+category = "feature"
+urgency = "normal"
+order = 240
+created = 2026-08-08
+tags = ["history", "protocol"]
+
+[[task]]
+id = "delta-history-serve-delta-page"
+title = "history op: serve a delta page when the client holds a valid prefix"
+description = "In gateway/ops_history.go serveHistory, accept a new inbound field have_count meaning 'I hold the first have_count display rows, and have_hash is their prefix digest'. On a top-page request (before == nil) whose full-digest fast path misses, run DisplayHistory once and check PrefixDigest(msgs, have_count) == have_hash; if it validates send ONLY msgs[have_count:] through stripPage with a delta marker on msgHistory, else fall back to today's full page. Key nothing on Message.Index (rewritten on every re-index, unsafe across clear/compress rotations) — rows carry their own ID for client-side reconciliation. Extend gateway/digest_test.go with a post-turn delta case. Do NOT rebuild/recreate the server for this work: land the commits and background an image build only (see CLAUDE.md)."
+status = "active"
+level = "task"
+category = "feature"
+urgency = "normal"
+order = 250
+created = 2026-08-08
+tags = ["history", "delta"]
+
+[[task]]
+id = "delta-history-protocol-docs"
+title = "Document the delta history frames in docs/protocol.md"
+description = "Add the inbound history field have_count and the outbound msgHistory delta marker to docs/protocol.md in the same commit as the gateway change — internal/docsync drift-tests every message and payload field name both directions, so an undocumented field fails the build. Use go test ./... -count=1 for the uncached doc check."
+status = "active"
+level = "task"
+category = "docs"
+urgency = "normal"
+order = 260
+created = 2026-08-08
+tags = ["history", "delta"]
+
+[[task]]
+id = "delta-history-kotlin-merge"
+title = "Kotlin client: send have_count and merge an appended-messages delta"
+description = "SessionSync.kt already holds (count, digest) per session and sends the digest as have_hash; also send have_count, and on a delta reply append the returned rows to the held transcript instead of replacing it, de-duplicating by Message.ID (falling back to index/text when the backend gives no id, per the Message.ID doc in transcript.go). Add the field to net/Protocol.kt — clientsync_test.go drift-tests the Kotlin wire strings against the Go gateway, so both sides change together. Verify on the Dockerized emulator per the android-dev skill."
+status = "active"
+level = "task"
+category = "feature"
+urgency = "normal"
+order = 270
+created = 2026-08-08
+tags = ["history", "delta", "android"]
