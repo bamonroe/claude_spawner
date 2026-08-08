@@ -173,7 +173,7 @@ func (c *conn) selectClientSession(sessionID string) bool {
 	// it, and re-send `attached` with the CURRENT session_id so the client re-keys
 	// and stops routing by the retired id.
 	if c.attached != nil && c.attached.OwnsID(sessionID) {
-		c.send(msgAttached(c.attached, c.srv.driver.SessionContextUsage(c.attached)))
+		c.sendAttached(c.attached)
 		return true
 	}
 	// GetByAnyID: the declared id may have rotated while this device was showing
@@ -189,9 +189,28 @@ func (c *conn) selectClientSession(sessionID string) bool {
 		c.srv.unbindJob(c, c.prevSessionID)
 	}
 	c.setAttached(s)
-	c.send(msgAttached(s, c.srv.driver.SessionContextUsage(s)))
+	c.sendAttached(s)
 	c.srv.bindJob(c, s, true)
 	return true
+}
+
+// sendAttached ships the `attached` ack with the last KNOWN context size and then
+// reads the true one off the inbound loop. SessionContextUsage costs a chain-sig
+// SSH stat walk plus (on a miss) a transcript tail read, and the attach handler runs
+// inline on the connection's one-message-at-a-time inbound loop — so every dictation,
+// history request and tap from that device queued behind it. Same shape as the
+// end-of-turn fix: provisional badge now, authoritative `context_usage` frame after.
+func (c *conn) sendAttached(s *session.Session) {
+	c.send(msgAttached(s, c.srv.driver.CachedSessionContextUsage(s)))
+	go func() {
+		cx := c.srv.driver.SessionContextUsage(s)
+		if cx == nil {
+			return
+		}
+		var name, sessionID string
+		s.Read(func(r *session.Session) { name, sessionID = r.Name, r.SessionID })
+		c.send(msgContextUsage(name, sessionID, cx))
+	}()
 }
 
 func (c *conn) doAttach(name string, silent bool) {
@@ -224,7 +243,7 @@ func (c *conn) attachTo(s *session.Session, silent bool) {
 	}
 	c.clearBuffer() // fresh message buffer for the new session
 	c.setAttached(s)
-	c.send(msgAttached(s, c.srv.driver.SessionContextUsage(s)))
+	c.sendAttached(s)
 	if !silent {
 		c.send(msgSay("attached to " + recName(s) + "."))
 	}

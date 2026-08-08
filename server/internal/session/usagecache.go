@@ -80,6 +80,25 @@ func (c *UsageCache) Get(key, sig string) (*ContextSnapshot, bool) {
 	return &snap, true
 }
 
+// Last returns the last snapshot recorded for key at ANY signature — the newest
+// value we know without touching the host. It is deliberately unvalidated: callers
+// use it as a provisional badge on a latency-critical path (attach) and follow up
+// with the authoritative SessionContextUsage read off that path. Never use it
+// where the answer must be current.
+func (c *UsageCache) Last(key string) *ContextSnapshot {
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, found := c.entries[key]
+	if !found || e.Usage == nil {
+		return nil
+	}
+	snap := *e.Usage // copy: callers must not be able to edit the cache in place
+	return &snap
+}
+
 // Put records a snapshot against the signature it was read at and persists the
 // cache. An empty sig is dropped: with nothing to invalidate against, a stale
 // snapshot would leave the app showing the wrong context size indefinitely.

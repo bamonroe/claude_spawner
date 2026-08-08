@@ -907,6 +907,18 @@ func (d *Driver) LastContextUsage(agentID, host string, ids []string) *ContextSn
 	return d.transcriptReaderFor(agentID, host).lastContextUsage(ids)
 }
 
+// CachedSessionContextUsage is the last context snapshot known for a session
+// WITHOUT any host I/O — no chain signature, no transcript read. It may be stale
+// (a turn since the last read moves the real number), so it exists only to fill a
+// badge immediately on a latency-critical path; pair it with an async
+// SessionContextUsage that pushes the true value.
+func (d *Driver) CachedSessionContextUsage(live *Session) *ContextSnapshot {
+	if live == nil {
+		return nil
+	}
+	return d.usage.Last(live.Snapshot().SessionID)
+}
+
 // SessionContextUsage is LastContextUsage for a registered session, served from
 // the durable UsageCache whenever the session's transcripts are byte-for-byte
 // where they were when the snapshot was last read.
