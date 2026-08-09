@@ -24,6 +24,20 @@ func (c *conn) doDiscover() {
 	}()
 }
 
+// doDiscoverFresh is doDiscover for callers that just changed what's on disk: it
+// re-walks before serving, so the pushed list can't be a memo that predates the
+// change. Same per-connection coalescing as doDiscover.
+func (c *conn) doDiscoverFresh() {
+	if !c.discovering.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		defer c.discovering.Store(false)
+		c.srv.refreshDiscoveryNow(context.WithoutCancel(c.ctx))
+		c.serveDiscover()
+	}()
+}
+
 // serveDiscover builds and sends the session list, flagged with whether each is
 // already registered and whether an interactive claude is live in tmux at that
 // directory. It reads the MEMOIZED walk (discoverSnapshot) rather than walking
@@ -221,9 +235,9 @@ func (c *conn) doSetAgent(sessionID, dir, agentID, modelAlias string) {
 			rec.SessionID = newID
 			rec.Started = false
 			rec.AskPrimed = false
-			rec.JobsPrimed = false        // re-prime the background-job instruction on the new backend
-			rec.PriorIDs = nil            // don't chain the old backend's transcripts into the new one
-			rec.PendingSeed = "" // ...a recap of them lands via settleSeed below instead
+			rec.JobsPrimed = false // re-prime the background-job instruction on the new backend
+			rec.PriorIDs = nil     // don't chain the old backend's transcripts into the new one
+			rec.PendingSeed = ""   // ...a recap of them lands via settleSeed below instead
 		})
 		go c.srv.computeHandoffSeed(rec, cur, settleSeed)
 	}
@@ -315,9 +329,6 @@ func (c *conn) doAdopt(sessionID, dir string) {
 // An UNREGISTERED row stands for a whole directory of loose transcripts (discover
 // shows one adoptable row per dir), so it wipes every transcript in that dir — else
 // deleting one just re-surfaces the row on a sibling. Refuses while the directory is
-// live in a terminal (deleting under a running claude corrupts it). Refreshes the
-// discover + session lists.
-
 // doDeleteDiscovered PERMANENTLY deletes a session row. A REGISTERED row is one
 // session: its transcript(s) — current session_id plus rotated prior ids — and its
 // single registry record; deleting it leaves dir-mates that have their own rows.
@@ -366,7 +377,8 @@ func (c *conn) doDeleteDiscovered(sessionID string) {
 			log.Printf("delete session record %s: %v", name, derr)
 		}
 		c.srv.dropJob(recID(rec))
-		c.purgeAsync(rec, name, c.doDiscover)
+		// Re-walk after the purge lands, not against the pre-delete memo.
+		c.purgeAsync(rec, name, c.doDiscoverFresh)
 	} else {
 		// Unregistered rows come from the discovery scan on the loopback host
 		// (TranscriptPathByID above reads the same place), so delete there. There's
@@ -379,7 +391,7 @@ func (c *conn) doDeleteDiscovered(sessionID string) {
 	}
 	c.sendSessionList()
 	if rec == nil {
-		c.doDiscover()
+		c.doDiscoverFresh()
 	}
 }
 

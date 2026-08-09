@@ -69,6 +69,25 @@ func (s *Server) discoverForAttach() []session.Discovered {
 	}
 }
 
+// refreshDiscoveryNow walks the disk unconditionally and publishes the result,
+// bypassing both the TTL and any walk already in flight. Callers that just
+// CHANGED what's on disk (a delete) need this: the memo is up to
+// attachDiscoveryTTL stale, and an in-flight walk started before the change
+// would republish the row that was just removed — which the app renders as the
+// delete being ignored, since it drops the row optimistically and takes the next
+// `discovered` push as authoritative. Runs the walk on the caller's goroutine,
+// so call it off the connection's read loop.
+func (s *Server) refreshDiscoveryNow(ctx context.Context) {
+	found, err := s.driver.DiscoverSessions(ctx, "")
+	if err != nil {
+		return // keep the previous memo; a transient failure isn't an empty disk
+	}
+	d := &s.discoverMemo
+	d.mu.Lock()
+	d.list, d.at = found, time.Now()
+	d.mu.Unlock()
+}
+
 // discoverSnapshot is discoverForAttach plus whether the memo holds ANY
 // successful walk. ok=false means the walk has never landed (cold server, or a
 // scan failure before the first success) — the caller has no on-disk view at

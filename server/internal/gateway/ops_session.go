@@ -645,7 +645,10 @@ func (c *conn) ensureSandbox(s *session.Session) {
 func (c *conn) purgeAsync(s *session.Session, name string, then func()) {
 	ctx := context.WithoutCancel(c.ctx)
 	go func() {
-		if _, err := c.srv.driver.DeleteSessionAll(c.ctx, s); err != nil {
+		// ctx, not c.ctx: the purge outlives the request, and a phone that drops
+		// its socket mid-delete would otherwise cancel the wipe half-done and leave
+		// the row to reappear on the next discover.
+		if _, err := c.srv.driver.DeleteSessionAll(ctx, s); err != nil {
 			log.Printf("delete session %s transcripts: %v", name, err)
 		}
 		if err := c.srv.driver.RemoveContainer(ctx, s); err != nil {
