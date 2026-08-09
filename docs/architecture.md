@@ -565,6 +565,20 @@ commented-out default — the measured ceiling is **10 concurrent channels**, wh
 split is budgeted under. Re-run the probe before changing those constants or before assuming a new
 host is as generous; the test fails if the ceiling drops below `sshMaxChannels`.
 
+**A connection is not the unit of a host's concurrency — the pool holds several.** That measured
+ceiling is *per TCP connection*, so while the pool kept one client per host the host's total
+parallelism was 8 channels no matter how idle the machine was: a few turns holding stream slots and
+every probe behind them queued. `poolEntry` therefore holds a **slice** of connections, each with
+its own `channelBudget` (and `lastUsed`). `openChannel` hands a caller the **least-loaded** live
+connection with a free slot; when every one is saturated it dials an **additional** connection for
+that host, up to `sshMaxConnsPerHost` (4) — so the real ceiling is 4 × 8, and only at the connection
+cap does anyone block. Per-connection dials still serialize under the entry lock (one cold host
+can't stall another) and still honour the negative dial cache; a failed *extra* dial to a host that
+still has a live link falls back to waiting rather than failing the caller. Crucially `drop` evicts
+**one** connection, not the host's whole entry — a dead or refusing link can't punish the others,
+which is why every operation returns the `*pooledConn` it used. The stream sub-budget stays
+per-connection, so turns still can't starve probes on any given link.
+
 ### Sandbox sessions (also without host root)
 
 For `sandbox`-target sessions the container's lifetime is **bound to the session**, not the turn:

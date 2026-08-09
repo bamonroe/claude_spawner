@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"slices"
 	"sync"
 	"time"
 
@@ -22,10 +23,10 @@ import (
 // Driver routing, over-SSH discovery, and robust tagged-process cancellation are
 // separate later commits of the epic.
 
-// SSHPool holds one authenticated *ssh.Client per host so turns don't pay a
-// per-turn handshake: the expensive dial+auth happens once, then each turn opens a
-// lightweight channel on the cached connection (≈free). A background keepalive per
-// connection detects a dead link and drops the client, so the next turn
+// SSHPool holds authenticated *ssh.Clients per host so turns don't pay a per-turn
+// handshake: the expensive dial+auth happens once, then each turn opens a
+// lightweight channel on a cached connection (≈free). A background keepalive per
+// connection detects a dead link and drops that connection, so the next turn
 // transparently re-dials. Safe for concurrent use.
 type SSHPool struct {
 	cfg        SSHConfig
@@ -37,7 +38,7 @@ type SSHPool struct {
 	entries    map[string]*poolEntry // one per host name
 }
 
-// poolEntry is one host's cached connection plus the lock that serializes dials
+// poolEntry is one host's cached connections plus the lock that serializes dials
 // FOR THAT HOST. The per-host lock is the whole point: dialing an unreachable host
 // blocks for the full dial timeout, and when that wait happened under a pool-wide
 // lock it stalled every other host's callers too. One offline machine in the
@@ -45,14 +46,19 @@ type SSHPool struct {
 // loopback work — history reads, discovery, browsing — for 15 s at a stretch,
 // which read as "the server is broken" with nothing in the log to show for it.
 // Holding p.mu only for the map lookup keeps a dead host's cost local to that host.
+//
+// A host holds a SLICE of connections, not one. A single TCP connection is capped
+// at the peer's MaxSessions, so making it the unit of concurrency meant the host's
+// total parallelism was that one ceiling: past it every caller queued, however idle
+// the machine actually was. Each connection carries its own channel budget and
+// callers are handed the least-loaded one; when all of them are saturated the pool
+// dials an ADDITIONAL connection (up to sshMaxConnsPerHost) instead of making the
+// caller wait. Only at the cap does anyone block. One dead or busy connection is
+// then a local problem — it is evicted alone, and the host's other connections keep
+// working.
 type poolEntry struct {
-	mu     sync.Mutex // serializes dials for this host; may be held for the dial timeout
-	client *pooledConn
-	// chans bounds concurrent SSH channels on this host's connection, below the
-	// peer's MaxSessions ceiling — see ssh_channels.go. It belongs to the entry,
-	// not the client: a re-dial replaces the connection but the budget (and any
-	// slots still held by unwinding operations) carries across.
-	chans channelBudget
+	mu    sync.Mutex // serializes dials for this host; may be held for the dial timeout
+	conns []*pooledConn
 	// Negative dial cache, guarded by mu. A host that fails to dial is marked down
 	// until downUntil; every caller in that window gets downErr immediately rather
 	// than serializing behind another full dial timeout. backoff doubles per
@@ -61,9 +67,6 @@ type poolEntry struct {
 	downUntil time.Time
 	backoff   time.Duration
 }
-
-// budget returns this host's channel allowance.
-func (e *poolEntry) budget() *channelBudget { return &e.chans }
 
 // down reports whether the host is inside its negative-cache window, and the
 // error to fail fast with. Caller must hold e.mu.
@@ -118,7 +121,7 @@ func (p *SSHPool) Down(name string) (error, bool) {
 		return nil, false // a dial is in flight; don't wait on it just to answer
 	}
 	defer e.mu.Unlock()
-	if e.client != nil {
+	if len(e.conns) > 0 {
 		return nil, false
 	}
 	return e.down(time.Now())
@@ -206,20 +209,31 @@ func (p *SSHPool) clientConfig(user, keyFile, password string) (*ssh.ClientConfi
 	}, nil
 }
 
-// client returns the cached connection for a host name, resolving it through the
+// client returns a cached connection for a host name, resolving it through the
 // registry and dialing (and caching) on first use. Concurrent callers for the same
 // cold host serialize on that host's entry lock, so exactly one dial happens —
 // while callers for OTHER hosts proceed unblocked. Cached by name so two names
 // sharing an address keep independent entries.
+//
+// It answers "give me A connection to this host", ignoring load; the load-aware
+// choice belongs to openChannel, which is where a channel slot is actually taken.
 func (p *SSHPool) client(name string) (*pooledConn, error) {
 	e := p.entry(name)
 	// Per-host lock only: a slow or hanging dial to THIS host must not stall
 	// callers of any other host. See poolEntry.
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.client != nil {
-		return e.client, nil
+	if c := leastLoaded(e.conns); c != nil {
+		return c, nil
 	}
+	return p.dialLocked(name, e)
+}
+
+// dialLocked adds one more connection for a host and caches it. Caller holds e.mu,
+// which is what serializes dials per host — including the extra connections opened
+// when every existing one is saturated. Returns the pool's fail-fast error while
+// the host sits in its negative-dial-cache window.
+func (p *SSHPool) dialLocked(name string, e *poolEntry) (*pooledConn, error) {
 	// Fail fast while the host is known down: re-dialing an unreachable machine
 	// costs a full sshDialTimeout per caller, serialized on this very lock.
 	if err, ok := e.down(time.Now()); ok {
@@ -237,7 +251,7 @@ func (p *SSHPool) client(name string) (*pooledConn, error) {
 	}
 	e.markUp()
 	c := newPooledConn(raw)
-	e.client = c
+	e.conns = append(e.conns, c)
 	go p.keepalive(name, c)
 	return c, nil
 }
@@ -314,6 +328,17 @@ func knownHostAlgos(keys []knownhosts.KnownKey) []string {
 type pooledConn struct {
 	*ssh.Client
 
+	// chans bounds concurrent SSH channels on THIS connection, below the peer's
+	// MaxSessions ceiling — see ssh_channels.go. It belongs to the connection
+	// because that ceiling is per-connection: a second connection to the same host
+	// brings its own allowance, which is the whole reason the pool opens one.
+	chans channelBudget
+
+	// lastUsed is when a channel was last opened on this connection, stamped under
+	// mu. It is what lets an idle EXTRA connection be reaped later without touching
+	// one that is merely between round trips.
+	lastUsed time.Time
+
 	// closeConn tears down the transport. A field rather than a direct
 	// Client.Close() call so the in-flight accounting can be tested without a
 	// live sshd; newPooledConn wires it to the real close.
@@ -334,7 +359,16 @@ func newPooledConn(c *ssh.Client) *pooledConn {
 func (c *pooledConn) hold() {
 	c.mu.Lock()
 	c.inflight++
+	c.lastUsed = time.Now()
 	c.mu.Unlock()
+}
+
+// live reports whether the connection is still eligible for new channels — a
+// retired one has been evicted and is only waiting out its in-flight work.
+func (c *pooledConn) live() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return !c.retired
 }
 
 // done records a channel closing, closing the transport if this was the last
@@ -362,15 +396,19 @@ func (c *pooledConn) retire() {
 	}
 }
 
-// drop removes c from the cache (only if it's still the current client for host)
-// so the next client(host) re-dials, and closes it once its in-flight channels
-// finish — see pooledConn. Idempotent.
+// drop removes ONE connection from the host's cache so a later caller re-dials,
+// and closes it once its in-flight channels finish — see pooledConn. Idempotent.
+//
+// Only the offending connection goes: that is the point of holding several. A
+// transport error on one link says nothing about the host's other links, and
+// evicting them all would take down turns streaming perfectly happily.
 func (p *SSHPool) drop(host string, c *pooledConn) {
+	if c == nil {
+		return // the attempt never got as far as a connection (e.g. the dial failed)
+	}
 	e := p.entry(host)
 	e.mu.Lock()
-	if e.client == c {
-		e.client = nil
-	}
+	e.conns = slices.DeleteFunc(e.conns, func(x *pooledConn) bool { return x == c })
 	e.mu.Unlock()
 	c.retire()
 }
@@ -402,10 +440,10 @@ func (p *SSHPool) Close() error {
 	// dial timeout, and shutdown mustn't serialize every host behind that.
 	for _, e := range entries {
 		e.mu.Lock()
-		if e.client != nil {
-			_ = e.client.closeConn() // shutdown: force, don't wait on in-flight channels
-			e.client = nil
+		for _, c := range e.conns {
+			_ = c.closeConn() // shutdown: force, don't wait on in-flight channels
 		}
+		e.conns = nil
 		e.mu.Unlock()
 	}
 	return nil

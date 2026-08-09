@@ -66,18 +66,6 @@ created = 2026-08-08
 tags = ["history"]
 
 [[task]]
-id = "multi-connection-ssh-pool-n-clients-per-host-channels-handed-out-across-them"
-title = "Multi-connection SSH pool: N clients per host, channels handed out across them"
-description = "Parent scope: centralize-ssh-bindings. Keep SSHPool as the single seam but stop making one TCP connection the unit of concurrency. Split poolEntry (session/ssh_pool.go:48) so it holds a slice of conns — each {client *ssh.Client, chans channelBudget, lastUsed time.Time} — instead of one client + one budget. openChannel (ssh_channels.go:122) picks the least-loaded conn whose budget has a free slot, and dials an ADDITIONAL connection for that host when every existing one is saturated, up to a per-host cap; only when the cap is reached does a caller block on a slot as it does today. Per-conn dial still serializes under the entry lock and honours the negative dial cache. drop() must evict only the offending conn, not the host's whole entry — the point of the change is that one dead or busy connection can't punish the others. Keep the stream sub-budget per connection so turns still can't starve probes. Do NOT rebuild/recreate the server."
-status = "active"
-level = "task"
-category = "refactor"
-urgency = "normal"
-order = 290
-created = 2026-08-08
-tags = ["ssh"]
-
-[[task]]
 id = "reap-idle-extra-ssh-connections-per-host"
 title = "Reap idle extra SSH connections per host"
 description = "Parent scope: centralize-ssh-bindings. Follow-on to the multi-connection pool: overflow connections opened during a burst (a digest sweep, a prefetch storm) must not linger forever. Close and remove any conn beyond the first that has had no channel in flight for an idle window, on a low-frequency sweep or lazily at openChannel time; the primary connection stays cached as today with its keepalive. Never close a conn holding a slot. Do NOT rebuild/recreate the server."

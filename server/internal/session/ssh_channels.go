@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 
 	"golang.org/x/crypto/ssh"
@@ -42,9 +43,16 @@ import (
 //
 // Every channel on a pooled client goes through openChannel, so the budget is a
 // property of the pool and not a rule five call sites have to remember.
+//
+// The budget bounds ONE connection, and a connection is no longer the unit of a
+// host's concurrency: when every cached connection to a host is at its budget, the
+// pool dials another rather than making the caller queue (see poolEntry). So
+// sshMaxChannels is a per-link ceiling and sshMaxConnsPerHost × sshMaxChannels is
+// the host's real one — only there does a caller block.
 const (
 	sshMaxChannels       = 8
 	sshMaxStreamChannels = 4
+	sshMaxConnsPerHost   = 4
 )
 
 // probeChannelCeilingMax bounds the diagnostic below so a peer with a very
@@ -163,6 +171,36 @@ func (b *channelBudget) acquire(ctx context.Context, longLived bool) error {
 	}
 }
 
+// tryAcquire takes a slot only if one is free right now, never blocking. It is how
+// a caller is offered around the host's connections: the first one with room wins,
+// and "nobody has room" is the signal to dial another connection rather than wait.
+func (b *channelBudget) tryAcquire(longLived bool) bool {
+	b.init()
+	if longLived {
+		select {
+		case b.streams <- struct{}{}:
+		default:
+			return false
+		}
+	}
+	select {
+	case b.slot <- struct{}{}:
+		return true
+	default:
+		if longLived {
+			<-b.streams
+		}
+		return false
+	}
+}
+
+// load is the number of channels currently charged to this connection, used to
+// hand a caller the least busy one.
+func (b *channelBudget) load() int {
+	b.init()
+	return len(b.slot)
+}
+
 func (b *channelBudget) release(longLived bool) {
 	b.init()
 	select {
@@ -177,29 +215,135 @@ func (b *channelBudget) release(longLived bool) {
 	}
 }
 
-// openChannel opens one SSH session channel on host's pooled client, waiting for
-// a slot in that connection's channel budget first. The returned release MUST be
-// called exactly once when the channel is done — defer it next to the session's
-// Close, or hand it to whatever owns the session's lifetime (see sshProc).
+// leastLoaded returns the live connection carrying the fewest channels, or nil if
+// there are none. Spreading channels evenly is what keeps a single long turn from
+// pinning one link while its siblings sit idle.
+func leastLoaded(conns []*pooledConn) *pooledConn {
+	var best *pooledConn
+	for _, c := range conns {
+		if !c.live() {
+			continue
+		}
+		if best == nil || c.chans.load() < best.chans.load() {
+			best = c
+		}
+	}
+	return best
+}
+
+// acquireConn hands back a connection to host with a channel slot already taken on
+// it, plus the release for that slot. The order is: use the least-loaded existing
+// connection that has room; if none does, dial an ADDITIONAL one (up to
+// sshMaxConnsPerHost) so the caller isn't punished for a busy link; only once the
+// host is at its connection cap does the caller block on a slot.
+func (p *SSHPool) acquireConn(ctx context.Context, host string, longLived bool) (*pooledConn, func(), error) {
+	e := p.entry(host)
+	for {
+		e.mu.Lock()
+		conns := slices.Clone(e.conns)
+		e.mu.Unlock()
+
+		// Cheapest first: somebody already connected has room.
+		for _, c := range byLoad(conns) {
+			if c.chans.tryAcquire(longLived) {
+				return c, releaser(c, longLived), nil
+			}
+		}
+
+		// Everything is saturated (or there is nothing yet). Add a connection —
+		// under the entry lock, so concurrent callers for this host don't each dial
+		// one and blow past the cap. A caller that arrives to find the slice already
+		// grown just loops and re-tries the fast path.
+		e.mu.Lock()
+		grew := len(e.conns) != len(conns)
+		atCap := len(e.conns) >= sshMaxConnsPerHost
+		var c *pooledConn
+		var err error
+		if !grew && !atCap {
+			c, err = p.dialLocked(host, e)
+		}
+		e.mu.Unlock()
+		if err != nil {
+			// The extra dial failed. If the host has no connection at all that is
+			// the caller's error; but when live connections exist they are merely
+			// BUSY, and failing the caller because a bonus dial didn't land would be
+			// a regression on the old single-connection behaviour, which waited —
+			// so fall through to the wait below.
+			if len(byLoad(conns)) == 0 {
+				return nil, nil, err
+			}
+		}
+		if c != nil {
+			if c.chans.tryAcquire(longLived) {
+				return c, releaser(c, longLived), nil
+			}
+			continue // raced with other callers onto the new connection; look again
+		}
+		if grew {
+			continue
+		}
+
+		// At the cap: this is the point where waiting is the honest answer. Queue on
+		// the least-loaded link, then make sure it wasn't evicted while we waited.
+		target := leastLoaded(conns)
+		if target == nil {
+			continue
+		}
+		if err := target.chans.acquire(ctx, longLived); err != nil {
+			return nil, nil, err
+		}
+		if !target.live() {
+			target.chans.release(longLived)
+			continue
+		}
+		return target, releaser(target, longLived), nil
+	}
+}
+
+// byLoad orders live connections least-busy first.
+func byLoad(conns []*pooledConn) []*pooledConn {
+	live := make([]*pooledConn, 0, len(conns))
+	for _, c := range conns {
+		if c.live() {
+			live = append(live, c)
+		}
+	}
+	slices.SortFunc(live, func(a, b *pooledConn) int { return a.chans.load() - b.chans.load() })
+	return live
+}
+
+// releaser returns the once-only function that gives a slot back to its connection.
+func releaser(c *pooledConn, longLived bool) func() {
+	var once sync.Once
+	return func() { once.Do(func() { c.chans.release(longLived) }) }
+}
+
+// openChannel opens one SSH session channel on a pooled connection to host, having
+// first taken a slot in that connection's channel budget — dialing another
+// connection to the host if every existing one is full. The connection it chose is
+// returned so a caller whose operation fails with a TRANSPORT error can drop
+// exactly that one (see shouldRedial); the release MUST be called exactly once when
+// the channel is done — defer it next to the session's Close, or hand it to
+// whatever owns the session's lifetime (see sshProc).
 //
 // longLived marks a channel held for the duration of a turn rather than a single
 // round trip; those draw from the stream sub-budget so they can't starve probes.
 //
 // A refusal from the peer comes back wrapped in errChannelOpen so the caller's
 // re-dial path can tell "connection busy" from "connection dead".
-func (p *SSHPool) openChannel(ctx context.Context, host string, client *pooledConn, longLived bool) (*ssh.Session, func(), error) {
-	b := p.entry(host).budget()
-	if err := b.acquire(ctx, longLived); err != nil {
-		return nil, nil, err
+func (p *SSHPool) openChannel(ctx context.Context, host string, longLived bool) (*ssh.Session, *pooledConn, func(), error) {
+	client, release, err := p.acquireConn(ctx, host, longLived)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 	sess, err := client.NewSession()
 	if err != nil {
-		b.release(longLived)
-		return nil, nil, fmt.Errorf("%w: %v", errChannelOpen, err)
+		release()
+		return nil, client, nil, fmt.Errorf("%w: %v", errChannelOpen, err)
 	}
 	// Count the channel against the connection so an eviction can defer its close
 	// until this operation is done — see pooledConn.
 	client.hold()
 	var once sync.Once
-	return sess, func() { once.Do(func() { client.done(); b.release(longLived) }) }, nil
+	return sess, client, func() { once.Do(func() { client.done(); release() }) }, nil
 }

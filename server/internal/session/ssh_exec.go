@@ -45,32 +45,26 @@ func (e SSHExecutor) Start(ctx context.Context, s *Session, prof *ExecProfile, b
 	if bin == "" {
 		bin = e.Pool.binFor(host)
 	}
-	client, err := e.Pool.client(host)
-	if err != nil {
-		return nil, err
-	}
-	proc, err := e.run(ctx, host, client, s, prof, bin, args)
+	proc, conn, err := e.run(ctx, host, s, prof, bin, args)
 	// Only re-dial on a real transport error — see shouldRedial: a busy connection
 	// and a failed remote command both look like errors and neither means the link
 	// is dead, and dropping it takes down every other operation sharing it.
 	if shouldRedial(err) {
-		// The pooled connection may have died since the last turn; evict and re-dial
-		// once. A fresh client that still fails is a real error.
-		e.Pool.drop(host, client)
-		client, derr := e.Pool.client(host)
-		if derr != nil {
-			return nil, err
-		}
-		proc, err = e.run(ctx, host, client, s, prof, bin, args)
+		// The pooled connection this turn landed on may have died since it was last
+		// used; evict that one and try again. A fresh connection that still fails is
+		// a real error.
+		e.Pool.drop(host, conn)
+		proc, _, err = e.run(ctx, host, s, prof, bin, args)
 	}
 	return proc, err
 }
 
-// run opens one SSH session (channel) on client, launches the remote claude in the
-// session's directory, and wires ctx-cancel to stop it. The returned Proc streams
-// the remote stdout and Waits on the remote exit.
-func (e SSHExecutor) run(ctx context.Context, host string, client *pooledConn, s *Session, prof *ExecProfile, bin string, args []string) (Proc, error) {
-	return e.Pool.streamRemote(ctx, host, client, remoteCommand(s.Dir, bin, args, prof.envList()))
+// run opens one SSH session (channel) on a pooled connection to host, launches the
+// remote claude in the session's directory, and wires ctx-cancel to stop it. The
+// returned Proc streams the remote stdout and Waits on the remote exit; the
+// connection it used comes back so a transport failure evicts only that one.
+func (e SSHExecutor) run(ctx context.Context, host string, s *Session, prof *ExecProfile, bin string, args []string) (Proc, *pooledConn, error) {
+	return e.Pool.streamRemote(ctx, host, remoteCommand(s.Dir, bin, args, prof.envList()))
 }
 
 // streamRemote launches `inner` (a POSIX-sh command) on client, wrapped so an abort
@@ -78,19 +72,19 @@ func (e SSHExecutor) run(ctx context.Context, host string, client *pooledConn, s
 // the reusable core shared by SSHExecutor.run (remote claude) and the SSH-native
 // SandboxExecutor (remote `podman exec claude`). inner must exec its final process
 // so it inherits the wrapper's process group (see cancelableCommand).
-func (p *SSHPool) streamRemote(ctx context.Context, host string, client *pooledConn, inner string) (Proc, error) {
+func (p *SSHPool) streamRemote(ctx context.Context, host, inner string) (Proc, *pooledConn, error) {
 	// A turn holds its channel for the whole turn, so the budget slot is owned by
 	// the returned Proc and released when it finishes (or fails to start here) —
 	// not when this function returns.
-	sess, release, err := p.openChannel(ctx, host, client, true)
+	sess, client, release, err := p.openChannel(ctx, host, true)
 	if err != nil {
-		return nil, err
+		return nil, client, err
 	}
 	stdout, err := sess.StdoutPipe()
 	if err != nil {
 		_ = sess.Close()
 		release()
-		return nil, err
+		return nil, client, err
 	}
 	// Read stderr out of band from the stream-json stdout: the remote command echoes
 	// its process-group id there (see cancelableCommand) so a cancel can kill the
@@ -99,12 +93,12 @@ func (p *SSHPool) streamRemote(ctx context.Context, host string, client *pooledC
 	if err != nil {
 		_ = sess.Close()
 		release()
-		return nil, err
+		return nil, client, err
 	}
 	if err := sess.Start(cancelableCommand(inner)); err != nil {
 		_ = sess.Close()
 		release()
-		return nil, fmt.Errorf("start remote command: %w", err)
+		return nil, client, fmt.Errorf("start remote command: %w", err)
 	}
 	var pmu sync.Mutex
 	pgid := 0
@@ -136,12 +130,12 @@ func (p *SSHPool) streamRemote(ctx context.Context, host string, client *pooledC
 		g := pgid
 		pmu.Unlock()
 		if g > 0 {
-			p.killRemoteGroup(ctx, host, client, g)
+			p.killRemoteGroup(ctx, host, g)
 		}
 		_ = sess.Signal(ssh.SIGKILL)
 		_ = sess.Close()
 	})
-	return &sshProc{sess: sess, stdout: stdout, stderr: tail, stop: stop, release: release}, nil
+	return &sshProc{sess: sess, stdout: stdout, stderr: tail, stop: stop, release: release}, client, nil
 }
 
 // sshPGIDSentinel prefixes the line cancelableCommand writes to stderr carrying the
@@ -159,14 +153,16 @@ func cancelableCommand(inner string) string {
 	return "setsid sh -c " + shellQuote("echo "+sshPGIDSentinel+"$$ 1>&2; "+inner)
 }
 
-// killRemoteGroup opens a fresh channel on the live connection and SIGKILLs the
-// remote process group, matching the host executor's group-kill-on-abort semantics.
-// Best-effort: a failure (already exited, connection gone) is ignored.
-func (p *SSHPool) killRemoteGroup(ctx context.Context, host string, client *pooledConn, pgid int) {
+// killRemoteGroup opens a fresh channel to the host and SIGKILLs the remote process
+// group, matching the host executor's group-kill-on-abort semantics. Any connection
+// to the host will do — the kill names a pgid, not a channel — so it takes whichever
+// the pool offers rather than insisting on the turn's own busy link. Best-effort: a
+// failure (already exited, connection gone) is ignored.
+func (p *SSHPool) killRemoteGroup(ctx context.Context, host string, pgid int) {
 	// The abort's own ctx is already cancelled by the time we get here, so the kill
 	// channel waits on a fresh context — an abort must not be starved by a full
 	// channel budget, and it releases a slot the moment it lands.
-	s, release, err := p.openChannel(context.WithoutCancel(ctx), host, client, false)
+	s, _, release, err := p.openChannel(context.WithoutCancel(ctx), host, false)
 	if err != nil {
 		return
 	}

@@ -122,18 +122,11 @@ func (p *SSHPool) ReadFile(ctx context.Context, host, path string) ([]byte, erro
 // the parent directory. The bytes travel as the remote `cat`'s stdin, so they land
 // verbatim regardless of content. Re-dials once on a stale cached connection.
 func (p *SSHPool) WriteFile(ctx context.Context, host, path string, data []byte) error {
-	client, err := p.client(host)
-	if err != nil {
-		return err
-	}
-	err = p.writeRemote(ctx, host, client, path, data)
+	conn, err := p.writeRemote(ctx, host, path, data)
 	if shouldRedial(err) {
-		p.drop(host, client)
-		client, derr := p.client(host)
-		if derr != nil {
-			return err
-		}
-		err = p.writeRemote(ctx, host, client, path, data)
+		// Evict only the connection this attempt used; the host's others are fine.
+		p.drop(host, conn)
+		_, err = p.writeRemote(ctx, host, path, data)
 	}
 	return err
 }
@@ -141,10 +134,12 @@ func (p *SSHPool) WriteFile(ctx context.Context, host, path string, data []byte)
 // writeRemote opens one session channel and pipes data into `cat > path` (making the
 // parent dir first). ctx-cancel kills the remote command so a hung write can't leak
 // a channel.
-func (p *SSHPool) writeRemote(ctx context.Context, host string, client *pooledConn, path string, data []byte) error {
-	sess, release, err := p.openChannel(ctx, host, client, false)
+// It returns the connection it used so the caller can evict that one — and only
+// that one — if the failure was a transport error.
+func (p *SSHPool) writeRemote(ctx context.Context, host, path string, data []byte) (*pooledConn, error) {
+	sess, conn, release, err := p.openChannel(ctx, host, false)
 	if err != nil {
-		return err
+		return conn, err
 	}
 	defer release()
 	defer sess.Close()
@@ -159,11 +154,11 @@ func (p *SSHPool) writeRemote(ctx context.Context, host string, client *pooledCo
 		// stderr (e.g. "Permission denied", "Not a directory") so an upload failure
 		// reports why, not an opaque status code.
 		if msg := strings.TrimSpace(stderr.String()); msg != "" {
-			return fmt.Errorf("%s: %w", msg, err)
+			return conn, fmt.Errorf("%s: %w", msg, err)
 		}
-		return err
+		return conn, err
 	}
-	return nil
+	return conn, nil
 }
 
 // Run executes a short command on host over the pooled connection and returns its
@@ -171,21 +166,14 @@ func (p *SSHPool) writeRemote(ctx context.Context, host string, client *pooledCo
 // SSHExecutor. Re-dials once if the cached connection has gone stale, mirroring
 // SSHExecutor.Start.
 func (p *SSHPool) Run(ctx context.Context, host, cmd string) ([]byte, error) {
-	client, err := p.client(host)
-	if err != nil {
-		return nil, err
-	}
-	out, err := p.runRemote(ctx, host, client, cmd)
-	// Only a transport error earns a re-dial: dropping the client tears down every
-	// other operation sharing it (a running turn included). See shouldRedial for
-	// the two errors that look fatal and aren't.
+	out, conn, err := p.runRemote(ctx, host, cmd)
+	// Only a transport error earns a re-dial, and only for the connection that
+	// actually failed: dropping one tears down every other operation sharing it (a
+	// running turn included). See shouldRedial for the two errors that look fatal
+	// and aren't.
 	if shouldRedial(err) {
-		p.drop(host, client)
-		client, derr := p.client(host)
-		if derr != nil {
-			return nil, err
-		}
-		out, err = p.runRemote(ctx, host, client, cmd)
+		p.drop(host, conn)
+		out, _, err = p.runRemote(ctx, host, cmd)
 	}
 	return out, err
 }
@@ -195,34 +183,29 @@ func (p *SSHPool) Run(ctx context.Context, host, cmd string) ([]byte, error) {
 // SandboxExecutor to run a turn's `podman exec claude` on the host. Re-dials once if
 // the cached connection has gone stale, mirroring SSHExecutor.Start.
 func (p *SSHPool) Stream(ctx context.Context, host, inner string) (Proc, error) {
-	client, err := p.client(host)
-	if err != nil {
-		return nil, err
-	}
-	proc, err := p.streamRemote(ctx, host, client, inner)
+	proc, conn, err := p.streamRemote(ctx, host, inner)
 	if shouldRedial(err) {
-		p.drop(host, client)
-		client, derr := p.client(host)
-		if derr != nil {
-			return nil, err
-		}
-		proc, err = p.streamRemote(ctx, host, client, inner)
+		p.drop(host, conn)
+		proc, _, err = p.streamRemote(ctx, host, inner)
 	}
 	return proc, err
 }
 
 // runRemote opens one session channel, runs cmd, and returns its stdout. ctx-cancel
 // kills the remote command so a hung probe can't leak a channel.
-func (p *SSHPool) runRemote(ctx context.Context, host string, client *pooledConn, cmd string) ([]byte, error) {
-	sess, release, err := p.openChannel(ctx, host, client, false)
+// The connection it used comes back alongside the output so the caller can evict
+// exactly that one on a transport error.
+func (p *SSHPool) runRemote(ctx context.Context, host, cmd string) ([]byte, *pooledConn, error) {
+	sess, conn, release, err := p.openChannel(ctx, host, false)
 	if err != nil {
-		return nil, err
+		return nil, conn, err
 	}
 	defer release()
 	defer sess.Close()
 	stop := context.AfterFunc(ctx, func() { _ = sess.Signal(ssh.SIGKILL); _ = sess.Close() })
 	defer stop()
-	return sess.Output(cmd)
+	out, err := sess.Output(cmd)
+	return out, conn, err
 }
 
 // joinRemote joins a POSIX absolute dir and a child name without doubling the slash
