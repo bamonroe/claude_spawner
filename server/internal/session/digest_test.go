@@ -105,3 +105,74 @@ func TestHistoryDigest_Empty(t *testing.T) {
 		t.Fatal("empty-chain hash should still be a stable non-empty digest")
 	}
 }
+
+func TestHistoryPrefixDigest_MatchesTruncatedLog(t *testing.T) {
+	full := msgs("a", "b", "c", "d")
+	for n := 0; n <= len(full); n++ {
+		pc, ph := HistoryPrefixDigest(full, n)
+		tc, th := HistoryDigest(full[:n])
+		if pc != tc || ph != th {
+			t.Fatalf("n=%d: prefix (%d,%s) != truncated (%d,%s)", n, pc, ph, tc, th)
+		}
+	}
+}
+
+func TestHistoryPrefixDigest_ClampsOutOfRange(t *testing.T) {
+	full := msgs("a", "b")
+	n, h := HistoryDigest(full)
+	if c, hh := HistoryPrefixDigest(full, 99); c != n || hh != h {
+		t.Fatalf("over-long n not clamped: (%d,%s)", c, hh)
+	}
+	if c, hh := HistoryPrefixDigest(full, -1); c != 0 || hh != mustEmptyHash(t) {
+		t.Fatalf("negative n not clamped: (%d,%s)", c, hh)
+	}
+}
+
+func mustEmptyHash(t *testing.T) string {
+	t.Helper()
+	_, h := HistoryDigest(nil)
+	return h
+}
+
+func TestHistoryPrefixDigest_IDKeyedOverPrefix(t *testing.T) {
+	base := msgs("a", "b", "c")
+	for i := range base {
+		base[i].ID = string(rune('x' + i))
+	}
+	_, h := HistoryPrefixDigest(base, 2)
+
+	// Reindexing (a rotation) shifts Index but keeps IDs → prefix digest holds.
+	reindexed := append([]Message(nil), base...)
+	for i := range reindexed {
+		reindexed[i].Index = i + 100
+	}
+	if _, h2 := HistoryPrefixDigest(reindexed, 2); h2 != h {
+		t.Fatalf("prefix digest not ID-keyed: %s vs %s", h2, h)
+	}
+
+	// Editing a row inside the prefix must flip it.
+	edited := append([]Message(nil), base...)
+	edited[1].Text = "B"
+	if _, h2 := HistoryPrefixDigest(edited, 2); h2 == h {
+		t.Fatal("edited prefix row did not change the digest")
+	}
+
+	// Editing a row outside the prefix must not.
+	after := append([]Message(nil), base...)
+	after[2].Text = "C"
+	if _, h2 := HistoryPrefixDigest(after, 2); h2 != h {
+		t.Fatal("row past the prefix changed the digest")
+	}
+}
+
+func TestHistoryPrefixDigest_IDlessStillIndexKeyed(t *testing.T) {
+	base := msgs("a", "b", "c")
+	_, h := HistoryPrefixDigest(base, 2)
+	shifted := msgs("a", "b", "c")
+	for i := range shifted {
+		shifted[i].Index = i + 1
+	}
+	if _, h2 := HistoryPrefixDigest(shifted, 2); h2 == h {
+		t.Fatal("id-less prefix digest ignored Index")
+	}
+}

@@ -706,9 +706,27 @@ func extractText(raw json.RawMessage) string {
 // app refetches when it must. The hash is opaque to the client: it only ever
 // compares two server-produced hashes for equality.
 func HistoryDigest(msgs []Message) (count int, hash string) {
+	return HistoryPrefixDigest(msgs, len(msgs))
+}
+
+// HistoryPrefixDigest is HistoryDigest restricted to the first n messages: it
+// runs the same rolling hash over msgs[:n], so the digest of a prefix is
+// directly comparable to the full digest of a log truncated to that length.
+// That is what lets the server hand a client a delta — the client echoes back a
+// count and a previously issued digest, and the server re-derives the digest of
+// its own first n rows to confirm the client's prefix is still valid before
+// sending only the rows appended after it. n is clamped to [0, len(msgs)].
+// Clients never compute this hash; it stays server-private.
+func HistoryPrefixDigest(msgs []Message, n int) (count int, hash string) {
+	if n < 0 {
+		n = 0
+	}
+	if n > len(msgs) {
+		n = len(msgs)
+	}
 	h := sha256.New()
 	var b [8]byte
-	for _, m := range msgs {
+	for _, m := range msgs[:n] {
 		if m.ID != "" {
 			h.Write([]byte(m.ID))
 		} else {
@@ -722,7 +740,7 @@ func HistoryDigest(msgs []Message) (count int, hash string) {
 		binary.BigEndian.PutUint64(b[:], uint64(m.Ts))
 		h.Write(b[:])
 	}
-	return len(msgs), hex.EncodeToString(h.Sum(nil))
+	return n, hex.EncodeToString(h.Sum(nil))
 }
 
 // HistoryPage returns the window of msgs ending just before index `before`
