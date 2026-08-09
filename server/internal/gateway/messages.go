@@ -54,6 +54,8 @@ type inbound struct {
 	Before                *int                  `json:"before"`                  // on `history`: page cursor (exclusive index); nil = most recent
 	Limit                 int                   `json:"limit"`                   // on `history`: page size (default 30)
 	HaveHash              string                `json:"have_hash"`               // on `history`: digest of the top page the app already cached; server replies `unchanged` if it still matches
+	HavePrefix            string                `json:"have_prefix"`             // on `history`: a previously issued `prefix_hash` the app still holds; lets the server reply with only the rows appended after it
+	HavePrefixCount       int                   `json:"have_prefix_count"`       // on `history`: how many leading rows that `have_prefix` covers
 	Silent                bool                  `json:"silent"`                  // on `attach`: suppress the spoken "attached…" confirmation (reconnect auto-attach)
 	SessionID             string                `json:"session_id"`              // session target for attach/adopt/wake/utterance/reply and related session ops
 	Brief                 bool                  `json:"brief"`                   // on `hello`: append a "reply briefly for TTS" hint to dictation
@@ -634,14 +636,34 @@ func msgSettings(records []*session.SettingRecord) map[string]any {
 // still matched, meaning the app's cache is current and `messages` is empty.
 // `session_id` is the stable key the app files the page under (a rename can't
 // diverge it), `name` rides along for display.
-func msgHistory(sessionID, name string, messages []session.Message, more bool, count int, hash string, unchanged bool) map[string]any {
+func msgHistory(sessionID, name string, messages []session.Message, more bool, count int, hash string, unchanged bool, d historyDelta) map[string]any {
 	if messages == nil {
 		messages = []session.Message{}
 	}
-	return map[string]any{
+	out := map[string]any{
 		"type": "history", "session_id": sessionID, "name": name, "messages": messages, "more": more,
 		"count": count, "hash": hash, "unchanged": unchanged,
+		"delta": d.Delta, "base_count": d.BaseCount,
 	}
+	if d.PrefixHash != "" {
+		out["prefix_hash"] = d.PrefixHash
+		out["prefix_count"] = d.PrefixCount
+	}
+	return out
+}
+
+// historyDelta is the delta-protocol half of a `history` reply. PrefixHash /
+// PrefixCount are the digest of the display log up to and including the last row
+// in THIS page — the app stores them and echoes them back as `have_prefix` /
+// `have_prefix_count` on its next top-page request. When that prefix still
+// validates, the server answers Delta=true with only the rows appended after
+// BaseCount rather than a full page. The hash itself is opaque to the client: it
+// only ever hands back a value the server issued (same contract as `have_hash`).
+type historyDelta struct {
+	PrefixHash  string
+	PrefixCount int
+	Delta       bool
+	BaseCount   int
 }
 
 // digestView is one session's transcript summary in the `digests` message: the

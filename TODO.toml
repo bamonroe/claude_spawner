@@ -66,27 +66,6 @@ created = 2026-08-08
 tags = ["history"]
 
 [[task]]
-id = "delta-history-on-the-wire-server-sends-appended-rows-on-a-validated-prefix"
-title = "Delta history on the wire: server sends appended rows on a validated prefix"
-description = """
-Parent scope: delta-history-wire-protocol. Server half of the delta protocol.
-
-Inbound history gains have_prefix (string) and have_prefix_count (int) beside have_hash (gateway/messages.go + gateway.go dispatch + startHistory/serveHistory in ops_history.go). Outbound msgHistory gains prefix_hash/prefix_count (the digest of the display log up to and including the last row in THIS page, always sent so the client can echo it next time) and delta (bool) plus base_count (how many rows the client is expected to already hold).
-
-serveHistory flow on a top-page request (before == nil): keep the existing DisplayDigest fast path (unchanged) first; on a miss, after DisplayHistory, if have_prefix != "" and HistoryPrefixDigest(msgs, have_prefix_count) == have_prefix, reply with delta=true, base_count=have_prefix_count and ONLY stripPage(msgs[have_prefix_count:]) — no limit truncation of the tail is needed in the common post-turn case, but cap it and fall back to a normal page if the tail exceeds the limit. On mismatch fall back to today's full page unchanged. Paging (before != nil) is untouched.
-
-Anchor on the count+prefix-hash pair, never on Message.Index (rewritten by every re-index and unsafe across clear/compress rotations); Message.ID is what makes the digest stable.
-
-Document the new fields in docs/protocol.md (docsync drift test enforces payload field names). Extend gateway/digest_test.go: a matching prefix after an appended turn yields delta with only the new rows; a stale prefix yields a full page. Do NOT rebuild/recreate the server — land commits and background an image build only."""
-status = "active"
-level = "task"
-category = "feature"
-urgency = "normal"
-order = 240
-created = 2026-08-08
-tags = ["history", "protocol"]
-
-[[task]]
 id = "delta-history-serve-delta-page"
 title = "history op: serve a delta page when the client holds a valid prefix"
 description = "In gateway/ops_history.go serveHistory, accept a new inbound field have_count meaning 'I hold the first have_count display rows, and have_hash is their prefix digest'. On a top-page request (before == nil) whose full-digest fast path misses, run DisplayHistory once and check PrefixDigest(msgs, have_count) == have_hash; if it validates send ONLY msgs[have_count:] through stripPage with a delta marker on msgHistory, else fall back to today's full page. Key nothing on Message.Index (rewritten on every re-index, unsafe across clear/compress rotations) — rows carry their own ID for client-side reconciliation. Extend gateway/digest_test.go with a post-turn delta case. Do NOT rebuild/recreate the server for this work: land the commits and background an image build only (see CLAUDE.md)."

@@ -577,16 +577,18 @@ var wireHandlers = map[string]func(c *conn, in inbound){
 	"wake":          func(c *conn, in inbound) { c.startAudio(in.Codec, in.HandsFree, in.Calibrate, in.SessionID) },
 	"commit":        func(c *conn, in inbound) { c.commitMessage() }, // silence-timeout commit of the hands-free buffer
 	"discard_draft": func(c *conn, in inbound) { c.clearBuffer() },   // drop the uncommitted hands-free draft
-	"history":       func(c *conn, in inbound) { c.startHistory(in.SessionID, in.Name, in.Before, in.Limit, in.HaveHash) },
-	"digest":        func(c *conn, in inbound) { c.startDigestSweep() },
-	"clear":         func(c *conn, in inbound) { c.doClear() },
-	"compress":      func(c *conn, in inbound) { c.doCompress() },
-	"usage":         func(c *conn, in inbound) { c.doUsage(false) }, // tap: show the report, don't speak it
-	"audio_end":     func(c *conn, in inbound) { c.endAudio() },
-	"hosts":         func(c *conn, in inbound) { c.sendHostList() },
-	"host_put":      func(c *conn, in inbound) { c.doHostPut(in.Host) },
-	"host_delete":   func(c *conn, in inbound) { c.doHostDelete(in.Name, in.UpdatedAt) },
-	"identities":    func(c *conn, in inbound) { c.sendIdentityList() },
+	"history": func(c *conn, in inbound) {
+		c.startHistory(in.SessionID, in.Name, in.Before, in.Limit, in.HaveHash, in.HavePrefix, in.HavePrefixCount)
+	},
+	"digest":      func(c *conn, in inbound) { c.startDigestSweep() },
+	"clear":       func(c *conn, in inbound) { c.doClear() },
+	"compress":    func(c *conn, in inbound) { c.doCompress() },
+	"usage":       func(c *conn, in inbound) { c.doUsage(false) }, // tap: show the report, don't speak it
+	"audio_end":   func(c *conn, in inbound) { c.endAudio() },
+	"hosts":       func(c *conn, in inbound) { c.sendHostList() },
+	"host_put":    func(c *conn, in inbound) { c.doHostPut(in.Host) },
+	"host_delete": func(c *conn, in inbound) { c.doHostDelete(in.Name, in.UpdatedAt) },
+	"identities":  func(c *conn, in inbound) { c.sendIdentityList() },
 	"identity_create": func(c *conn, in inbound) {
 		c.doIdentityCreate(in.Name, in.User, in.Password, in.GenKey == nil || *in.GenKey, in.UpdatedAt)
 	},

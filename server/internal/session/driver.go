@@ -750,6 +750,16 @@ func (p chainParts) prefixSig() string {
 // window in which a fresh transcript write can be reported as unchanged.
 const chainSigTTL = 1500 * time.Millisecond
 
+// SigTTL overrides the chain-signature memo window. Tests that write a
+// transcript and immediately re-read it need 0 (no memo), since the default
+// window would otherwise report the just-written chain as unchanged.
+func (d *Driver) SigTTL(ttl time.Duration) {
+	d.sigMu.Lock()
+	d.sigTTL = ttl
+	d.sigMemo = nil
+	d.sigMu.Unlock()
+}
+
 // chainSig is transcriptReaderFor(...).chainSig(ids) behind the short-TTL memo —
 // the one seam every chain-freshness stat goes through (displayChainParts,
 // SessionContextUsage), so callers arriving within sigTTL of each other share

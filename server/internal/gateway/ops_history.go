@@ -24,6 +24,8 @@ type historyReq struct {
 	before          *int
 	limit           int
 	haveHash        string
+	havePrefix      string
+	havePrefixCount int
 }
 
 // startHistory serves a history request off the connection's serial inbound
@@ -43,20 +45,21 @@ type historyReq struct {
 // A burst of N prefetch requests thus costs at most two reads, and can't
 // stampede the same transcript. Paging requests (before != nil) always run;
 // their cursors differ, so each reply is distinct.
-func (c *conn) startHistory(sessionID, name string, before *int, limit int, haveHash string) {
+func (c *conn) startHistory(sessionID, name string, before *int, limit int, haveHash, havePrefix string, havePrefixCount int) {
 	c.historyMu.Lock()
 	if c.historySem == nil {
 		c.historySem = make(chan struct{}, historyConcurrency)
 		c.historyBusy = make(map[string]*historyReq)
 	}
 	sem := c.historySem
-	req := historyReq{sessionID: sessionID, name: name, before: before, limit: limit, haveHash: haveHash}
+	req := historyReq{sessionID: sessionID, name: name, before: before, limit: limit, haveHash: haveHash,
+		havePrefix: havePrefix, havePrefixCount: havePrefixCount}
 	if before != nil {
 		c.historyMu.Unlock()
 		go func() {
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			c.serveHistory(sessionID, name, before, limit, haveHash)
+			c.serveHistory(req)
 		}()
 		return
 	}
@@ -74,7 +77,7 @@ func (c *conn) startHistory(sessionID, name string, before *int, limit int, have
 	go func() {
 		for {
 			sem <- struct{}{}
-			c.serveHistory(req.sessionID, req.name, req.before, req.limit, req.haveHash)
+			c.serveHistory(req)
 			<-sem
 			c.historyMu.Lock()
 			parked := c.historyBusy[key]
@@ -99,7 +102,8 @@ func (c *conn) startHistory(sessionID, name string, before *int, limit int, have
 // history by name made a renamed session answer `no_session` and silently never
 // refresh. GetByAnyID also accepts an id retired by a clear/compress rotation, so
 // a client holding a pre-rotation id still reaches the live record.
-func (c *conn) serveHistory(sessionID, name string, before *int, limit int, haveHash string) {
+func (c *conn) serveHistory(req historyReq) {
+	sessionID, name, before, limit, haveHash := req.sessionID, req.name, req.before, req.limit, req.haveHash
 	var s *session.Session
 	if sessionID != "" {
 		s = c.srv.store.GetByAnyID(sessionID)
@@ -123,7 +127,7 @@ func (c *conn) serveHistory(sessionID, name string, before *int, limit int, have
 	// gateway dispatches serially, it blocked every other request on the connection.
 	if before == nil && haveHash != "" {
 		if count, hash, _, err := c.srv.driver.DisplayDigest(c.ctx, s); err == nil && hash == haveHash {
-			c.send(msgHistory(recID(s), name, nil, false, count, hash, true))
+			c.send(msgHistory(recID(s), name, nil, false, count, hash, true, historyDelta{}))
 			return
 		}
 	}
@@ -137,11 +141,40 @@ func (c *conn) serveHistory(sessionID, name string, before *int, limit int, have
 		c.fail("history_failed", err.Error())
 		return
 	}
+	// Delta path: the app echoed back a prefix digest this server issued earlier.
+	// If it still describes our own first have_prefix_count display rows, the app's
+	// cache is a valid PREFIX of the current log — everything it holds is correct,
+	// it's just missing the tail. Send only the appended rows instead of a whole
+	// page, which is the common shape after a turn lands (a couple of new rows on
+	// top of a long log). Anchoring on (count, prefix hash) rather than
+	// Message.Index is what makes this safe across a clear/compress rotation: a
+	// rotation rewrites every Index but the ID-keyed digest survives it.
+	if before == nil && req.havePrefix != "" && req.havePrefixCount <= len(msgs) {
+		if _, h := session.HistoryPrefixDigest(msgs, req.havePrefixCount); h == req.havePrefix {
+			tail := msgs[req.havePrefixCount:]
+			// A tail longer than a page means the app has been away a while; fall
+			// back to a normal page rather than shipping an unbounded delta.
+			if max := pageLimit(limit); len(tail) <= max {
+				_, ph := session.HistoryPrefixDigest(msgs, len(msgs))
+				c.send(msgHistory(recID(s), name, stripPage(tail), false, count, hash, false,
+					historyDelta{PrefixHash: ph, PrefixCount: len(msgs), Delta: true, BaseCount: req.havePrefixCount}))
+				return
+			}
+		}
+	}
 	b := -1
 	if before != nil {
 		b = *before
 	}
 	page, more := session.HistoryPage(msgs, b, limit)
+	// The prefix digest covers the log through the last row of THIS page, so the
+	// app can echo it back next time (it never computes the hash itself). For a
+	// top page that's the whole log; for a page-back it's the cursor.
+	pageEnd := len(msgs)
+	if b >= 0 && b < pageEnd {
+		pageEnd = b
+	}
+	_, prefixHash := session.HistoryPrefixDigest(msgs, pageEnd)
 	// Strip the server-injected scaffolding from user messages so replayed history
 	// matches what the live view showed (and never re-surfaces hidden instructions).
 	// A user row that is ENTIRELY scaffolding (the autonomous job-notify turn) strips
@@ -149,7 +182,17 @@ func (c *conn) serveHistory(sessionID, name string, before *int, limit int, have
 	// digest (count/hash) is over the full stored transcript, not this display page,
 	// so omitting a display row doesn't disturb the app's freshness check or paging
 	// (each kept row carries its own transcript index).
-	c.send(msgHistory(recID(s), name, stripPage(page), more, count, hash, false))
+	c.send(msgHistory(recID(s), name, stripPage(page), more, count, hash, false,
+		historyDelta{PrefixHash: prefixHash, PrefixCount: pageEnd}))
+}
+
+// pageLimit is HistoryPage's page-size defaulting, shared so the delta tail cap
+// and the page it falls back to can't disagree about how big a page is.
+func pageLimit(limit int) int {
+	if limit <= 0 {
+		return 30
+	}
+	return limit
 }
 
 // stripPage applies the scaffolding strip to one display page, returning a NEW

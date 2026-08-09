@@ -14,6 +14,26 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "delta-history-on-the-wire-server-sends-appended-rows-on-a-validated-prefix"
+title = "Delta history on the wire: server sends appended rows on a validated prefix"
+description = """
+Parent scope: delta-history-wire-protocol. Server half of the delta protocol.
+
+Inbound history gains have_prefix (string) and have_prefix_count (int) beside have_hash (gateway/messages.go + gateway.go dispatch + startHistory/serveHistory in ops_history.go). Outbound msgHistory gains prefix_hash/prefix_count (the digest of the display log up to and including the last row in THIS page, always sent so the client can echo it next time) and delta (bool) plus base_count (how many rows the client is expected to already hold).
+
+serveHistory flow on a top-page request (before == nil): keep the existing DisplayDigest fast path (unchanged) first; on a miss, after DisplayHistory, if have_prefix != "" and HistoryPrefixDigest(msgs, have_prefix_count) == have_prefix, reply with delta=true, base_count=have_prefix_count and ONLY stripPage(msgs[have_prefix_count:]) — no limit truncation of the tail is needed in the common post-turn case, but cap it and fall back to a normal page if the tail exceeds the limit. On mismatch fall back to today's full page unchanged. Paging (before != nil) is untouched.
+
+Anchor on the count+prefix-hash pair, never on Message.Index (rewritten by every re-index and unsafe across clear/compress rotations); Message.ID is what makes the digest stable.
+
+Document the new fields in docs/protocol.md (docsync drift test enforces payload field names). Extend gateway/digest_test.go: a matching prefix after an appended turn yields delta with only the new rows; a stale prefix yields a full page. Do NOT rebuild/recreate the server — land commits and background an image build only."""
+status = "finished"
+level = "task"
+category = "feature"
+created = 2026-08-08
+completed = 2026-08-09
+tags = ["history", "protocol"]
+
+[[task]]
 id = "prefix-digest-helper-historyprefixdigest-over-the-display-log"
 title = "Prefix digest helper: HistoryPrefixDigest over the display log"
 description = "Foundation for delta history (parent scope: delta-history-wire-protocol). Add session.HistoryPrefixDigest(msgs []Message, n int) (count int, hash string) in transcript.go computing the SAME rolling sha256 as HistoryDigest but over msgs[:n], so a full-log digest and any prefix digest are directly comparable. HistoryDigest becomes HistoryPrefixDigest(msgs, len(msgs)). Key insight for the whole feature: the client NEVER computes a hash — it only echoes back digests the server issued (same contract as today's have_hash, see SessionSync.kt), so the hash function may stay server-private. Unit-test that the prefix digest of the first n rows equals the full digest of a log truncated to n, and that it keys on Message.ID when present and Index only as fallback (rotations rewrite Index). Do NOT rebuild/recreate the server."
