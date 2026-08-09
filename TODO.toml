@@ -112,15 +112,3 @@ urgency = "low"
 order = 310
 created = 2026-08-08
 tags = ["ssh", "config"]
-
-[[task]]
-id = "sidebar-delete-session-sometimes-ignored"
-title = "Sidebar delete session sometimes ignored"
-description = "In the app sidebar, tapping 'delete session' sometimes does nothing — the session stays in the list. Reproduced while trying to delete the SSHFS session. Investigate whether the delete request is being sent, whether the server acks it, and whether the client list refresh drops the removal."
-status = "active"
-level = "task"
-category = "bug"
-urgency = "high"
-order = 320
-created = 2026-08-09
-tags = []

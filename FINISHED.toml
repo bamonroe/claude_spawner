@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "sidebar-delete-session-sometimes-ignored"
+title = "Sidebar delete session sometimes ignored"
+description = "In the app sidebar, tapping 'delete session' sometimes does nothing — the session stays in the list. Reproduced while trying to delete the SSHFS session. Investigate whether the delete request is being sent, whether the server acks it, and whether the client list refresh drops the removal."
+status = "finished"
+level = "task"
+category = "bug"
+created = 2026-08-09
+completed = 2026-08-09
+tags = []
+
+[[task]]
 id = "delta-history-kotlin-merge"
 title = "Kotlin client: send have_count and merge an appended-messages delta"
 description = "SessionSync.kt already holds (count, digest) per session and sends the digest as have_hash. The server half shipped 2026-08-09: a history reply now carries prefix_hash/prefix_count (the digest through the last row of that page) plus delta/base_count, and a top-page request may echo the pair back as have_prefix/have_prefix_count. Store that pair alongside the cached transcript, send it on the next top-page request, and on a delta reply APPEND the returned rows to the held transcript instead of replacing it, de-duplicating by Message.ID (falling back to index/text when the backend gives no id, per the Message.ID doc in transcript.go). Note the field names are have_prefix/have_prefix_count, NOT the have_count in the original write-up. Add the fields to net/Protocol.kt — clientsync_test.go drift-tests the Kotlin wire strings against the Go gateway, so both sides change together. Verify on the Dockerized emulator per the android-dev skill."
