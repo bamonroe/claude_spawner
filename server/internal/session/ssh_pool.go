@@ -47,7 +47,7 @@ type SSHPool struct {
 // Holding p.mu only for the map lookup keeps a dead host's cost local to that host.
 type poolEntry struct {
 	mu     sync.Mutex // serializes dials for this host; may be held for the dial timeout
-	client *ssh.Client
+	client *pooledConn
 	// chans bounds concurrent SSH channels on this host's connection, below the
 	// peer's MaxSessions ceiling — see ssh_channels.go. It belongs to the entry,
 	// not the client: a re-dial replaces the connection but the budget (and any
@@ -211,7 +211,7 @@ func (p *SSHPool) clientConfig(user, keyFile, password string) (*ssh.ClientConfi
 // cold host serialize on that host's entry lock, so exactly one dial happens —
 // while callers for OTHER hosts proceed unblocked. Cached by name so two names
 // sharing an address keep independent entries.
-func (p *SSHPool) client(name string) (*ssh.Client, error) {
+func (p *SSHPool) client(name string) (*pooledConn, error) {
 	e := p.entry(name)
 	// Per-host lock only: a slow or hanging dial to THIS host must not stall
 	// callers of any other host. See poolEntry.
@@ -231,11 +231,12 @@ func (p *SSHPool) client(name string) (*ssh.Client, error) {
 		return nil, err
 	}
 	addr := net.JoinHostPort(address, portStr(port))
-	c, err := p.dial(addr, ccfg)
+	raw, err := p.dial(addr, ccfg)
 	if err != nil {
 		return nil, e.markDown(time.Now(), name, fmt.Errorf("ssh dial %s: %w", addr, err))
 	}
 	e.markUp()
+	c := newPooledConn(raw)
 	e.client = c
 	go p.keepalive(name, c)
 	return c, nil
@@ -297,22 +298,87 @@ func knownHostAlgos(keys []knownhosts.KnownKey) []string {
 	return algos
 }
 
+// pooledConn is a pooled connection plus the count of SSH channels currently open
+// on it. The count exists so eviction can be made SAFE for work already in flight:
+// dropping a client used to close the transport immediately, which killed every
+// other channel sharing it — a background probe's failure could tear down the
+// stream of a turn that was running perfectly well.
+//
+// So a drop is split in two. Evicting the connection from the pool (nobody new
+// gets it) is immediate and always correct. CLOSING it is deferred until the last
+// in-flight channel is done: a genuinely dead transport fails those channels
+// anyway, so nothing is kept alive that isn't, while a healthy connection someone
+// is mid-turn on survives to finish. Every channel is opened through openChannel,
+// so the count is a property of the pool rather than a rule call sites must
+// remember.
+type pooledConn struct {
+	*ssh.Client
+
+	// closeConn tears down the transport. A field rather than a direct
+	// Client.Close() call so the in-flight accounting can be tested without a
+	// live sshd; newPooledConn wires it to the real close.
+	closeConn func() error
+
+	mu       sync.Mutex
+	inflight int
+	retired  bool // evicted from the pool; close once idle
+	closed   bool // closeConn already called; a repeat drop must not re-close
+}
+
+// newPooledConn wraps a freshly dialed client for the pool.
+func newPooledConn(c *ssh.Client) *pooledConn {
+	return &pooledConn{Client: c, closeConn: c.Close}
+}
+
+// hold records a channel opening on this connection.
+func (c *pooledConn) hold() {
+	c.mu.Lock()
+	c.inflight++
+	c.mu.Unlock()
+}
+
+// done records a channel closing, closing the transport if this was the last
+// channel on an already-retired connection.
+func (c *pooledConn) done() {
+	c.mu.Lock()
+	c.inflight--
+	last := c.retired && c.inflight <= 0 && !c.closed
+	c.closed = c.closed || last
+	c.mu.Unlock()
+	if last {
+		_ = c.closeConn()
+	}
+}
+
+// retire marks the connection evicted and closes it once it is idle. Idempotent.
+func (c *pooledConn) retire() {
+	c.mu.Lock()
+	c.retired = true
+	idle := c.inflight <= 0 && !c.closed
+	c.closed = c.closed || idle
+	c.mu.Unlock()
+	if idle {
+		_ = c.closeConn()
+	}
+}
+
 // drop removes c from the cache (only if it's still the current client for host)
-// and closes it, so the next client(host) re-dials. Idempotent.
-func (p *SSHPool) drop(host string, c *ssh.Client) {
+// so the next client(host) re-dials, and closes it once its in-flight channels
+// finish — see pooledConn. Idempotent.
+func (p *SSHPool) drop(host string, c *pooledConn) {
 	e := p.entry(host)
 	e.mu.Lock()
 	if e.client == c {
 		e.client = nil
 	}
 	e.mu.Unlock()
-	_ = c.Close()
+	c.retire()
 }
 
 // keepalive pings the connection until a request fails, then drops it. The ping is
 // a global SSH request the server answers but otherwise ignores; a failure means
 // the transport is gone, so we evict the client to force a fresh dial next turn.
-func (p *SSHPool) keepalive(host string, c *ssh.Client) {
+func (p *SSHPool) keepalive(host string, c *pooledConn) {
 	t := time.NewTicker(sshKeepaliveInterval)
 	defer t.Stop()
 	for range t.C {
@@ -337,7 +403,7 @@ func (p *SSHPool) Close() error {
 	for _, e := range entries {
 		e.mu.Lock()
 		if e.client != nil {
-			_ = e.client.Close()
+			_ = e.client.closeConn() // shutdown: force, don't wait on in-flight channels
 			e.client = nil
 		}
 		e.mu.Unlock()

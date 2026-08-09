@@ -69,7 +69,7 @@ func (e SSHExecutor) Start(ctx context.Context, s *Session, prof *ExecProfile, b
 // run opens one SSH session (channel) on client, launches the remote claude in the
 // session's directory, and wires ctx-cancel to stop it. The returned Proc streams
 // the remote stdout and Waits on the remote exit.
-func (e SSHExecutor) run(ctx context.Context, host string, client *ssh.Client, s *Session, prof *ExecProfile, bin string, args []string) (Proc, error) {
+func (e SSHExecutor) run(ctx context.Context, host string, client *pooledConn, s *Session, prof *ExecProfile, bin string, args []string) (Proc, error) {
 	return e.Pool.streamRemote(ctx, host, client, remoteCommand(s.Dir, bin, args, prof.envList()))
 }
 
@@ -78,7 +78,7 @@ func (e SSHExecutor) run(ctx context.Context, host string, client *ssh.Client, s
 // the reusable core shared by SSHExecutor.run (remote claude) and the SSH-native
 // SandboxExecutor (remote `podman exec claude`). inner must exec its final process
 // so it inherits the wrapper's process group (see cancelableCommand).
-func (p *SSHPool) streamRemote(ctx context.Context, host string, client *ssh.Client, inner string) (Proc, error) {
+func (p *SSHPool) streamRemote(ctx context.Context, host string, client *pooledConn, inner string) (Proc, error) {
 	// A turn holds its channel for the whole turn, so the budget slot is owned by
 	// the returned Proc and released when it finishes (or fails to start here) —
 	// not when this function returns.
@@ -162,7 +162,7 @@ func cancelableCommand(inner string) string {
 // killRemoteGroup opens a fresh channel on the live connection and SIGKILLs the
 // remote process group, matching the host executor's group-kill-on-abort semantics.
 // Best-effort: a failure (already exited, connection gone) is ignored.
-func (p *SSHPool) killRemoteGroup(ctx context.Context, host string, client *ssh.Client, pgid int) {
+func (p *SSHPool) killRemoteGroup(ctx context.Context, host string, client *pooledConn, pgid int) {
 	// The abort's own ctx is already cancelled by the time we get here, so the kill
 	// channel waits on a fresh context — an abort must not be starved by a full
 	// channel budget, and it releases a slot the moment it lands.

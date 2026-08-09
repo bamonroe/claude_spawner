@@ -127,7 +127,7 @@ func (p *SSHPool) WriteFile(ctx context.Context, host, path string, data []byte)
 // writeRemote opens one session channel and pipes data into `cat > path` (making the
 // parent dir first). ctx-cancel kills the remote command so a hung write can't leak
 // a channel.
-func (p *SSHPool) writeRemote(ctx context.Context, host string, client *ssh.Client, path string, data []byte) error {
+func (p *SSHPool) writeRemote(ctx context.Context, host string, client *pooledConn, path string, data []byte) error {
 	sess, release, err := p.openChannel(ctx, host, client, false)
 	if err != nil {
 		return err
@@ -199,7 +199,7 @@ func (p *SSHPool) Stream(ctx context.Context, host, inner string) (Proc, error) 
 
 // runRemote opens one session channel, runs cmd, and returns its stdout. ctx-cancel
 // kills the remote command so a hung probe can't leak a channel.
-func (p *SSHPool) runRemote(ctx context.Context, host string, client *ssh.Client, cmd string) ([]byte, error) {
+func (p *SSHPool) runRemote(ctx context.Context, host string, client *pooledConn, cmd string) ([]byte, error) {
 	sess, release, err := p.openChannel(ctx, host, client, false)
 	if err != nil {
 		return nil, err

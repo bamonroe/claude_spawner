@@ -29,3 +29,41 @@ func TestShouldRedial(t *testing.T) {
 		t.Error("a transport error must earn a re-dial")
 	}
 }
+
+// TestDropDefersCloseWhileChannelsInFlight is the anti-regression for the storm:
+// evicting a pooled connection must never close the transport out from under a
+// turn already streaming on it. The eviction itself is immediate (nobody new gets
+// the connection); the close waits for the last in-flight channel.
+func TestDropDefersCloseWhileChannelsInFlight(t *testing.T) {
+	pool := &SSHPool{entries: map[string]*poolEntry{}}
+	closes := 0
+	c := &pooledConn{closeConn: func() error { closes++; return nil }}
+	e := pool.entry("mom")
+	e.mu.Lock()
+	e.client = c
+	e.mu.Unlock()
+
+	c.hold() // a turn's channel
+	pool.drop("mom", c)
+
+	e.mu.Lock()
+	cached := e.client
+	e.mu.Unlock()
+	if cached != nil {
+		t.Error("drop left the connection cached; a re-dial would hand it back out")
+	}
+	if closes != 0 {
+		t.Fatal("drop closed the connection with a channel still in flight")
+	}
+	c.done() // the turn finishes
+	if closes != 1 {
+		t.Fatalf("closes after the last channel = %d, want 1", closes)
+	}
+	// A drop of an idle connection closes it straight away, and stays idempotent.
+	idle := &pooledConn{closeConn: func() error { closes++; return nil }}
+	pool.drop("mom", idle)
+	pool.drop("mom", idle)
+	if closes != 2 {
+		t.Fatalf("closes = %d, want 2 (idle drop closes once; a repeat drop is a no-op)", closes)
+	}
+}

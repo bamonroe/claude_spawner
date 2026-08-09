@@ -954,6 +954,12 @@ func (d *Driver) RetryPurges(ctx context.Context) int {
 		}
 		n, err := d.transcriptReaderFor(it.Agent, it.Host).deleteByIDs(ctx, it.IDs)
 		if err != nil {
+			// A permanently-failing item used to retry forever, silently. Log the
+			// cause every pass so it's attributable, and give up once the debt is
+			// clearly unpayable — an unbounded retry of a doomed command is a
+			// background cost with no upside.
+			log.Printf("deferred purge for deleted session[%s] on host %q failed (attempt %d/%d): %v",
+				it.Session, it.Host, it.Attempts+1, maxPurgeAttempts, err)
 			return false
 		}
 		log.Printf("deferred purge for deleted session[%s] on host %q: removed %d file(s)", it.Session, it.Host, n)

@@ -2,6 +2,7 @@ package session
 
 import (
 	"encoding/json"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -30,6 +31,14 @@ type PurgeQueue struct {
 	mu    sync.Mutex
 	items []PurgeItem
 }
+
+// maxPurgeAttempts bounds how many times a single owed purge is retried before
+// the debt is abandoned (logged, then dropped). At the 6-minute retry tick that
+// is roughly an hour of trying. The cap exists because a retry is not free: it
+// runs a real command on the host, and an item whose command can never succeed
+// would otherwise re-run it on the ticker forever, for the rest of the server's
+// life, with nothing in the log to say so.
+const maxPurgeAttempts = 10
 
 // PurgeItem is one owed purge: a backend's transcript ids on one host. A single
 // deleted session can owe several (a chain that switched backends or hosts keeps
@@ -112,7 +121,9 @@ func (q *PurgeQueue) Pending() []PurgeItem {
 // Resolve retries every owed item through done and drops the ones it settles.
 // done reports true when the debt is discharged (purged, or provably gone);
 // false leaves the item queued with its attempt count bumped, so a host that is
-// still down simply keeps its debt. Returns how many items were cleared.
+// still down simply keeps its debt — up to maxPurgeAttempts, past which the item
+// is logged and dropped rather than retried forever. Returns how many items were
+// cleared (settled ones only; an abandoned item is not "cleared").
 func (q *PurgeQueue) Resolve(done func(PurgeItem) bool) int {
 	if q == nil {
 		return 0
@@ -135,6 +146,14 @@ func (q *PurgeQueue) Resolve(done func(PurgeItem) bool) int {
 			continue
 		}
 		it.Attempts++
+		// Give up on a debt that has failed too many times, loudly. See
+		// maxPurgeAttempts: an item retried forever is a command re-run on the host
+		// on every tick with no prospect of succeeding.
+		if it.Attempts >= maxPurgeAttempts {
+			log.Printf("deferred purge for deleted session[%s] on host %q abandoned after %d attempts; %d transcript id(s) left on disk",
+				it.Session, it.Host, it.Attempts, len(it.IDs))
+			continue
+		}
 		kept = append(kept, it)
 	}
 	q.items = kept

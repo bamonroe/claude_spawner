@@ -149,7 +149,7 @@ func (b *channelBudget) release(longLived bool) {
 //
 // A refusal from the peer comes back wrapped in errChannelOpen so the caller's
 // re-dial path can tell "connection busy" from "connection dead".
-func (p *SSHPool) openChannel(ctx context.Context, host string, client *ssh.Client, longLived bool) (*ssh.Session, func(), error) {
+func (p *SSHPool) openChannel(ctx context.Context, host string, client *pooledConn, longLived bool) (*ssh.Session, func(), error) {
 	b := p.entry(host).budget()
 	if err := b.acquire(ctx, longLived); err != nil {
 		return nil, nil, err
@@ -159,6 +159,9 @@ func (p *SSHPool) openChannel(ctx context.Context, host string, client *ssh.Clie
 		b.release(longLived)
 		return nil, nil, fmt.Errorf("%w: %v", errChannelOpen, err)
 	}
+	// Count the channel against the connection so an eviction can defer its close
+	// until this operation is done — see pooledConn.
+	client.hold()
 	var once sync.Once
-	return sess, func() { once.Do(func() { b.release(longLived) }) }, nil
+	return sess, func() { once.Do(func() { client.done(); b.release(longLived) }) }, nil
 }

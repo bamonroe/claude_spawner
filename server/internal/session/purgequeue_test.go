@@ -74,3 +74,23 @@ func TestPurgeSegmentDefersWhenHostDown(t *testing.T) {
 		t.Fatal("pool.Down(mom) still true after markUp")
 	}
 }
+
+// TestPurgeQueueAbandonsAfterMaxAttempts covers the bound on retries: an item
+// whose purge never succeeds must eventually be dropped, not retried on the
+// ticker for the life of the server.
+func TestPurgeQueueAbandonsAfterMaxAttempts(t *testing.T) {
+	q := OpenPurgeQueue("")
+	q.Add(PurgeItem{Session: "doomed", Agent: "claude", Host: "mom", IDs: []string{"id-1"}})
+	for i := 1; i < maxPurgeAttempts; i++ {
+		if cleared := q.Resolve(func(PurgeItem) bool { return false }); cleared != 0 {
+			t.Fatalf("attempt %d cleared %d, want 0", i, cleared)
+		}
+		if len(q.Pending()) != 1 {
+			t.Fatalf("item dropped after %d attempts, want it kept until %d", i, maxPurgeAttempts)
+		}
+	}
+	q.Resolve(func(PurgeItem) bool { return false }) // the maxPurgeAttempts'th
+	if got := q.Pending(); len(got) != 0 {
+		t.Fatalf("pending = %+v, want the doomed item abandoned", got)
+	}
+}
