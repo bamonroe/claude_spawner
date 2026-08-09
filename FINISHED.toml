@@ -14,6 +14,20 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "spawn-take-the-sandbox-create-off-the-confirmation-path-merge-the-mkdir-probes"
+title = "Spawn: take the sandbox create off the confirmation path, merge the mkdir probes"
+description = """
+Spawning blocks the confirmation on two SSH round trips plus three docker calls: browse.go:121 dirExists (SSH stat) then :135 makeDir (SSH mkdir) — mergeable into one 'mkdir -p && test' exec — then store.Insert, then ensureSandbox → SandboxExecutor.Ensure (executor.go:272-285: running probe, rm -f, create) before msgAttached finally sends (browse.go:172-175). ensureSandbox is documented best-effort and is ALREADY re-run lazily on the first turn (ops_session.go:589-599), so it can move wholesale into a goroutine after the attached frame — that alone removes seconds from a sandbox spawn.
+
+Do NOT rebuild/recreate the server for this work: land the commits and background an image build only (see CLAUDE.md)."""
+status = "finished"
+level = "task"
+category = "refactor"
+created = 2026-08-08
+completed = 2026-08-08
+tags = ["perf", "lag"]
+
+[[task]]
 id = "set-agent-compute-the-handoff-recap-async-instead-of-on-the-read-loop"
 title = "set_agent: compute the handoff recap async instead of on the read loop"
 description = """
