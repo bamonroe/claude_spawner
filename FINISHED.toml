@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "raise-the-reconnect-gap-fill-page-size"
+title = "Raise the reconnect gap-fill page size"
+description = "Reconnect gap-fill pages 30 rows per sequential round trip (the default limit in pageLimit, server/internal/gateway/ops_history.go:191, via SessionSync's gapTarget loop, SessionSync.kt:380). A wide gap therefore costs many serial round trips right when the user just reconnected. Request a larger explicit limit for gap-fill specifically (foreground paging and normal top pages keep 30), and check the delta-tail cap in serveHistory still agrees since it shares pageLimit."
+status = "finished"
+level = "task"
+category = "refactor"
+created = 2026-08-09
+completed = 2026-08-09
+tags = ["android", "latency"]
+
+[[task]]
 id = "make-the-ssh-per-host-connection-and-channel-caps-configurable"
 title = "Make the SSH per-host connection and channel caps configurable"
 description = "Parent scope: centralize-ssh-bindings. Expose the pool sizing as SPAWNER_SSH_MAX_CONNS (per-host connection cap) and SPAWNER_SSH_MAX_CHANNELS (per-connection channel budget) in internal/config, defaulting to today's values, and document both in docs/config.md — the internal/docsync drift test requires each var backticked there. Lets a host with a raised MaxSessions be tuned without a rebuild of the constants. Do NOT rebuild/recreate the server."

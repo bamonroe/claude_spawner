@@ -186,11 +186,11 @@ internal fun VoiceController.touchDiscovered(id: String, busy: Boolean? = null) 
 /** Request the page of history just older than what we hold for session [id]. Shared
  *  by the user's scroll-back (loadOlder) and the reconnect gap-fill in onHistory. The
  *  cursors are id-keyed; the history request itself is addressed by [name]. */
-internal fun VoiceController.fetchOlder(id: String, name: String) {
+internal fun VoiceController.fetchOlder(id: String, name: String, limit: Int = Outbound.HISTORY_PAGE) {
     if (id.isEmpty() || router.hasMore[id] != true || id in loadingOlder) return
     val before = router.oldest[id] ?: return
     loadingOlder.add(id)
-    client?.send(Outbound.history(id, name, before))
+    client?.send(Outbound.history(id, name, before, limit = limit))
 }
 
 internal fun VoiceController.onMessage(msg: ServerMsg) {
@@ -555,7 +555,9 @@ internal fun VoiceController.onHistory(msg: ServerMsg.History) {
     bridgeTo[key]?.let { target ->
         val oldest = router.oldest[key]
         if (oldest != null && oldest > target + 1 && router.hasMore[key] == true) {
-            fetchOlder(key, msg.name) // still a hole above the watermark — keep paging
+            // Big pages here: each round trip is serial, so a wide gap backfills in a
+            // few fetches instead of dozens (see Outbound.HISTORY_GAP_PAGE).
+            fetchOlder(key, msg.name, Outbound.HISTORY_GAP_PAGE)
         } else {
             bridgeTo.remove(key) // reconnected with what we had (or reached the start)
         }

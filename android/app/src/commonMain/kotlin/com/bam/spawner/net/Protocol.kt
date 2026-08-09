@@ -695,8 +695,18 @@ object Outbound {
     // Addressed by the stable [sessionId] — names are per-server and change under a
     // rename on another device, which used to make the server answer `no_session` and
     // the transcript silently never refresh. `name` rides along only for old servers.
+    /** Rows per ordinary history page — a top page and the user's scroll-back. */
+    const val HISTORY_PAGE = 30
+    /** Rows per RECONNECT GAP-FILL page. The gap-fill pages backwards one serial round
+     *  trip at a time until it rejoins what we already held, so a wide gap at ordinary
+     *  page size costs many sequential fetches right when the user just reconnected and
+     *  is waiting on their transcript. A gap-fill page is not scrolled through — it is
+     *  swallowed whole into the cache — so it can be far bigger than what fits a screen.
+     *  Only gap-fill uses this; foreground paging keeps HISTORY_PAGE so a scroll-back
+     *  stays a small, snappy fetch. */
+    const val HISTORY_GAP_PAGE = 200
     fun history(
-        sessionId: String, name: String, before: Int?, limit: Int = 30, haveHash: String = "",
+        sessionId: String, name: String, before: Int?, limit: Int = HISTORY_PAGE, haveHash: String = "",
         havePrefix: String = "", havePrefixCount: Int = 0, background: Boolean = false,
     ) = buildJsonObject {
         put("type", "history"); put("session_id", sessionId); put("name", name); put("limit", limit)

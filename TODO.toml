@@ -19,15 +19,3 @@ add_proposed_work = "Add proposed features and tests as new tasks rather than lo
 remove_dropped_items = "Remove dropped items with a one-line why (`scripts/todo.sh remove <id> --reason`)."
 finish_work = "When a task is fully finished (built, tested, documented), run `scripts/todo.sh done <id>` to move it to FINISHED.toml — in the same commit that completes the work."
 scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/KMP app + web client. The historical phase roadmap stays in README.md."
-
-[[task]]
-id = "raise-the-reconnect-gap-fill-page-size"
-title = "Raise the reconnect gap-fill page size"
-description = "Reconnect gap-fill pages 30 rows per sequential round trip (the default limit in pageLimit, server/internal/gateway/ops_history.go:191, via SessionSync's gapTarget loop, SessionSync.kt:380). A wide gap therefore costs many serial round trips right when the user just reconnected. Request a larger explicit limit for gap-fill specifically (foreground paging and normal top pages keep 30), and check the delta-tail cap in serveHistory still agrees since it shares pageLimit."
-status = "active"
-level = "task"
-category = "refactor"
-urgency = "low"
-order = 350
-created = 2026-08-09
-tags = ["android", "latency"]

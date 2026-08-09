@@ -198,7 +198,7 @@ func (c *conn) serveHistory(req historyReq) {
 	if before != nil {
 		b = *before
 	}
-	page, more := session.HistoryPage(msgs, b, limit)
+	page, more := session.HistoryPage(msgs, b, pageLimit(limit))
 	// The prefix digest covers the log through the last row of THIS page, so the
 	// app can echo it back next time (it never computes the hash itself). For a
 	// top page that's the whole log; for a page-back it's the cursor.
@@ -220,9 +220,18 @@ func (c *conn) serveHistory(req historyReq) {
 
 // pageLimit is HistoryPage's page-size defaulting, shared so the delta tail cap
 // and the page it falls back to can't disagree about how big a page is.
+// A client may legitimately ask for a page much larger than a screenful — the
+// reconnect gap-fill does, because its pages are swallowed into the cache rather
+// than scrolled, and each round trip is serial. maxPageLimit bounds that so no
+// request can ask for an unbounded log in one frame.
+const maxPageLimit = 500
+
 func pageLimit(limit int) int {
 	if limit <= 0 {
 		return 30
+	}
+	if limit > maxPageLimit {
+		return maxPageLimit
 	}
 	return limit
 }
