@@ -98,6 +98,20 @@ func (p *SSHPool) MakeDir(ctx context.Context, host, dir string) error {
 	return err
 }
 
+// MakeDirNew creates dir (and any missing parents) on host unless it already
+// exists, reporting which happened — the test and the mkdir in ONE remote exec,
+// so a "create this new folder" spawn costs a single SSH round trip instead of a
+// DirExists probe followed by a MakeDir. It is also race-free where the split
+// pair isn't: the check and the create happen in the same shell.
+func (p *SSHPool) MakeDirNew(ctx context.Context, host, dir string) (existed bool, err error) {
+	q := shellQuote(dir)
+	out, err := p.Run(ctx, host, "if [ -d "+q+" ]; then printf 1; else mkdir -p "+q+" && printf 0; fi")
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(string(out)) == "1", nil
+}
+
 // ReadFile returns the bytes of path on host, streamed over the pooled connection
 // (the SSH channel is binary-clean, so `cat` reproduces the file verbatim).
 func (p *SSHPool) ReadFile(ctx context.Context, host, path string) ([]byte, error) {

@@ -613,16 +613,20 @@ func (c *conn) newSession(base, dir string, target session.Target, agentID, prof
 }
 
 // ensureSandbox best-effort starts a sandbox session's persistent container at
-// spawn. A failure (e.g. the runtime being unavailable) is logged but does NOT
-// block the spawn — the first turn re-runs Ensure and surfaces a hard error then.
-
-// ensureSandbox best-effort starts a sandbox session's persistent container at
-// spawn. A failure (e.g. the runtime being unavailable) is logged but does NOT
-// block the spawn — the first turn re-runs Ensure and surfaces a hard error then.
+// spawn, OFF the caller's path. A failure (e.g. the runtime being unavailable) is
+// logged but does NOT block the spawn — the first turn re-runs Ensure and
+// surfaces a hard error then. Because it is both best-effort and re-run lazily,
+// nothing the client waits on depends on it, so it runs in a goroutine: the
+// attached frame goes out immediately instead of after the runtime's probe,
+// rm -f and create. The context is detached so a client disconnecting right
+// after the spawn doesn't leave the container half-created.
 func (c *conn) ensureSandbox(s *session.Session) {
-	if err := c.srv.driver.EnsureContainer(c.ctx, s); err != nil {
-		log.Printf("sandbox ensure for %s: %v", recName(s), err)
-	}
+	ctx := context.WithoutCancel(c.ctx)
+	go func() {
+		if err := c.srv.driver.EnsureContainer(ctx, s); err != nil {
+			log.Printf("sandbox ensure for %s: %v", recName(s), err)
+		}
+	}()
 }
 
 // removeSandbox best-effort destroys a session's persistent container on delete.

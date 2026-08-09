@@ -118,25 +118,30 @@ func (c *conn) doSpawnAt(path string, target session.Target, create bool, host, 
 		return nil
 	}
 
-	exists, err := c.dirExists(wantHost, dir)
-	if err != nil {
-		c.fail("bad_path", err.Error())
-		return nil
-	}
 	// create: make a brand-new project folder before spawning, so the picker can
-	// start a session in a directory that doesn't exist yet.
+	// start a session in a directory that doesn't exist yet. The check and the
+	// mkdir are ONE remote exec (makeDirNew), so the confirmation waits on a single
+	// SSH round trip rather than a stat followed by a mkdir.
 	if create {
-		if exists {
-			c.fail("bad_path", "that folder already exists")
-			return nil
-		}
-		if e := c.makeDir(wantHost, dir); e != nil {
+		existed, e := c.makeDirNew(wantHost, dir)
+		if e != nil {
 			c.fail("spawn_failed", e.Error())
 			return nil
 		}
-	} else if !exists {
-		c.fail("bad_path", "not a directory")
-		return nil
+		if existed {
+			c.fail("bad_path", "that folder already exists")
+			return nil
+		}
+	} else {
+		exists, err := c.dirExists(wantHost, dir)
+		if err != nil {
+			c.fail("bad_path", err.Error())
+			return nil
+		}
+		if !exists {
+			c.fail("bad_path", "not a directory")
+			return nil
+		}
 	}
 	// A directory is just the session's initial working dir, not its identity — so a
 	// spawn always mints a NEW session even when the folder already hosts one. The
@@ -223,4 +228,22 @@ func (c *conn) makeDir(host, dir string) error {
 		return c.srv.ssh.MakeDir(c.ctx, host, dir)
 	}
 	return c.srv.driver.MakeSpawnDir(c.ctx, dir)
+}
+
+// makeDirNew creates dir in the given execution location unless it already
+// exists, reporting which happened — the merged form of dirExists+makeDir, one
+// remote exec instead of two (see SSHPool.MakeDirNew). The local fallback keeps
+// the same contract for the SSH-less path.
+func (c *conn) makeDirNew(host, dir string) (bool, error) {
+	if c.srv.ssh != nil {
+		if host == "" {
+			host = session.LocalHost
+		}
+		return c.srv.ssh.MakeDirNew(c.ctx, host, dir)
+	}
+	exists, err := c.dirExists(host, dir)
+	if err != nil || exists {
+		return exists, err
+	}
+	return false, c.srv.driver.MakeSpawnDir(c.ctx, dir)
 }
