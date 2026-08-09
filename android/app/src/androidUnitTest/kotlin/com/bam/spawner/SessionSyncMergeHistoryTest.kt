@@ -89,4 +89,42 @@ class SessionSyncMergeHistoryTest {
         val m = sync().mergeHistory(existing, page, loadOlder = false, hasMore = true)
         assertNull(m.gapTarget)
     }
+
+    @Test
+    fun aDeltaAppendsItsTailAndTouchesNoPagingState() {
+        val existing = listOf(hist(0, "a"), hist(1, "b"))
+        val page = listOf(hist(2, "c"))
+        val m = sync().mergeHistory(existing, page, loadOlder = false, hasMore = false, delta = true)
+        assertEquals(listOf("a", "b", "c"), m.messages.map { it.text })
+        assertNull(m.oldest)   // the older cursor stays where paging left it
+        assertNull(m.hasMore)  // a tail says nothing about how far back we have paged
+        assertNull(m.gapTarget)
+    }
+
+    @Test
+    fun aDeltaFoldsTheLiveCopyOfARowItNowSettles() {
+        val existing = listOf(hist(0, "a", ts = 1), live("reply", ts = 5))
+        val page = listOf(hist(1, "reply", ts = 5))
+        val m = sync().mergeHistory(existing, page, loadOlder = false, hasMore = false, delta = true)
+        assertEquals(listOf("a", "reply"), m.messages.map { it.text })
+        assertEquals(1, m.messages[1].index)
+    }
+
+    @Test
+    fun aDeltaPrefixIsHeldAndEchoedOnTheNextFreshRequest() {
+        val sent = mutableListOf<String>()
+        val s = SessionSync(object : SessionSync.Host {
+            override fun send(frame: String) { sent += frame }
+            override fun discovered(): List<DiscoveredInfo> = emptyList()
+            override fun attachedId() = ""
+            override fun attachedName(): String? = null
+            override fun attachedAgent() = ""
+            override fun attachedModel() = ""
+        })
+        s.recordPrefix("sid", 12, "ph")
+        s.requestFreshHistory("sid", "name")
+        assertEquals(1, sent.size)
+        assert(sent[0].contains("\"have_prefix\":\"ph\"")) { sent[0] }
+        assert(sent[0].contains("\"have_prefix_count\":12")) { sent[0] }
+    }
 }

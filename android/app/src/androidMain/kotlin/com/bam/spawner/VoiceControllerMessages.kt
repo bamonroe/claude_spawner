@@ -105,6 +105,7 @@ private fun VoiceController.applyCached(id: String, c: CachedSession) {
     router.oldest[id] = c.oldestIndex
     router.hasMore[id] = c.hasMore
     session.recordHeld(id, c.count, c.hash)
+    session.recordPrefix(id, c.prefixCount, c.prefixHash)
 }
 
 // persist hands a session's current log (minus live-only SYSTEM notes, which
@@ -120,6 +121,7 @@ internal fun VoiceController.persist(id: String) {
     if (id.isEmpty()) return
     val msgs = router.logs[id] ?: return
     val d = session.heldDigest(id)
+    val p = session.heldPrefix(id)
     val oldest = router.oldest[id]
     val hasMore = router.hasMore[id] ?: false
     scope.launch(Dispatchers.Default) {
@@ -130,6 +132,8 @@ internal fun VoiceController.persist(id: String) {
             hasMore = hasMore,
             count = d?.first ?: 0,
             hash = d?.second ?: "",
+            prefixCount = p?.first ?: 0,
+            prefixHash = p?.second ?: "",
         ))
     }
 }
@@ -523,11 +527,16 @@ internal fun VoiceController.onHistory(msg: ServerMsg.History) {
     val hist = msg.messages.map { ChatMessage(roleOf(it.role), it.text, it.index, usage = it.usage, ts = it.ts, id = it.id, turnStats = it.turnStats) }
     // The shared merge (keep-rule, chronological order, de-dup, cursor, gap watermark) —
     // identical on both clients; only the storage side effects below are Android's.
-    val merged = session.mergeHistory(router.logs[key] ?: emptyList(), hist, wasLoadOlder, msg.more)
+    val merged = session.mergeHistory(router.logs[key] ?: emptyList(), hist, wasLoadOlder, msg.more, msg.delta)
     router.logs[key] = merged.messages
     merged.oldest?.let { router.oldest[key] = it }
-    router.hasMore[key] = merged.hasMore
+    merged.hasMore?.let { router.hasMore[key] = it }
     loadingOlder.remove(key)
+    // Hold the server's prefix digest for this page: the next top-page request echoes it
+    // back so the server can answer with just the rows appended since (`delta`). Only a
+    // top/delta page's digest is worth keeping — a page-back's covers the log only through
+    // the older cursor, which would ask for a needlessly long tail next time.
+    if (!wasLoadOlder) session.recordPrefix(key, msg.prefixCount, msg.prefixHash)
     // Record the chain digest this page belongs to and persist the merged log, so
     // the cache is current on disk and a later reattach can short-circuit the fetch.
     if (msg.hash.isNotEmpty()) session.recordSynced(key, msg.count, msg.hash)
@@ -549,7 +558,7 @@ internal fun VoiceController.onHistory(msg: ServerMsg.History) {
     }
     if (key == router.currentId) {
         _chat.value = router.logs[key] ?: emptyList()
-        _hasMoreHistory.value = msg.more
+        _hasMoreHistory.value = router.hasMore[key] ?: msg.more
         if (!wasLoadOlder) scrollToBottom() // initial load → newest in view; load-older stays put
     }
 }

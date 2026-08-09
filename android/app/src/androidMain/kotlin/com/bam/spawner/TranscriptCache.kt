@@ -229,6 +229,12 @@ data class CachedSession(
     val hasMore: Boolean,
     val count: Int,
     val hash: String,
+    // The server-issued prefix digest through the newest page we folded in, echoed back as
+    // `have_prefix`/`have_prefix_count` so a cold start's first refresh can take an
+    // appended-rows delta instead of a whole page. Opaque, and defaulted so pre-delta
+    // cache files still load (they simply get no delta on their first refresh).
+    val prefixCount: Int = 0,
+    val prefixHash: String = "",
 )
 
 @Serializable

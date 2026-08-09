@@ -72,6 +72,13 @@ class SessionSync(private val host: Host) {
     // so the per-attach `have_hash` → `unchanged` round trip stays authoritative.
     private val serverDigest = mutableMapOf<String, Pair<Int, String>>()
 
+    // The server-issued prefix digest (count, hash) describing the log through the last row
+    // of the newest page we folded in, per session id. Echoed back as
+    // `have_prefix`/`have_prefix_count` on the next top-page request so the server can
+    // answer with just the appended tail (`delta`) instead of a whole page. The hash is
+    // OPAQUE — we only ever hand back a value the server gave us, never compute one.
+    private val prefixHeld = mutableMapOf<String, Pair<Int, String>>()
+
     /** Session id of the outstanding fresh-history request, if any (see [requestFreshHistory]). */
     private var freshPending: String? = null
 
@@ -203,6 +210,15 @@ class SessionSync(private val host: Host) {
         if (freshPending == id) freshPending = null
     }
 
+    /** The prefix pair to echo on the next top-page request, if we hold one. */
+    fun heldPrefix(id: String): Pair<Int, String>? = prefixHeld[id]
+
+    /** A history page carried a prefix digest: hold it for the next request's `have_prefix`.
+     *  Only ever called with a server-issued pair (the hash is opaque to us). */
+    fun recordPrefix(id: String, count: Int, hash: String) {
+        if (hash.isNotEmpty()) prefixHeld[id] = count to hash
+    }
+
     /** One row of the server's `digests` sweep landed: hold it as a prefetch hint. */
     fun recordServerDigest(id: String, count: Int, hash: String) {
         serverDigest[id] = count to hash
@@ -215,6 +231,7 @@ class SessionSync(private val host: Host) {
     fun drop(id: String) {
         digestHeld.remove(id)
         serverDigest.remove(id)
+        prefixHeld.remove(id)
         if (freshPending == id) freshPending = null
     }
 
@@ -241,6 +258,9 @@ class SessionSync(private val host: Host) {
         // server answers `unchanged` — no bodies, no blank chat.
         digestHeld.remove(oldId)?.let { digestHeld[newId] = it }
         serverDigest.remove(oldId)?.let { serverDigest[newId] = it }
+        // The prefix digest is ID-keyed (not index-keyed), so a rotation that preserves the
+        // display log leaves it valid under the new id too — carry it, like the held digest.
+        prefixHeld.remove(oldId)?.let { prefixHeld[newId] = it }
         if (freshPending == oldId) freshPending = null
     }
 
@@ -268,7 +288,13 @@ class SessionSync(private val host: Host) {
         if (freshPending == id) return
         freshPending = id
         val held = digestHeld[id]
-        host.send(Outbound.history(id, name, null, haveHash = held?.second ?: ""))
+        val prefix = prefixHeld[id]
+        host.send(Outbound.history(
+            id, name, null,
+            haveHash = held?.second ?: "",
+            havePrefix = prefix?.second ?: "",
+            havePrefixCount = prefix?.first ?: 0,
+        ))
     }
 
     // --- Chat de-dup ---------------------------------------------------------
@@ -347,8 +373,9 @@ class SessionSync(private val host: Host) {
         val messages: List<ChatMessage>,
         /** The new oldest-index cursor, or null when the page was empty (leave it alone). */
         val oldest: Int?,
-        /** Whether the server says older pages remain. */
-        val hasMore: Boolean,
+        /** Whether the server says older pages remain — null on a delta reply, whose rows
+         *  are the newest tail and say nothing about how far back we have paged. */
+        val hasMore: Boolean?,
         /**
          * The reconnect gap-fill watermark: the highest index we already held when a *top*
          * page landed that starts above it, leaving a hole. The caller keeps paging older
@@ -372,6 +399,12 @@ class SessionSync(private val host: Host) {
      *    itself re-serves.
      *  - the result is ordered by timestamp, not concatenated: a surviving live row may be
      *    *older* than the page, and `page + existing` would strand it at the bottom.
+     *  - a **[delta] reply** is neither: its rows are only what the server appended after the
+     *    prefix we echoed back, so they are APPENDED to everything we hold (no keep-rule
+     *    needed — the server guarantees the page covers no row we already had, and [dedupe]
+     *    settles a live copy of a row that has since landed). It is also not a paging event:
+     *    the older-cursor and the has-more flag are left alone (both null), since a tail of
+     *    new rows says nothing about how far back we have paged.
      *  - finally [dedupe] collapses anything the two views of the same row share.
      */
     fun mergeHistory(
@@ -379,7 +412,14 @@ class SessionSync(private val host: Host) {
         page: List<ChatMessage>,
         loadOlder: Boolean,
         hasMore: Boolean,
+        delta: Boolean = false,
     ): HistoryMerge {
+        if (delta) return HistoryMerge(
+            messages = dedupe(orderByTimestamp(page + existing)),
+            oldest = null,
+            hasMore = null,
+            gapTarget = null,
+        )
         val heldMax = existing.mapNotNull { it.index.takeIf { i -> i >= 0 } }.maxOrNull()
         val pageIdx = page.mapNotNull { m -> m.index.takeIf { i -> i >= 0 } }.toSet()
         val pageTexts = if (loadOlder) emptySet() else page.map { it.role to it.text }.toSet()

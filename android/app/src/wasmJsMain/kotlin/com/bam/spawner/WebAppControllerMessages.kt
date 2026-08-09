@@ -312,11 +312,14 @@ internal fun WebAppController.onHistory(msg: ServerMsg.History) {
     }
     val wasLoadOlder = router.loadingOlder // else it's the top page (on (re)attach)
     val hist = msg.messages.map { ChatMessage(roleOf(it.role), it.text, it.index, usage = it.usage, ts = it.ts, id = it.id, turnStats = it.turnStats) }
-    val merged = session.mergeHistory(router.logs[key] ?: emptyList(), hist, wasLoadOlder, msg.more)
+    val merged = session.mergeHistory(router.logs[key] ?: emptyList(), hist, wasLoadOlder, msg.more, msg.delta)
     router.logs[key] = merged.messages
     router.loadingOlder = false
     merged.oldest?.let { router.oldest[key] = it }
-    router.hasMore[key] = merged.hasMore
+    merged.hasMore?.let { router.hasMore[key] = it }
+    // Hold this page's prefix digest to echo back next time (parity with the phone); a
+    // page-back's covers only the log through the older cursor, so it isn't worth keeping.
+    if (!wasLoadOlder) session.recordPrefix(key, msg.prefixCount, msg.prefixHash)
     // Record the chain digest this page belongs to so a later reattach can
     // short-circuit the fetch when the server hash still matches what we hold.
     if (msg.hash.isNotEmpty()) session.recordSynced(key, msg.count, msg.hash)

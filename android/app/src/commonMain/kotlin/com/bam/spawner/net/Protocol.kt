@@ -92,7 +92,20 @@ sealed interface ServerMsg {
     // Output (whose `usage` is only the turn's aggregate — see docs/protocol.md
     // `context_usage`). Corrects the meter and the closing row's badge.
     data class ContextUsage(val name: String, val sessionId: String, val usage: TokenUsage?, val usageAt: Long = 0) : ServerMsg
-    data class History(val name: String, val messages: List<HistMsg>, val more: Boolean, val count: Int = 0, val hash: String = "", val unchanged: Boolean = false, val sessionId: String = "") : ServerMsg
+    /**
+     * A page of a session's history. [prefixHash]/[prefixCount] are the server's opaque
+     * digest of the log through this page's last row — hold them beside the cached
+     * transcript and echo them back as `have_prefix`/`have_prefix_count` on the next
+     * top-page request. When that prefix still validates the server answers [delta]:
+     * [messages] are then ONLY the rows appended after [baseCount], to be APPENDED to the
+     * held transcript rather than replacing a page of it (see docs/protocol.md).
+     */
+    data class History(
+        val name: String, val messages: List<HistMsg>, val more: Boolean, val count: Int = 0,
+        val hash: String = "", val unchanged: Boolean = false, val sessionId: String = "",
+        val prefixHash: String = "", val prefixCount: Int = 0,
+        val delta: Boolean = false, val baseCount: Int = 0,
+    ) : ServerMsg
     data class ReadLast(val count: Int) : ServerMsg
     data class Discovered(val sessions: List<DiscoveredInfo>) : ServerMsg
     data class RateLimit(val info: RateLimitInfo) : ServerMsg // Claude plan's usage-window state
@@ -164,7 +177,12 @@ sealed interface ServerMsg {
                 "notice" -> Notice(o.str("name"), o.str("session_id"), o.str("text"))
                 "output" -> Output(o.str("name"), o.str("text"), o.bool("chunk", false), readUsage(o.obj("usage")), o.long("usage_at"), o.str("turn"), o.str("session_id"), readTurnStats(o), o.long("seq"))
                 "context_usage" -> ContextUsage(o.str("name"), o.str("session_id"), readUsage(o.obj("usage")), o.long("usage_at"))
-                "history" -> History(o.str("name"), readHist(o.arr("messages")), o.bool("more"), o.int("count", 0), o.str("hash"), o.bool("unchanged", false), o.str("session_id"))
+                "history" -> History(
+                    o.str("name"), readHist(o.arr("messages")), o.bool("more"), o.int("count", 0),
+                    o.str("hash"), o.bool("unchanged", false), o.str("session_id"),
+                    o.str("prefix_hash"), o.int("prefix_count", 0),
+                    o.bool("delta", false), o.int("base_count", 0),
+                )
                 "read_last" -> ReadLast(o.int("count", 1))
                 "discovered" -> Discovered(readDiscovered(o.arr("sessions")))
                 "rate_limit" -> RateLimit(RateLimitInfo(
@@ -677,10 +695,16 @@ object Outbound {
     // Addressed by the stable [sessionId] — names are per-server and change under a
     // rename on another device, which used to make the server answer `no_session` and
     // the transcript silently never refresh. `name` rides along only for old servers.
-    fun history(sessionId: String, name: String, before: Int?, limit: Int = 30, haveHash: String = "") = buildJsonObject {
+    fun history(
+        sessionId: String, name: String, before: Int?, limit: Int = 30, haveHash: String = "",
+        havePrefix: String = "", havePrefixCount: Int = 0,
+    ) = buildJsonObject {
         put("type", "history"); put("session_id", sessionId); put("name", name); put("limit", limit)
         if (before != null) put("before", before)
         if (haveHash.isNotEmpty()) put("have_hash", haveHash) // top-page freshness check → server may reply `unchanged`
+        // The opaque prefix pair the server issued with the last page we folded in. When it
+        // still validates the server replies `delta` with only the rows appended since.
+        if (havePrefix.isNotEmpty()) { put("have_prefix", havePrefix); put("have_prefix_count", havePrefixCount) }
     }.toString()
     fun digest() = buildJsonObject { put("type", "digest") }.toString() // request all sessions' transcript digests (connect-time cache validation)
     fun discover() = buildJsonObject { put("type", "discover") }.toString()

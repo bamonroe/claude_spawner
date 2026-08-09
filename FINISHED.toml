@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "delta-history-kotlin-merge"
+title = "Kotlin client: send have_count and merge an appended-messages delta"
+description = "SessionSync.kt already holds (count, digest) per session and sends the digest as have_hash. The server half shipped 2026-08-09: a history reply now carries prefix_hash/prefix_count (the digest through the last row of that page) plus delta/base_count, and a top-page request may echo the pair back as have_prefix/have_prefix_count. Store that pair alongside the cached transcript, send it on the next top-page request, and on a delta reply APPEND the returned rows to the held transcript instead of replacing it, de-duplicating by Message.ID (falling back to index/text when the backend gives no id, per the Message.ID doc in transcript.go). Note the field names are have_prefix/have_prefix_count, NOT the have_count in the original write-up. Add the fields to net/Protocol.kt — clientsync_test.go drift-tests the Kotlin wire strings against the Go gateway, so both sides change together. Verify on the Dockerized emulator per the android-dev skill."
+status = "finished"
+level = "task"
+category = "feature"
+created = 2026-08-08
+completed = 2026-08-09
+tags = ["history", "delta", "android"]
+
+[[task]]
 id = "fix-opencode-attach-server-refuses-unknown-self-assigned-session-id"
 title = "Fix opencode attach: server refuses unknown self-assigned session id"
 description = "Ollama/opencode sessions log 'attach: unknown session id <uuid> (name \"sfit\", transcript on disk: false, dir \"\") — refusing to implicitly adopt' on reattach, seen twice on 2026-08-09 (13:08:26 and 13:15:52, the latter right after a successful turn returned 'pong'). The reply landed on the server but may not render in the app's chat log. Suspected cause: opencode/Zen backends are SelfAssignsID — opencode mints its own ses_... id which the driver adopts from the stream — so the app can hold an id the server's store does not know, and the attach path refuses to adopt it. Investigate the attach path vs. the adopted-id write, and confirm whether the app is sending a stale pre-adoption id. Repro: spawn an Ollama session, take one turn, then reattach."
