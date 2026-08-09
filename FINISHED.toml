@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "ssh-drop-must-not-kill-live-turns"
+title = "A pooled-client drop must not tear down in-flight turns"
+description = "ROOT CAUSE of the 2026-08-08 'stream ended without a result event' storm. SSHPool.Run/WriteFile/Stream treat any non-channel-open error as a dead connection and call p.drop(host, client), which evicts the pooled client the whole host shares — including the SSH channel a live turn is streaming on. The 6-minute purgeRetryLoop (gateway/purgeretry.go) retried a stuck deferred purge for session bam-2 on host localhost; each failing retry dropped the client and killed whatever turn was in flight. The failures were second-aligned at HH:MM:50 on a 6-minute cadence and the queue item's attempts count matched the number of killed turns exactly. Two things to fix at the seam: (1) never drop a client that still has channels in flight — a background op's failure must not be able to kill a foreground turn; distinguish 'this operation failed' from 'this connection is dead' (an *ssh.ExitError is proof the connection is ALIVE and must never trigger a re-dial). (2) The purge retried forever with no cap and no log line, so a permanently-failing item silently kills a turn every 6 minutes indefinitely — bound the attempts, log the failure, and give up (or back off hard). Do NOT rebuild/recreate the server for this work: land the commits and background an image build only (see CLAUDE.md)."
+status = "finished"
+level = "task"
+category = "bug"
+created = 2026-08-08
+completed = 2026-08-08
+tags = ["ssh", "turns"]
+
+[[task]]
 id = "incremental-transcript-reads-for-opencode-codex-and-antigravity-backends"
 title = "Incremental transcript reads for opencode, codex and antigravity backends"
 description = """
