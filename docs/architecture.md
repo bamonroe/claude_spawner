@@ -240,7 +240,12 @@ and parse it — so the server drives more than `claude`.
 `session_id` and passes `--session-id`/`--resume`). *Codex* (`codex exec` / `codex exec resume`,
 `--json` JSONL): Codex **mints its own** session id (`thread_id`, read from the first output event),
 so `Agent.SelfAssignsID` tells `Turn` to adopt the id `ParseTurn` returns in
-`TurnResult.SessionID` rather than supplying one. Model availability
+`TurnResult.SessionID` rather than supplying one. Adoption goes through
+`Session.AdoptSessionID`, which **keeps the displaced id on the record** — the spawn already
+handed that placeholder to the app (session list, `attached`), so if it stopped resolving, the
+first reattach after the first turn would miss the registry and be refused as an unknown session.
+An unstarted placeholder joins `AliasIDs` (addressable, but names no transcript, so it stays out of
+`TranscriptIDs`); an id that already ran turns joins `PriorIDs`. Model availability
 can be **plan-dependent** (on a ChatGPT-account Codex, only `gpt-5.5` is `-m`-selectable, so its
 alternates are reasoning-effort presets); the registry is the single place that catalogue lives.
 *Ollama* and *Zen* are both opencode-backed (`opencode run` / `run -s <id>`, `--format json` JSONL):

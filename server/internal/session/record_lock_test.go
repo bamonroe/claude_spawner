@@ -17,6 +17,7 @@ func TestSnapshotClonesEverySliceField(t *testing.T) {
 	live := &Session{
 		Name: "s", SessionID: "id",
 		PriorIDs:     []string{"a"},
+		AliasIDs:     []string{"alias"},
 		PendingNotes: []string{"note"},
 		AgyBrainIDs:  []string{"brain"},
 		Jobs:         []BackgroundJob{{ID: "j"}},

@@ -52,6 +52,13 @@ type Session struct {
 	// history, but Claude only ever resumes the current SessionID — so a rotation
 	// changes context without losing (or re-reading) the record.
 	PriorIDs []string `json:"prior_ids,omitempty"`
+	// AliasIDs are ids this session was ADDRESSABLE by but never wrote a transcript
+	// under: the placeholder id minted at spawn for a self-assigning backend
+	// (opencode/codex/antigravity), displaced when the backend announced its own id
+	// on the first turn. Clients that learned the placeholder (session list, the
+	// spawn `attached` frame) keep using it, so it must still resolve to this record
+	// — but it names no transcript, so it stays out of TranscriptIDs.
+	AliasIDs []string `json:"alias_ids,omitempty"`
 	// PendingSeed is a condensed summary of the prior context, produced by
 	// "compress" when it rotated the session_id. It is prepended to the FIRST
 	// dictation on the fresh SessionID (so Claude continues with the compacted
@@ -182,6 +189,7 @@ func (s *Session) Snapshot() *Session {
 	cp.mu = nil
 	cp.seedPending = nil // the promise belongs to the stored record, not to a copy
 	cp.PriorIDs = append([]string(nil), s.PriorIDs...)
+	cp.AliasIDs = append([]string(nil), s.AliasIDs...)
 	cp.PendingNotes = append([]string(nil), s.PendingNotes...)
 	cp.AgyBrainIDs = append([]string(nil), s.AgyBrainIDs...)
 	cp.Jobs = append([]BackgroundJob(nil), s.Jobs...)
@@ -284,8 +292,9 @@ type BackgroundJob struct {
 }
 
 // OwnsID reports whether id is a transcript session_id this session has ever run
-// under: its current SessionID, an id retired by clear/compress (PriorIDs), or an
-// id archived by a backend switch (History). Used to attribute a dir-keyed
+// under (or been addressable by): its current SessionID, an id retired by
+// clear/compress (PriorIDs), a spawn placeholder displaced by a self-assigning
+// backend (AliasIDs), or an id archived by a backend switch (History). Used to attribute a dir-keyed
 // background job to the session that launched it — the job stamps the session_id
 // current at launch, which may since have rotated, so a single-id check isn't
 // enough.
@@ -299,6 +308,46 @@ func (s *Session) OwnsID(id string) bool {
 	return s.ownsIDLocked(id)
 }
 
+// AdoptSessionID moves the session onto an id a self-assigning backend
+// (opencode/codex/antigravity) announced in its stream, and marks it started so
+// the next turn resumes rather than recreates it.
+//
+// The id being displaced doesn't just vanish: clients already hold it (the
+// session list and the spawn `attached` frame carried it) and will attach by it,
+// while the store re-indexes byID onto the new id on the next Put. So it is kept
+// on the record and stays resolvable via OwnsID/GetByAnyID — otherwise a reattach
+// after the first turn misses the registry and is refused as an unknown session.
+// Which chain it joins depends on whether it ever ran: an unstarted spawn
+// placeholder names no transcript (AliasIDs), an id that already took turns does
+// (PriorIDs).
+func (s *Session) AdoptSessionID(newID string) {
+	if newID == "" {
+		return
+	}
+	s.Mutate(func(r *Session) {
+		if old := r.SessionID; old != "" && old != newID {
+			if r.Started {
+				r.PriorIDs = appendUnique(r.PriorIDs, old)
+			} else {
+				r.AliasIDs = appendUnique(r.AliasIDs, old)
+			}
+		}
+		r.SessionID = newID
+		r.Started = true
+	})
+}
+
+// appendUnique appends id to the id chain unless it is already there (id chains
+// are short and append-once, so a linear scan is the whole cost).
+func appendUnique(ids []string, id string) []string {
+	for _, existing := range ids {
+		if existing == id {
+			return ids
+		}
+	}
+	return append(ids, id)
+}
+
 // ownsIDLocked is OwnsID's body, for callers that already hold the record lock.
 func (s *Session) ownsIDLocked(id string) bool {
 	if id == "" {
@@ -309,6 +358,11 @@ func (s *Session) ownsIDLocked(id string) bool {
 	}
 	for _, p := range s.PriorIDs {
 		if p == id {
+			return true
+		}
+	}
+	for _, a := range s.AliasIDs {
+		if a == id {
 			return true
 		}
 	}

@@ -347,20 +347,69 @@ func TestGetByAnyIDMatchesFullOwnedChain(t *testing.T) {
 		Name:      "proj",
 		SessionID: "live",
 		PriorIDs:  []string{"cleared"},
+		AliasIDs:  []string{"placeholder"},
 		History:   []HistorySegment{{Agent: "claude", IDs: []string{"archived"}}},
 	}
 	if err := s.Put(rec); err != nil {
 		t.Fatal(err)
 	}
-	// Every id the session has ever run under must resolve to it: the live id,
-	// one retired by clear/compress, and one archived by a backend switch. A miss
+	// Every id the session has ever run under — or been addressable by — must
+	// resolve to it: the live id, one retired by clear/compress, one archived by a
+	// backend switch, and the spawn placeholder a self-assigning backend displaced
+	// (which clients still hold and attach by). A miss
 	// on any of these sends callers down the adopt-a-duplicate path.
-	for _, id := range []string{"live", "cleared", "archived"} {
+	for _, id := range []string{"live", "cleared", "archived", "placeholder"} {
 		if got := s.GetByAnyID(id); got != rec {
 			t.Errorf("GetByAnyID(%q) = %v, want the owning record", id, got)
 		}
 	}
 	if got := s.GetByAnyID("stranger"); got != nil {
 		t.Errorf("GetByAnyID(stranger) = %v, want nil", got)
+	}
+}
+
+// A self-assigning backend (opencode/codex/antigravity) mints its own id on the
+// first turn, displacing the placeholder the spawn handed to the app. The app
+// keeps attaching by that placeholder, so it must still resolve to this record —
+// as an alias, not as a transcript id (nothing was ever written under it).
+func TestAdoptSessionIDKeepsUnstartedPlaceholderAsAlias(t *testing.T) {
+	rec := &Session{Name: "sfit", SessionID: "placeholder-uuid"}
+	rec.AdoptSessionID("ses_abc")
+
+	if got := rec.SessionID; got != "ses_abc" {
+		t.Errorf("SessionID = %q, want ses_abc", got)
+	}
+	if !rec.Started {
+		t.Error("Started = false, want true after adoption")
+	}
+	if !rec.OwnsID("placeholder-uuid") {
+		t.Error("OwnsID(placeholder) = false — a reattach by the pre-adoption id would be refused")
+	}
+	for _, id := range rec.TranscriptIDs() {
+		if id == "placeholder-uuid" {
+			t.Error("placeholder leaked into TranscriptIDs; it names no transcript")
+		}
+	}
+	// Idempotent: a later turn re-announcing the same id adds nothing.
+	rec.AdoptSessionID("ses_abc")
+	if got := len(rec.AliasIDs); got != 1 {
+		t.Errorf("AliasIDs = %d, want 1", got)
+	}
+}
+
+// An id that already ran turns DOES have a transcript, so a later rotation
+// retires it into the history chain rather than the alias chain.
+func TestAdoptSessionIDRetiresStartedIDAsPrior(t *testing.T) {
+	rec := &Session{Name: "sfit", SessionID: "ses_one", Started: true}
+	rec.AdoptSessionID("ses_two")
+
+	if !rec.OwnsID("ses_one") {
+		t.Error("OwnsID(ses_one) = false, want true")
+	}
+	if got := rec.TranscriptIDs(); len(got) != 2 || got[0] != "ses_one" || got[1] != "ses_two" {
+		t.Errorf("TranscriptIDs = %v, want [ses_one ses_two]", got)
+	}
+	if len(rec.AliasIDs) != 0 {
+		t.Errorf("AliasIDs = %v, want empty", rec.AliasIDs)
 	}
 }

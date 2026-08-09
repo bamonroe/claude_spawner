@@ -110,10 +110,7 @@ func (d *Driver) Turn(ctx context.Context, s *Session, prompt string, onTool fun
 	// persists s regardless — so a first turn that fails mid-way is still
 	// resumable rather than re-created.
 	if res.SessionID != "" {
-		s.Mutate(func(s *Session) {
-			s.SessionID = res.SessionID
-			s.Started = true
-		})
+		s.AdoptSessionID(res.SessionID)
 	}
 	if werr := proc.Wait(); werr != nil {
 		return TurnResult{}, withStderr(fmt.Errorf("%s exited: %w", ag.ID, werr), proc.Stderr())

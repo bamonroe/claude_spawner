@@ -124,15 +124,3 @@ urgency = "low"
 order = 310
 created = 2026-08-08
 tags = ["ssh", "config"]
-
-[[task]]
-id = "fix-opencode-attach-server-refuses-unknown-self-assigned-session-id"
-title = "Fix opencode attach: server refuses unknown self-assigned session id"
-description = "Ollama/opencode sessions log 'attach: unknown session id <uuid> (name \"sfit\", transcript on disk: false, dir \"\") — refusing to implicitly adopt' on reattach, seen twice on 2026-08-09 (13:08:26 and 13:15:52, the latter right after a successful turn returned 'pong'). The reply landed on the server but may not render in the app's chat log. Suspected cause: opencode/Zen backends are SelfAssignsID — opencode mints its own ses_... id which the driver adopts from the stream — so the app can hold an id the server's store does not know, and the attach path refuses to adopt it. Investigate the attach path vs. the adopted-id write, and confirm whether the app is sending a stale pre-adoption id. Repro: spawn an Ollama session, take one turn, then reattach."
-status = "active"
-level = "task"
-category = "bug"
-urgency = "high"
-order = 320
-created = 2026-08-09
-tags = []
