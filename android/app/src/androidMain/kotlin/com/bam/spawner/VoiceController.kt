@@ -16,6 +16,7 @@ import com.bam.spawner.net.Outbound
 import com.bam.spawner.net.ProfileInfo
 import com.bam.spawner.net.ServerMsg
 import com.bam.spawner.net.DiscoveredInfo
+import com.bam.spawner.net.patchRow
 import com.bam.spawner.net.SpawnerClient
 import com.bam.spawner.tts.Markdown
 import com.bam.spawner.tts.Speaker
@@ -515,12 +516,19 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
     }
 
     /** Give a discovered session a custom name (registers it by dir if needed). */
-    override fun renameDiscovered(sessionId: String, dir: String, newName: String) =
-        client?.send(Outbound.renameDiscovered(sessionId, dir, newName)).let {}
+    // Optimistic like deleteDiscovered: paint the new name now (see patchRow).
+    override fun renameDiscovered(sessionId: String, dir: String, newName: String) {
+        _discovered.value = _discovered.value.patchRow(sessionId) { it.copy(name = newName) }
+        client?.send(Outbound.renameDiscovered(sessionId, dir, newName))
+    }
 
     /** Switch a session's AI backend + model (registers it by dir if needed). */
-    override fun setAgent(sessionId: String, dir: String, agent: String, model: String) =
-        client?.send(Outbound.setAgent(sessionId, dir, agent, model)).let {}
+    // Optimistic: the badge flips now; the server rotates the context and reads the
+    // outgoing backend's transcript for the handoff recap before its push lands.
+    override fun setAgent(sessionId: String, dir: String, agent: String, model: String) {
+        _discovered.value = _discovered.value.patchRow(sessionId) { it.copy(agent = agent, model = model) }
+        client?.send(Outbound.setAgent(sessionId, dir, agent, model))
+    }
 
     override fun focusSession(session: DiscoveredInfo) = focusKnownSession(session, syncServer = true)
     override fun paletteSessions(limit: Int) = session.attachHistory(limit)

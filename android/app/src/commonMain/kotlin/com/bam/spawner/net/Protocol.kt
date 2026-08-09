@@ -494,6 +494,16 @@ data class DiscoveredInfo(
     val profile: String = "",  // execution profile; empty = default profile
 )
 
+/**
+ * Optimistic row patches for the sidebar list, applied the moment the user commits
+ * an edit instead of waiting on the server's `discovered` push — a set_agent, in
+ * particular, does real work (a context rotation, then an off-loop transcript read)
+ * before that push lands, and the row shouldn't sit on stale values meanwhile. The
+ * next push is always authoritative and overwrites whatever these guessed.
+ */
+fun List<DiscoveredInfo>.patchRow(sessionId: String, patch: (DiscoveredInfo) -> DiscoveredInfo) =
+    map { if (it.sessionId == sessionId) patch(it) else it }
+
 /** A directory in the "new session" browser. */
 data class BrowseEntry(val name: String, val path: String, val repo: Boolean, val dir: Boolean = true)
 

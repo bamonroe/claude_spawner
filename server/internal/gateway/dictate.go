@@ -25,6 +25,10 @@ func (c *conn) dictate(text string) {
 	// the race and its notes land on the NEXT turn instead of this one.
 	go c.srv.reconcileJobs(c.attached, true)
 	prompt := text
+	// A backend switch computes its handoff recap off-loop; if this turn is the one
+	// racing it, wait for that promise to settle rather than starting the new backend
+	// with no memory of the conversation. Almost always a no-op — nothing is pending.
+	c.attached.AwaitSeed(c.ctx)
 	// A prior "compress" left a compacted summary of the old context to carry into
 	// this fresh session_id; prepend it to the FIRST dictation so Claude continues
 	// with that condensed context. startTurn clears PendingSeed once the turn lands.

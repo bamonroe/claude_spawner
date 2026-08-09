@@ -1,6 +1,7 @@
 package com.bam.spawner
 
 import com.bam.spawner.audio.AudioOutput
+import com.bam.spawner.net.patchRow
 import com.bam.spawner.net.AgentInfo
 import com.bam.spawner.net.AskQuestion
 import com.bam.spawner.net.spokenQuestions
@@ -381,10 +382,13 @@ class WebAppController(internal val prefs: Prefs) : AppController {
         _discovered.value = _discovered.value.filterNot { it.sessionId == sessionId }
         client?.send(Outbound.deleteDiscovered(sessionId))
     }
+    // Optimistic row patches (see patchRow); the next `discovered` push is authoritative.
     override fun renameDiscovered(sessionId: String, dir: String, newName: String) {
+        _discovered.value = _discovered.value.patchRow(sessionId) { it.copy(name = newName) }
         client?.send(Outbound.renameDiscovered(sessionId, dir, newName))
     }
     override fun setAgent(sessionId: String, dir: String, agent: String, model: String) {
+        _discovered.value = _discovered.value.patchRow(sessionId) { it.copy(agent = agent, model = model) }
         client?.send(Outbound.setAgent(sessionId, dir, agent, model))
     }
     override fun spawnAt(path: String, target: String, host: String, agent: String, model: String, profile: String) { client?.send(Outbound.spawnAt(path, target = target, host = host, agent = agent, model = model, profile = profile)) }

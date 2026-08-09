@@ -330,9 +330,10 @@ button** on the right of each card **attaches to that session directly**, no exp
 - **Edit** — rename it, and (when the server advertises more than one backend) **switch its AI
   agent + model**. Changing only the model keeps the conversation; **switching the backend rotates to
   a fresh conversation** on the new AI (Claude and Codex transcripts aren't interchangeable on disk),
-  but the context is **carried across**: the server reads the outgoing backend's transcript and seeds
-  the new backend's first turn with a recap of the recent conversation, so the new AI continues where
-  the old one left off. The old transcript also stays on disk **and stays in the chat log** — the
+  but the context is **carried across**: the server seeds the new backend's first turn with a recap of
+  the recent conversation, so the new AI continues where the old one left off. The badge flips right
+  away — reading the outgoing transcript for that recap happens in the background, and only the
+  session's next turn ever waits on it. The old transcript also stays on disk **and stays in the chat log** — the
   messages from before the switch remain in the scrollback, each read back with the backend that wrote
   them, so switching AIs never blanks your history. The dialog still warns you before you commit.
 - **Delete** — permanently remove the session's transcript(s) (with the same confirmation as before).

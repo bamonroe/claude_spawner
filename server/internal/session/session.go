@@ -8,6 +8,7 @@
 package session
 
 import (
+	"context"
 	"crypto/rand"
 	"fmt"
 	"strings"
@@ -31,6 +32,12 @@ type Session struct {
 	// lazily created by mutex(), so a plain &Session{...} literal (spawn, tests,
 	// json.Unmarshal) stays valid and copying a record copies no lock.
 	mu *sync.Mutex
+
+	// seedPending, when non-nil, is an open promise that a PendingSeed is still
+	// being computed for the CURRENT SessionID — see BeginSeed/AwaitSeed. It is
+	// process-local (never persisted): a server restart simply loses the in-flight
+	// recap, which is the same outcome as a failed read.
+	seedPending chan struct{}
 
 	Name      string `json:"name"`       // human/voice handle, e.g. "claude-claude"
 	Dir       string `json:"dir"`        // working directory for the session
@@ -173,6 +180,7 @@ func (s *Session) Snapshot() *Session {
 	defer mu.Unlock()
 	cp := *s
 	cp.mu = nil
+	cp.seedPending = nil // the promise belongs to the stored record, not to a copy
 	cp.PriorIDs = append([]string(nil), s.PriorIDs...)
 	cp.PendingNotes = append([]string(nil), s.PendingNotes...)
 	cp.AgyBrainIDs = append([]string(nil), s.AgyBrainIDs...)
@@ -182,6 +190,68 @@ func (s *Session) Snapshot() *Session {
 		cp.History[i].IDs = append([]string(nil), cp.History[i].IDs...)
 	}
 	return &cp
+}
+
+// MutateWithSeed applies fn like Mutate and, in the SAME critical section, opens a
+// promise that a PendingSeed for the resulting context is still being computed
+// off-thread; it returns the function that settles that promise. It exists so a
+// context rotation (set_agent) can answer the client immediately while the
+// expensive recap — a whole transcript chain read over SSH — runs in a goroutine.
+// Rotating and promising atomically is the point: a turn that observes the fresh
+// SessionID always also observes the pending promise, so AwaitSeed makes "the seed
+// is late" a wait rather than a silent loss of the prior conversation.
+//
+// The returned settle function stamps the seed (an empty one settles the promise
+// without touching the record) and closes it exactly once. It is a no-op if the
+// SessionID rotated again in the meantime — a clear/compress/second switch means
+// the recap describes a context the record has already left, and resurrecting it
+// there would seed the wrong conversation. Call it exactly once, from the
+// computing goroutine, on every path including error.
+func (s *Session) MutateWithSeed(fn func(*Session)) (settle func(seed string)) {
+	mu := s.mutex()
+	mu.Lock()
+	fn(s)
+	if s.seedPending != nil { // an older promise is stranded; release its waiters
+		close(s.seedPending)
+	}
+	ch := make(chan struct{})
+	s.seedPending = ch
+	forID := s.SessionID
+	mu.Unlock()
+
+	var once sync.Once
+	return func(seed string) {
+		once.Do(func() {
+			mu.Lock()
+			defer mu.Unlock()
+			if s.seedPending != ch {
+				return // superseded: whoever replaced this promise already closed it
+			}
+			s.seedPending = nil
+			if seed != "" && s.SessionID == forID {
+				s.PendingSeed = seed
+			}
+			close(ch)
+		})
+	}
+}
+
+// AwaitSeed waits for an in-flight BeginSeed promise to settle, so a caller about
+// to read PendingSeed sees the finished value rather than a half-computed one. It
+// returns immediately when no seed is pending (the common case), and gives up when
+// ctx is done — the turn then proceeds without the recap rather than hanging.
+func (s *Session) AwaitSeed(ctx context.Context) {
+	mu := s.mutex()
+	mu.Lock()
+	ch := s.seedPending
+	mu.Unlock()
+	if ch == nil {
+		return
+	}
+	select {
+	case <-ch:
+	case <-ctx.Done():
+	}
 }
 
 // HistorySegment is one previous backend's slice of a session's display history:

@@ -51,21 +51,6 @@ created = 2026-08-08
 tags = ["perf"]
 
 [[task]]
-id = "set-agent-compute-the-handoff-recap-async-instead-of-on-the-read-loop"
-title = "set_agent: compute the handoff recap async instead of on the read loop"
-description = """
-doSetAgent reads the ENTIRE old backend's transcript chain over SSH on the connection's read loop (ops_discover.go:190 ReadTranscriptChain) before archiving the segment, persisting, and finally sending msgAttached + the refreshed lists (:229-246) — so the agent badge hangs while a whole chain parses. But the recap it builds is only consumed by the FIRST TURN on the new backend (PendingSeed, read in dictate.go:28). Rotate the record and answer immediately, then compute the recap in a goroutine and write it into PendingSeed under the session's writer claim before the next turn (a turn arriving first should wait on or skip the seed — decide the invariant at the seam). Client compounding to fix in the same pass: MainScreen.kt:549-553 fires renameDiscovered and setAgent back to back and waits for the pushes; the dialog can update its row optimistically like attach already does (VoiceController.kt:523).
-
-Do NOT rebuild/recreate the server for this work: land the commits and background an image build only (see CLAUDE.md)."""
-status = "active"
-level = "task"
-category = "refactor"
-urgency = "normal"
-order = 180
-created = 2026-08-08
-tags = ["perf", "lag", "ux"]
-
-[[task]]
 id = "spawn-take-the-sandbox-create-off-the-confirmation-path-merge-the-mkdir-probes"
 title = "Spawn: take the sandbox create off the confirmation path, merge the mkdir probes"
 description = """

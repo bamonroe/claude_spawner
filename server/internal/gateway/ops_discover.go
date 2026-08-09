@@ -1,8 +1,10 @@
 package gateway
 
 import (
+	"context"
 	"log"
 	"path/filepath"
+	"time"
 
 	"github.com/bam/claude_spawner/server/internal/session"
 )
@@ -133,10 +135,12 @@ func (c *conn) doRenameDiscovered(sessionID, dir, newName string) {
 // its default). Changing the backend rotates to a fresh session_id and un-Starts
 // the session: Claude and Codex transcripts use incompatible on-disk formats, so the
 // new AI can't resume the old one's history directly. Rather than drop that context,
-// it reads the outgoing backend's transcript through the generic per-backend reader
-// and carries a portable recap forward as PendingSeed, so the new backend continues
-// the same conversation from its first turn (the old transcript stays on disk too). A
-// backend whose transcript isn't readable yields an empty recap and switches clean.
+// it carries a portable recap of the outgoing backend's transcript forward as
+// PendingSeed, so the new backend continues the same conversation from its first turn
+// (the old transcript stays on disk too). That recap is read off this goroutine and
+// lands through the record's seed promise, so the switch answers immediately and the
+// next turn waits for it (AwaitSeed) only if it gets there first. A backend whose
+// transcript isn't readable yields an empty recap and switches clean.
 
 // doSetAgent switches a session's AI backend (and model) durably. It mirrors
 // doRenameDiscovered: it locates the session by session_id (registering a still-
@@ -145,10 +149,12 @@ func (c *conn) doRenameDiscovered(sessionID, dir, newName string) {
 // its default). Changing the backend rotates to a fresh session_id and un-Starts
 // the session: Claude and Codex transcripts use incompatible on-disk formats, so the
 // new AI can't resume the old one's history directly. Rather than drop that context,
-// it reads the outgoing backend's transcript through the generic per-backend reader
-// and carries a portable recap forward as PendingSeed, so the new backend continues
-// the same conversation from its first turn (the old transcript stays on disk too). A
-// backend whose transcript isn't readable yields an empty recap and switches clean.
+// it carries a portable recap of the outgoing backend's transcript forward as
+// PendingSeed, so the new backend continues the same conversation from its first turn
+// (the old transcript stays on disk too). That recap is read off this goroutine and
+// lands through the record's seed promise, so the switch answers immediately and the
+// next turn waits for it (AwaitSeed) only if it gets there first. A backend whose
+// transcript isn't readable yields an empty recap and switches clean.
 func (c *conn) doSetAgent(sessionID, dir, agentID, modelAlias string) {
 	rec := c.srv.store.GetBySessionID(sessionID)
 	if rec == nil {
@@ -180,18 +186,6 @@ func (c *conn) doSetAgent(sessionID, dir, agentID, modelAlias string) {
 			c.fail("busy", "still working — switch the agent when the turn finishes")
 			return
 		}
-		// Carry the outgoing backend's conversation across the switch: read its
-		// transcript through the generic per-backend reader and stash a portable recap
-		// as the seed for the first turn on the new backend. Must run BEFORE the
-		// rotation below — rec.Agent and TranscriptIDs() still point at the old chain
-		// here. A backend with no readable transcript (e.g. antigravity's null reader)
-		// yields an empty recap, so the switch is clean exactly as before.
-		var handoffSeed string
-		if msgs, err := c.srv.driver.ReadTranscriptChain(c.ctx, cur.Agent, cur.Host, cur.TranscriptIDs()); err != nil {
-			log.Printf("set_agent[%s]: read prior transcript for handoff: %v", cur.Name, err)
-		} else {
-			handoffSeed = formatHandoffRecap(msgs)
-		}
 		// Archive the outgoing backend as a display segment so its messages stay in
 		// the chat log after the rotation drops them from context (rec.Agent/host/ids
 		// still point at the old backend here). Skip an un-run backend — nothing to
@@ -207,10 +201,20 @@ func (c *conn) doSetAgent(sessionID, dir, agentID, modelAlias string) {
 			return
 		}
 		oldID = cur.SessionID
+		// Carry the outgoing backend's conversation across the switch: read its
+		// transcript through the generic per-backend reader and stash a portable recap
+		// as the seed for the first turn on the new backend. Reading a whole chain is
+		// an SSH round-trip per transcript, so it does NOT run here on the connection's
+		// serial read loop — the rotation is stamped and answered immediately and the
+		// recap lands through the record's seed promise (opened below, inside the same
+		// critical section as the rotation, so a turn can never slip in between and see
+		// a fresh context with no promise on it). A backend with no readable transcript
+		// (e.g. antigravity's null reader) settles the promise with an empty recap, so
+		// the switch is clean exactly as before.
 		// One critical section for the whole rotation: a concurrent reader (another
 		// device's attach, the job reconciler) must never see the new session_id with
 		// the old backend's chain still attached.
-		rec.Mutate(func(rec *session.Session) {
+		settleSeed := rec.MutateWithSeed(func(rec *session.Session) {
 			if seg != nil {
 				rec.History = append(rec.History, *seg)
 			}
@@ -219,8 +223,9 @@ func (c *conn) doSetAgent(sessionID, dir, agentID, modelAlias string) {
 			rec.AskPrimed = false
 			rec.JobsPrimed = false        // re-prime the background-job instruction on the new backend
 			rec.PriorIDs = nil            // don't chain the old backend's transcripts into the new one
-			rec.PendingSeed = handoffSeed // ...carry a recap of them across the switch instead
+			rec.PendingSeed = "" // ...a recap of them lands via settleSeed below instead
 		})
+		go c.srv.computeHandoffSeed(rec, cur, settleSeed)
 	}
 	rec.Mutate(func(rec *session.Session) {
 		rec.Agent = ag.ID
@@ -244,6 +249,36 @@ func (c *conn) doSetAgent(sessionID, dir, agentID, modelAlias string) {
 	}
 	c.sendSessionList()
 	c.doDiscover()
+}
+
+// handoffSeedTimeout bounds the off-loop transcript read that builds a set_agent
+// recap. It is generous — a long chain over SSH is several round-trips — because
+// the only thing waiting on it is the session's next turn, and the alternative to
+// waiting is starting the new backend with no memory of the conversation.
+const handoffSeedTimeout = 2 * time.Minute
+
+// computeHandoffSeed reads the OUTGOING backend's transcript chain and settles the
+// rotated record's seed promise with a portable recap of it. It runs in its own
+// goroutine off the connection's read loop (the read is one SSH round-trip per
+// transcript) and on a background context, so the app's badge refresh doesn't wait
+// on it and a device disconnecting mid-read doesn't cost the session its context.
+// pre is the pre-rotation snapshot: the old backend, host and chain to read.
+func (s *Server) computeHandoffSeed(rec *session.Session, pre *session.Session, settle func(string)) {
+	ctx, cancel := context.WithTimeout(context.Background(), handoffSeedTimeout)
+	defer cancel()
+	var seed string
+	if msgs, err := s.driver.ReadTranscriptChain(ctx, pre.Agent, pre.Host, pre.TranscriptIDs()); err != nil {
+		log.Printf("set_agent[%s]: read prior transcript for handoff: %v", pre.Name, err)
+	} else {
+		seed = formatHandoffRecap(msgs)
+	}
+	settle(seed) // settles even on error/empty, so a waiting turn is never stranded
+	if seed == "" {
+		return
+	}
+	if err := s.store.Put(rec); err != nil { // persist the late seed across a restart
+		log.Printf("set_agent[%s]: persist handoff seed: %v", pre.Name, err)
+	}
 }
 
 // doAdopt registers a discovered Claude session (by session_id + dir) into the
