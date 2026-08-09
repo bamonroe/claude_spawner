@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "mark-prefetch-history-requests-background-on-the-wire"
+title = "Mark prefetch history requests background on the wire"
+description = "Add an optional boolean field (e.g. `background`) to the inbound `history` message so the server can tell a user-visible refresh from a speculative prefetch. Touches server/internal/gateway/messages.go (inbound struct + docs/protocol.md entry), and android net/Protocol.kt Outbound.history so TranscriptPrefetcher.prefetch (TranscriptPrefetcher.kt:86) sets it true while every foreground call site leaves it false. The internal/docsync client<->server wire test enforces both sides agree, so change them in one commit. No behavior change yet - this is the seam the scheduling task needs. Do NOT rebuild/recreate the server: land commits and background an image build only."
+status = "finished"
+level = "task"
+category = "feature"
+created = 2026-08-09
+completed = 2026-08-09
+tags = ["protocol", "prefetch"]
+
+[[task]]
 id = "prioritize-foreground-history-over-transcript-prefetch"
 title = "Prioritize foreground history over transcript prefetch"
 description = """

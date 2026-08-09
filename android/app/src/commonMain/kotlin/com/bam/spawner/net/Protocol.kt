@@ -697,10 +697,12 @@ object Outbound {
     // the transcript silently never refresh. `name` rides along only for old servers.
     fun history(
         sessionId: String, name: String, before: Int?, limit: Int = 30, haveHash: String = "",
-        havePrefix: String = "", havePrefixCount: Int = 0,
+        havePrefix: String = "", havePrefixCount: Int = 0, background: Boolean = false,
     ) = buildJsonObject {
         put("type", "history"); put("session_id", sessionId); put("name", name); put("limit", limit)
         if (before != null) put("before", before)
+        // Speculative prefetch, not a user-visible refresh — lets the server deprioritise it.
+        if (background) put("background", true)
         if (haveHash.isNotEmpty()) put("have_hash", haveHash) // top-page freshness check → server may reply `unchanged`
         // The opaque prefix pair the server issued with the last page we folded in. When it
         // still validates the server replies `delta` with only the rows appended since.

@@ -56,6 +56,7 @@ type inbound struct {
 	HaveHash              string                `json:"have_hash"`               // on `history`: digest of the top page the app already cached; server replies `unchanged` if it still matches
 	HavePrefix            string                `json:"have_prefix"`             // on `history`: a previously issued `prefix_hash` the app still holds; lets the server reply with only the rows appended after it
 	HavePrefixCount       int                   `json:"have_prefix_count"`       // on `history`: how many leading rows that `have_prefix` covers
+	Background            bool                  `json:"background"`              // on `history`: this is a speculative prefetch, not a user-visible refresh — the server may deprioritise it behind foreground requests
 	Silent                bool                  `json:"silent"`                  // on `attach`: suppress the spoken "attached…" confirmation (reconnect auto-attach)
 	SessionID             string                `json:"session_id"`              // session target for attach/adopt/wake/utterance/reply and related session ops
 	Brief                 bool                  `json:"brief"`                   // on `hello`: append a "reply briefly for TTS" hint to dictation

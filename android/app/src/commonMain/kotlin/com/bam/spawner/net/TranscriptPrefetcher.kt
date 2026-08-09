@@ -83,7 +83,7 @@ class TranscriptPrefetcher(
     private fun prefetch(d: DiscoveredInfo) {
         val id = d.sessionId
         inFlight.add(id)
-        host.send(Outbound.history(id, d.name, null, haveHash = session.heldDigest(id)?.second ?: ""))
+        host.send(Outbound.history(id, d.name, null, haveHash = session.heldDigest(id)?.second ?: "", background = true))
         scope.launch {
             delay(STUCK_MS)
             // Reply never landed (dropped socket, server error): free the slot so

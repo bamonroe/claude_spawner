@@ -48,18 +48,6 @@ created = 2026-08-08
 tags = ["ssh", "config"]
 
 [[task]]
-id = "mark-prefetch-history-requests-background-on-the-wire"
-title = "Mark prefetch history requests background on the wire"
-description = "Add an optional boolean field (e.g. `background`) to the inbound `history` message so the server can tell a user-visible refresh from a speculative prefetch. Touches server/internal/gateway/messages.go (inbound struct + docs/protocol.md entry), and android net/Protocol.kt Outbound.history so TranscriptPrefetcher.prefetch (TranscriptPrefetcher.kt:86) sets it true while every foreground call site leaves it false. The internal/docsync client<->server wire test enforces both sides agree, so change them in one commit. No behavior change yet - this is the seam the scheduling task needs. Do NOT rebuild/recreate the server: land commits and background an image build only."
-status = "active"
-level = "task"
-category = "feature"
-urgency = "normal"
-order = 320
-created = 2026-08-09
-tags = ["protocol", "prefetch"]
-
-[[task]]
 id = "give-foreground-history-a-priority-lane-on-the-server"
 title = "Give foreground history a priority lane on the server"
 description = "With the `background` flag in place, stop letting a foreground history read queue behind prefetch traffic. Today startHistory (server/internal/gateway/ops_history.go:48) puts every request through one historyConcurrency=4 semaphore, so up to 4 prefetch reads - each able to block on the 30s remote probe timeout while fanning into the per-host SSH channel budget (session/ssh_channels.go) - can starve the session the user is looking at. Fix at the scheduler: either a reserved slot/second semaphore for foreground requests, or a two-queue dispatcher that always drains foreground first (and ideally cancels or defers an in-flight background read for the same connection). Keep the existing top-page coalescing and paging behavior. Add a gateway test that a foreground request answers promptly while N background reads are parked. Do NOT rebuild/recreate the server: land commits and background an image build only."
