@@ -51,21 +51,6 @@ created = 2026-08-08
 tags = ["perf"]
 
 [[task]]
-id = "coalesce-store-put-stop-rewriting-the-whole-registry-on-every-mutation"
-title = "Coalesce store.Put: stop rewriting the whole registry on every mutation"
-description = """
-store.Put → flush (store.go:268-288, :339-380) snapshots every record, marshals the full list, and does a temp-file+rename — O(N) synchronous disk work for a single-field change, called on the read loop from doClear, doUseModel, doSetAgent, dictate.go:38, per-turn turns.go:146, and per-session from the job reconciler (making a sweep O(N²) writes). Readers are served from the in-memory maps, never the file, so a coalescing flusher is safe: mark dirty, flush on a short debounce, and flush synchronously on shutdown — the invariant is only 'at least one flush after the last mutation before exit'. Fix the correctness nit in the same pass: two concurrent flushes can land out of order today (unique temp names, last rename wins, store.go:365-380) — the debounced single flusher removes that race by construction.
-
-Do NOT rebuild/recreate the server for this work: land the commits and background an image build only (see CLAUDE.md)."""
-status = "active"
-level = "task"
-category = "refactor"
-urgency = "normal"
-order = 210
-created = 2026-08-08
-tags = ["perf"]
-
-[[task]]
 id = "per-part-digest-cacheability-so-one-unsignable-segment-does-not-poison-the-session"
 title = "Per-part digest cacheability so one unsignable segment does not poison the session"
 description = """
