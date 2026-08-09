@@ -231,6 +231,7 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
         is ServerMsg.Discovered -> {
             _discovered.value = msg.sessions
             _discoverError.value = ""
+            prefetcher.onDiscovered(msg.sessions) // fresh candidate list for background warming
             // Re-derive the attached TITLE from the fresh list by stable id. After a server
             // switch the same session can carry a different name here, leaving the title
             // stale; storage is id-keyed, so this is a title-only update (no map migration).
@@ -253,10 +254,13 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
         is ServerMsg.Actions -> _spokenActions.value = msg.actions
         is ServerMsg.Settings -> { catalogues.apply(msg); mirrorSettingsToPrefs() }
         is ServerMsg.Digests -> {
-            // Connect-time server-truth sweep. No longer consulted: transcript freshness
-            // is checked per-attach via `have_hash` → `unchanged` (see requestFreshHistory),
-            // which — unlike a cached connect snapshot — can't go stale for a session we're
-            // detached from and so silently drop its messages. Kept as a protocol no-op.
+            // Server-truth sweep. Not consulted for foreground freshness — that's checked
+            // per-attach via `have_hash` → `unchanged` (see requestFreshHistory), which,
+            // unlike a cached connect snapshot, can't go stale for a session we're detached
+            // from. It feeds the background prefetcher, which uses it to tell which
+            // transcripts are worth warming (parity with the phone).
+            for (d in msg.items) if (d.sessionId.isNotEmpty()) session.recordServerDigest(d.sessionId, d.count, d.hash)
+            prefetcher.kick()
         }
         is ServerMsg.ReadLast -> onReadLast(msg.count)
         is ServerMsg.Pending -> _pending.value = msg.text // live hands-free draft (the web has VAD hands-free too)
@@ -300,8 +304,11 @@ internal fun WebAppController.onHistory(msg: ServerMsg.History) {
     // our in-memory transcript is current, so keep it untouched and just refresh the
     // stored digest so future freshness checks stand.
     if (msg.unchanged) {
-        if (msg.hash.isNotEmpty()) session.recordSynced(key, msg.count, msg.hash)
+        // Clear the foreground gate BEFORE telling the prefetcher, so its kick sees a free lane.
         router.loadingOlder = false
+        if (msg.hash.isNotEmpty()) session.recordSynced(key, msg.count, msg.hash)
+        prefetcher.onSynced(key)
+        prefetcher.kick()
         // Re-run the shared de-dup over what we hold (as the phone does): the held log may
         // carry a live copy of a row that has since settled, and no page is coming to fold it.
         router.logs[key]?.let { held ->
@@ -323,6 +330,7 @@ internal fun WebAppController.onHistory(msg: ServerMsg.History) {
     // Record the chain digest this page belongs to so a later reattach can
     // short-circuit the fetch when the server hash still matches what we hold.
     if (msg.hash.isNotEmpty()) session.recordSynced(key, msg.count, msg.hash)
+    prefetcher.onSynced(key) // a prefetch slot (if this page was one) is free again
     // Reconnect gap-fill (parity with the phone): a reattach top page is only the newest
     // slice, so if the session advanced by more than a page while we were away, keep paging
     // older until we reconnect with what we still held — or reach the start of the transcript.
@@ -338,6 +346,7 @@ internal fun WebAppController.onHistory(msg: ServerMsg.History) {
         }
     }
     if (key == router.currentId) { router.publish(); _scrollTick.value = _scrollTick.value + 1 }
+    prefetcher.kick() // after any gap-fill re-armed loadingOlder, so the gate is accurate
 }
 
 // mirrorSettingsToPrefs folds the inbound shared-settings catalogue into the

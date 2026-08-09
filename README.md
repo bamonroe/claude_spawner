@@ -393,6 +393,10 @@ refresh, its attach page, a scroll-back or a reconnect gap-fill), and it can nev
 current. The per-attach `have_hash` freshness check stays the authority; the sweep only decides what
 is worth fetching early.
 
+The **browser client runs the same prefetcher**, on the same rules — it holds transcripts in memory
+rather than on disk, so there is no launch pre-warm or cache pruning there, but switching sessions in
+the web UI no longer pays a full history round trip either.
+
 The cache **prunes itself**. A session deleted on the server would otherwise leave its transcript on
 the phone forever, since nothing else deletes cache files. Each time the session list refreshes, the app
 sweeps its cache directory and drops entries for sessions that no longer exist. Because you may use more

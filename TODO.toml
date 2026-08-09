@@ -21,18 +21,6 @@ finish_work = "When a task is fully finished (built, tested, documented), run `s
 scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/KMP app + web client. The historical phase roadmap stays in README.md."
 
 [[task]]
-id = "wire-the-transcript-prefetcher-into-the-web-client"
-title = "Wire the transcript prefetcher into the web client"
-description = "TranscriptPrefetcher lives in commonMain but is only instantiated in androidMain (VoiceController.kt:121). The wasmJs WebAppController requests the connect-time digest sweep and calls requestFreshHistory on focus, but never prefetches, so every session switch in the browser client pays a full history round trip. Wire the same Host seam (send / viewedId / turnActive / foregroundHistoryActive) into WebAppController."
-status = "active"
-level = "task"
-category = "feature"
-urgency = "normal"
-order = 40
-created = 2026-08-09
-tags = ["transcripts", "prefetch", "web"]
-
-[[task]]
 id = "instrument-attach-to-render-transcript-latency"
 title = "Instrument attach-to-render transcript latency"
 description = "There is no measurement of where a cold attach's wait actually goes, so prefetch fixes cannot be verified beyond feel. Add lightweight timing: client-side, the interval from focusKnownSession to the first rendered page (and whether it was served from cache, a prefetch hit, or a fresh fetch); server-side, the existing digest-sweep log line already reports cached-vs-recomputed and timeouts — add the equivalent for a foreground history request (SSH round trip vs transcript parse vs page assembly). Use it to confirm the sweep-refresh fix actually turns attaches into cache hits."

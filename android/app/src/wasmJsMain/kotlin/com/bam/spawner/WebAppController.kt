@@ -87,7 +87,9 @@ class WebAppController(internal val prefs: Prefs) : AppController {
     // effects (StateFlows, audio, touchDiscovered) go through InboundRouter.Host below; the
     // attach/detach/context-reset choreography and the index-sorted History merge stay in this
     // controller (they're platform-specific) and reach the router via its state + primitives.
-    internal val router = com.bam.spawner.net.InboundRouter(session, object : com.bam.spawner.net.InboundRouter.Host {
+    // Explicit type: the router's Host reaches the prefetcher (turnCleared → kick), which in turn
+    // reads router state, and inference can't untangle that cycle on its own.
+    internal val router: com.bam.spawner.net.InboundRouter = com.bam.spawner.net.InboundRouter(session, object : com.bam.spawner.net.InboundRouter.Host {
         override fun publishChat(chat: List<ChatMessage>) { _chat.value = chat }
         override fun setHasMore(hasMore: Boolean) { _hasMoreHistory.value = hasMore }
         override fun attachedId() = _attachedId.value
@@ -119,6 +121,23 @@ class WebAppController(internal val prefs: Prefs) : AppController {
             if (id == _attachedId.value) stopSpeaking()
         }
         override fun showNotice(notice: ServerMsg.Notice) = noticeStore.add(notice)
+        override fun turnLive() { turnInFlight = true }
+        override fun turnCleared() { turnInFlight = false; prefetcher.kick() } // the turn that paused prefetching is over
+    })
+
+    // A turn is streaming for some session; prefetching pauses while it is, so a background
+    // history fetch can't compete with the reply the user is waiting on. Mirrors the phone.
+    internal var turnInFlight = false
+
+    // Background transcript prefetcher (shared commonMain, same seam as the phone): keeps the
+    // top few recently-active sessions' transcripts warm so switching sessions doesn't pay a
+    // full history round trip. Never prefetches the session on screen, and stays out of the
+    // way while a turn or a user-visible history fetch is in flight.
+    internal val prefetcher = com.bam.spawner.net.TranscriptPrefetcher(scope, session, object : com.bam.spawner.net.TranscriptPrefetcher.Host {
+        override fun send(frame: String) { client?.send(frame) }
+        override fun viewedId() = router.currentId
+        override fun turnActive() = turnInFlight
+        override fun foregroundHistoryActive() = session.freshHistoryPending() || router.loadingOlder
     })
 
     // Out-of-band heads-ups about sessions we're not viewing; see [NoticeStore].
@@ -284,6 +303,11 @@ class WebAppController(internal val prefs: Prefs) : AppController {
                 if (!up) {
                     _status.value = "reconnecting…"
                     cancelServerSpeech() // a dropped socket orphans any in-flight speak streams
+                    // The dropped socket swallowed any in-flight history reply, so clear the
+                    // foreground-history gates — otherwise prefetching stays paused forever.
+                    session.clearHistoryPending()
+                    router.loadingOlder = false
+                    turnInFlight = false
                 }
             },
             onAudio = { onSpeakFrame(it) },
