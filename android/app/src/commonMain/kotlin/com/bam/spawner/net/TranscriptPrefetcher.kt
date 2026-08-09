@@ -21,7 +21,8 @@ import kotlinx.coroutines.launch
  * Scheduling: [kick]ed by discovered-list updates, the connect-time digest sweep,
  * each landed history reply, and turn completion. At most [MAX_IN_FLIGHT] requests
  * run at once (that's the throttle — the server additionally coalesces per-session
- * bursts), it pauses entirely while a dictation turn streams, and it only fetches
+ * bursts), it pauses entirely while a dictation turn streams or while a
+ * user-visible history request is outstanding ([Host.foregroundHistoryActive]), and it only fetches
  * the top [TOP_N] most recently active candidates whose server-sweep hash differs
  * from the locally held one (see [SessionSync.recordServerDigest] — sessions the
  * sweep didn't report are left to the authoritative per-attach check). A fetch
@@ -41,6 +42,15 @@ class TranscriptPrefetcher(
         /** True while a dictation turn streams; prefetch pauses so it never
          *  competes with live output for the connection or the server's readers. */
         fun turnActive(): Boolean
+
+        /** True while a **user-visible** history request is outstanding — the viewed
+         *  session's freshness refresh, its attach top page, or a scroll-back /
+         *  reconnect gap-fill page. Prefetch pauses for the same reason it pauses on
+         *  a turn: the frames the user is actually waiting on should never share the
+         *  connection (or the server's history readers) with speculative work. The
+         *  server also lands foreground requests in a reserved lane, but not sending
+         *  the competing frames at all is the cheaper half of the fix. */
+        fun foregroundHistoryActive(): Boolean
     }
 
     private var known: List<DiscoveredInfo> = emptyList()
@@ -59,7 +69,7 @@ class TranscriptPrefetcher(
 
     /** Something changed that may unblock work (digest sweep landed, turn ended). */
     fun kick() {
-        if (host.turnActive()) return
+        if (host.turnActive() || host.foregroundHistoryActive()) return
         val viewed = host.viewedId()
         val candidates = known.asSequence()
             .filter { it.registered && it.sessionId.isNotEmpty() }

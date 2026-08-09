@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "pause-the-prefetcher-during-a-foreground-refresh-or-gap-fill"
+title = "Pause the prefetcher during a foreground refresh or gap-fill"
+description = "Client-side complement to the server priority lane: TranscriptPrefetcher already pauses while a dictation turn streams (Host.turnActive, TranscriptPrefetcher.kt:41) - extend the same seam with a 'foreground history in flight' predicate so kick() holds off while the viewed session's refresh, attach history, or reconnect gap-fill paging is outstanding, and re-kicks when it lands. Cheap and independent of the wire flag; keeps the app from sending competing frames in the first place."
+status = "finished"
+level = "task"
+category = "feature"
+created = 2026-08-09
+completed = 2026-08-09
+tags = ["android", "prefetch"]
+
+[[task]]
 id = "give-foreground-history-a-priority-lane-on-the-server"
 title = "Give foreground history a priority lane on the server"
 description = "With the `background` flag in place, stop letting a foreground history read queue behind prefetch traffic. Today startHistory (server/internal/gateway/ops_history.go:48) puts every request through one historyConcurrency=4 semaphore, so up to 4 prefetch reads - each able to block on the 30s remote probe timeout while fanning into the per-host SSH channel budget (session/ssh_channels.go) - can starve the session the user is looking at. Fix at the scheduler: either a reserved slot/second semaphore for foreground requests, or a two-queue dispatcher that always drains foreground first (and ideally cancels or defers an in-flight background read for the same connection). Keep the existing top-page coalescing and paging behavior. Add a gateway test that a foreground request answers promptly while N background reads are parked. Do NOT rebuild/recreate the server: land commits and background an image build only."

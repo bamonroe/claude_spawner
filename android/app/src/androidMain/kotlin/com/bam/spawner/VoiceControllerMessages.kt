@@ -512,9 +512,13 @@ internal fun VoiceController.onHistory(msg: ServerMsg.History) {
     // cached transcript is current, so keep it untouched and just refresh the
     // stored digest (both held and server) so future freshness checks stand.
     if (msg.unchanged) {
+        // Clear the paging marker BEFORE the prefetcher hears about the reply: it holds
+        // off while any foreground history is outstanding, so kicking it first would
+        // just bounce off our own not-yet-cleared in-flight state.
+        loadingOlder.remove(key)
         if (msg.hash.isNotEmpty()) session.recordSynced(key, msg.count, msg.hash)
         prefetcher.onSynced(key)
-        loadingOlder.remove(key)
+        prefetcher.kick() // a foreground request landed — prefetch may resume
         router.logs[key]?.let { cleaned ->
             val deduped = session.dedupe(cleaned)
             router.logs[key] = deduped
@@ -561,6 +565,10 @@ internal fun VoiceController.onHistory(msg: ServerMsg.History) {
         _hasMoreHistory.value = router.hasMore[key] ?: msg.more
         if (!wasLoadOlder) scrollToBottom() // initial load → newest in view; load-older stays put
     }
+    // Last, once every in-flight marker above is settled (including the gap-fill's own
+    // follow-up page, which re-arms loadingOlder): a foreground reply landed, so let the
+    // prefetcher re-evaluate. It no-ops while the gap is still backfilling.
+    prefetcher.kick()
 }
 
 // onReadLast re-reads (TTS) and scrolls to the last `count` Claude replies in

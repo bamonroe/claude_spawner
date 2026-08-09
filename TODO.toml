@@ -48,18 +48,6 @@ created = 2026-08-08
 tags = ["ssh", "config"]
 
 [[task]]
-id = "pause-the-prefetcher-during-a-foreground-refresh-or-gap-fill"
-title = "Pause the prefetcher during a foreground refresh or gap-fill"
-description = "Client-side complement to the server priority lane: TranscriptPrefetcher already pauses while a dictation turn streams (Host.turnActive, TranscriptPrefetcher.kt:41) - extend the same seam with a 'foreground history in flight' predicate so kick() holds off while the viewed session's refresh, attach history, or reconnect gap-fill paging is outstanding, and re-kicks when it lands. Cheap and independent of the wire flag; keeps the app from sending competing frames in the first place."
-status = "active"
-level = "task"
-category = "feature"
-urgency = "normal"
-order = 340
-created = 2026-08-09
-tags = ["android", "prefetch"]
-
-[[task]]
 id = "raise-the-reconnect-gap-fill-page-size"
 title = "Raise the reconnect gap-fill page size"
 description = "Reconnect gap-fill pages 30 rows per sequential round trip (the default limit in pageLimit, server/internal/gateway/ops_history.go:191, via SessionSync's gapTarget loop, SessionSync.kt:380). A wide gap therefore costs many serial round trips right when the user just reconnected. Request a larger explicit limit for gap-fill specifically (foreground paging and normal top pages keep 30), and check the delta-tail cap in serveHistory still agrees since it shares pageLimit."

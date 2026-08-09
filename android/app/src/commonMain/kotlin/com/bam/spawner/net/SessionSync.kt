@@ -82,6 +82,18 @@ class SessionSync(private val host: Host) {
     /** Session id of the outstanding fresh-history request, if any (see [requestFreshHistory]). */
     private var freshPending: String? = null
 
+    /** True while a fresh/attach top-page request is outstanding. The background
+     *  transcript prefetcher reads this (together with the client's paging state) to
+     *  hold off — the user is waiting on this reply, so nothing speculative should be
+     *  sharing the connection with it. See `TranscriptPrefetcher.Host`. */
+    fun freshHistoryPending(): Boolean = freshPending != null
+
+    /** Forget any outstanding fresh-history request — its reply died with the socket.
+     *  Called on disconnect so the marker can't outlive the request that set it: it now
+     *  gates the prefetcher as well as suppressing duplicate fetches, and a permanently
+     *  stuck marker would silently stop prefetching for the rest of the run. */
+    fun clearHistoryPending() { freshPending = null }
+
     // The attach history: session ids in most-recently-*departed* order. The front is the
     // session we were focused on before the current one (the swap gesture's target), and the
     // whole list — with the current focus prepended — is the radial palette's attach-recency

@@ -122,6 +122,9 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
         override fun send(frame: String) { client?.send(frame) }
         override fun viewedId() = router.currentId
         override fun turnActive() = turnInFlight
+        // Foreground history = the viewed session's freshness/attach top page
+        // (SessionSync) or any scroll-back / gap-fill page still in flight.
+        override fun foregroundHistoryActive() = session.freshHistoryPending() || loadingOlder.isNotEmpty()
     })
 
     // The shared commonMain inbound-message router (sibling to SessionSync/CatalogueSync): it
@@ -710,6 +713,13 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
         _status.value = if (up) "connected" else "reconnecting…"
         if (!up) cancelServerSpeech() // a dropped socket orphans any in-flight speak streams
         if (!up) persist(router.currentId) // flush the visible session to disk so it's available offline
+        if (!up) {
+            // Every in-flight history request died with the socket. Drop the markers, or
+            // they'd both suppress the refetch on reconnect and (since they now gate the
+            // prefetcher) leave warm-cache work paused for good.
+            session.clearHistoryPending()
+            loadingOlder.clear()
+        }
         // Dropped mid-turn: arm the watchdog. If the server is alive it'll re-deliver
         // the reply (or a "still working" breadcrumb) on reconnect and disarm this;
         // if it crashed/restarted, nothing comes and we warn when the grace elapses.
