@@ -66,18 +66,6 @@ created = 2026-08-08
 tags = ["history"]
 
 [[task]]
-id = "delta-history-prefix-digest"
-title = "Prefix digest: incremental hash over the first N display messages"
-description = "HistoryDigest (session/transcript.go:653) is already a sequential sha256 fold over messages in order, so a prefix's digest is that fold stopped early. Add PrefixDigest(msgs []Message, n int) string, factoring HistoryDigest onto the same writer loop so the two can never diverge, plus tests asserting PrefixDigest(msgs, len(msgs)) == HistoryDigest(msgs). This is the cheap server-side validation a delta history page needs. Do NOT rebuild/recreate the server for this work: land the commits and background an image build only (see CLAUDE.md)."
-status = "active"
-level = "task"
-category = "feature"
-urgency = "normal"
-order = 230
-created = 2026-08-08
-tags = ["history", "delta"]
-
-[[task]]
 id = "delta-history-on-the-wire-server-sends-appended-rows-on-a-validated-prefix"
 title = "Delta history on the wire: server sends appended rows on a validated prefix"
 description = """
