@@ -51,21 +51,6 @@ created = 2026-08-08
 tags = ["perf"]
 
 [[task]]
-id = "browse-picker-client-side-listing-cache-and-off-loop-ssh-probes"
-title = "Browse picker: client-side listing cache and off-loop SSH probes"
-description = """
-Every tap in the directory picker is one blocking SSH round trip served inline on the connection's read loop (browse.go:19-35 → ssh_fs.go:28-52 ListDir), and the client (BrowseScreen.kt:216,222) holds a single listing flow with no per-path cache — so navigating back up re-fetches a directory it just displayed and the stale listing sits on screen until the reply lands. Fix both sides: serve browse off the read loop like history/digest already are; client keeps a small path→entries LRU (read-only data, invalidate on re-entry) so back-navigation renders instantly while a background refresh lands, and optionally prefetch the tapped child's subdirectories (idempotent read).
-
-Do NOT rebuild/recreate the server for this work: land the commits and background an image build only (see CLAUDE.md)."""
-status = "active"
-level = "task"
-category = "feature"
-urgency = "normal"
-order = 200
-created = 2026-08-08
-tags = ["perf", "ux"]
-
-[[task]]
 id = "coalesce-store-put-stop-rewriting-the-whole-registry-on-every-mutation"
 title = "Coalesce store.Put: stop rewriting the whole registry on every mutation"
 description = """
