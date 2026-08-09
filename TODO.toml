@@ -66,33 +66,9 @@ created = 2026-08-08
 tags = ["history"]
 
 [[task]]
-id = "delta-history-serve-delta-page"
-title = "history op: serve a delta page when the client holds a valid prefix"
-description = "In gateway/ops_history.go serveHistory, accept a new inbound field have_count meaning 'I hold the first have_count display rows, and have_hash is their prefix digest'. On a top-page request (before == nil) whose full-digest fast path misses, run DisplayHistory once and check PrefixDigest(msgs, have_count) == have_hash; if it validates send ONLY msgs[have_count:] through stripPage with a delta marker on msgHistory, else fall back to today's full page. Key nothing on Message.Index (rewritten on every re-index, unsafe across clear/compress rotations) — rows carry their own ID for client-side reconciliation. Extend gateway/digest_test.go with a post-turn delta case. Do NOT rebuild/recreate the server for this work: land the commits and background an image build only (see CLAUDE.md)."
-status = "active"
-level = "task"
-category = "feature"
-urgency = "normal"
-order = 250
-created = 2026-08-08
-tags = ["history", "delta"]
-
-[[task]]
-id = "delta-history-protocol-docs"
-title = "Document the delta history frames in docs/protocol.md"
-description = "Add the inbound history field have_count and the outbound msgHistory delta marker to docs/protocol.md in the same commit as the gateway change — internal/docsync drift-tests every message and payload field name both directions, so an undocumented field fails the build. Use go test ./... -count=1 for the uncached doc check."
-status = "active"
-level = "task"
-category = "docs"
-urgency = "normal"
-order = 260
-created = 2026-08-08
-tags = ["history", "delta"]
-
-[[task]]
 id = "delta-history-kotlin-merge"
 title = "Kotlin client: send have_count and merge an appended-messages delta"
-description = "SessionSync.kt already holds (count, digest) per session and sends the digest as have_hash; also send have_count, and on a delta reply append the returned rows to the held transcript instead of replacing it, de-duplicating by Message.ID (falling back to index/text when the backend gives no id, per the Message.ID doc in transcript.go). Add the field to net/Protocol.kt — clientsync_test.go drift-tests the Kotlin wire strings against the Go gateway, so both sides change together. Verify on the Dockerized emulator per the android-dev skill."
+description = "SessionSync.kt already holds (count, digest) per session and sends the digest as have_hash. The server half shipped 2026-08-09: a history reply now carries prefix_hash/prefix_count (the digest through the last row of that page) plus delta/base_count, and a top-page request may echo the pair back as have_prefix/have_prefix_count. Store that pair alongside the cached transcript, send it on the next top-page request, and on a delta reply APPEND the returned rows to the held transcript instead of replacing it, de-duplicating by Message.ID (falling back to index/text when the backend gives no id, per the Message.ID doc in transcript.go). Note the field names are have_prefix/have_prefix_count, NOT the have_count in the original write-up. Add the fields to net/Protocol.kt — clientsync_test.go drift-tests the Kotlin wire strings against the Go gateway, so both sides change together. Verify on the Dockerized emulator per the android-dev skill."
 status = "active"
 level = "task"
 category = "feature"
