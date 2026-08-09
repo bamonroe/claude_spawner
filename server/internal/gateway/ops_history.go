@@ -34,6 +34,10 @@ type historyReq struct {
 	havePrefix      string
 	havePrefixCount int
 	background      bool // speculative prefetch: runs in the deprioritised lane
+	// enqueued is when the request arrived on the inbound loop, so serveHistory can
+	// separate time spent waiting for a lane (coalescing, the concurrency gate) from
+	// time spent actually reading. A zero value means "don't report a queue wait".
+	enqueued time.Time
 }
 
 // historySlot is the per-session coalescing record: which lane the in-flight
@@ -68,7 +72,7 @@ func (c *conn) startHistory(sessionID, name string, before *int, limit int, have
 	}
 	gate := c.historyGate
 	req := historyReq{sessionID: sessionID, name: name, before: before, limit: limit, haveHash: haveHash,
-		havePrefix: havePrefix, havePrefixCount: havePrefixCount, background: background}
+		havePrefix: havePrefix, havePrefixCount: havePrefixCount, background: background, enqueued: time.Now()}
 	if before != nil {
 		c.historyMu.Unlock()
 		go func() {
@@ -136,6 +140,14 @@ func (c *conn) startHistory(sessionID, name string, before *int, limit int, have
 // a client holding a pre-rotation id still reaches the live record.
 func (c *conn) serveHistory(req historyReq) {
 	sessionID, name, before, limit, haveHash := req.sessionID, req.name, req.before, req.limit, req.haveHash
+	// Attribute this read: where the wall clock went (chain stats vs transcript
+	// parse vs digest) and which reply shape it produced. Without it a slow attach
+	// is a single opaque number and a prefetch fix can only be judged by feel.
+	started := time.Now()
+	timer := session.NewStageTimer()
+	ctx := session.WithStageTimer(c.ctx, timer)
+	outcome, rows := "failed", 0
+	defer func() { logHistoryLatency(req, outcome, rows, timer, started) }()
 	var s *session.Session
 	if sessionID != "" {
 		s = c.srv.store.GetByAnyID(sessionID)
@@ -144,6 +156,7 @@ func (c *conn) serveHistory(req historyReq) {
 		s = c.srv.store.Get(name)
 	}
 	if s == nil {
+		outcome = "no_session"
 		c.fail("no_session", "no such session: "+name)
 		return
 	}
@@ -158,7 +171,8 @@ func (c *conn) serveHistory(req historyReq) {
 	// chain (tens of megabytes, over SSH) only to discard it — and because the
 	// gateway dispatches serially, it blocked every other request on the connection.
 	if before == nil && haveHash != "" {
-		if count, hash, _, err := c.srv.driver.DisplayDigest(c.ctx, s); err == nil && hash == haveHash {
+		if count, hash, _, err := c.srv.driver.DisplayDigest(ctx, s); err == nil && hash == haveHash {
+			outcome = "unchanged"
 			c.send(msgHistory(recID(s), name, nil, false, count, hash, true, historyDelta{}))
 			return
 		}
@@ -168,7 +182,7 @@ func (c *conn) serveHistory(req historyReq) {
 	// `before != nil` skips the fast path above, so paging older messages used to
 	// re-parse the entire chain per page), and re-reads only the archived segments
 	// that actually changed, which for an archive is never.
-	msgs, count, hash, err := c.srv.driver.DisplayHistory(c.ctx, s)
+	msgs, count, hash, err := c.srv.driver.DisplayHistory(ctx, s)
 	if err != nil {
 		c.fail("history_failed", err.Error())
 		return
@@ -187,6 +201,7 @@ func (c *conn) serveHistory(req historyReq) {
 			// A tail longer than a page means the app has been away a while; fall
 			// back to a normal page rather than shipping an unbounded delta.
 			if max := pageLimit(limit); len(tail) <= max {
+				outcome, rows = "delta", len(tail)
 				_, ph := session.HistoryPrefixDigest(msgs, len(msgs))
 				c.send(msgHistory(recID(s), name, stripPage(tail), false, count, hash, false,
 					historyDelta{PrefixHash: ph, PrefixCount: len(msgs), Delta: true, BaseCount: req.havePrefixCount}))
@@ -198,6 +213,7 @@ func (c *conn) serveHistory(req historyReq) {
 	if before != nil {
 		b = *before
 	}
+	assemble := time.Now()
 	page, more := session.HistoryPage(msgs, b, pageLimit(limit))
 	// The prefix digest covers the log through the last row of THIS page, so the
 	// app can echo it back next time (it never computes the hash itself). For a
@@ -214,8 +230,41 @@ func (c *conn) serveHistory(req historyReq) {
 	// digest (count/hash) is over the full stored transcript, not this display page,
 	// so omitting a display row doesn't disturb the app's freshness check or paging
 	// (each kept row carries its own transcript index).
-	c.send(msgHistory(recID(s), name, stripPage(page), more, count, hash, false,
+	stripped := stripPage(page)
+	timer.Add("assemble", time.Since(assemble))
+	outcome, rows = "page", len(stripped)
+	if before != nil {
+		outcome = "page-back"
+	}
+	c.send(msgHistory(recID(s), name, stripped, more, count, hash, false,
 		historyDelta{PrefixHash: prefixHash, PrefixCount: pageEnd}))
+}
+
+// logHistoryLatency reports one history request's latency breakdown, mirroring
+// the digest sweep's line. Background (prefetch) reads log too — a prefetch that
+// is still running when the user taps in is exactly the case worth seeing — but
+// they're labelled so a foreground attach's number is unambiguous.
+//
+// Read it as: total is what the client waited for once the frame arrived; queue
+// is how much of that was spent waiting for a lane rather than reading; the
+// stages say whether the rest went to the wire (chain), the parser (read), or
+// page assembly; and outcome says which reply shape the client got — `unchanged`
+// is the cache hit an attach should be after.
+func logHistoryLatency(req historyReq, outcome string, rows int, timer *session.StageTimer, started time.Time) {
+	lane := "foreground"
+	if req.background {
+		lane = "prefetch"
+	}
+	name := req.name
+	if name == "" {
+		name = req.sessionID
+	}
+	var queue time.Duration
+	if !req.enqueued.IsZero() {
+		queue = started.Sub(req.enqueued)
+	}
+	log.Printf("history[%s]: %s %s, %d row(s) in %v (queue %v, %s)", name, lane, outcome, rows,
+		time.Since(started).Round(time.Millisecond), queue.Round(time.Millisecond), timer)
 }
 
 // pageLimit is HistoryPage's page-size defaulting, shared so the delta tail cap

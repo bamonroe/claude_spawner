@@ -650,14 +650,16 @@ func (d *Driver) DisplayDigest(ctx context.Context, live *Session) (count int, h
 	// changed signature, misses, and recomputes. Reading first and statting after
 	// would fail the other way: a newer signature pinned to an older digest, which
 	// never invalidates and leaves the app showing a stale transcript forever.
-	parts := d.displayChainParts(ctx, rec)
+	parts := d.timedChainParts(ctx, rec)
 	sig := parts.sig()
 	if parts.ok {
 		if count, hash, ok := d.digests.Get(rec.SessionID, sig); ok {
+			StageTimerFrom(ctx).Note("digest=cached")
 			return count, hash, true, nil
 		}
 	}
-	msgs, err := d.readDisplayHistory(ctx, rec, parts)
+	StageTimerFrom(ctx).Note("digest=computed")
+	msgs, err := d.timedReadDisplayHistory(ctx, rec, parts)
 	if err != nil {
 		return 0, "", false, err
 	}
@@ -677,22 +679,42 @@ func (d *Driver) DisplayDigest(ctx context.Context, live *Session) (count int, h
 // over SSH) and then re-derive a digest the cache may already hold.
 func (d *Driver) DisplayHistory(ctx context.Context, live *Session) (msgs []Message, count int, hash string, err error) {
 	rec := live.Snapshot()
-	parts := d.displayChainParts(ctx, rec)
+	parts := d.timedChainParts(ctx, rec)
 	sig := parts.sig()
-	msgs, err = d.readDisplayHistory(ctx, rec, parts)
+	msgs, err = d.timedReadDisplayHistory(ctx, rec, parts)
 	if err != nil {
 		return nil, 0, "", err
 	}
 	if parts.ok {
 		if count, hash, ok := d.digests.Get(rec.SessionID, sig); ok {
+			StageTimerFrom(ctx).Note("digest=cached")
 			return msgs, count, hash, nil
 		}
 	}
+	StageTimerFrom(ctx).Note("digest=computed")
+	digestStart := time.Now()
 	count, hash = HistoryDigest(msgs)
+	StageTimerFrom(ctx).Add("digest", time.Since(digestStart))
 	if parts.ok {
 		d.digests.Put(rec.SessionID, sig, count, hash)
 	}
 	return msgs, count, hash, nil
+}
+
+// timedChainParts and timedReadDisplayHistory are the two stages of a display
+// read, attributed to ctx's StageTimer (a no-op when there isn't one): "chain"
+// is the SSH stat round trip that decides what's fresh, "read" is the transcript
+// fetch + JSONL parse (which the display memo often serves outright). Splitting
+// them here — at the one place both are called in sequence — is what lets the
+// gateway say whether an attach spent its time on the wire or in the parser.
+func (d *Driver) timedChainParts(ctx context.Context, rec *Session) chainParts {
+	defer timeStage(ctx, "chain")()
+	return d.displayChainParts(ctx, rec)
+}
+
+func (d *Driver) timedReadDisplayHistory(ctx context.Context, rec *Session, parts chainParts) ([]Message, error) {
+	defer timeStage(ctx, "read")()
+	return d.readDisplayHistory(ctx, rec, parts)
 }
 
 // chainParts is the freshness signature of everything ReadDisplayHistory reads,
