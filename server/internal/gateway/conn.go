@@ -67,9 +67,9 @@ type conn struct {
 	digestSweeping atomic.Bool // a transcript-digest sweep is running off the inbound loop; see startDigestSweep
 	discovering    atomic.Bool // a discover build is running off the inbound loop; see doDiscover
 
-	historyMu   sync.Mutex             // guards historySem/historyBusy init and mutation (read loop + history goroutines)
-	historySem  chan struct{}          // bounds concurrent off-loop history reads; see startHistory
-	historyBusy map[string]*historyReq // per-session in-flight marker + latest parked request (coalesces prefetch bursts)
+	historyMu   sync.Mutex              // guards historyGate/historyBusy init and mutation (read loop + history goroutines)
+	historyGate *historyGate            // two-lane admission for off-loop history reads; see startHistory
+	historyBusy map[string]*historySlot // per-session in-flight marker + latest parked request (coalesces prefetch bursts)
 
 	browseMu   sync.Mutex          // guards browseSem/browseBusy init and mutation (read loop + browse goroutines)
 	browseSem  chan struct{}       // bounds concurrent off-loop directory listings; see startBrowse

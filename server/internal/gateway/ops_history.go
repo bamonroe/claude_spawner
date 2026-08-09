@@ -18,6 +18,13 @@ import (
 // history overlap an attach.
 const historyConcurrency = 4
 
+// historyBackgroundConcurrency caps how many of those slots speculative prefetch
+// reads may occupy. The remainder is reserved for foreground (user-visible)
+// requests, so a burst of prefetches against a slow host — each able to sit on
+// the 30s remote probe timeout — can never leave the session the user is looking
+// at with nowhere to run. See historyGate.
+const historyBackgroundConcurrency = 2
+
 // historyReq is one queued history request; see startHistory.
 type historyReq struct {
 	sessionID, name string
@@ -26,6 +33,14 @@ type historyReq struct {
 	haveHash        string
 	havePrefix      string
 	havePrefixCount int
+	background      bool // speculative prefetch: runs in the deprioritised lane
+}
+
+// historySlot is the per-session coalescing record: which lane the in-flight
+// top-page read is running in, and the latest request parked behind it.
+type historySlot struct {
+	background bool
+	parked     *historyReq
 }
 
 // startHistory serves a history request off the connection's serial inbound
@@ -45,20 +60,20 @@ type historyReq struct {
 // A burst of N prefetch requests thus costs at most two reads, and can't
 // stampede the same transcript. Paging requests (before != nil) always run;
 // their cursors differ, so each reply is distinct.
-func (c *conn) startHistory(sessionID, name string, before *int, limit int, haveHash, havePrefix string, havePrefixCount int) {
+func (c *conn) startHistory(sessionID, name string, before *int, limit int, haveHash, havePrefix string, havePrefixCount int, background bool) {
 	c.historyMu.Lock()
-	if c.historySem == nil {
-		c.historySem = make(chan struct{}, historyConcurrency)
-		c.historyBusy = make(map[string]*historyReq)
+	if c.historyGate == nil {
+		c.historyGate = newHistoryGate(historyConcurrency, historyBackgroundConcurrency)
+		c.historyBusy = make(map[string]*historySlot)
 	}
-	sem := c.historySem
+	gate := c.historyGate
 	req := historyReq{sessionID: sessionID, name: name, before: before, limit: limit, haveHash: haveHash,
-		havePrefix: havePrefix, havePrefixCount: havePrefixCount}
+		havePrefix: havePrefix, havePrefixCount: havePrefixCount, background: background}
 	if before != nil {
 		c.historyMu.Unlock()
 		go func() {
-			sem <- struct{}{}
-			defer func() { <-sem }()
+			gate.acquire(req.background)
+			defer gate.release(req.background)
 			c.serveHistory(req)
 		}()
 		return
@@ -67,26 +82,43 @@ func (c *conn) startHistory(sessionID, name string, before *int, limit int, have
 	if key == "" {
 		key = name
 	}
-	if _, busy := c.historyBusy[key]; busy {
-		c.historyBusy[key] = &req // supersede any earlier parked request
+	if slot, busy := c.historyBusy[key]; busy {
+		// Coalescing must never make a foreground request wait on a background
+		// one: the in-flight prefetch may be parked on a slow host for tens of
+		// seconds, and queueing behind it would hand the user exactly the stall
+		// the priority lane exists to prevent. So a foreground arrival that finds
+		// a background read in flight runs its own read in the reserved lane;
+		// same-lane bursts still coalesce as before.
+		if !req.background && slot.background {
+			c.historyMu.Unlock()
+			go func() {
+				gate.acquire(false)
+				defer gate.release(false)
+				c.serveHistory(req)
+			}()
+			return
+		}
+		slot.parked = &req // supersede any earlier parked request
 		c.historyMu.Unlock()
 		return
 	}
-	c.historyBusy[key] = nil // in flight, nothing parked
+	slot := &historySlot{background: req.background}
+	c.historyBusy[key] = slot
 	c.historyMu.Unlock()
 	go func() {
 		for {
-			sem <- struct{}{}
+			gate.acquire(req.background)
 			c.serveHistory(req)
-			<-sem
+			gate.release(req.background)
 			c.historyMu.Lock()
-			parked := c.historyBusy[key]
+			parked := slot.parked
 			if parked == nil {
 				delete(c.historyBusy, key)
 				c.historyMu.Unlock()
 				return
 			}
-			c.historyBusy[key] = nil
+			slot.parked = nil
+			slot.background = parked.background
 			c.historyMu.Unlock()
 			req = *parked
 		}
