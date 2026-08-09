@@ -556,6 +556,15 @@ never resolved, and every six-minute retry dropped the host's connection and kil
 was streaming on it. Route new pooled operations through `shouldRedial` rather than re-deriving the
 condition, and make remote commands report shell-level success honestly (`exit 0`).
 
+**The budget's ceiling is measured, not assumed.** `sshMaxChannels` (8) and `sshMaxStreamChannels`
+(4) sit under the peer's real per-connection channel limit, and that limit is a *measurement*:
+`SSHPool.ProbeChannelCeiling` opens channels on one pooled client until the peer refuses, exercised
+by `TestLiveSSHChannelCeiling` (gated on `SPAWNER_SSH_LIVE=1`; the probe hogs a connection, so never
+run it against a busy host). On the dev/loopback target — Arch OpenSSH with `MaxSessions` left at its
+commented-out default — the measured ceiling is **10 concurrent channels**, which is what the 8/4
+split is budgeted under. Re-run the probe before changing those constants or before assuming a new
+host is as generous; the test fails if the ceiling drops below `sshMaxChannels`.
+
 ### Sandbox sessions (also without host root)
 
 For `sandbox`-target sessions the container's lifetime is **bound to the session**, not the turn:

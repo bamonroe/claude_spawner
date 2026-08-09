@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "measure-a-host-s-real-ssh-channel-ceiling-before-resizing-the-budget"
+title = "Measure a host's real SSH channel ceiling before resizing the budget"
+description = "Parent scope: centralize-ssh-bindings. sshMaxChannels=8 / sshMaxStreamChannels=4 (session/ssh_channels.go:46) are guesses under OpenSSH's default MaxSessions=10. Before adding connections, establish the real number: read sshd_config MaxSessions on the loopback/dev target, and add a small diagnostic that opens channels on one pooled client until the peer refuses, logging the count reached. Record the measured ceiling in docs/architecture.md next to the pool description so the budget constants stop being folklore. No behaviour change. Do NOT rebuild/recreate the server."
+status = "finished"
+level = "task"
+category = "chore"
+created = 2026-08-08
+completed = 2026-08-09
+tags = ["ssh"]
+
+[[task]]
 id = "sidebar-delete-session-sometimes-ignored"
 title = "Sidebar delete session sometimes ignored"
 description = "In the app sidebar, tapping 'delete session' sometimes does nothing — the session stays in the list. Reproduced while trying to delete the SSHFS session. Investigate whether the delete request is being sent, whether the server acks it, and whether the client list refresh drops the removal."

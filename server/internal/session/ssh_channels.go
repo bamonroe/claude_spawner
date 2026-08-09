@@ -47,6 +47,44 @@ const (
 	sshMaxStreamChannels = 4
 )
 
+// probeChannelCeilingMax bounds the diagnostic below so a peer with a very
+// generous (or absent) MaxSessions can't have us open channels forever.
+const probeChannelCeilingMax = 64
+
+// ProbeChannelCeiling measures how many concurrent session channels a host will
+// actually grant on ONE connection, so sshMaxChannels can be set from a measured
+// number rather than from OpenSSH's documented default. It opens channels on the
+// pooled client one at a time until the peer refuses, then closes them all and
+// returns the count reached (plus the refusal that ended it, if any).
+//
+// It deliberately bypasses the channel budget — the budget is the thing being
+// calibrated. That also makes it a diagnostic and not something to run against a
+// busy host: while it runs it holds most of that connection's channels, so real
+// work queues behind it. Call it from a gated live test or a one-off check.
+func (p *SSHPool) ProbeChannelCeiling(ctx context.Context, host string) (int, error) {
+	client, err := p.client(host)
+	if err != nil {
+		return 0, err
+	}
+	var open []*ssh.Session
+	defer func() {
+		for _, s := range open {
+			s.Close()
+		}
+	}()
+	for len(open) < probeChannelCeilingMax {
+		if err := ctx.Err(); err != nil {
+			return len(open), err
+		}
+		sess, err := client.NewSession()
+		if err != nil {
+			return len(open), fmt.Errorf("%w: %v", errChannelOpen, err)
+		}
+		open = append(open, sess)
+	}
+	return len(open), nil
+}
+
 // errChannelOpen marks a failure to OPEN a channel on an otherwise-live
 // connection (the peer's MaxSessions ceiling). Distinct from a transport error:
 // re-dialing cannot help, and dropping the client would punish every other
