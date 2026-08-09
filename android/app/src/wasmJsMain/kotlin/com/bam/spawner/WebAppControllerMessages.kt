@@ -69,6 +69,7 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
     when (msg) {
         is ServerMsg.HelloOk -> {
             _status.value = "connected"
+            listingCache.clear() // a fresh connection may be a different host/filesystem
             if (msg.whisperModel.isNotBlank()) { _whisperModel.value = msg.whisperModel; prefs.whisperModel = msg.whisperModel }
             // Unconditional: "" is meaningful (no fast server configured there).
             _whisperFastModel.value = msg.whisperModelFast
@@ -242,7 +243,7 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
                 }
             }
         }
-        is ServerMsg.Listing -> _listing.value = msg
+        is ServerMsg.Listing -> { listingCache.put(msg); _listing.value = msg }
         is ServerMsg.FileSaved -> _fileSaved.tryEmit(msg.path)
         is ServerMsg.FileData -> _fileData.tryEmit(msg)
         is ServerMsg.HostList, is ServerMsg.IdentityList,

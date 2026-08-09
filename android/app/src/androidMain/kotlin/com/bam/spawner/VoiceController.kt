@@ -222,6 +222,7 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
 
     internal val _listing = MutableStateFlow<ServerMsg.Listing?>(null)
     override val listing: StateFlow<ServerMsg.Listing?> = _listing.asStateFlow()
+    internal val listingCache = ListingCache()
 
     // One-shot file-transfer results (message-box 📎 button): an upload's landed path
     // and a download's bytes. SharedFlow, not StateFlow — each is a fire-once event the
@@ -592,8 +593,13 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
     // --- Visual directory browser (New session) ---
     // Browsing is host-scoped: the listing is produced on `host` (its filesystem
     // starting at "/"), so the picker reflects the machine the session will run on.
-    override fun browse(path: String, host: String, files: Boolean) =
-        client?.send(Outbound.browse(path, host, files)).let {}
+    // A tapped directory paints from the cache immediately (a listing is read-only
+    // data), while the request still goes out and its reply refreshes what's shown.
+    override fun browse(path: String, host: String, files: Boolean) {
+        listingCache.hit(path, host, files)?.let { _listing.value = it }
+        listingCache.remember(path, host, files)
+        client?.send(Outbound.browse(path, host, files))
+    }
 
     // --- File transfer (message-box 📎 button) ---
     // upload writes a base64 file to <dir>/<name> on host; download reads a file and

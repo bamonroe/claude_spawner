@@ -254,6 +254,7 @@ class WebAppController(internal val prefs: Prefs) : AppController {
 
     internal val _listing = MutableStateFlow<ServerMsg.Listing?>(null)
     override val listing: StateFlow<ServerMsg.Listing?> = _listing.asStateFlow()
+    internal val listingCache = ListingCache()
     internal val _fileSaved = MutableSharedFlow<String>(extraBufferCapacity = 4)
     override val fileSaved: SharedFlow<String> = _fileSaved.asSharedFlow()
     internal val _fileData = MutableSharedFlow<ServerMsg.FileData>(extraBufferCapacity = 4)
@@ -398,7 +399,12 @@ class WebAppController(internal val prefs: Prefs) : AppController {
         client?.send(Outbound.spawnAt("$parent/$clean", create = true, target = target, host = host, agent = agent, model = model, profile = profile))
     }
 
-    override fun browse(path: String, host: String, files: Boolean) { client?.send(Outbound.browse(path, host, files)) }
+    // Cache-then-refresh, as on Android: see ListingCache.
+    override fun browse(path: String, host: String, files: Boolean) {
+        listingCache.hit(path, host, files)?.let { _listing.value = it }
+        listingCache.remember(path, host, files)
+        client?.send(Outbound.browse(path, host, files))
+    }
     override fun uploadFile(dir: String, name: String, contentB64: String, host: String) { client?.send(Outbound.upload(dir, name, contentB64, host)) }
     override fun downloadFile(path: String, host: String) { client?.send(Outbound.download(path, host)) }
     override fun attachedDirHost(): Pair<String, String>? =

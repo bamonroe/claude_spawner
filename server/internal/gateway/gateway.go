@@ -558,7 +558,7 @@ var wireHandlers = map[string]func(c *conn, in inbound){
 	"set_agent":         func(c *conn, in inbound) { c.doSetAgent(in.SessionID, in.Path, in.Agent, in.Model) },
 	"rename":            func(c *conn, in inbound) { c.doRename(in.Name, in.NewName) },
 	"delete":            func(c *conn, in inbound) { c.doDelete(in.Name) },
-	"browse":            func(c *conn, in inbound) { c.doBrowse(in.Path, in.HostName, in.Files) },
+	"browse":            func(c *conn, in inbound) { c.startBrowse(in.Path, in.HostName, in.Files) },
 	"upload":            func(c *conn, in inbound) { c.doUpload(in.Path, in.Name, in.HostName, in.Content) },
 	"download":          func(c *conn, in inbound) { c.doDownload(in.Path, in.HostName) },
 	"spawn_at": func(c *conn, in inbound) {

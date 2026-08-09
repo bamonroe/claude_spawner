@@ -71,6 +71,10 @@ type conn struct {
 	historySem  chan struct{}          // bounds concurrent off-loop history reads; see startHistory
 	historyBusy map[string]*historyReq // per-session in-flight marker + latest parked request (coalesces prefetch bursts)
 
+	browseMu   sync.Mutex          // guards browseSem/browseBusy init and mutation (read loop + browse goroutines)
+	browseSem  chan struct{}       // bounds concurrent off-loop directory listings; see startBrowse
+	browseBusy map[string]struct{} // per-directory in-flight marker (drops duplicate taps of the same path)
+
 	attachedMu    sync.Mutex       // guards attached for cross-goroutine readers; see setAttached
 	attached      *session.Session // non-nil when in passthrough mode
 	prevSessionID string           // session_id of the session attached just before this one — the "swap" target (survives renames)

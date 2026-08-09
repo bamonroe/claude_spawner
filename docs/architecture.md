@@ -360,6 +360,16 @@ holds is answered from `DisplayDigest` (a few stats) *before* any full read, bec
 are dispatched serially off one inbound loop — a needless multi-megabyte parse there blocks every
 other request on the connection.
 
+For the same reason, the handlers whose work is a *blocking round trip* don't run on that loop at
+all: history, the transcript-digest sweep, discover, and the picker's directory `browse` each hand
+off to a goroutine with a small per-connection semaphore, replying through the usual serialized
+writer. `browse` in particular is one SSH round trip per tap, so serving it inline stalled the turn
+the user was speaking behind a folder tap; identical in-flight listings are dropped rather than
+queued, since a listing is a read-only snapshot and the reply already on its way answers both. The
+app closes the other half: both controllers put their browse request/reply pair through the shared
+`ListingCache` (an LRU keyed by host + path + files), so a tapped or "up" directory paints from cache
+instantly while the request still goes out and its reply refreshes the view.
+
 A request that *does* need bodies goes through `Driver.DisplayHistory`, which stats the chain **once**
 for both the log and its digest and serves what it can from the in-memory display memo
 (`displaymemo.go`), at two granularities. The whole assembled log is memoized per session under the

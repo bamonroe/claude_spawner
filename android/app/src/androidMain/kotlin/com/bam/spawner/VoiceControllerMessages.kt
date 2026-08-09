@@ -235,7 +235,7 @@ internal fun VoiceController.onMessage(msg: ServerMsg) {
         is ServerMsg.History -> onHistory(msg)
         is ServerMsg.ReadLast -> onReadLast(msg.count)
         is ServerMsg.Discovered -> onDiscovered(msg)
-        is ServerMsg.Listing -> _listing.value = msg
+        is ServerMsg.Listing -> { listingCache.put(msg); _listing.value = msg }
         is ServerMsg.FileSaved -> _fileSaved.tryEmit(msg.path)
         is ServerMsg.FileData -> _fileData.tryEmit(msg)
         is ServerMsg.Digests -> {
@@ -264,6 +264,8 @@ internal fun VoiceController.onMessage(msg: ServerMsg) {
 }
 
 internal fun VoiceController.onHelloOk(msg: ServerMsg.HelloOk) {
+    listingCache.clear() // a fresh connection may be a different host/filesystem
+
     _status.value = "connected"
     if (msg.whisperModel.isNotBlank()) { // adopt the server's current model
         _whisperModel.value = msg.whisperModel

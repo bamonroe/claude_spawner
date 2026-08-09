@@ -16,6 +16,52 @@ import (
 // path starts at the host's filesystem root ("/"); there is no configured-roots
 // jail here (the visual picker can walk the whole host). The response carries the
 // parent for "up" navigation ("" at "/" — the top, nothing above it).
+// browseConcurrency bounds how many directory listings one connection runs at
+// once. Each listing is an SSH round trip; a prefetch burst (a tapped folder's
+// children) could otherwise open one channel per entry.
+const browseConcurrency = 4
+
+// startBrowse serves a browse request off the connection's serial inbound loop,
+// for the same reason history is (see startHistory): a listing is a blocking SSH
+// round trip, and serving it inline stalled every other inbound message —
+// including the turn the user is speaking — behind one directory tap. The work
+// is safe off the loop: it only reads the target's filesystem over the (already
+// concurrent) SSH pool, and the reply serializes through wmu like any other
+// cross-goroutine send.
+//
+// Identical in-flight requests are dropped rather than parked: a listing is a
+// read-only snapshot with no client state folded in (unlike history's have_hash),
+// so a duplicate tap of the same directory is answered by the reply already on
+// its way.
+func (c *conn) startBrowse(path, host string, files bool) {
+	c.browseMu.Lock()
+	if c.browseSem == nil {
+		c.browseSem = make(chan struct{}, browseConcurrency)
+		c.browseBusy = make(map[string]struct{})
+	}
+	sem := c.browseSem
+	key := host + "\x00" + path
+	if files {
+		key += "\x00f"
+	}
+	if _, busy := c.browseBusy[key]; busy {
+		c.browseMu.Unlock()
+		return
+	}
+	c.browseBusy[key] = struct{}{}
+	c.browseMu.Unlock()
+	go func() {
+		defer func() {
+			c.browseMu.Lock()
+			delete(c.browseBusy, key)
+			c.browseMu.Unlock()
+		}()
+		sem <- struct{}{}
+		defer func() { <-sem }()
+		c.doBrowse(path, host, files)
+	}()
+}
+
 func (c *conn) doBrowse(path, host string, files bool) {
 	if host == "" {
 		host = session.LocalHost
