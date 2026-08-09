@@ -382,7 +382,9 @@ demand.
 The cache is also **refreshed in the background** while you work. A prefetcher quietly issues the
 same history request a switch would for the most recently active sessions you are *not* looking at —
 prioritized by the server's digest sweep, so only sessions whose transcript actually
-changed are fetched. That sweep is **re-run while you stay connected** — on a one-minute cadence, and
+changed are fetched. Sessions the sweep says nothing about — created after it ran, or on a host that
+was briefly unreachable — are still warmed when nothing is cached for them at all, just behind the
+known-changed ones, so they aren't guaranteed cold on first tap. That sweep is **re-run while you stay connected** — on a one-minute cadence, and
 immediately whenever discovery reports a session got busier — so sessions that grow mid-connection go
 back to looking stale and get warmed, instead of the app living off a frozen connect-time snapshot.
 At most two requests run at once, it pauses entirely while a turn is streaming

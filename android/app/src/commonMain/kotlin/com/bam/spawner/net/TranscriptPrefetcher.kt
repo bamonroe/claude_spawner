@@ -28,9 +28,8 @@ import kotlin.time.TimeSource
  * run at once (that's the throttle — the server additionally coalesces per-session
  * bursts), it pauses entirely while a dictation turn streams or while a
  * user-visible history request is outstanding ([Host.foregroundHistoryActive]), and it only fetches
- * the top [TOP_N] most recently active candidates whose server-sweep hash differs
- * from the locally held one (see [SessionSync.recordServerDigest] — sessions the
- * sweep didn't report are left to the authoritative per-attach check). A fetch
+ * the top [TOP_N] most recently active candidates the sweep gives it a reason to
+ * fetch (see [worth]). A fetch
  * whose reply never lands frees its slot after [STUCK_MS].
  */
 class TranscriptPrefetcher(
@@ -104,7 +103,12 @@ class TranscriptPrefetcher(
             .filter { it.sessionId != viewed && it.sessionId !in inFlight }
             .sortedByDescending { it.lastActive }
             .take(TOP_N)
-            .filter { stale(it.sessionId) }
+            .map { it to worth(it.sessionId) }
+            .filter { it.second != Worth.SKIP }
+            // Known-mismatch first: it is a certain win. Unknown sessions the sweep
+            // said nothing about come after, still in recency order.
+            .sortedBy { it.second.ordinal }
+            .map { it.first }
         for (d in candidates) {
             if (inFlight.size >= MAX_IN_FLIGHT) return
             prefetch(d)
@@ -122,11 +126,24 @@ class TranscriptPrefetcher(
         host.send(Outbound.digest())
     }
 
-    /** Fetch only what the server sweep says we don't already hold: no sweep row →
-     *  no opinion → leave it to the per-attach check (never burn a fetch on it). */
-    private fun stale(id: String): Boolean {
-        val server = session.serverDigest(id) ?: return false
-        return session.heldDigest(id)?.second != server.second
+    /** How much a session is worth prefetching, best first. */
+    private enum class Worth { MISMATCH, UNKNOWN, SKIP }
+
+    /**
+     * The sweep is a hint, not the authority. A reported hash that differs from the
+     * one we hold is a certain win ([Worth.MISMATCH]); a reported hash that matches
+     * means there is provably nothing to fetch ([Worth.SKIP]).
+     *
+     * A session the sweep said *nothing* about — created after the sweep, its digest
+     * read errored or timed out, its host was briefly unreachable — used to be skipped
+     * outright, which guaranteed it was cold on first tap. When we hold no transcript
+     * for it at all there is nothing to lose by fetching, so it is [Worth.UNKNOWN]:
+     * prefetchable, but behind every known mismatch. If we do hold something, leave it
+     * to the authoritative per-attach `have_hash` check rather than guessing.
+     */
+    private fun worth(id: String): Worth {
+        val server = session.serverDigest(id) ?: return if (session.heldDigest(id) == null) Worth.UNKNOWN else Worth.SKIP
+        return if (session.heldDigest(id)?.second != server.second) Worth.MISMATCH else Worth.SKIP
     }
 
     private fun prefetch(d: DiscoveredInfo) {
