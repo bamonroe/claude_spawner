@@ -21,18 +21,6 @@ finish_work = "When a task is fully finished (built, tested, documented), run `s
 scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/KMP app + web client. The historical phase roadmap stays in README.md."
 
 [[task]]
-id = "re-run-the-transcript-digest-sweep-after-connect-not-just-once"
-title = "Re-run the transcript digest sweep after connect, not just once"
-description = "Root cause of cold attaches: the server's digest sweep (gateway/ops_history.go serveDigests, triggered by the client's Outbound.digest()) is sent exactly once per connection, right after hello. SessionSync.serverDigest is therefore a frozen connect-time snapshot, and TranscriptPrefetcher.stale() only fetches a session when the server digest differs from the held one. Once a session has been prefetched (or was already current at connect), held == server forever, so every session that GROWS later in the connection is never re-prefetched — and the attach pays the full history round trip, which is exactly the reported symptom. Fix: refresh the hint periodically — have the client re-send `digest` on a modest cadence and/or after discover rounds that show new activity, and make sure startDigestSweep's single-flight guard plus the server's per-session digest memoization keep the repeat sweeps cheap (a sweep with no transcript movement is a few stats). Keep it off the inbound loop as it already is."
-status = "active"
-level = "task"
-category = "bug"
-urgency = "high"
-order = 20
-created = 2026-08-09
-tags = ["transcripts", "prefetch"]
-
-[[task]]
 id = "prefetch-sessions-the-digest-sweep-has-no-opinion-on"
 title = "Prefetch sessions the digest sweep has no opinion on"
 description = "TranscriptPrefetcher.stale() returns false whenever SessionSync.serverDigest(id) is null, i.e. any session the sweep did not report — a session created after connect, one whose DisplayDigest read errored or hit digestSessionDeadline, or one on a host that was briefly unreachable. Those are left entirely to the per-attach have_hash check, so they are guaranteed cold on first tap. Make the no-opinion case prefetchable (at lower priority than a known-mismatch) when we hold no transcript for the id at all, since there is nothing to lose by fetching, and let a known-match still suppress."

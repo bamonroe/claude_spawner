@@ -3,6 +3,7 @@ package com.bam.spawner.net
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.time.TimeSource
 
 /**
  * Background transcript prefetcher: while the app is idle, quietly refresh the
@@ -18,7 +19,11 @@ import kotlinx.coroutines.launch
  * view or focus: its [Host] can only send frames and answer "what's on screen /
  * is a turn streaming".
  *
- * Scheduling: [kick]ed by discovered-list updates, the connect-time digest sweep,
+ * It also owns keeping the staleness hint itself fresh: the server answers `digest`
+ * once per request, so it re-sends one on a cadence (and immediately when discovery
+ * reports a transcript moved) instead of living off the connect-time snapshot.
+ *
+ * Scheduling: [kick]ed by discovered-list updates, the digest sweep,
  * each landed history reply, and turn completion. At most [MAX_IN_FLIGHT] requests
  * run at once (that's the throttle — the server additionally coalesces per-session
  * bursts), it pauses entirely while a dictation turn streams or while a
@@ -55,10 +60,33 @@ class TranscriptPrefetcher(
 
     private var known: List<DiscoveredInfo> = emptyList()
     private val inFlight = mutableSetOf<String>()
+    private var lastDigestAt = TimeSource.Monotonic.markNow()
+
+    init {
+        // The staleness hint has to keep up with the connection's lifetime. The
+        // server answers `digest` once per request, so a connect-time sweep is a
+        // frozen snapshot: any session that GROWS later would never look stale
+        // again and its attach would pay the full history round trip. Refresh on
+        // a modest cadence (repeat sweeps with no transcript movement are a few
+        // stats server-side, and the memoized per-session digests make them cheap).
+        scope.launch {
+            while (true) {
+                delay(DIGEST_REFRESH_MS)
+                refreshDigest()
+            }
+        }
+    }
 
     /** The discovered list refreshed — reprioritize against the new recency order. */
     fun onDiscovered(sessions: List<DiscoveredInfo>) {
+        val advanced = sessions.any { d ->
+            val prev = known.firstOrNull { it.sessionId == d.sessionId }
+            prev == null || d.lastActive > prev.lastActive
+        }
         known = sessions
+        // Discovery just told us a transcript moved; the held digests are provably
+        // behind, so re-sweep now rather than waiting out the cadence.
+        if (advanced) refreshDigest()
         kick()
     }
 
@@ -81,6 +109,17 @@ class TranscriptPrefetcher(
             if (inFlight.size >= MAX_IN_FLIGHT) return
             prefetch(d)
         }
+    }
+
+    /** Re-request the server's transcript digests, rate-limited to [MIN_DIGEST_GAP_MS]
+     *  and paused for the same reasons a prefetch is: the sweep shares the connection
+     *  with whatever the user is actually waiting on. Drops harmlessly when the socket
+     *  is closed — the next connect sends its own sweep. */
+    private fun refreshDigest() {
+        if (host.turnActive() || host.foregroundHistoryActive()) return
+        if (lastDigestAt.elapsedNow().inWholeMilliseconds < MIN_DIGEST_GAP_MS) return
+        lastDigestAt = TimeSource.Monotonic.markNow()
+        host.send(Outbound.digest())
     }
 
     /** Fetch only what the server sweep says we don't already hold: no sweep row →
@@ -110,5 +149,9 @@ class TranscriptPrefetcher(
         const val MAX_IN_FLIGHT = 2
         /** When an unanswered fetch stops occupying a slot. */
         const val STUCK_MS = 20_000L
+        /** Cadence of the background digest re-sweep. */
+        const val DIGEST_REFRESH_MS = 60_000L
+        /** Floor between two sweeps, so discovery bursts can't storm the server. */
+        const val MIN_DIGEST_GAP_MS = 15_000L
     }
 }
