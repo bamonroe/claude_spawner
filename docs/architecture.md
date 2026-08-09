@@ -579,6 +579,16 @@ still has a live link falls back to waiting rather than failing the caller. Cruc
 which is why every operation returns the `*pooledConn` it used. The stream sub-budget stays
 per-connection, so turns still can't starve probes on any given link.
 
+Those extra connections are opened for a **burst** (a digest sweep, a prefetch storm), so they are
+also **reaped**: `SSHPool.reapIdle` retires and closes every connection past the first that has
+carried no channel for `sshIdleConnTTL` (2 min). It runs lazily on the next `acquireConn` and on
+each keepalive tick, so a host that goes quiet converges back to its single warm connection with no
+dedicated goroutine. The host's **first** connection is never reaped — it is the cached one the
+keepalive owns, and dropping it would only make the next caller pay a dial. "Idle" is stricter than
+"no channel open": a connection whose `channelBudget` has a slot taken (a caller about to open) also
+counts as busy, and a caller that wins a slot on a connection retired in the same instant rechecks
+`live()` and looks again — so a reap can never close the transport out from under work.
+
 ### Sandbox sessions (also without host root)
 
 For `sandbox`-target sessions the container's lifetime is **bound to the session**, not the turn:

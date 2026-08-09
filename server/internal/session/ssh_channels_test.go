@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -179,5 +180,53 @@ func TestTryAcquireNeverBlocksAndUnwindsCleanly(t *testing.T) {
 	}
 	if b.load() != sshMaxChannels {
 		t.Fatalf("load = %d, want %d", b.load(), sshMaxChannels)
+	}
+}
+
+// Extra connections opened for a burst must not linger forever, and the reap must
+// never take the host's primary connection or one that is still carrying work.
+func TestReapIdleClosesOnlyIdleExtraConnections(t *testing.T) {
+	pool := &SSHPool{entries: map[string]*poolEntry{}}
+	closes := 0
+	mk := func(age time.Duration) *pooledConn {
+		return &pooledConn{closeConn: func() error { closes++; return nil }, lastUsed: time.Now().Add(-age)}
+	}
+	primary := mk(time.Hour) // idle forever, but it's the cached one — keep it
+	stale := mk(time.Hour)
+	busy := mk(time.Hour) // idle by the clock, but a channel is open on it
+	held := mk(time.Hour) // a caller holds a slot, hasn't opened its channel yet
+	fresh := mk(0)
+	busy.hold()
+	busy.lastUsed = time.Now().Add(-time.Hour) // hold() stamps; force it stale again
+	held.chans.tryAcquire(false)
+
+	e := pool.entry("mom")
+	e.conns = []*pooledConn{primary, stale, busy, held, fresh}
+	pool.reapIdle("mom")
+
+	e.mu.Lock()
+	got := slices.Clone(e.conns)
+	e.mu.Unlock()
+	want := []*pooledConn{primary, busy, held, fresh}
+	if !slices.Equal(got, want) {
+		t.Fatalf("reap kept %d connection(s), want %d (only the stale extra goes)", len(got), len(want))
+	}
+	if closes != 1 {
+		t.Fatalf("closes = %d, want 1", closes)
+	}
+	if stale.live() {
+		t.Error("a reaped connection must not be handed out again")
+	}
+	// Once the burst's work drains, the next reap takes those too — except the primary.
+	busy.done()
+	held.chans.release(false)
+	for _, c := range []*pooledConn{busy, held, fresh} {
+		c.lastUsed = time.Now().Add(-time.Hour)
+	}
+	pool.reapIdle("mom")
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if len(e.conns) != 1 || e.conns[0] != primary {
+		t.Fatalf("a quiet host must converge to its one primary connection, got %d", len(e.conns))
 	}
 }

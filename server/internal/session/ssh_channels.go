@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -49,10 +50,17 @@ import (
 // pool dials another rather than making the caller queue (see poolEntry). So
 // sshMaxChannels is a per-link ceiling and sshMaxConnsPerHost × sshMaxChannels is
 // the host's real one — only there does a caller block.
+//
+// Those extra connections are opened for a BURST — a digest sweep, a prefetch
+// storm — and the burst ends. sshIdleConnTTL bounds how long one lingers with
+// nothing on it: past that it is retired and closed (see reapIdle). The host's
+// FIRST connection is never reaped; it is the cached one the keepalive owns, and
+// dropping it would just make the next caller pay a dial.
 const (
 	sshMaxChannels       = 8
 	sshMaxStreamChannels = 4
 	sshMaxConnsPerHost   = 4
+	sshIdleConnTTL       = 2 * time.Minute
 )
 
 // probeChannelCeilingMax bounds the diagnostic below so a peer with a very
@@ -239,6 +247,10 @@ func leastLoaded(conns []*pooledConn) *pooledConn {
 func (p *SSHPool) acquireConn(ctx context.Context, host string, longLived bool) (*pooledConn, func(), error) {
 	e := p.entry(host)
 	for {
+		// Lazily retire extras the last burst left behind, so a host that went quiet
+		// converges back to one connection without a background goroutine.
+		p.reapIdle(host)
+
 		e.mu.Lock()
 		conns := slices.Clone(e.conns)
 		e.mu.Unlock()
@@ -246,6 +258,12 @@ func (p *SSHPool) acquireConn(ctx context.Context, host string, longLived bool) 
 		// Cheapest first: somebody already connected has room.
 		for _, c := range byLoad(conns) {
 			if c.chans.tryAcquire(longLived) {
+				// It may have been retired between the load check and the slot: hand
+				// back a connection that is still eligible, or look again.
+				if !c.live() {
+					c.chans.release(longLived)
+					continue
+				}
 				return c, releaser(c, longLived), nil
 			}
 		}

@@ -352,7 +352,52 @@ type pooledConn struct {
 
 // newPooledConn wraps a freshly dialed client for the pool.
 func newPooledConn(c *ssh.Client) *pooledConn {
-	return &pooledConn{Client: c, closeConn: c.Close}
+	return &pooledConn{Client: c, closeConn: c.Close, lastUsed: time.Now()}
+}
+
+// reapIfIdle retires the connection if it has been completely unused for ttl,
+// reporting whether it did. "Unused" is stricter than inflight==0: a caller that
+// has taken a channel slot but not yet opened its channel counts as busy, which
+// is what keeps a reap from closing the transport out from under it.
+func (c *pooledConn) reapIfIdle(now time.Time, ttl time.Duration) bool {
+	c.mu.Lock()
+	if c.retired || c.inflight > 0 || c.chans.load() > 0 || now.Sub(c.lastUsed) < ttl {
+		c.mu.Unlock()
+		return false
+	}
+	c.retired = true
+	idle := !c.closed
+	c.closed = true
+	c.mu.Unlock()
+	if idle {
+		_ = c.closeConn()
+	}
+	return true
+}
+
+// reapIdle closes the EXTRA connections to a host that the last burst left behind:
+// everything past the first that has carried no channel for sshIdleConnTTL. The
+// first connection is kept — it is the warm one the keepalive owns, and reaping it
+// would only make the next caller pay a dial.
+//
+// It runs lazily (on the next acquireConn) and on each keepalive tick, so a host
+// that goes quiet converges back to one connection without a dedicated goroutine.
+func (p *SSHPool) reapIdle(host string) {
+	e := p.entry(host)
+	now := time.Now()
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if len(e.conns) <= 1 {
+		return
+	}
+	extras := e.conns[1:]
+	kept := e.conns[:1:1]
+	for _, c := range extras {
+		if !c.reapIfIdle(now, sshIdleConnTTL) {
+			kept = append(kept, c)
+		}
+	}
+	e.conns = kept
 }
 
 // hold records a channel opening on this connection.
@@ -376,6 +421,7 @@ func (c *pooledConn) live() bool {
 func (c *pooledConn) done() {
 	c.mu.Lock()
 	c.inflight--
+	c.lastUsed = time.Now() // idle is measured from the END of the last channel
 	last := c.retired && c.inflight <= 0 && !c.closed
 	c.closed = c.closed || last
 	c.mu.Unlock()
@@ -424,6 +470,9 @@ func (p *SSHPool) keepalive(host string, c *pooledConn) {
 			p.drop(host, c)
 			return
 		}
+		// Cheap, low-frequency sweep: a host that stopped being used entirely still
+		// sheds its burst connections, even with no caller arriving to do it lazily.
+		p.reapIdle(host)
 	}
 }
 
