@@ -250,7 +250,7 @@ func (p *SSHPool) dialLocked(name string, e *poolEntry) (*pooledConn, error) {
 		return nil, e.markDown(time.Now(), name, fmt.Errorf("ssh dial %s: %w", addr, err))
 	}
 	e.markUp()
-	c := newPooledConn(raw)
+	c := newPooledConn(raw, p.maxChannels(), p.maxStreamChannels())
 	e.conns = append(e.conns, c)
 	go p.keepalive(name, c)
 	return c, nil
@@ -350,9 +350,12 @@ type pooledConn struct {
 	closed   bool // closeConn already called; a repeat drop must not re-close
 }
 
-// newPooledConn wraps a freshly dialed client for the pool.
-func newPooledConn(c *ssh.Client) *pooledConn {
-	return &pooledConn{Client: c, closeConn: c.Close, lastUsed: time.Now()}
+// newPooledConn wraps a freshly dialed client for the pool, budgeting it with the
+// pool's effective channel caps (see SSHPool.maxChannels).
+func newPooledConn(c *ssh.Client, maxChans, maxStreams int) *pooledConn {
+	pc := &pooledConn{Client: c, closeConn: c.Close, lastUsed: time.Now()}
+	pc.chans.maxChans, pc.chans.maxStreams = maxChans, maxStreams
+	return pc
 }
 
 // reapIfIdle retires the connection if it has been completely unused for ttl,

@@ -50,6 +50,11 @@ type SSHConfig struct {
 	Bin string
 	// Timeout bounds the dial+handshake; 0 means sshDialTimeout.
 	Timeout time.Duration
+	// MaxConns is the per-host connection cap and MaxChannels the per-connection
+	// channel budget (see ssh_channels.go). 0 means the compiled defaults; raise
+	// them for a host whose sshd runs a larger MaxSessions.
+	MaxConns    int
+	MaxChannels int
 }
 
 // resolveKnownHostsPath returns the known_hosts path to verify against: the

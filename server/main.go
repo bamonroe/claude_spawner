@@ -159,6 +159,9 @@ func main() {
 		KeyFile:    selfKey,
 		KnownHosts: cfg.SSHKnownHosts,
 		Bin:        cfg.SSHClaudeBin,
+
+		MaxConns:    cfg.SSHMaxConns,
+		MaxChannels: cfg.SSHMaxChannels,
 	}, hostStore, idStore)
 	if err != nil {
 		log.Fatalf("ssh: %v", err)

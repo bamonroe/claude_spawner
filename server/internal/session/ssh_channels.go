@@ -56,12 +56,42 @@ import (
 // nothing on it: past that it is retired and closed (see reapIdle). The host's
 // FIRST connection is never reaped; it is the cached one the keepalive owns, and
 // dropping it would just make the next caller pay a dial.
+//
+// The two channel/connection caps are DEFAULTS: a host whose sshd runs a raised
+// MaxSessions can be tuned without a rebuild via SPAWNER_SSH_MAX_CHANNELS /
+// SPAWNER_SSH_MAX_CONNS, which arrive as SSHConfig.MaxChannels/MaxConns (0 =
+// these defaults). The stream sub-budget stays half the channel budget, the
+// ratio the defaults encode, so raising the budget lifts both proportionally.
 const (
 	sshMaxChannels       = 8
 	sshMaxStreamChannels = 4
 	sshMaxConnsPerHost   = 4
 	sshIdleConnTTL       = 2 * time.Minute
 )
+
+// maxChannels/maxStreamChannels/maxConnsPerHost are the pool's effective caps:
+// the configured values when set, else the compiled defaults. Every budget and
+// cap check goes through these so there is one place the override applies.
+func (p *SSHPool) maxChannels() int {
+	if p.cfg.MaxChannels > 0 {
+		return p.cfg.MaxChannels
+	}
+	return sshMaxChannels
+}
+
+func (p *SSHPool) maxStreamChannels() int {
+	if n := p.maxChannels() / 2; n > 0 {
+		return n
+	}
+	return 1
+}
+
+func (p *SSHPool) maxConnsPerHost() int {
+	if p.cfg.MaxConns > 0 {
+		return p.cfg.MaxConns
+	}
+	return sshMaxConnsPerHost
+}
 
 // probeChannelCeilingMax bounds the diagnostic below so a peer with a very
 // generous (or absent) MaxSessions can't have us open channels forever.
@@ -143,16 +173,27 @@ func shouldRedial(err error) bool {
 
 // channelBudget is one pooled connection's channel allowance: a counting
 // semaphore with a slot per permitted concurrent channel.
+// The zero value is usable and budgets the compiled defaults; the pool sets
+// max/streams from its configured caps when it builds a connection.
 type channelBudget struct {
-	once    sync.Once
-	slot    chan struct{} // every channel, whatever its lifetime
-	streams chan struct{} // the long-lived subset (turns), so they can't take every slot
+	once       sync.Once
+	maxChans   int           // 0 = sshMaxChannels
+	maxStreams int           // 0 = sshMaxStreamChannels
+	slot       chan struct{} // every channel, whatever its lifetime
+	streams    chan struct{} // the long-lived subset (turns), so they can't take every slot
 }
 
 func (b *channelBudget) init() {
 	b.once.Do(func() {
-		b.slot = make(chan struct{}, sshMaxChannels)
-		b.streams = make(chan struct{}, sshMaxStreamChannels)
+		max, streams := b.maxChans, b.maxStreams
+		if max <= 0 {
+			max = sshMaxChannels
+		}
+		if streams <= 0 {
+			streams = sshMaxStreamChannels
+		}
+		b.slot = make(chan struct{}, max)
+		b.streams = make(chan struct{}, streams)
 	})
 }
 
@@ -274,7 +315,7 @@ func (p *SSHPool) acquireConn(ctx context.Context, host string, longLived bool) 
 		// grown just loops and re-tries the fast path.
 		e.mu.Lock()
 		grew := len(e.conns) != len(conns)
-		atCap := len(e.conns) >= sshMaxConnsPerHost
+		atCap := len(e.conns) >= p.maxConnsPerHost()
 		var c *pooledConn
 		var err error
 		if !grew && !atCap {

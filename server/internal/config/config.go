@@ -196,6 +196,12 @@ type Config struct {
 	SSHCodexBin    string
 	SSHOpencodeBin string
 	SSHAgyBin      string
+	// SSHMaxConns caps how many SSH connections the pool keeps to one host, and
+	// SSHMaxChannels how many concurrent channels ride one connection (which must
+	// stay under that host's sshd MaxSessions). Both 0 = the pool's compiled
+	// defaults; raise them for a host with a larger MaxSessions.
+	SSHMaxConns    int
+	SSHMaxChannels int
 
 	// WebDir is a directory holding the built Compose/Wasm web-client bundle
 	// (index.html + spawnerweb.js + .wasm). When set, the server serves it as
@@ -299,6 +305,26 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("SPAWNER_SSH_PORT %q: %w", v, err)
 		}
 		c.SSHPort = n
+	}
+	for _, v := range []struct {
+		name string
+		dst  *int
+	}{
+		{"SPAWNER_SSH_MAX_CONNS", &c.SSHMaxConns},
+		{"SPAWNER_SSH_MAX_CHANNELS", &c.SSHMaxChannels},
+	} {
+		raw := os.Getenv(v.name)
+		if raw == "" {
+			continue
+		}
+		n, err := strconv.Atoi(raw)
+		if err != nil {
+			return nil, fmt.Errorf("%s %q: %w", v.name, raw, err)
+		}
+		if n < 1 {
+			return nil, fmt.Errorf("%s must be at least 1 (got %d)", v.name, n)
+		}
+		*v.dst = n
 	}
 	return c, nil
 }

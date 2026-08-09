@@ -135,6 +135,12 @@ just a pointer to this file.)
   the file so it takes effect without a restart), `SPAWNER_SSH_CLAUDE_BIN`
   (`claude`; the remote claude binary), `SPAWNER_SSH_CODEX_BIN` (`codex`; the remote codex binary for
   Codex-backend SSH sessions — SSH reuses the host target, so this is the host codex binary).
+  Pool sizing: `SPAWNER_SSH_MAX_CONNS` (`4`; how many connections the pool keeps to one host) and
+  `SPAWNER_SSH_MAX_CHANNELS` (`8`; concurrent channels budgeted on one connection, which must stay
+  under that host's sshd `MaxSessions` — half the budget is reserved for short operations so
+  long-lived turns can't starve history and digest probes). Their product is the host's real
+  concurrency ceiling; raise them for a host configured with a larger `MaxSessions`. Unset/0 keeps
+  the compiled defaults, and each must be at least 1.
 - Claude context trimming: `SPAWNER_CLAUDE_EXTRA_ARGS` (space-separated extra flags appended to
   **every** Claude turn and the `/usage` probe; empty = no-op default, unchanged behavior). This is
   the knob for shrinking the per-turn context Claude Code sends — the fixed overhead is ~20k tokens
