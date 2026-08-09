@@ -907,11 +907,12 @@ restored automatically on load). The browser speaks to the OS default output sin
 between devices, so the audio-output button offers the two states that matter: **Speaker** (voice
 on) or **Mute** (voice off, which also stops any reply already being spoken); the choice is saved.
 
-By default the sessions sidebar is a **modal drawer at every width** — it never opens on a swipe.
-The **☰ button in the top bar is the only way to show it**, at any window size; tapping outside it,
-swiping it left, or pressing back closes it again. The chat therefore keeps the whole window until
-you ask for the session list. (The right-to-left swipe on the chat still swaps sessions — that
-gesture is unchanged.)
+By default the sessions sidebar is a **modal drawer at every width**. Open it with the **☰ button in
+the top bar**, at any window size, or by **swiping right from the far left edge** of the chat — only
+a thin strip at the very edge is live, so an ordinary horizontal drag across the chat won't pull it
+out. Tapping outside it, swiping it left, or pressing back closes it again. The chat therefore keeps
+the whole window until you ask for the session list. (The right-to-left swipe on the chat still
+swaps sessions — that gesture is unchanged.)
 
 **Pinning the sidebar.** A **pin button** sits at the top-right of the sidebar, next to the
 "Sessions" title. Tap it and the sidebar becomes a **permanent docked rail**: it stays on screen and

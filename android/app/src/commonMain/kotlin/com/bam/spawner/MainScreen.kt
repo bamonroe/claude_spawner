@@ -314,9 +314,9 @@ fun MainScreen(
         }
     }
 
-    // Unpinned (the default), the sidebar is a modal drawer at every width — never
-    // swipe-opened; the ☰ button in the top bar is the one and only way it appears, so
-    // the chat keeps the full window until the user asks for the session list. Pinned
+    // Unpinned (the default), the sidebar is a modal drawer at every width, opened by the
+    // ☰ button in the top bar or by a swipe from the far left edge, so the chat keeps the
+    // full window until the user asks for the session list. Pinned
     // (the sidebar's pin toggle, persisted), it becomes a permanent docked rail and the
     // chat column shifts over beside it so no message text is ever covered.
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -352,6 +352,28 @@ fun MainScreen(
                         )
                     },
             )
+            // Left-edge swipe (left→right) to open the sidebar — the gesture twin of the
+            // ☰ button. Only a thin strip at the very edge is live, so an ordinary
+            // horizontal drag across the chat still can't pull the drawer out. In pinned
+            // mode onMenu is null and the strip does nothing.
+            if (onMenu != null) {
+                Box(
+                    Modifier.align(Alignment.CenterStart)
+                        .fillMaxHeight()
+                        .imePadding()
+                        .padding(top = edgeGestureTopInset, bottom = edgeGestureBottomInset)
+                        .width(swapStripWidth)
+                        .pointerInput(Unit) {
+                            val threshold = swapDragThreshold.toPx()
+                            var dx = 0f
+                            detectHorizontalDragGestures(
+                                onDragStart = { dx = 0f },
+                                onHorizontalDrag = { _, delta -> dx += delta },
+                                onDragEnd = { if (dx >= threshold) onMenu() },
+                            )
+                        },
+                )
+            }
           }
       }
       if (pinned) {

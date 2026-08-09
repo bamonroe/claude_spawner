@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "restore-left-edge-swipe-to-open-the-drawer"
+title = "Restore left-edge swipe to open the drawer"
+description = "The left navigation drawer used to open by swiping from the left edge of the screen toward the right; that gesture no longer works. Restore edge-swipe-to-open in the Android/Compose UI so the drawer can be opened by gesture as well as by tapping the menu button."
+status = "finished"
+level = "task"
+category = "bug"
+created = 2026-08-09
+completed = 2026-08-09
+tags = []
+
+[[task]]
 id = "raise-the-reconnect-gap-fill-page-size"
 title = "Raise the reconnect gap-fill page size"
 description = "Reconnect gap-fill pages 30 rows per sequential round trip (the default limit in pageLimit, server/internal/gateway/ops_history.go:191, via SessionSync's gapTarget loop, SessionSync.kt:380). A wide gap therefore costs many serial round trips right when the user just reconnected. Request a larger explicit limit for gap-fill specifically (foreground paging and normal top pages keep 30), and check the delta-tail cap in serveHistory still agrees since it shares pageLimit."
