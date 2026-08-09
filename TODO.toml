@@ -21,21 +21,6 @@ finish_work = "When a task is fully finished (built, tested, documented), run `s
 scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/KMP app + web client. The historical phase roadmap stays in README.md."
 
 [[task]]
-id = "prioritize-foreground-history-over-transcript-prefetch"
-title = "Prioritize foreground history over transcript prefetch"
-description = """
-The app's TranscriptPrefetcher (net/TranscriptPrefetcher.kt:86) runs up to 2 background history fetches for recently-active sessions, kicked by discovered pushes, landed replies, and turn end; the server allows 4 concurrent history reads per connection (ops_history.go:18) fanning SSH probes into the per-host channel budget (ssh_channels.go:46, 4 stream channels). A foreground refresh of the session the user is looking at can queue behind prefetch traffic, capped only by the 30s remote probe timeout. Scope a priority lane: either the server distinguishes foreground vs prefetch history requests (protocol flag) and schedules accordingly, or the client pauses the prefetcher while a foreground refresh or gap-fill is in flight. Related: reconnect gap-fill pages 30 rows per sequential round trip — consider a bigger gap-fill limit while at it.
-
-Do NOT rebuild/recreate the server for this work: land the commits and background an image build only (see CLAUDE.md)."""
-status = "active"
-level = "scope"
-category = "feature"
-urgency = "low"
-order = 80
-created = 2026-08-08
-tags = ["perf", "lag"]
-
-[[task]]
 id = "bound-the-discovery-cwd-walk-over-the-projects-dir"
 title = "Bound the discovery cwd walk over the projects dir"
 description = """
@@ -61,3 +46,51 @@ urgency = "low"
 order = 310
 created = 2026-08-08
 tags = ["ssh", "config"]
+
+[[task]]
+id = "mark-prefetch-history-requests-background-on-the-wire"
+title = "Mark prefetch history requests background on the wire"
+description = "Add an optional boolean field (e.g. `background`) to the inbound `history` message so the server can tell a user-visible refresh from a speculative prefetch. Touches server/internal/gateway/messages.go (inbound struct + docs/protocol.md entry), and android net/Protocol.kt Outbound.history so TranscriptPrefetcher.prefetch (TranscriptPrefetcher.kt:86) sets it true while every foreground call site leaves it false. The internal/docsync client<->server wire test enforces both sides agree, so change them in one commit. No behavior change yet - this is the seam the scheduling task needs. Do NOT rebuild/recreate the server: land commits and background an image build only."
+status = "active"
+level = "task"
+category = "feature"
+urgency = "normal"
+order = 320
+created = 2026-08-09
+tags = ["protocol", "prefetch"]
+
+[[task]]
+id = "give-foreground-history-a-priority-lane-on-the-server"
+title = "Give foreground history a priority lane on the server"
+description = "With the `background` flag in place, stop letting a foreground history read queue behind prefetch traffic. Today startHistory (server/internal/gateway/ops_history.go:48) puts every request through one historyConcurrency=4 semaphore, so up to 4 prefetch reads - each able to block on the 30s remote probe timeout while fanning into the per-host SSH channel budget (session/ssh_channels.go) - can starve the session the user is looking at. Fix at the scheduler: either a reserved slot/second semaphore for foreground requests, or a two-queue dispatcher that always drains foreground first (and ideally cancels or defers an in-flight background read for the same connection). Keep the existing top-page coalescing and paging behavior. Add a gateway test that a foreground request answers promptly while N background reads are parked. Do NOT rebuild/recreate the server: land commits and background an image build only."
+status = "active"
+level = "task"
+category = "feature"
+urgency = "normal"
+order = 330
+created = 2026-08-09
+tags = ["server", "latency"]
+
+[[task]]
+id = "pause-the-prefetcher-during-a-foreground-refresh-or-gap-fill"
+title = "Pause the prefetcher during a foreground refresh or gap-fill"
+description = "Client-side complement to the server priority lane: TranscriptPrefetcher already pauses while a dictation turn streams (Host.turnActive, TranscriptPrefetcher.kt:41) - extend the same seam with a 'foreground history in flight' predicate so kick() holds off while the viewed session's refresh, attach history, or reconnect gap-fill paging is outstanding, and re-kicks when it lands. Cheap and independent of the wire flag; keeps the app from sending competing frames in the first place."
+status = "active"
+level = "task"
+category = "feature"
+urgency = "normal"
+order = 340
+created = 2026-08-09
+tags = ["android", "prefetch"]
+
+[[task]]
+id = "raise-the-reconnect-gap-fill-page-size"
+title = "Raise the reconnect gap-fill page size"
+description = "Reconnect gap-fill pages 30 rows per sequential round trip (the default limit in pageLimit, server/internal/gateway/ops_history.go:191, via SessionSync's gapTarget loop, SessionSync.kt:380). A wide gap therefore costs many serial round trips right when the user just reconnected. Request a larger explicit limit for gap-fill specifically (foreground paging and normal top pages keep 30), and check the delta-tail cap in serveHistory still agrees since it shares pageLimit."
+status = "active"
+level = "task"
+category = "refactor"
+urgency = "low"
+order = 350
+created = 2026-08-09
+tags = ["android", "latency"]
