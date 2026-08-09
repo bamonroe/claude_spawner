@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "investigate-why-transcripts-aren-t-ready-when-attaching-background-prefetch"
+title = "Investigate why transcripts aren't ready when attaching (background prefetch)"
+description = "Symptom: switching/attaching to a session often means waiting for even the first pass of the transcript to render, despite the intended design that all reachable sessions' transcripts are prefetched asynchronously in the background and cached, so an attach renders instantly from cache and only then updates optimistically — with background syncing continuing rather than stopping. Scope out: (1) trace the actual transcript fetch path end to end (server-side discovery/prefetcher, cache layer, WS messages, client-side store) and determine whether the prefetcher really covers all sessions or only some (e.g. recently used, current host, or lazily on demand); (2) check whether the prefetcher is paused/throttled by the recent 'pause the transcript prefetcher during foreground history' and per-host SSH connection/channel caps, and whether it ever resumes; (3) check whether the client discards or ignores the cached transcript on attach and re-requests from scratch; (4) measure where the latency actually goes (SSH round trip, transcript head re-reads, paging/gap-fill chunking, render). Produce concrete atomic tasks from the findings."
+status = "finished"
+level = "scope"
+category = "bug"
+created = 2026-08-09
+completed = 2026-08-09
+tags = ["transcripts", "performance", "prefetch"]
+
+[[task]]
 id = "restore-left-edge-swipe-to-open-the-drawer"
 title = "Restore left-edge swipe to open the drawer"
 description = "The left navigation drawer used to open by swiping from the left edge of the screen toward the right; that gesture no longer works. Restore edge-swipe-to-open in the Android/Compose UI so the drawer can be opened by gesture as well as by tapping the menu button."
