@@ -21,21 +21,6 @@ finish_work = "When a task is fully finished (built, tested, documented), run `s
 scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/KMP app + web client. The historical phase roadmap stays in README.md."
 
 [[task]]
-id = "bound-the-discovery-cwd-walk-over-the-projects-dir"
-title = "Bound the discovery cwd walk over the projects dir"
-description = """
-The discovery walk's cwds() (claudefs.go:338) reads a 64KiB head per unregistered transcript to recover each session's cwd; on the real projects dir (~286 files / ~560MB, cited at claudefs.go:309) that's a heavy sweep of SSH reads. It runs off the request path behind a 15s memo (attach_discover.go:26), so it's not user-blocking, but it still burns the shared per-host SSH channel budget while foreground work is running. Cache cwd per transcript id durably (it never changes for a given file), skip files whose size+mtime are unchanged, and consider batching the heads into fewer execs.
-
-Do NOT rebuild/recreate the server for this work: land the commits and background an image build only (see CLAUDE.md)."""
-status = "active"
-level = "task"
-category = "refactor"
-urgency = "low"
-order = 130
-created = 2026-08-08
-tags = ["perf"]
-
-[[task]]
 id = "make-the-ssh-per-host-connection-and-channel-caps-configurable"
 title = "Make the SSH per-host connection and channel caps configurable"
 description = "Parent scope: centralize-ssh-bindings. Expose the pool sizing as SPAWNER_SSH_MAX_CONNS (per-host connection cap) and SPAWNER_SSH_MAX_CHANNELS (per-connection channel budget) in internal/config, defaulting to today's values, and document both in docs/config.md — the internal/docsync drift test requires each var backticked there. Lets a host with a raised MaxSessions be tuned without a rebuild of the constants. Do NOT rebuild/recreate the server."

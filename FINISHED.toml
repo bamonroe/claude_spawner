@@ -14,6 +14,20 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "bound-the-discovery-cwd-walk-over-the-projects-dir"
+title = "Bound the discovery cwd walk over the projects dir"
+description = """
+The discovery walk's cwds() (claudefs.go:338) reads a 64KiB head per unregistered transcript to recover each session's cwd; on the real projects dir (~286 files / ~560MB, cited at claudefs.go:309) that's a heavy sweep of SSH reads. It runs off the request path behind a 15s memo (attach_discover.go:26), so it's not user-blocking, but it still burns the shared per-host SSH channel budget while foreground work is running. Cache cwd per transcript id durably (it never changes for a given file), skip files whose size+mtime are unchanged, and consider batching the heads into fewer execs.
+
+Do NOT rebuild/recreate the server for this work: land the commits and background an image build only (see CLAUDE.md)."""
+status = "finished"
+level = "task"
+category = "refactor"
+created = 2026-08-08
+completed = 2026-08-09
+tags = ["perf"]
+
+[[task]]
 id = "pause-the-prefetcher-during-a-foreground-refresh-or-gap-fill"
 title = "Pause the prefetcher during a foreground refresh or gap-fill"
 description = "Client-side complement to the server priority lane: TranscriptPrefetcher already pauses while a dictation turn streams (Host.turnActive, TranscriptPrefetcher.kt:41) - extend the same seam with a 'foreground history in flight' predicate so kick() holds off while the viewed session's refresh, attach history, or reconnect gap-fill paging is outstanding, and re-kicks when it lands. Cheap and independent of the wire flag; keeps the app from sending competing frames in the first place."

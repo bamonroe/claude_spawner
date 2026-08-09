@@ -64,6 +64,33 @@ func TestCwdsSkipsMissingAndCwdlessFiles(t *testing.T) {
 	}
 }
 
+// The whole point of the cwd cache is that a second sweep touches no files: a
+// transcript's cwd is fixed for the life of the path, so deleting the file must
+// not change the answer. A cwd-less file, by contrast, is retried (misses aren't
+// cached) — a transcript read mid-creation gets a second chance.
+func TestCwdsCachesPerPath(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cached.jsonl")
+	nocwd := filepath.Join(dir, "nocwd.jsonl")
+	if err := os.WriteFile(path, []byte(`{"cwd":"/data/claude_spawner"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(nocwd, []byte("{\"type\":\"summary\"}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	localClaudeFS.cwds(ctx, []string{path, nocwd})
+	if _, ok := getCachedCwd(localClaudeFS.cacheKey(nocwd)); ok {
+		t.Fatal("a cwd-less file must not be cached")
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if got := localClaudeFS.cwds(ctx, []string{path})[path]; got != "/data/claude_spawner" {
+		t.Fatalf("cwds = %q after delete, want the cached /data/claude_spawner", got)
+	}
+}
+
 // cwdFromMatch unwraps what the remote extractor's grep returns, and rejects
 // anything that isn't a clean, escape-free match.
 func TestCwdFromMatch(t *testing.T) {

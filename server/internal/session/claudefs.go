@@ -378,19 +378,35 @@ const cwdPattern = `"cwd":"[^"\\]*"`
 // the result.
 func (fs claudeFS) cwds(ctx context.Context, paths []string) map[string]string {
 	out := make(map[string]string, len(paths))
+	// A transcript's cwd is fixed for the life of the file, so a hit is good
+	// forever — no stat needed. This is what keeps the discovery sweep off the
+	// wire: only transcripts never seen before cost a read, so a steady-state
+	// sweep over the ~286-file projects dir sends nothing at all.
+	todo := paths[:0:0]
+	for _, p := range paths {
+		if dir, ok := getCachedCwd(fs.cacheKey(p)); ok {
+			out[p] = dir
+			continue
+		}
+		todo = append(todo, p)
+	}
+	if len(todo) == 0 {
+		return out
+	}
 	if fs.remote == nil {
-		for _, p := range paths {
+		for _, p := range todo {
 			if dir := localCwd(p); dir != "" {
 				out[p] = dir
+				putCachedCwd(fs.cacheKey(p), dir)
 			}
 		}
 		return out
 	}
-	for start := 0; start < len(paths); start += cwdsChunk {
-		end := min(start+cwdsChunk, len(paths))
+	for start := 0; start < len(todo); start += cwdsChunk {
+		end := min(start+cwdsChunk, len(todo))
 		var cmd strings.Builder
 		cmd.WriteString("for p in")
-		for _, p := range paths[start:end] {
+		for _, p := range todo[start:end] {
 			cmd.WriteString(" " + shellQuote(p))
 		}
 		// One tab-separated "path<TAB>match" line per file. head bounds the read,
@@ -409,10 +425,36 @@ func (fs claudeFS) cwds(ctx context.Context, paths []string) map[string]string {
 			}
 			if dir := cwdFromMatch(match); dir != "" {
 				out[path] = dir
+				putCachedCwd(fs.cacheKey(path), dir)
 			}
 		}
 	}
 	return out
+}
+
+// cwdCache remembers each transcript's recovered working directory, keyed by
+// claudeFS.cacheKey (host-namespaced path). Unlike transcriptCache it carries no
+// size/mtime: a transcript's `cwd` is written once, in its first event, and a
+// given path belongs to exactly one session id (the id IS the filename), so a
+// hit can never go stale — only growth is possible, and growth can't change the
+// head. Misses are deliberately NOT cached: a transcript read mid-creation can
+// legitimately have no cwd yet, and re-reading it next sweep is cheap.
+var (
+	cwdCacheMu sync.Mutex
+	cwdCache   = map[string]string{}
+)
+
+func getCachedCwd(key string) (string, bool) {
+	cwdCacheMu.Lock()
+	defer cwdCacheMu.Unlock()
+	dir, ok := cwdCache[key]
+	return dir, ok
+}
+
+func putCachedCwd(key, dir string) {
+	cwdCacheMu.Lock()
+	defer cwdCacheMu.Unlock()
+	cwdCache[key] = dir
 }
 
 // localCwd reads a bounded head of a local transcript and returns the first `cwd`
