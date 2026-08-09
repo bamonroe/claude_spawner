@@ -238,12 +238,23 @@ func (f *fakeSandbox) Start(context.Context, *session.Session, *session.ExecProf
 
 }
 func (f *fakeSandbox) Ensure(_ context.Context, sess *session.Session, _ *session.ExecProfile) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.ensured == nil {
 		f.ensured = map[string]string{}
 	}
 	f.ensured[sess.Container] = sess.Dir
 	return nil
 
+}
+
+// ensuredDir is the race-free read of Ensure's log: spawn runs the container
+// ensure in the background, so tests poll this rather than read the map straight
+// after the attached frame.
+func (f *fakeSandbox) ensuredDir(container string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.ensured[container]
 }
 func (f *fakeSandbox) Remove(_ context.Context, name string) error {
 	f.mu.Lock()

@@ -159,7 +159,15 @@ func TestSpawnAsksTargetWhenSandboxConfigured(t *testing.T) {
 	if rec.Container == "" {
 		t.Fatal("sandbox session has no container name")
 	}
-	if got := fake.ensured[rec.Container]; got != rec.Dir {
+	// Ensure runs in the background off the spawn path — poll for it.
+	got := ""
+	for i := 0; i < 100; i++ {
+		if got = fake.ensuredDir(rec.Container); got != "" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if got != rec.Dir {
 		t.Errorf("Ensure(%q) dir = %q, want %q", rec.Container, got, rec.Dir)
 	}
 

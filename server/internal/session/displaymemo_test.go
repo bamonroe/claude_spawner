@@ -236,3 +236,19 @@ func TestDisplayHistory_MatchesDigest(t *testing.T) {
 		t.Fatalf("DisplayDigest = (%d, %s), want (%d, %s)", dCount, dHash, count, hash)
 	}
 }
+
+// One indescribable segment must not poison the whole archived prefix: the memo
+// key still covers the describable leading run before it.
+func TestChainPartsPrefixRunStopsAtIndescribableSegment(t *testing.T) {
+	p := chainParts{segs: []string{"claude@a", "claude@b", "", "claude@d"}}
+	key, n := p.prefixRun()
+	if n != 2 || key != "claude@a|claude@b|" {
+		t.Fatalf("prefixRun() = (%q, %d), want (%q, 2)", key, n, "claude@a|claude@b|")
+	}
+	if key, n := (chainParts{segs: []string{"", "claude@b"}}).prefixRun(); n != 0 || key != "" {
+		t.Fatalf("leading indescribable: prefixRun() = (%q, %d), want (\"\", 0)", key, n)
+	}
+	if key, n := (chainParts{}).prefixRun(); n != 0 || key != "" {
+		t.Fatalf("no segments: prefixRun() = (%q, %d), want (\"\", 0)", key, n)
+	}
+}

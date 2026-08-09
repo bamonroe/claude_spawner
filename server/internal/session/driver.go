@@ -725,23 +725,31 @@ func (p chainParts) sig() string {
 	return b.String()
 }
 
-// prefixSig is the key the archived prefix (every segment concatenated) memoizes
-// under: the segment signatures alone, deliberately excluding cur, so it survives
-// the turns that keep moving the current chain. Empty — never a hit — when any
-// segment is indescribable, or when there are no archived segments at all.
-func (p chainParts) prefixSig() string {
-	if len(p.segs) == 0 {
-		return ""
-	}
+// prefixRun is the key the archived prefix memoizes under, plus how many leading
+// segments it covers: the signatures of the longest DESCRIBABLE leading run,
+// deliberately excluding cur so the key survives the turns that keep moving the
+// current chain.
+//
+// It stops at the first indescribable segment rather than giving up on the whole
+// prefix, so one unsignable segment costs only itself and whatever follows it —
+// every segment before it still comes back from one memo hit, already indexed.
+// Empty key / 0 — never a hit — when the first segment is indescribable, or when
+// there are no archived segments at all.
+func (p chainParts) prefixRun() (string, int) {
 	var b strings.Builder
+	n := 0
 	for _, s := range p.segs {
 		if s == "" {
-			return ""
+			break
 		}
 		b.WriteString(s)
 		b.WriteByte('|')
+		n++
 	}
-	return b.String()
+	if n == 0 {
+		return "", 0
+	}
+	return b.String(), n
 }
 
 // chainSigTTL is how long a memoized chainSig is served before the chain is
@@ -858,36 +866,52 @@ func (d *Driver) readDisplayHistory(ctx context.Context, rec *Session, parts cha
 		return msgs, nil
 	}
 	// The archived segments are a stable prefix; only the current chain moves. Serve
-	// the whole prefix — already concatenated and indexed — from one memo entry so a
-	// turn costs O(current chain), not O(whole log).
-	pkey := parts.prefixSig()
-	prefix, prefixHit := d.display().getPrefix(pkey)
+	// the describable leading run of that prefix — already concatenated and indexed —
+	// from one memo entry so a turn costs O(current chain), not O(whole log). Segments
+	// after the first indescribable one are assembled per segment, so one unsignable
+	// segment costs itself rather than the whole archive.
+	pkey, runLen := parts.prefixRun()
 	degraded := false // a segment read failed: this log is short, don't memoize it
-	if !prefixHit {
+	readSeg := func(i int) []Message {
+		seg := rec.History[i]
+		key := ""
+		if i < len(parts.segs) {
+			key = parts.segs[i]
+		}
+		if msgs, ok := d.display().getSegment(key); ok {
+			return msgs
+		}
+		msgs, err := d.transcriptReaderFor(seg.Agent, seg.Host).readTranscriptChain(ctx, seg.IDs)
+		if err != nil {
+			log.Printf("display history[%s]: read archived %s segment: %v", rec.Name, seg.Agent, err)
+			degraded = true
+			return nil
+		}
+		d.display().putSegment(key, msgs)
+		return msgs
+	}
+	prefix, runHit := d.display().getPrefix(pkey)
+	if !runHit {
 		prefix = nil
-		for i, seg := range rec.History {
-			key := ""
-			if i < len(parts.segs) {
-				key = parts.segs[i]
-			}
-			if msgs, ok := d.display().getSegment(key); ok {
-				prefix = append(prefix, msgs...)
-				continue
-			}
-			msgs, err := d.transcriptReaderFor(seg.Agent, seg.Host).readTranscriptChain(ctx, seg.IDs)
-			if err != nil {
-				log.Printf("display history[%s]: read archived %s segment: %v", rec.Name, seg.Agent, err)
-				degraded = true
-				continue
-			}
-			d.display().putSegment(key, msgs)
-			prefix = append(prefix, msgs...)
+		for i := 0; i < runLen; i++ {
+			prefix = append(prefix, readSeg(i)...)
 		}
 		for i := range prefix {
 			prefix[i].Index = i
 		}
-		if !degraded {
+		if !degraded && runLen > 0 {
 			d.display().putPrefix(pkey, prefix)
+		}
+	}
+	if runLen < len(rec.History) {
+		// Copy first: on a hit prefix is the memo's own read-only array.
+		tail := append([]Message(nil), prefix...)
+		for i := runLen; i < len(rec.History); i++ {
+			tail = append(tail, readSeg(i)...)
+		}
+		prefix = tail
+		for i := range prefix {
+			prefix[i].Index = i
 		}
 	}
 	cur, err := d.transcriptReaderFor(rec.Agent, rec.Host).readTranscriptChain(ctx, d.currentHistoryIDs(rec))
