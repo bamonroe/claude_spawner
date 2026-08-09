@@ -42,7 +42,11 @@ func TestStoreRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Reopen and confirm persistence.
+	// Reopen and confirm persistence. Put only marks the registry dirty — the
+	// background writer owns the file, so wait for it before reading back.
+	if err := s.Sync(); err != nil {
+		t.Fatal(err)
+	}
 	s2, err := OpenStore(path)
 	if err != nil {
 		t.Fatal(err)

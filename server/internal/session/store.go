@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"time"
 )
 
 // Store is a concurrency-safe, file-backed registry of Session records. Because
@@ -15,6 +16,22 @@ import (
 type Store struct {
 	path string
 	mu   sync.RWMutex
+	// Persistence is coalesced: a mutation only edits the maps and bumps version,
+	// and a single background writer collapses a burst into one whole-file rewrite
+	// (see writeLoop). Readers are always served from the maps below and never from
+	// the file, so the only invariant the disk owes us is "at least one write after
+	// the last mutation before exit" — which Close guarantees. Having exactly one
+	// writer goroutine also removes the old out-of-order-rename race, where two
+	// concurrent flushes could land newest-first.
+	cond     *sync.Cond
+	version  uint64 // bumped by every mutation
+	written  uint64 // highest version durably on disk
+	lastErr  error  // last write error, surfaced by the next mutator
+	debounce time.Duration
+	wake     chan struct{} // buffered 1: "there is work"
+	now      chan struct{} // buffered 1: "skip the debounce"
+	stop     chan struct{} // closed by Close
+	done     chan struct{} // closed when writeLoop exits
 	// Records are indexed both by their mutable Name (the voice/lookup handle) and
 	// by their stable SessionID (the durable identity). A rename only re-keys
 	// byName; byID never moves — so callers that hold a session_id (attach/rename/
@@ -25,10 +42,21 @@ type Store struct {
 
 // OpenStore loads (or initializes) the registry at path.
 func OpenStore(path string) (*Store, error) {
-	s := &Store{path: path, byName: map[string]*Session{}, byID: map[string]*Session{}}
+	s := &Store{
+		path:     path,
+		byName:   map[string]*Session{},
+		byID:     map[string]*Session{},
+		debounce: storeFlushDebounce,
+		wake:     make(chan struct{}, 1),
+		now:      make(chan struct{}, 1),
+		stop:     make(chan struct{}),
+		done:     make(chan struct{}),
+	}
+	s.cond = sync.NewCond(&s.mu)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
+			go s.writeLoop()
 			return s, nil // fresh store
 		}
 		return nil, err
@@ -58,10 +86,15 @@ func OpenStore(path string) (*Store, error) {
 	// and dropping the rest, so the list self-cleans on the next restart. Records
 	// with different session_ids in one dir are legitimate and left alone.
 	if n := s.dedupeBySessionID(); n > 0 {
-		if err := s.flush(); err != nil {
+		// Persist the heal synchronously, before the store is shared: boot is not a
+		// latency-sensitive path, and a caller that reopens the file immediately
+		// afterwards must see the collapsed registry.
+		s.version++
+		if err := s.writeNow(); err != nil {
 			return nil, err
 		}
 	}
+	go s.writeLoop()
 	return s, nil
 }
 
@@ -335,8 +368,116 @@ func (s *Store) ForgetID(oldID string) error {
 	return nil
 }
 
-// flush writes the registry atomically (temp file + rename).
+// storeFlushDebounce is how long a mutation waits for company before the writer
+// persists. Long enough that a burst — a turn's worth of Puts, or the job
+// reconciler sweeping every session — collapses into one whole-file rewrite,
+// short enough that a crash moments later loses nothing anyone would notice.
+const storeFlushDebounce = 250 * time.Millisecond
+
+// flush marks the registry dirty and returns without touching the disk; the
+// background writer persists it within one debounce window. The error returned is
+// the LAST write failure seen (a disk problem still reaches a caller, just not
+// necessarily the one that caused it) — mutations themselves cannot fail here,
+// because they are already committed to the in-memory maps that serve all reads.
 func (s *Store) flush() error {
+	s.mu.Lock()
+	s.version++
+	err := s.lastErr
+	s.mu.Unlock()
+	select {
+	case s.wake <- struct{}{}:
+	default: // already pending; the writer will pick up the newest version
+	}
+	return err
+}
+
+// Sync blocks until every mutation made so far is on disk. Shutdown and tests use
+// it; nothing on a request path should.
+func (s *Store) Sync() error {
+	s.mu.Lock()
+	want := s.version
+	s.mu.Unlock()
+	select {
+	case s.now <- struct{}{}:
+	default:
+	}
+	select {
+	case s.wake <- struct{}{}:
+	default:
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for s.written < want && s.lastErr == nil {
+		s.cond.Wait()
+	}
+	return s.lastErr
+}
+
+// Close stops the background writer after one final synchronous write, so the
+// file on disk reflects every mutation made during the process's life.
+func (s *Store) Close() error {
+	err := s.Sync()
+	select {
+	case <-s.stop: // already closed
+	default:
+		close(s.stop)
+	}
+	<-s.done
+	return err
+}
+
+// writeLoop is the single writer: wake, wait out the debounce window so a burst of
+// mutations collapses into one file, then persist whatever the maps hold now.
+// Because exactly one goroutine ever renames the file, writes land in version
+// order — the old design's concurrent flushes could rename newest-first.
+func (s *Store) writeLoop() {
+	defer close(s.done)
+	for {
+		select {
+		case <-s.stop:
+			s.persist()
+			return
+		case <-s.wake:
+		}
+		timer := time.NewTimer(s.debounce)
+		select {
+		case <-timer.C:
+		case <-s.now:
+			timer.Stop()
+		case <-s.stop:
+			timer.Stop()
+			s.persist()
+			return
+		}
+		s.persist()
+	}
+}
+
+// persist writes the registry if it is behind, recording the outcome for Sync and
+// for the next mutator to return.
+func (s *Store) persist() {
+	s.mu.Lock()
+	if s.written >= s.version {
+		s.mu.Unlock()
+		return
+	}
+	version := s.version
+	s.lastErr = nil // this attempt's outcome replaces the previous one
+	s.mu.Unlock()
+
+	err := s.writeNow()
+
+	s.mu.Lock()
+	s.lastErr = err
+	if err == nil && version > s.written {
+		s.written = version
+	}
+	s.cond.Broadcast()
+	s.mu.Unlock()
+}
+
+// writeNow writes the registry atomically (temp file + rename).
+func (s *Store) writeNow() error {
 	s.mu.RLock()
 	recs := make([]*Session, 0, len(s.byName))
 	for _, rec := range s.byName {
@@ -361,11 +502,9 @@ func (s *Store) flush() error {
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
 		return err
 	}
-	// A UNIQUE temp file per flush, not a fixed "<path>.tmp": concurrent flushes
-	// (two Puts/Inserts racing) would share the fixed name and one's rename would
-	// yank the file out from under the other's write. Each flush snapshots the
-	// whole registry, so whichever rename lands last leaves a complete, current
-	// file either way.
+	// A unique temp file per write. Only the background writer (or OpenStore's heal,
+	// before the store is shared) gets here, so renames are already serialized —
+	// the unique name just keeps a stray leftover from ever being the live target.
 	tmp, err := os.CreateTemp(filepath.Dir(s.path), filepath.Base(s.path)+".tmp*")
 	if err != nil {
 		return err

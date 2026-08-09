@@ -353,6 +353,11 @@ func main() {
 	if sshConns != nil {
 		_ = sshConns.Close() // tear down pooled SSH connections + their keepalives
 	}
+	// Registry writes are coalesced by a background writer; this is the one flush
+	// that must happen, so the file on disk reflects the last mutation.
+	if err := store.Close(); err != nil {
+		log.Printf("session store: final flush failed: %v", err)
+	}
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	_ = srv.Shutdown(shutdownCtx)
 	shutdownCancel()
