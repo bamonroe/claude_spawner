@@ -27,6 +27,16 @@ func claude() *Agent {
 			{Alias: "sonnet", Flag: "sonnet"},
 			{Alias: "fable", Flag: "claude-fable-5", Spoken: []string{"fable five", "fable5"}},
 			{Alias: "haiku", Flag: "haiku", Spoken: []string{"haiku four five", "haiku 4.5"}},
+			// Effort presets: --effort trades latency for thinking depth on the same
+			// model, so they ride on the default opus as their own catalogue entries
+			// (the Codex reasoning presets work the same way). Args replaces the
+			// "--model <Flag>" convention, so it must carry the model itself.
+			{Alias: "opus-low", Args: []string{"--model", "opus", "--effort", "low"},
+				Spoken: []string{"low", "low effort", "fast"}},
+			{Alias: "opus-high", Args: []string{"--model", "opus", "--effort", "high"},
+				Spoken: []string{"high", "high effort", "thorough"}},
+			{Alias: "opus-max", Args: []string{"--model", "opus", "--effort", "max"},
+				Spoken: []string{"max", "max effort", "maximum"}},
 		},
 		build: func(a *Agent, s TurnSpec, m Model) []string {
 			args := []string{"-p", s.Prompt, "--output-format", "stream-json", "--verbose"}

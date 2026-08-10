@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "expose-claude-effort-as-selectable-model-entries"
+title = "Expose Claude --effort as selectable model entries"
+description = "claude CLI 2.1.220 has --effort <level>. The agent registry already supports per-model Args lists (Codex uses them for gpt-5.5 high/low reasoning presets), so effort can be exposed as catalogue entries like opus-high / opus-low with --effort baked in, with no other code changes. Pick which levels to surface and their spoken aliases."
+status = "finished"
+level = "task"
+category = "feature"
+created = 2026-08-10
+completed = 2026-08-10
+tags = []
+
+[[task]]
 id = "add-haiku-to-the-claude-model-catalogue"
 title = "Add haiku to the Claude model catalogue"
 description = "server/internal/agent/claude.go hardcodes opus/sonnet/fable. Add {Alias: \"haiku\", Flag: \"haiku\"} — the CLI accepts the alias directly, so nothing blocks it. Consider spoken aliases and check the settings catalogue digest / docsync tests still pass."

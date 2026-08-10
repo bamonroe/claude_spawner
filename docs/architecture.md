@@ -212,7 +212,8 @@ and parse it — so the server drives more than `claude`.
 - An **`Agent`** (`internal/agent`) is a **self-contained** headless backend, one file per backend
   (`claude.go`, `codex.go`, `opencode.go`): an id (persisted on the session), a `Bin` (the command to launch), a
   `DefaultModel`, a catalogue of selectable `Models` (each by a short spoken alias —
-  `opus`/`sonnet`/`fable`/`haiku`, or Codex's presets). The `Models` slice is the compiled
+  `opus`/`sonnet`/`fable`/`haiku` plus the `opus-low`/`opus-high`/`opus-max` `--effort` presets, or
+  Codex's reasoning presets). The `Models` slice is the compiled
   **fallback**: a backend may also declare **live discovery** (`DiscoverArgs` + `ParseModels`) —
   a command whose stdout lists the models it can *currently* run — and when a probe succeeds the
   discovered catalogue **shadows** `Models` everywhere it's read (`Agent.Catalog`, guarded for the

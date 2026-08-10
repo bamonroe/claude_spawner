@@ -19,15 +19,3 @@ add_proposed_work = "Add proposed features and tests as new tasks rather than lo
 remove_dropped_items = "Remove dropped items with a one-line why (`scripts/todo.sh remove <id> --reason`)."
 finish_work = "When a task is fully finished (built, tested, documented), run `scripts/todo.sh done <id>` to move it to FINISHED.toml — in the same commit that completes the work."
 scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/KMP app + web client. The historical phase roadmap stays in README.md."
-
-[[task]]
-id = "expose-claude-effort-as-selectable-model-entries"
-title = "Expose Claude --effort as selectable model entries"
-description = "claude CLI 2.1.220 has --effort <level>. The agent registry already supports per-model Args lists (Codex uses them for gpt-5.5 high/low reasoning presets), so effort can be exposed as catalogue entries like opus-high / opus-low with --effort baked in, with no other code changes. Pick which levels to surface and their spoken aliases."
-status = "active"
-level = "task"
-category = "feature"
-urgency = "normal"
-order = 20
-created = 2026-08-10
-tags = []

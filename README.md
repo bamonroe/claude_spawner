@@ -661,7 +661,9 @@ A session records which backend it runs and which **model**. Each backend has a 
 the spawner picks for you, plus a short catalogue you can switch between by voice:
 
 - **"hey buddy, list models"** — speaks the attached session's backend catalogue, numbered, marking
-  the current one (Claude: `opus` / `sonnet` / `fable` / `haiku`; Codex on a ChatGPT-account plan: `gpt-5.5`
+  the current one (Claude: `opus` / `sonnet` / `fable` / `haiku`, plus the effort presets
+  `opus-low` / `opus-high` / `opus-max`, which run opus at that `--effort` level — deeper thinking
+  for slower turns; Codex on a ChatGPT-account plan: `gpt-5.5`
   and its low/high reasoning presets — the account decides which model ids are selectable; Ollama
   and Zen: whatever opencode is configured to run, discovered live and named by model id).
 - **"hey buddy, use model 2"** — switches to that numbered model (say the number — "two" or "2").
