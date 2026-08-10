@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "expose-claude-auth-status-as-a-session-layer-auth-check"
+title = "Expose 'claude auth status' as a session-layer auth check"
+description = "Wrap 'claude auth status --json' as a typed call in internal/session, run per host and identity with the right HOME. It returns loggedIn, authMethod, apiProvider, email, orgId, orgName, subscriptionType, and exits 1 when logged out — treat the JSON as authoritative and the non-zero exit as expected, not an error. Used to show current auth state, to confirm a login actually took, and later to explain credential-expiry turn failures."
+status = "finished"
+level = "task"
+category = "feature"
+created = 2026-08-10
+completed = 2026-08-10
+tags = ["auth", "session"]
+
+[[task]]
 id = "implement-a-pty-backed-auth-login-process-in-internal-session"
 title = "Implement a PTY-backed auth login process in internal/session"
 description = "Per docs/scopes/claude-auth-login.md: add a supervised login process alongside the turn Executor. Allocate a PTY (plain pipes cannot answer the paste-code prompt — the process ignores piped stdin and hangs), run 'claude auth login --claudeai|--console' with the HOME/user of the target identity on the target host, scan output for the OAuth URL after stripping ANSI/OSC-8 escapes (under a PTY the URL is emitted twice inside a hyperlink escape), expose the URL to the caller, accept exactly one pasted code written to the PTY, and finish on process exit — exit 0 is success, exit 1 with 'Login failed: …' is failure. Include an overall timeout and cancellation, since the process otherwise waits forever."

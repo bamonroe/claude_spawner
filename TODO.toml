@@ -81,18 +81,6 @@ created = 2026-08-10
 tags = ["auth", "voice"]
 
 [[task]]
-id = "expose-claude-auth-status-as-a-session-layer-auth-check"
-title = "Expose 'claude auth status' as a session-layer auth check"
-description = "Wrap 'claude auth status --json' as a typed call in internal/session, run per host and identity with the right HOME. It returns loggedIn, authMethod, apiProvider, email, orgId, orgName, subscriptionType, and exits 1 when logged out — treat the JSON as authoritative and the non-zero exit as expected, not an error. Used to show current auth state, to confirm a login actually took, and later to explain credential-expiry turn failures."
-status = "active"
-level = "task"
-category = "feature"
-urgency = "high"
-order = 90
-created = 2026-08-10
-tags = ["auth", "session"]
-
-[[task]]
 id = "single-flight-guard-for-in-progress-logins"
 title = "Single-flight guard for in-progress logins"
 description = "Each 'claude auth login' invocation mints a fresh code_challenge/state, so its URL is bound to that process and starting a second login silently invalidates the first. Guard one live login per host+identity: a second start either returns the existing pending login (with its already-issued URL) or explicitly cancels and replaces it, never leaving two racing. Clean up the process on client disconnect so a killed app does not strand a PTY."
