@@ -33,18 +33,6 @@ created = 2026-08-10
 tags = ["auth", "session"]
 
 [[task]]
-id = "client-ui-for-the-re-login-flow"
-title = "Client UI for the re-login flow"
-description = "Design and build the shared Compose UI (see docs/web-client.md — one UI for app and browser): show current auth status per host (logged in as <email>, plan), a 'log in again' action, a chooser for subscription vs API console, then the URL step with open/copy, a paste-code field if the probe shows one is needed, progress and a clear success/failure result that refreshes auth status. Include what happens when a turn fails because credentials expired — that error should offer this flow inline."
-status = "active"
-level = "scope"
-category = "feature"
-urgency = "normal"
-order = 60
-created = 2026-08-10
-tags = ["auth", "ui"]
-
-[[task]]
 id = "add-a-hey-buddy-log-in-command"
 title = "Add a 'hey buddy' log-in command"
 description = "Add a voice command that starts the re-login flow (e.g. 'hey buddy, log in to claude' / 'hey buddy, auth status'), following the Registry→docs/commands.json→APK pipeline in docs/commands.md — add it to command.Registry, regenerate with 'go run ./cmd/gencommands', document in docs/commands.md. Spoken reply reads back auth status; starting a login speaks the instruction to check the phone/browser for the link, since a URL cannot be usefully spoken."
@@ -79,3 +67,51 @@ urgency = "low"
 order = 110
 created = 2026-08-10
 tags = ["auth"]
+
+[[task]]
+id = "auth-state-holder-and-inbound-routing-for-the-re-login-flow"
+title = "Auth state holder and inbound routing for the re-login flow"
+description = "Client plumbing under the UI: route the three inbound auth frames (AuthStatus, AuthLoginUrl, AuthLoginResult — already parsed in net/Protocol.kt) through net/InboundRouter.kt into a per-host auth state holder (status, in-flight login, url, awaiting-code, last error). Add a small AuthController interface next to HostsIdentitiesController (commonMain) exposing requestAuthStatus/startLogin(method)/submitCode/cancelLogin/logout over Outbound.authStatus/authLogin/authLoginCode/authLoginCancel, and implement it on VoiceController so both the app and the web client share it."
+status = "active"
+level = "task"
+category = "feature"
+urgency = "normal"
+order = 120
+created = 2026-08-10
+tags = ["android", "auth"]
+
+[[task]]
+id = "shared-compose-login-screen-for-a-host"
+title = "Shared Compose login screen for a host"
+description = "The UI itself, in commonMain so app and browser share it: current status line (logged in as <email>, plan / logged out), a 'log in again' action, subscription-vs-API-console chooser, then the URL step using ui/LinkOpener.kt (open + copy fallback), a paste-code field, progress, and a clear success/failure result that refreshes auth status. Cancel on navigate-away sends authLoginCancel."
+status = "active"
+level = "task"
+category = "feature"
+urgency = "normal"
+order = 130
+created = 2026-08-10
+tags = ["android", "auth"]
+
+[[task]]
+id = "surface-claude-auth-status-in-hosts-settings"
+title = "Surface Claude auth status in Hosts settings"
+description = "Give the login screen an entry point: show each host's Claude login status in SettingsHostsIdentities.kt's HostsSettings row (fetched via requestAuthStatus on open) with a tap-through to the login screen, plus a log-out action."
+status = "active"
+level = "task"
+category = "feature"
+urgency = "normal"
+order = 140
+created = 2026-08-10
+tags = ["android", "auth"]
+
+[[task]]
+id = "offer-re-login-inline-when-a-turn-fails-on-expired-credentials"
+title = "Offer re-login inline when a turn fails on expired credentials"
+description = "When a turn fails because the host's Claude credentials expired, the error shown in the chat log should offer the re-login flow inline (a tap that opens the login screen for that session's host) rather than leaving the user to find it in settings. Needs the server-side turn_failed reason to be distinguishable as an auth failure — check whether it already is, and make it so if not."
+status = "active"
+level = "task"
+category = "feature"
+urgency = "normal"
+order = 150
+created = 2026-08-10
+tags = ["android", "auth"]
