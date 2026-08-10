@@ -14,6 +14,28 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "design-the-auth-login-driver-seam-in-internal-session"
+title = "Design the auth-login driver seam in internal/session"
+description = "Decide where a login flow lives alongside the existing turn Executor (host process vs container vs SSH to the target host — see session/executor.go, ssh_exec.go). It is a long-lived interactive process, not a turn, so it does not fit driver_turn.go: it needs its own supervised process, an output scanner that extracts the OAuth URL, a way to feed a pasted code back to stdin, cancellation/timeout, and a single-flight guard so two clients cannot race competing logins. It must run as the same user/home whose ~/.claude credentials the sessions actually use — so it is per host and per identity (session/identity.go, hosts.go). Depends on the sandbox probe. Produce the atomic implementation tasks."
+status = "finished"
+level = "scope"
+category = "feature"
+created = 2026-08-10
+completed = 2026-08-10
+tags = ["auth", "session"]
+
+[[task]]
+id = "probe-claude-auth-login-non-interactive-behavior-in-the-sandbox"
+title = "Probe 'claude auth login' non-interactive behavior in the sandbox"
+description = "Before wiring anything, determine empirically (in the sandbox container, NOT on the live host — it holds the credentials the user is working through) exactly how 'claude auth login --claudeai' behaves when driven programmatically: what it writes to stdout/stderr, whether the OAuth URL is printed as plain text we can regex, whether it tries to xdg-open a browser itself, what it reads on stdin (paste-code vs pure callback), the exit code and timing on success/abort, and the same for '--console'. Also confirm 'claude auth status --json' fields (loggedIn, authMethod, email, subscriptionType) as the authoritative post-login check, and what a PTY (vs plain pipe) changes. Output: a written note plus concrete atomic tasks for the driver."
+status = "finished"
+level = "scope"
+category = "feature"
+created = 2026-08-10
+completed = 2026-08-10
+tags = ["auth"]
+
+[[task]]
 id = "instrument-attach-to-render-transcript-latency"
 title = "Instrument attach-to-render transcript latency"
 description = "There is no measurement of where a cold attach's wait actually goes, so prefetch fixes cannot be verified beyond feel. Add lightweight timing: client-side, the interval from focusKnownSession to the first rendered page (and whether it was served from cache, a prefetch hit, or a fresh fetch); server-side, the existing digest-sweep log line already reports cached-vs-recomputed and timeouts — add the equivalent for a foreground history request (SSH round trip vs transcript parse vs page assembly). Use it to confirm the sweep-refresh fix actually turns attaches into cache hits."
