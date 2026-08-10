@@ -48,7 +48,7 @@ data class WhisperDownloadInfo(
 fun restartIndicators(msg: ServerMsg.RestartStatus): Pair<Boolean, Boolean> =
     Pair(msg.phase == "started" && msg.mode != "bounce", msg.restartPending)
 
-interface AppController : HostsIdentitiesController, ProfilesController, ProvidersController, SpokenTokensController, ShellCommandsController {
+interface AppController : HostsIdentitiesController, AuthController, ProfilesController, ProvidersController, SpokenTokensController, ShellCommandsController {
     // --- Connection / status -------------------------------------------------
     val status: StateFlow<String>
 

@@ -289,6 +289,15 @@ class WebAppController(internal val prefs: Prefs) : AppController {
     override val hosts: StateFlow<List<Host>> = catalogues.hosts
     override val identities: StateFlow<List<Identity>> = catalogues.identities
 
+    // The Claude re-login flow, likewise shared with the Android controller (AuthSync).
+    internal val auth = com.bam.spawner.net.AuthSync { client?.send(it) }
+    override val authStates: StateFlow<Map<String, com.bam.spawner.net.AuthState>> = auth.states
+    override fun requestAuthStatus(host: String) = auth.requestAuthStatus(host)
+    override fun startLogin(host: String, method: String) = auth.startLogin(host, method)
+    override fun submitLoginCode(code: String, host: String) = auth.submitCode(code, host)
+    override fun cancelLogin(host: String) = auth.cancelLogin(host)
+    override fun logout(host: String) = auth.logout(host)
+
     /** (Re)connect to [url] with [token], sending the hello handshake built from prefs. */
     fun connect(url: String, token: String) {
         client?.close()

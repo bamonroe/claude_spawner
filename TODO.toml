@@ -57,18 +57,6 @@ created = 2026-08-10
 tags = ["auth"]
 
 [[task]]
-id = "auth-state-holder-and-inbound-routing-for-the-re-login-flow"
-title = "Auth state holder and inbound routing for the re-login flow"
-description = "Client plumbing under the UI: route the three inbound auth frames (AuthStatus, AuthLoginUrl, AuthLoginResult — already parsed in net/Protocol.kt) through net/InboundRouter.kt into a per-host auth state holder (status, in-flight login, url, awaiting-code, last error). Add a small AuthController interface next to HostsIdentitiesController (commonMain) exposing requestAuthStatus/startLogin(method)/submitCode/cancelLogin/logout over Outbound.authStatus/authLogin/authLoginCode/authLoginCancel, and implement it on VoiceController so both the app and the web client share it."
-status = "active"
-level = "task"
-category = "feature"
-urgency = "normal"
-order = 120
-created = 2026-08-10
-tags = ["android", "auth"]
-
-[[task]]
 id = "shared-compose-login-screen-for-a-host"
 title = "Shared Compose login screen for a host"
 description = "The UI itself, in commonMain so app and browser share it: current status line (logged in as <email>, plan / logged out), a 'log in again' action, subscription-vs-API-console chooser, then the URL step using ui/LinkOpener.kt (open + copy fallback), a paste-code field, progress, and a clear success/failure result that refreshes auth status. Cancel on navigate-away sends authLoginCancel."

@@ -250,6 +250,15 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
     override val hosts: StateFlow<List<com.bam.spawner.net.Host>> = catalogues.hosts
     override val identities: StateFlow<List<com.bam.spawner.net.Identity>> = catalogues.identities
 
+    // The Claude re-login flow, likewise shared with the web controller (AuthSync).
+    internal val auth = com.bam.spawner.net.AuthSync { client?.send(it) }
+    override val authStates: StateFlow<Map<String, com.bam.spawner.net.AuthState>> = auth.states
+    override fun requestAuthStatus(host: String) = auth.requestAuthStatus(host)
+    override fun startLogin(host: String, method: String) = auth.startLogin(host, method)
+    override fun submitLoginCode(code: String, host: String) = auth.submitCode(code, host)
+    override fun cancelLogin(host: String) = auth.cancelLogin(host)
+    override fun logout(host: String) = auth.logout(host)
+
     internal val _mic = MutableStateFlow("")
     val mic: StateFlow<String> = _mic.asStateFlow()
 

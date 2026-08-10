@@ -155,12 +155,12 @@ internal fun WebAppController.onMessage(msg: ServerMsg) {
             _restartBuilding.value = building
             _restartPending.value = pending
         }
-        // The re-login (`claude auth`) frames are parsed and routed here so the wire
-        // stays exhaustive; rendering them — the status line, the URL to open, the
-        // code field — is the client-ui-for-the-re-login-flow task.
-        is ServerMsg.AuthStatus -> Unit
-        is ServerMsg.AuthLoginUrl -> Unit
-        is ServerMsg.AuthLoginResult -> Unit
+        // The re-login (`claude auth`) frames fold into the shared per-host auth state
+        // holder; rendering it — the status line, the URL to open, the code field — is
+        // the client-ui-for-the-re-login-flow task.
+        is ServerMsg.AuthStatus -> { auth.apply(msg); Unit }
+        is ServerMsg.AuthLoginUrl -> { auth.apply(msg); Unit }
+        is ServerMsg.AuthLoginResult -> { auth.apply(msg); Unit }
         is ServerMsg.Files -> router.onFiles(msg)
         is ServerMsg.Diff -> router.onDiff(msg)
         is ServerMsg.RateLimit -> _rateLimit.value = msg.info

@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "auth-state-holder-and-inbound-routing-for-the-re-login-flow"
+title = "Auth state holder and inbound routing for the re-login flow"
+description = "Client plumbing under the UI: route the three inbound auth frames (AuthStatus, AuthLoginUrl, AuthLoginResult — already parsed in net/Protocol.kt) through net/InboundRouter.kt into a per-host auth state holder (status, in-flight login, url, awaiting-code, last error). Add a small AuthController interface next to HostsIdentitiesController (commonMain) exposing requestAuthStatus/startLogin(method)/submitCode/cancelLogin/logout over Outbound.authStatus/authLogin/authLoginCode/authLoginCancel, and implement it on VoiceController so both the app and the web client share it."
+status = "finished"
+level = "task"
+category = "feature"
+created = 2026-08-10
+completed = 2026-08-10
+tags = ["android", "auth"]
+
+[[task]]
 id = "single-flight-guard-for-in-progress-logins"
 title = "Single-flight guard for in-progress logins"
 description = "Each 'claude auth login' invocation mints a fresh code_challenge/state, so its URL is bound to that process and starting a second login silently invalidates the first. Guard one live login per host+identity: a second start either returns the existing pending login (with its already-issued URL) or explicitly cancels and replaces it, never leaving two racing. Clean up the process on client disconnect so a killed app does not strand a PTY."
