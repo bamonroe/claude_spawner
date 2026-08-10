@@ -19,15 +19,3 @@ add_proposed_work = "Add proposed features and tests as new tasks rather than lo
 remove_dropped_items = "Remove dropped items with a one-line why (`scripts/todo.sh remove <id> --reason`)."
 finish_work = "When a task is fully finished (built, tested, documented), run `scripts/todo.sh done <id>` to move it to FINISHED.toml — in the same commit that completes the work."
 scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/KMP app + web client. The historical phase roadmap stays in README.md."
-
-[[task]]
-id = "instrument-attach-to-render-transcript-latency"
-title = "Instrument attach-to-render transcript latency"
-description = "There is no measurement of where a cold attach's wait actually goes, so prefetch fixes cannot be verified beyond feel. Add lightweight timing: client-side, the interval from focusKnownSession to the first rendered page (and whether it was served from cache, a prefetch hit, or a fresh fetch); server-side, the existing digest-sweep log line already reports cached-vs-recomputed and timeouts — add the equivalent for a foreground history request (SSH round trip vs transcript parse vs page assembly). Use it to confirm the sweep-refresh fix actually turns attaches into cache hits."
-status = "active"
-level = "task"
-category = "test"
-urgency = "normal"
-order = 50
-created = 2026-08-09
-tags = ["transcripts", "performance"]

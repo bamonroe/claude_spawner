@@ -56,6 +56,11 @@ internal fun WebAppController.focusKnownSession(target: DiscoveredInfo, syncServ
     prefs.lastSessionId = target.sessionId
     _status.value = "attached: ${target.name}"
     router.currentId = target.sessionId
+    attachLatency.attachStarted(
+        target.sessionId,
+        heldRows = router.logs[target.sessionId]?.size ?: 0,
+        prefetched = prefetcher.didPrefetch(target.sessionId),
+    )
     router.publish()
     _scrollTick.value = _scrollTick.value + 1
     session.requestFreshHistory(target.sessionId, target.name)
@@ -307,6 +312,7 @@ internal fun WebAppController.onHistory(msg: ServerMsg.History) {
         // Clear the foreground gate BEFORE telling the prefetcher, so its kick sees a free lane.
         router.loadingOlder = false
         if (msg.hash.isNotEmpty()) session.recordSynced(key, msg.count, msg.hash)
+        attachLatency.historyArrived(key, "unchanged", router.logs[key]?.size ?: 0)
         prefetcher.onSynced(key)
         prefetcher.kick()
         // Re-run the shared de-dup over what we hold (as the phone does): the held log may
@@ -346,6 +352,7 @@ internal fun WebAppController.onHistory(msg: ServerMsg.History) {
         }
     }
     if (key == router.currentId) { router.publish(); _scrollTick.value = _scrollTick.value + 1 }
+    if (!wasLoadOlder) attachLatency.historyArrived(key, if (msg.delta) "delta" else "page", merged.messages.size)
     prefetcher.kick() // after any gap-fill re-armed loadingOlder, so the gate is accurate
 }
 

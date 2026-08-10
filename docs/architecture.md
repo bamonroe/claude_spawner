@@ -589,6 +589,47 @@ keepalive owns, and dropping it would only make the next caller pay a dial. "Idl
 counts as busy, and a caller that wins a slot on a connection retired in the same instant rechecks
 `live()` and looks again — so a reap can never close the transport out from under work.
 
+### Attach latency instrumentation (where a cold attach's wait actually goes)
+
+Transcript prefetch, the digest cache and the display memo all exist to make tapping into a session
+instant, and none of them could be judged by anything but feel. Both halves of the path now report
+their own timing, so a change is verified by numbers.
+
+**Server.** `session.StageTimer` (`internal/session/timing.go`) is a stage-timing collector carried
+on the **context** rather than in call signatures — the stages live inside `Driver.DisplayHistory`
+/ `DisplayDigest`, several layers below the caller that wants the numbers, and a nil timer (every
+other caller: the digest sweep, the turn path) makes it a no-op. The driver attributes two stages —
+`chain` (the SSH stat round trip that decides what's fresh) and `read` (the transcript fetch +
+JSONL parse, which the display memo often serves outright) — plus a `digest=cached|computed` note.
+`serveHistory` adds `assemble` (paging + scaffolding strip) and logs one line per request, mirroring
+the digest sweep's:
+
+```
+history[web]: foreground unchanged, 0 row(s) in 41ms (queue 2ms, chain=39ms read=0s digest=cached)
+history[api]: prefetch page, 30 row(s) in 812ms (queue 0s, chain=118ms read=677ms digest=computed assemble=3ms)
+```
+
+`queue` is time spent waiting for a lane (per-session coalescing, the concurrency gate) rather than
+reading, so a stall caused by contention reads differently from a slow host. The lane label
+(`foreground`/`prefetch`) keeps an attach's number unambiguous, and the outcome (`unchanged`,
+`delta`, `page`, `page-back`) says which reply shape the client got — `unchanged` is the cache hit
+an attach should be after.
+
+**Client.** `net/AttachLatency` (commonMain, wired identically into both controllers) times focus →
+first painted transcript and, crucially, labels its **source**: `prefetch-hit` (rows were already
+held because a background prefetch fetched them this connection — `TranscriptPrefetcher.didPrefetch`),
+`cache-hit` (held from an earlier visit) or `cold` (nothing held; the user waited on the network).
+It reports two instants, because a warm attach paints at ~0 ms and is only *confirmed* later:
+
+```
+attach[<id>]: prefetch-hit/unchanged paint=0ms confirm=63ms rows=214
+attach[<id>]: cold/page paint=740ms confirm=740ms rows=30
+```
+
+Judging a prefetch fix on paint alone would score every warm attach a success even when the server
+then shipped a whole new page. Lines go to logcat (`Spawner` tag) on Android and the browser console
+on web, through the one-line `platformLog` expect/actual seam — the client had no logger before this.
+
 ### Sandbox sessions (also without host root)
 
 For `sandbox`-target sessions the container's lifetime is **bound to the session**, not the turn:

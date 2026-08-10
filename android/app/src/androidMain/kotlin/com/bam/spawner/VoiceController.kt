@@ -127,6 +127,13 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
         override fun foregroundHistoryActive() = session.freshHistoryPending() || loadingOlder.isNotEmpty()
     })
 
+
+    // Attach-to-render latency instrumentation (shared commonMain): times focus →
+    // first painted transcript and labels its source (prefetch hit / warm cache /
+    // cold fetch), so transcript-prefetch changes can be judged by numbers rather
+    // than by feel. See [AttachLatency].
+    internal val attachLatency = com.bam.spawner.net.AttachLatency()
+
     // The shared commonMain inbound-message router (sibling to SessionSync/CatalogueSync): it
     // owns the per-session chat logs, view cursor and per-turn streamed/spoken tracking, and
     // files every session-scoped frame (Say/Output/Activity/Files/Diff/Ask/Transcript/Err/

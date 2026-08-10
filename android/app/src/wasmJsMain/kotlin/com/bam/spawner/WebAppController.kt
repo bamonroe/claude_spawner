@@ -140,6 +140,13 @@ class WebAppController(internal val prefs: Prefs) : AppController {
         override fun foregroundHistoryActive() = session.freshHistoryPending() || router.loadingOlder
     })
 
+
+    // Attach-to-render latency instrumentation (shared commonMain): times focus →
+    // first painted transcript and labels its source (prefetch hit / warm cache /
+    // cold fetch), so transcript-prefetch changes can be judged by numbers rather
+    // than by feel. See [AttachLatency].
+    internal val attachLatency = com.bam.spawner.net.AttachLatency()
+
     // Out-of-band heads-ups about sessions we're not viewing; see [NoticeStore].
     internal val noticeStore = NoticeStore()
     override val notices: StateFlow<List<ServerMsg.Notice>> = noticeStore.notices

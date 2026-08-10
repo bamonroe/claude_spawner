@@ -160,6 +160,11 @@ internal fun VoiceController.focusKnownSession(target: DiscoveredInfo, syncServe
     settings.lastSession = target.name
     settings.lastSessionId = target.sessionId
     _status.value = "attached: ${target.name}"
+    attachLatency.attachStarted(
+        target.sessionId,
+        heldRows = router.logs[target.sessionId]?.size ?: 0,
+        prefetched = prefetcher.didPrefetch(target.sessionId),
+    )
     showLog(target.sessionId)
     session.requestFreshHistory(target.sessionId, target.name)
     if (syncServer) client?.send(Outbound.attach(target.name, sessionId = target.sessionId, silent = true))
@@ -517,6 +522,7 @@ internal fun VoiceController.onHistory(msg: ServerMsg.History) {
         // just bounce off our own not-yet-cleared in-flight state.
         loadingOlder.remove(key)
         if (msg.hash.isNotEmpty()) session.recordSynced(key, msg.count, msg.hash)
+        attachLatency.historyArrived(key, "unchanged", router.logs[key]?.size ?: 0)
         prefetcher.onSynced(key)
         prefetcher.kick() // a foreground request landed — prefetch may resume
         router.logs[key]?.let { cleaned ->
@@ -567,6 +573,7 @@ internal fun VoiceController.onHistory(msg: ServerMsg.History) {
         _hasMoreHistory.value = router.hasMore[key] ?: msg.more
         if (!wasLoadOlder) scrollToBottom() // initial load → newest in view; load-older stays put
     }
+    if (!wasLoadOlder) attachLatency.historyArrived(key, if (msg.delta) "delta" else "page", merged.messages.size)
     // Last, once every in-flight marker above is settled (including the gap-fill's own
     // follow-up page, which re-arms loadingOlder): a foreground reply landed, so let the
     // prefetcher re-evaluate. It no-ops while the gap is still backfilling.

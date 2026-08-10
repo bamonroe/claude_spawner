@@ -59,6 +59,11 @@ class TranscriptPrefetcher(
 
     private var known: List<DiscoveredInfo> = emptyList()
     private val inFlight = mutableSetOf<String>()
+
+    /** Sessions this prefetcher has fetched a page for during this connection —
+     *  what lets an attach report a `prefetch-hit` apart from a plain cache hit
+     *  left over from an earlier visit. Measurement only; nothing branches on it. */
+    private val prefetched = mutableSetOf<String>()
     private var lastDigestAt = TimeSource.Monotonic.markNow()
 
     init {
@@ -146,9 +151,13 @@ class TranscriptPrefetcher(
         return if (session.heldDigest(id)?.second != server.second) Worth.MISMATCH else Worth.SKIP
     }
 
+    /** Did a background prefetch fetch [id] this connection? See [prefetched]. */
+    fun didPrefetch(id: String): Boolean = id in prefetched
+
     private fun prefetch(d: DiscoveredInfo) {
         val id = d.sessionId
         inFlight.add(id)
+        prefetched.add(id)
         host.send(Outbound.history(id, d.name, null, haveHash = session.heldDigest(id)?.second ?: "", background = true))
         scope.launch {
             delay(STUCK_MS)
