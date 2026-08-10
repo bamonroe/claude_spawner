@@ -45,18 +45,6 @@ created = 2026-08-10
 tags = ["auth", "voice"]
 
 [[task]]
-id = "single-flight-guard-for-in-progress-logins"
-title = "Single-flight guard for in-progress logins"
-description = "Each 'claude auth login' invocation mints a fresh code_challenge/state, so its URL is bound to that process and starting a second login silently invalidates the first. Guard one live login per host+identity: a second start either returns the existing pending login (with its already-issued URL) or explicitly cancels and replaces it, never leaving two racing. Clean up the process on client disconnect so a killed app does not strand a PTY."
-status = "active"
-level = "task"
-category = "feature"
-urgency = "normal"
-order = 100
-created = 2026-08-10
-tags = ["auth", "session"]
-
-[[task]]
 id = "document-the-re-login-flow-in-readme-md"
 title = "Document the re-login flow in README.md"
 description = "User-facing documentation for re-logging into Claude: what the flow does, subscription vs API console, that the OAuth callback is hosted by Anthropic (no local port, so the link can be completed on the phone), and that the pasted code goes back through the app. Link docs/scopes/claude-auth-login.md for the mechanics rather than restating them."

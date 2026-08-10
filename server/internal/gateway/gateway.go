@@ -90,7 +90,7 @@ type Server struct {
 	restartPending bool // a `build` finished: new image staged, container not yet bounced onto it
 
 	authMu sync.Mutex                    // guards logins
-	logins map[string]*session.AuthLogin // in-flight `claude auth login`, keyed by host
+	logins map[string]*pendingLogin // in-flight `claude auth login`, keyed by host (one per host)
 
 	discoverMemo attachDiscovery // bounded, memoized on-disk session walk for attach resolution
 }
@@ -160,7 +160,7 @@ func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, ids
 		inflight:      inflight,
 		interrupted:   interrupted,
 		acFired:       map[string]int64{},
-		logins:        map[string]*session.AuthLogin{},
+		logins:        map[string]*pendingLogin{},
 		settings:      settings,
 		currentModel:  bootModel, // persisted choice or env default; loaded below
 		currentFast:   bootFast,  // ditto, for the fast (draft/detection) server
@@ -282,6 +282,7 @@ func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
 	if c.attached != nil {
 		c.srv.unbindJob(c, recID(c.attached))
 	}
+	c.srv.releaseLogins(c)
 	c.saveState() // stash state so the next reconnect can resume
 }
 

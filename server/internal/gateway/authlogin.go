@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"strings"
+	"sync"
 
 	"github.com/bam/claude_spawner/server/internal/session"
 )
@@ -23,33 +24,126 @@ import (
 // so a second phone asking about the same host is asking about the same login, and
 // the answers broadcast to every client rather than only the one that asked.
 
+// Only ONE login may be live per host at a time, and that is an invariant of this
+// registry rather than something each caller remembers. Every `claude auth login`
+// mints its own code_challenge/state, so a second process silently invalidates the
+// first one's URL: two racing logins means the user pastes a good code into a dead
+// challenge. So a start either *joins* the pending login (and gets its
+// already-issued URL) or explicitly cancels it and takes its place — the slot is
+// claimed before the process is spawned, so two simultaneous requests can't both
+// end up with a PTY.
+//
+// pendingLogin is that slot: the claim, the process once it exists, and the URL
+// once the CLI prints it, so a joiner can wait on the same result the starter does.
+type pendingLogin struct {
+	host  string
+	want  session.AuthLoginMode // identity the starter asked for ("" = whatever the host has)
+	ready chan struct{}         // closed once mode/url/err are set
+	mode  session.AuthLoginMode // the identity actually used; read only after ready
+	url   string
+	err   error
+
+	login    *session.AuthLogin // nil until StartAuthLogin returns
+	watchMu  sync.Mutex
+	watchers map[*conn]bool // connections that care; empty = nobody left to finish it
+}
+
+// waitURL blocks until the login's URL is known, the attempt fails, or ctx ends.
+func (p *pendingLogin) waitURL(ctx context.Context) (string, error) {
+	select {
+	case <-p.ready:
+		return p.url, p.err
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+}
+
+// resolve publishes the outcome of the start exactly once.
+func (p *pendingLogin) resolve(l *session.AuthLogin, mode session.AuthLoginMode, url string, err error) {
+	p.login, p.mode, p.url, p.err = l, mode, url, err
+	close(p.ready)
+}
+
+// cancel kills the underlying process if one was ever started.
+func (p *pendingLogin) cancel() {
+	if p.login != nil {
+		p.login.Close()
+	}
+}
+
+func (p *pendingLogin) watch(c *conn) {
+	p.watchMu.Lock()
+	defer p.watchMu.Unlock()
+	p.watchers[c] = true
+}
+
+// unwatch drops c and reports whether anyone is still waiting on this login.
+func (p *pendingLogin) unwatch(c *conn) bool {
+	p.watchMu.Lock()
+	defer p.watchMu.Unlock()
+	delete(p.watchers, c)
+	return len(p.watchers) > 0
+}
+
+// claimLogin is the single-flight gate. It returns (mine, nil) when the caller now
+// owns the host's login slot and must start the process, or (nil, existing) when a
+// login is already pending and the caller should ride along with it. A request that
+// names a *different* identity than the pending one cancels it and claims the slot,
+// since the two can't both be what the user meant.
+func (s *Server) claimLogin(c *conn, host string, mode session.AuthLoginMode) (mine, existing *pendingLogin) {
+	s.authMu.Lock()
+	if cur := s.logins[host]; cur != nil {
+		if mode == "" || mode == cur.want {
+			s.authMu.Unlock()
+			cur.watch(c)
+			return nil, cur
+		}
+		delete(s.logins, host)
+		s.authMu.Unlock()
+		go cur.cancel()
+		s.authMu.Lock()
+	}
+	p := &pendingLogin{host: host, want: mode, ready: make(chan struct{}), watchers: map[*conn]bool{}}
+	s.logins[host] = p
+	s.authMu.Unlock()
+	p.watch(c)
+	return p, nil
+}
+
 // loginFor returns the in-flight login on host, if any.
-func (s *Server) loginFor(host string) *session.AuthLogin {
+func (s *Server) loginFor(host string) *pendingLogin {
 	s.authMu.Lock()
 	defer s.authMu.Unlock()
 	return s.logins[host]
 }
 
-// putLogin records an in-flight login, superseding (and killing) any earlier one on
-// the same host — the older URL is dead the moment a new process mints a challenge,
-// so keeping it around would only let the user paste a code into a corpse.
-func (s *Server) putLogin(host string, l *session.AuthLogin) {
+// dropLogin forgets a finished login (only if it is still the current one, so a
+// superseded attempt's cleanup can't evict its replacement).
+func (s *Server) dropLogin(host string, p *pendingLogin) {
 	s.authMu.Lock()
-	old := s.logins[host]
-	s.logins[host] = l
-	s.authMu.Unlock()
-	if old != nil {
-		go old.Close()
+	defer s.authMu.Unlock()
+	if s.logins[host] == p {
+		delete(s.logins, host)
 	}
 }
 
-// dropLogin forgets a finished login (only if it is still the current one, so a
-// superseded attempt's cleanup can't evict its replacement).
-func (s *Server) dropLogin(host string, l *session.AuthLogin) {
+// releaseLogins is called when a connection goes away. A login only exists to be
+// finished by a client pasting a code, so once the last client watching one is gone
+// (the app was killed mid-flow) the PTY is stranded — kill it rather than leave it
+// holding an SSH channel until the driver's timeout. Another still-connected client
+// watching the same host keeps it alive.
+func (s *Server) releaseLogins(c *conn) {
 	s.authMu.Lock()
-	defer s.authMu.Unlock()
-	if s.logins[host] == l {
-		delete(s.logins, host)
+	pending := make([]*pendingLogin, 0, len(s.logins))
+	for _, p := range s.logins {
+		pending = append(pending, p)
+	}
+	s.authMu.Unlock()
+	for _, p := range pending {
+		if !p.unwatch(c) {
+			s.dropLogin(p.host, p)
+			go p.cancel()
+		}
 	}
 }
 
@@ -92,7 +186,21 @@ func (c *conn) doAuthLogin(hostName, method string) {
 		return
 	}
 	go func() {
-		mode := session.AuthLoginMode(strings.TrimSpace(method))
+		requested := session.AuthLoginMode(strings.TrimSpace(method))
+		p, existing := c.srv.claimLogin(c, host, requested)
+		if existing != nil {
+			// Someone is already logging this host in. Re-send that attempt's URL to
+			// the asker instead of minting a second challenge that would kill it.
+			url, err := existing.waitURL(c.ctx)
+			if err != nil {
+				return // the starting goroutine reports the failure
+			}
+			c.send(msgAuthLoginURL(host, string(existing.mode), url))
+			return
+		}
+		defer c.srv.dropLogin(host, p)
+
+		mode := requested
 		if mode == "" {
 			// Match the identity the host already had; a logged-out host defaults to
 			// the subscription flow, which is the CLI's own default.
@@ -104,18 +212,19 @@ func (c *conn) doAuthLogin(hostName, method string) {
 		}
 		l, err := session.StartAuthLogin(context.Background(), c.srv.ssh, host, "", mode, 0)
 		if err != nil {
+			p.resolve(nil, mode, "", err)
 			c.fail("auth_failed", err.Error())
 			return
 		}
-		c.srv.putLogin(host, l)
-		defer c.srv.dropLogin(host, l)
 
 		url, err := l.URL(c.ctx)
 		if err != nil {
+			p.resolve(l, mode, "", err)
 			c.srv.broadcast(msgAuthLoginResult(host, false, err.Error()))
 			l.Close()
 			return
 		}
+		p.resolve(l, mode, url, nil)
 		c.srv.broadcast(msgAuthLoginURL(host, string(mode), url))
 
 		// Wait spans the human's whole browser detour; the driver's own timeout is
@@ -138,12 +247,24 @@ func (c *conn) doAuthLogin(hostName, method string) {
 // goroutine that started the login, not from here.
 func (c *conn) doAuthLoginCode(hostName, code string) {
 	host := c.authHost(hostName)
-	l := c.srv.loginFor(host)
-	if l == nil {
+	p := c.srv.loginFor(host)
+	if p == nil {
 		c.fail("auth_failed", "there's no login waiting on "+host)
 		return
 	}
-	if err := l.SubmitCode(code); err != nil {
+	// The code can only exist because the URL was handed out, so the slot is
+	// resolved by now; check anyway rather than write into a nil process.
+	select {
+	case <-p.ready:
+	default:
+		c.fail("auth_failed", "the login on "+host+" hasn't started yet")
+		return
+	}
+	if p.login == nil {
+		c.fail("auth_failed", "the login on "+host+" never started")
+		return
+	}
+	if err := p.login.SubmitCode(code); err != nil {
 		c.fail("auth_failed", err.Error())
 	}
 }
@@ -152,11 +273,12 @@ func (c *conn) doAuthLoginCode(hostName, code string) {
 // login goroutine reports the resulting failure as `auth_login_result`.
 func (c *conn) doAuthLoginCancel(hostName string) {
 	host := c.authHost(hostName)
-	l := c.srv.loginFor(host)
-	if l == nil {
+	p := c.srv.loginFor(host)
+	if p == nil {
 		return
 	}
-	go l.Close()
+	c.srv.dropLogin(host, p)
+	go p.cancel()
 }
 
 // doAuthLogout drops the host's credentials, then re-reports status so every client

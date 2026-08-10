@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "single-flight-guard-for-in-progress-logins"
+title = "Single-flight guard for in-progress logins"
+description = "Each 'claude auth login' invocation mints a fresh code_challenge/state, so its URL is bound to that process and starting a second login silently invalidates the first. Guard one live login per host+identity: a second start either returns the existing pending login (with its already-issued URL) or explicitly cancels and replaces it, never leaving two racing. Clean up the process on client disconnect so a killed app does not strand a PTY."
+status = "finished"
+level = "task"
+category = "feature"
+created = 2026-08-10
+completed = 2026-08-10
+tags = ["auth", "session"]
+
+[[task]]
 id = "client-ui-for-the-re-login-flow"
 title = "Client UI for the re-login flow"
 description = "Design and build the shared Compose UI (see docs/web-client.md — one UI for app and browser): show current auth status per host (logged in as <email>, plan), a 'log in again' action, a chooser for subscription vs API console, then the URL step with open/copy, a paste-code field if the probe shows one is needed, progress and a clear success/failure result that refreshes auth status. Include what happens when a turn fails because credentials expired — that error should offer this flow inline."
