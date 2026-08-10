@@ -14,6 +14,28 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "offer-re-login-inline-when-a-turn-fails-on-expired-credentials"
+title = "Offer re-login inline when a turn fails on expired credentials"
+description = "When a turn fails because the host's Claude credentials expired, the error shown in the chat log should offer the re-login flow inline (a tap that opens the login screen for that session's host) rather than leaving the user to find it in settings. Needs the server-side turn_failed reason to be distinguishable as an auth failure — check whether it already is, and make it so if not."
+status = "finished"
+level = "task"
+category = "feature"
+created = 2026-08-10
+completed = 2026-08-10
+tags = ["android", "auth"]
+
+[[task]]
+id = "surface-claude-auth-status-in-hosts-settings"
+title = "Surface Claude auth status in Hosts settings"
+description = "Give the login screen an entry point: show each host's Claude login status in SettingsHostsIdentities.kt's HostsSettings row (fetched via requestAuthStatus on open) with a tap-through to the login screen, plus a log-out action."
+status = "finished"
+level = "task"
+category = "feature"
+created = 2026-08-10
+completed = 2026-08-10
+tags = ["android", "auth"]
+
+[[task]]
 id = "shared-compose-login-screen-for-a-host"
 title = "Shared Compose login screen for a host"
 description = "The UI itself, in commonMain so app and browser share it: current status line (logged in as <email>, plan / logged out), a 'log in again' action, subscription-vs-API-console chooser, then the URL step using ui/LinkOpener.kt (open + copy fallback), a paste-code field, progress, and a clear success/failure result that refreshes auth status. Cancel on navigate-away sends authLoginCancel."

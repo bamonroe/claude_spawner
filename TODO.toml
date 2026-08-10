@@ -55,27 +55,3 @@ urgency = "low"
 order = 110
 created = 2026-08-10
 tags = ["auth"]
-
-[[task]]
-id = "surface-claude-auth-status-in-hosts-settings"
-title = "Surface Claude auth status in Hosts settings"
-description = "Give the login screen an entry point: show each host's Claude login status in SettingsHostsIdentities.kt's HostsSettings row (fetched via requestAuthStatus on open) with a tap-through to the login screen, plus a log-out action."
-status = "active"
-level = "task"
-category = "feature"
-urgency = "normal"
-order = 140
-created = 2026-08-10
-tags = ["android", "auth"]
-
-[[task]]
-id = "offer-re-login-inline-when-a-turn-fails-on-expired-credentials"
-title = "Offer re-login inline when a turn fails on expired credentials"
-description = "When a turn fails because the host's Claude credentials expired, the error shown in the chat log should offer the re-login flow inline (a tap that opens the login screen for that session's host) rather than leaving the user to find it in settings. Needs the server-side turn_failed reason to be distinguishable as an auth failure — check whether it already is, and make it so if not."
-status = "active"
-level = "task"
-category = "feature"
-urgency = "normal"
-order = 150
-created = 2026-08-10
-tags = ["android", "auth"]
