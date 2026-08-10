@@ -114,6 +114,32 @@ func CheckAuthStatus(ctx context.Context, pool *SSHPool, host, bin string) (Auth
 	return st, nil
 }
 
+// Logout drops host's stored credentials (`claude auth logout`), so the next status
+// check reports logged out. It lives here rather than in the caller because which
+// binary to run and which $HOME to run it in are the same two decisions
+// CheckAuthStatus already owns — the identity is chosen by host, not by a flag.
+func Logout(ctx context.Context, pool *SSHPool, host, bin string) error {
+	if pool == nil {
+		return errors.New("auth logout: no ssh pool")
+	}
+	if host == "" {
+		return errors.New("auth logout: no host")
+	}
+	if bin == "" {
+		bin = pool.binFor(host)
+	}
+	ctx, cancel := context.WithTimeout(ctx, DefaultAuthStatusTimeout)
+	defer cancel()
+	out, err := pool.Run(ctx, host, "cd \"$HOME\" && "+shellQuote(bin)+" auth logout 2>&1")
+	if err != nil {
+		if tail := lastLine(strings.TrimSpace(stripEscapes(string(out)))); tail != "" {
+			return fmt.Errorf("auth logout on %s: %w: %s", host, err, tail)
+		}
+		return fmt.Errorf("auth logout on %s: %w", host, err)
+	}
+	return nil
+}
+
 // extractJSONObject pulls the outermost {...} out of command output. A login shell
 // can prepend motd or rc-file chatter, so anchoring on the first brace and the last
 // is more robust than assuming stdout is pure JSON.

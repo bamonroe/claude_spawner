@@ -83,6 +83,8 @@ type inbound struct {
 	ProvidersDigest       string                `json:"providers_digest"`        // on `hello`: the app's digest of its cached provider/agent catalogue (same fast path)
 	SettingsDigest        string                `json:"settings_digest"`         // on `hello`: the app's digest of its cached shared-settings catalogue (same fast path)
 	Key                   string                `json:"key"`                     // on `setting_put`: the shared-setting key (whisper_model, warm_compress, auto_compress, auto_compress_threshold, summary_only, …)
+	Method                string                `json:"method"`                  // on `auth_login`: which billing identity to authenticate — "claudeai" (subscription) | "console" (API); "" = reuse whatever the host is already on
+	Code                  string                `json:"code"`                    // on `auth_login_code`: the code pasted out of the browser after approving the OAuth URL
 	Value                 string                `json:"value"`                   // on `setting_put`: the setting's value, always a string (bool as "true"/"false", int as decimal)
 }
 
@@ -533,6 +535,7 @@ var spokenError = map[string]string{
 	"discover_failed":   "couldn't scan for sessions, bud.",
 	"history_failed":    "couldn't load that session's history, bud.",
 	"not_implemented":   "voice isn't set up on the server, bud — send text instead.",
+	"auth_failed":       "couldn't sort out the claude login on that host, bud.",
 }
 
 func msgPong() map[string]any { return map[string]any{"type": "pong"} }
@@ -608,6 +611,32 @@ func msgRestartStatus(mode, phase, errText string, pending bool) map[string]any 
 		"type": "restart_status", "mode": mode, "phase": phase,
 		"error": errText, "restart_pending": pending,
 	}
+}
+
+// msgAuthStatus reports which Claude account a host's `claude` is logged in as (or
+// that it is logged out) — the answer to an `auth_status` query, and the push that
+// follows a finished login or logout. Broadcast, because a login is a property of
+// the host, not of the connection that asked.
+func msgAuthStatus(host string, st session.AuthStatus) map[string]any {
+	return map[string]any{
+		"type": "auth_status", "host": host,
+		"logged_in": st.LoggedIn, "auth_method": st.AuthMethod, "email": st.Email,
+		"org_name": st.OrgName, "subscription_type": st.SubscriptionType,
+		"text": st.Describe(),
+	}
+}
+
+// msgAuthLoginURL carries the OAuth URL the login process printed. It is bound to
+// that process: it stays valid only while the login is in flight, and starting
+// another login invalidates it.
+func msgAuthLoginURL(host, method, url string) map[string]any {
+	return map[string]any{"type": "auth_login_url", "host": host, "method": method, "url": url}
+}
+
+// msgAuthLoginResult is the verdict of a finished login attempt — ok, or the
+// reason the CLI refused (a bad code, a cancelled attempt, a dead process).
+func msgAuthLoginResult(host string, ok bool, errText string) map[string]any {
+	return map[string]any{"type": "auth_login_result", "host": host, "ok": ok, "error": errText}
 }
 
 func msgSpeechMode(summaryOnly bool) map[string]any {

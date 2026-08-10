@@ -89,6 +89,9 @@ type Server struct {
 	restartMu      sync.Mutex
 	restartPending bool // a `build` finished: new image staged, container not yet bounced onto it
 
+	authMu sync.Mutex                    // guards logins
+	logins map[string]*session.AuthLogin // in-flight `claude auth login`, keyed by host
+
 	discoverMemo attachDiscovery // bounded, memoized on-disk session walk for attach resolution
 }
 
@@ -157,6 +160,7 @@ func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, ids
 		inflight:      inflight,
 		interrupted:   interrupted,
 		acFired:       map[string]int64{},
+		logins:        map[string]*session.AuthLogin{},
 		settings:      settings,
 		currentModel:  bootModel, // persisted choice or env default; loaded below
 		currentFast:   bootFast,  // ditto, for the fast (draft/detection) server
@@ -606,4 +610,9 @@ var wireHandlers = map[string]func(c *conn, in inbound){
 	"shell_command_delete": func(c *conn, in inbound) { c.doShellCommandDelete(in.Name, in.UpdatedAt) },
 	"provider_put":         func(c *conn, in inbound) { c.doProviderPut(in.Agent, in.DefaultModel, in.VoiceModels, in.UpdatedAt) },
 	"setting_put":          func(c *conn, in inbound) { c.doSettingPut(in.Key, in.Value, in.UpdatedAt) },
+	"auth_status":          func(c *conn, in inbound) { c.doAuthStatus(in.HostName) },
+	"auth_login":           func(c *conn, in inbound) { c.doAuthLogin(in.HostName, in.Method) },
+	"auth_login_code":      func(c *conn, in inbound) { c.doAuthLoginCode(in.HostName, in.Code) },
+	"auth_login_cancel":    func(c *conn, in inbound) { c.doAuthLoginCancel(in.HostName) },
+	"auth_logout":          func(c *conn, in inbound) { c.doAuthLogout(in.HostName) },
 }

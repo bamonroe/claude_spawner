@@ -137,6 +137,18 @@ sealed interface ServerMsg {
     // outstanding (also delivered in hello_ok on reconnect).
     data class RestartStatus(val mode: String, val phase: String, val error: String, val restartPending: Boolean) : ServerMsg
     data class SpeechMode(val summaryOnly: Boolean) : ServerMsg // speak only the final result (intermediate steps beep) vs everything
+    // Which Claude account a host's `claude` is logged in as. Broadcast, because a
+    // login belongs to the host, not to the connection that asked. loggedIn false =
+    // no credentials and every other field empty; text is the speakable rendering.
+    data class AuthStatus(
+        val host: String, val loggedIn: Boolean, val authMethod: String, val email: String,
+        val orgName: String, val subscriptionType: String, val text: String,
+    ) : ServerMsg
+    // The OAuth URL a running `auth_login` printed: open it, approve, and send the
+    // code back with authLoginCode. It dies with that login attempt.
+    data class AuthLoginUrl(val host: String, val method: String, val url: String) : ServerMsg
+    // The verdict of a finished login: ok, or the reason it failed.
+    data class AuthLoginResult(val host: String, val ok: Boolean, val error: String) : ServerMsg
     data class Listing(val path: String, val parent: String, val entries: List<BrowseEntry>) : ServerMsg
     data class FileSaved(val path: String) : ServerMsg // an upload landed on the target host
     data class FileData(val name: String, val path: String, val content: String) : ServerMsg // a download's base64 bytes
@@ -204,6 +216,12 @@ sealed interface ServerMsg {
                 "tts_voices" -> TtsVoices(readStrings(o.arr("voices")), o.str("default"), o.str("error"))
                 "restart_status" -> RestartStatus(o.str("mode"), o.str("phase"), o.str("error"), o.bool("restart_pending"))
                 "speech_mode" -> SpeechMode(o.bool("summary_only"))
+                "auth_status" -> AuthStatus(
+                    o.str("host"), o.bool("logged_in"), o.str("auth_method"), o.str("email"),
+                    o.str("org_name"), o.str("subscription_type"), o.str("text"),
+                )
+                "auth_login_url" -> AuthLoginUrl(o.str("host"), o.str("method"), o.str("url"))
+                "auth_login_result" -> AuthLoginResult(o.str("host"), o.bool("ok"), o.str("error"))
                 "listing" -> Listing(o.str("path"), o.str("parent"), readEntries(o.arr("entries")))
                 "file_saved" -> FileSaved(o.str("path"))
                 "file_data" -> FileData(o.str("name"), o.str("path"), o.str("content"))
@@ -852,5 +870,30 @@ object Outbound {
     // wins) and re-broadcasts the `settings` list after every change.
     fun settingPut(key: String, value: String, updatedAt: Long) = buildJsonObject {
         put("type", "setting_put"); put("key", key); put("value", value); put("updated_at", updatedAt)
+    }.toString()
+
+    // Claude re-login on a host, driven through the server's `claude auth` wrapper.
+    // hostName empty targets the configured target host. The flow is: authStatus to
+    // see who's logged in, authLogin to start (method "" reuses the host's current
+    // billing identity), open the AuthLoginUrl that comes back, then authLoginCode
+    // with what the browser hands the user — the verdict arrives as AuthLoginResult.
+    fun authStatus(hostName: String = "") = buildJsonObject {
+        put("type", "auth_status"); put("host_name", hostName)
+    }.toString()
+
+    fun authLogin(hostName: String = "", method: String = "") = buildJsonObject {
+        put("type", "auth_login"); put("host_name", hostName); put("method", method)
+    }.toString()
+
+    fun authLoginCode(code: String, hostName: String = "") = buildJsonObject {
+        put("type", "auth_login_code"); put("host_name", hostName); put("code", code)
+    }.toString()
+
+    fun authLoginCancel(hostName: String = "") = buildJsonObject {
+        put("type", "auth_login_cancel"); put("host_name", hostName)
+    }.toString()
+
+    fun authLogout(hostName: String = "") = buildJsonObject {
+        put("type", "auth_logout"); put("host_name", hostName)
     }.toString()
 }
