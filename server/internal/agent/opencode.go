@@ -21,9 +21,10 @@ func ollama() *Agent {
 		Aliases:      []string{"opencode"},
 		Name:         "Ollama",
 		Provider:     "ollama",
-		DefaultModel: "qwen2.5-coder:7b",
+		DefaultModel: "qwen3.5:9b",
 		Models: []Model{
-			{Alias: "qwen2.5-coder:7b", Flag: "ollama/qwen2.5-coder:7b", Spoken: []string{"qwen", "coder", "qwen coder", "qwen two five", "qwen 2.5"}},
+			{Alias: "qwen3.5:9b", Flag: "ollama/qwen3.5:9b", Spoken: []string{"qwen", "qwen three five", "qwen 3.5"}},
+			{Alias: "qwen2.5-coder:7b", Flag: "ollama/qwen2.5-coder:7b", Spoken: []string{"coder", "qwen coder", "qwen two five", "qwen 2.5"}},
 			{Alias: "llama3.1:8b", Flag: "ollama/llama3.1:8b", Spoken: []string{"llama", "llama three", "llama 3", "llama 3.1"}},
 		},
 	})

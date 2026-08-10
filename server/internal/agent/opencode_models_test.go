@@ -44,8 +44,8 @@ func TestCatalogFallbackAndDiscovery(t *testing.T) {
 	if !oc.CanDiscover() {
 		t.Fatal("Ollama should advertise discovery")
 	}
-	if len(oc.Catalog()) != 2 {
-		t.Fatalf("pre-discovery catalog should be the compiled fallback (2), got %d", len(oc.Catalog()))
+	if len(oc.Catalog()) != 3 {
+		t.Fatalf("pre-discovery catalog should be the compiled fallback (3), got %d", len(oc.Catalog()))
 	}
 	oc.SetDiscovered([]Model{{Alias: "qwen2.5-coder:14b", Flag: "ollama/qwen2.5-coder:14b"}})
 	if len(oc.Catalog()) != 1 || oc.Catalog()[0].Alias != "qwen2.5-coder:14b" {
