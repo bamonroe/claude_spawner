@@ -118,7 +118,9 @@ doesn't need any.
 - When you finish a task (built, tested, documented), run **`done <id>`** in the
   same commit that completes the work — don't leave shipped items in `TODO.toml`.
   Don't wait on a build to finish first: commit the code and mark it done, kick
-  the build off in the background, and `add` a new task if that build later fails.
+  an APK build off in the background, and `add` a new task if that build later fails. **Never start
+  a server image build, rebuild or bounce yourself** — the user drives those from the app; just say
+  a build is pending (see `CLAUDE.md`).
 - **After every `done <id>`, report back two things**: how many active tasks are
   left (`count`), and a one-sentence summary of the very next task (the top item
   from `list`) so the user always knows what's up next without asking.

@@ -65,15 +65,16 @@ server restart safe. Before starting a server rebuild/recreate, explicitly tell 
 interrupt the app connection and wait for them to confirm a safe moment. If you need a rebuild later,
 leave the commit pushed and say it is pending instead of starting it silently.
 
-**But building the image only (the `build` mode) IS background-safe — you may do it unprompted.**
-The distinction is recreate vs. build: only *recreating* the container (`bounce`/`rebuild`) drops
-the live WebSocket. A plain image **build** (`deploy/rebuild-container.sh build`, or the app's
-build-only restart mode) recompiles a new image and leaves the running container untouched, so it
-never interrupts the in-flight turn. So after you push server changes, you may kick off an
-image build in the background on your own — then all the user has to do is tap the fast **restart
-container** (`bounce`) button to pick it up, instead of waiting on the slow rebuild-and-recreate.
-Prefer this: land the server commits, background-build the image, and tell the user a bounce is all
-that's pending.
+**Never build or rebuild the server yourself — not even the build-only mode, not even in the
+background — without a direct instruction from the user in that turn.** The user drives all server
+builds, restarts and bounces from the app; that is their job, not yours. This covers every mode of
+`deploy/rebuild-container.sh` (`build`, `bounce`, `rebuild`) and any equivalent Docker/podman
+command. Even the image-only build is off-limits unprompted: it contends for the shared Gradle cache
+and takes the decision out of the user's hands.
+
+So after you land server changes: commit, push, and **say a server build/restart is pending** —
+then stop. Kick nothing off. Only run a build when the user explicitly asks you to in that
+conversation.
 
 ## The "hey buddy" command grammar
 
@@ -252,7 +253,7 @@ answers "how many tasks / bugs are left" (`scripts/todo.sh stats`).
 - **When a task is fully finished** (built, tested, documented), run `scripts/todo.sh done <id>`
   to move it into `FINISHED.toml`, dated. **Don't wait on a build to do it.** The moment the code
   and its docs are written, commit them *and* run `done <id>` in that same commit — kick the APK
-  or image build off in the background and move on. If the build later fails, that's a **new**
+  build off in the background (never a **server** image build — see the rule above) and move on. If a build later fails, that's a **new**
   task (`scripts/todo.sh add …`), not a reason the finished one stayed open. Never end a turn with
   completed work sitting uncommitted and its task still active. A **partial** epic stays in `TODO.toml` (status
   `in-progress`) with its done sub-items in the description for context, and only migrates once
