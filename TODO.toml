@@ -43,15 +43,3 @@ urgency = "low"
 order = 70
 created = 2026-08-10
 tags = ["auth", "voice"]
-
-[[task]]
-id = "document-the-re-login-flow-in-readme-md"
-title = "Document the re-login flow in README.md"
-description = "User-facing documentation for re-logging into Claude: what the flow does, subscription vs API console, that the OAuth callback is hosted by Anthropic (no local port, so the link can be completed on the phone), and that the pasted code goes back through the app. Link docs/scopes/claude-auth-login.md for the mechanics rather than restating them."
-status = "active"
-level = "task"
-category = "docs"
-urgency = "low"
-order = 110
-created = 2026-08-10
-tags = ["auth"]

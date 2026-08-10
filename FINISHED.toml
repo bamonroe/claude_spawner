@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "document-the-re-login-flow-in-readme-md"
+title = "Document the re-login flow in README.md"
+description = "User-facing documentation for re-logging into Claude: what the flow does, subscription vs API console, that the OAuth callback is hosted by Anthropic (no local port, so the link can be completed on the phone), and that the pasted code goes back through the app. Link docs/scopes/claude-auth-login.md for the mechanics rather than restating them."
+status = "finished"
+level = "task"
+category = "docs"
+created = 2026-08-10
+completed = 2026-08-10
+tags = ["auth"]
+
+[[task]]
 id = "offer-re-login-inline-when-a-turn-fails-on-expired-credentials"
 title = "Offer re-login inline when a turn fails on expired credentials"
 description = "When a turn fails because the host's Claude credentials expired, the error shown in the chat log should offer the re-login flow inline (a tap that opens the login screen for that session's host) rather than leaving the user to find it in settings. Needs the server-side turn_failed reason to be distinguishable as an auth failure — check whether it already is, and make it so if not."
