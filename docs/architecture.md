@@ -299,7 +299,15 @@ by `codexFS` (`internal/session/codex_transcript.go`). opencode keeps sessions i
 (`internal/session/opencode_transcript.go`) instead shells out to opencode's own stable commands over
 the same SSH seam — `opencode export <id>` for history (mapping its message/part JSON, taking each
 turn's context size from the last `step-finish` part's tokens, since the session-level `info.tokens`
-is summed across turns) and `opencode session delete <id>` for removal. It also **unwraps the double
+is summed across turns) and `opencode session delete <id>` for removal. An opencode assistant "message"
+is the *whole agentic loop* for one dictation — prose, tool calls and several `step-finish` parts in a
+single record — so the replay **splits it at step boundaries**, one row per prose-bearing step (later
+segments suffix the durable `msg_…` id with `#n`). Without that split a multi-step reply collapses into
+one wall of text on reattach, unlike the live stream, which emits each text part as its own chunk. A
+`step-finish` is opencode's one model request/response cycle, the analog of Claude's `assistant` line:
+`parseOpencodeStream` counts them into `TurnResult.Turns` and the replay rolls them onto the run's
+closing row as `Turns`/`TurnTotal`, so the detailed badge reads a real "N turns" live *and* after a
+reattach instead of "0 turns". It also **unwraps the double
 quotes opencode puts around a user message** it took as a CLI argument: those two bytes aren't the
 user's words, and every exact-text consumer downstream breaks on them — the gateway's `stripInjected`
 stops recognizing its own trailing scaffolding, and the app can no longer match the replayed row

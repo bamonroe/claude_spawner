@@ -80,6 +80,59 @@ func TestExportMessages(t *testing.T) {
 	}
 }
 
+// A multi-step assistant message is opencode's whole agentic loop in ONE record.
+// The replay must split it at step boundaries — one row per prose-bearing step,
+// as the live stream emits one chunk per text part — instead of collapsing the
+// turn into a single wall of text. The run's Turns/TurnTotal rollup lands on the
+// closing row, and only that row keeps a usage badge.
+func TestExportMessagesSplitsSteps(t *testing.T) {
+	const multi = `{"messages":[
+    {"info":{"id":"msg_u1","role":"user","time":{"created":1000}},
+     "parts":[{"type":"text","text":"do it"}]},
+    {"info":{"id":"msg_a1","role":"assistant","time":{"created":2000}},
+     "parts":[
+       {"type":"step-start"},
+       {"type":"text","text":"Looking into it."},
+       {"type":"step-finish","tokens":{"input":100,"output":5,"cache":{"read":0,"write":0}}},
+       {"type":"step-start"},
+       {"type":"tool","tool":"read"},
+       {"type":"step-finish","tokens":{"input":200,"output":7,"cache":{"read":0,"write":0}}},
+       {"type":"step-start"},
+       {"type":"text","text":"Found it."},
+       {"type":"step-finish","tokens":{"input":300,"output":9,"cache":{"read":0,"write":0}}}
+     ]}
+  ]}`
+	var ex opencodeExport
+	if err := json.Unmarshal([]byte(multi), &ex); err != nil {
+		t.Fatal(err)
+	}
+	msgs := exportMessages(ex)
+	if len(msgs) != 3 {
+		t.Fatalf("got %d messages, want 3 (user + two prose steps): %+v", len(msgs), msgs)
+	}
+	if msgs[1].Text != "Looking into it." || msgs[2].Text != "Found it." {
+		t.Fatalf("steps not split: %q / %q", msgs[1].Text, msgs[2].Text)
+	}
+	// The first split segment keeps the durable opencode id; later ones suffix it
+	// so rows stay distinguishable.
+	if msgs[1].ID != "msg_a1" || msgs[2].ID != "msg_a1#1" {
+		t.Errorf("ids = %q / %q, want msg_a1 / msg_a1#1", msgs[1].ID, msgs[2].ID)
+	}
+	if msgs[1].Usage != nil {
+		t.Errorf("only the closing row carries a usage badge, got %+v", msgs[1].Usage)
+	}
+	if want := (Usage{Input: 300, Output: 9}); msgs[2].Usage == nil || *msgs[2].Usage != want {
+		t.Errorf("closing usage = %+v, want %+v", msgs[2].Usage, want)
+	}
+	// Three steps ran for one dictation, tool-only one included.
+	if msgs[2].Turns != 3 {
+		t.Errorf("turns = %d, want 3", msgs[2].Turns)
+	}
+	if want := (Usage{Input: 300, Output: 9}); msgs[2].TurnTotal == nil || *msgs[2].TurnTotal != want {
+		t.Errorf("turn total = %+v, want the last step %+v", msgs[2].TurnTotal, want)
+	}
+}
+
 // TestExportContext confirms the context snapshot is the LAST step-finish's
 // tokens (the newest turn's full prompt), not the summed session-level
 // info.tokens — so the reattach context meter matches the live one.

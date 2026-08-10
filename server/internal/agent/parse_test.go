@@ -141,6 +141,10 @@ func TestParseOpencodeStream(t *testing.T) {
 	if len(tools) != 1 || tools[0].Name != "edit" || tools[0].FilePath != "/tmp/foo.go" {
 		t.Errorf("tools = %+v, want one edit of /tmp/foo.go", tools)
 	}
+	// One step-finish == one model cycle; without this the badge read "0 turns".
+	if res.Turns != 1 {
+		t.Errorf("turns = %d, want 1 (counted from step-finish)", res.Turns)
+	}
 }
 
 // TestParseOpencodeStreamError confirms a top-level error event fails the turn

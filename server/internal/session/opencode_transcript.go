@@ -77,28 +77,23 @@ type opencodeExport struct {
 				Created int64 `json:"created"` // unix milliseconds
 			} `json:"time"`
 		} `json:"info"`
-		Parts []struct {
-			Type      string `json:"type"` // "text" | "tool" | "step-start" | "step-finish"
-			Text      string `json:"text"`
-			Synthetic bool   `json:"synthetic"`
-			Ignored   bool   `json:"ignored"`
-			Tokens    *struct {
-				Input     int `json:"input"`
-				Output    int `json:"output"`
-				Reasoning int `json:"reasoning"`
-				Cache     struct {
-					Read  int `json:"read"`
-					Write int `json:"write"`
-				} `json:"cache"`
-			} `json:"tokens"` // present only on a step-finish part
-		} `json:"parts"`
+		Parts []opencodePart `json:"parts"`
 	} `json:"messages"`
 }
 
-// stepUsage maps a step-finish part's tokens onto our Usage, matching the live
-// parser (parseOpencodeStream) so the reattach badge equals the in-turn one:
-// reasoning folds into Output, cache read/write map through.
-func stepUsage(t *struct {
+// opencodePart is one part of an exported message: prose, a tool call, or a step
+// boundary. A step-finish carries that step's tokens and marks the end of one
+// model request/response cycle (see exportMessages, which splits on it).
+type opencodePart struct {
+	Type      string          `json:"type"` // "text" | "tool" | "step-start" | "step-finish"
+	Text      string          `json:"text"`
+	Synthetic bool            `json:"synthetic"`
+	Ignored   bool            `json:"ignored"`
+	Tokens    *opencodeTokens `json:"tokens"` // present only on a step-finish part
+}
+
+// opencodeTokens is a step's token accounting as opencode reports it.
+type opencodeTokens struct {
 	Input     int `json:"input"`
 	Output    int `json:"output"`
 	Reasoning int `json:"reasoning"`
@@ -106,7 +101,12 @@ func stepUsage(t *struct {
 		Read  int `json:"read"`
 		Write int `json:"write"`
 	} `json:"cache"`
-}) Usage {
+}
+
+// stepUsage maps a step-finish part's tokens onto our Usage, matching the live
+// parser (parseOpencodeStream) so the reattach badge equals the in-turn one:
+// reasoning folds into Output, cache read/write map through.
+func stepUsage(t *opencodeTokens) Usage {
 	return Usage{
 		Input:      t.Input,
 		Output:     t.Output + t.Reasoning,
@@ -191,12 +191,34 @@ func (fs opencodeFS) exportCached(ctx context.Context, id, sig string, sigOK, im
 }
 
 // exportMessages maps one exported session onto ordered conversation Messages.
-// Each message's text parts join into its prose (synthetic/ignored skipped);
-// tool-only / empty messages are dropped from the replay. A "claude" (assistant)
-// message carries the usage of its last step-finish so the per-message context
-// badge survives a reattach. Pure (no I/O) so it's directly testable.
+//
+// An opencode assistant "message" is the whole agentic loop for one dictation:
+// text, tool calls and several step-finish parts all live in the same record. A
+// step is one model request/response cycle — Claude's `assistant` line — so the
+// replay SPLITS an assistant message at its step boundaries, one Message per step
+// that produced prose. Without that split a multi-step reply collapses into a
+// single wall of text on reattach, unlike the live stream (which emits each text
+// part as its own chunk) and unlike every other backend. Split segments after the
+// first take the message id with a `#n` suffix so rows stay distinctly
+// identifiable while the first keeps the durable opencode id.
+//
+// Within a segment the text parts join with a blank line (synthetic/ignored
+// skipped); tool-only / empty segments are dropped. Usage lands on the LAST
+// segment of a message (matching the live badge, which lands on the closing
+// frame), as does the Turns/TurnTotal rollup for the dictation: how many steps ran
+// since the last user message, and the final step's tokens — the same pair the
+// live closing frame carries. Pure (no I/O) so it's directly testable.
 func exportMessages(ex opencodeExport) []Message {
 	var out []Message
+	runTurns := 0             // step-finish parts since the last user message
+	runTotal := (*Usage)(nil) // that run's last step tokens (== the live turn's Usage)
+	lastClaude := -1
+	flushRun := func() {
+		if lastClaude >= 0 && runTurns > 0 {
+			out[lastClaude].Turns, out[lastClaude].TurnTotal = runTurns, runTotal
+		}
+		runTurns, runTotal, lastClaude = 0, nil, -1
+	}
 	for _, m := range ex.Messages {
 		var role string
 		switch m.Info.Role {
@@ -207,39 +229,78 @@ func exportMessages(ex opencodeExport) []Message {
 		default:
 			continue
 		}
+		ts := m.Info.Time.Created / 1000
+		if role == "user" {
+			flushRun() // a new dictation begins; close out the previous run
+			var text strings.Builder
+			for _, p := range m.Parts {
+				appendPartText(&text, p)
+			}
+			t := opencodeUnquote(strings.TrimSpace(text.String()))
+			if t == "" {
+				continue
+			}
+			out = append(out, Message{ID: m.Info.ID, Role: role, Text: t, Ts: ts})
+			continue
+		}
+		// Assistant: emit one row per prose-bearing step.
+		seg := 0
 		var text strings.Builder
 		var usage *Usage
+		emit := func() {
+			t := strings.TrimSpace(text.String())
+			text.Reset()
+			u := usage
+			usage = nil
+			if t == "" {
+				return // tool-only step: nothing to replay
+			}
+			id := m.Info.ID
+			if seg > 0 && id != "" {
+				id = fmt.Sprintf("%s#%d", id, seg)
+			}
+			seg++
+			msg := Message{ID: id, Role: role, Text: t, Ts: ts}
+			if u != nil && u.Input+u.CacheRead > 0 {
+				msg.Usage = u
+			}
+			out = append(out, msg)
+			lastClaude = len(out) - 1
+		}
 		for _, p := range m.Parts {
 			switch p.Type {
 			case "text":
-				if p.Synthetic || p.Ignored || p.Text == "" {
-					continue
-				}
-				if text.Len() > 0 {
-					text.WriteString("\n\n")
-				}
-				text.WriteString(p.Text)
+				appendPartText(&text, p)
 			case "step-finish":
+				runTurns++
 				if p.Tokens != nil {
 					u := stepUsage(p.Tokens)
-					usage = &u // last step-finish in the message wins
+					usage, runTotal = &u, &u
 				}
+				emit()
 			}
 		}
-		t := strings.TrimSpace(text.String())
-		if role == "user" {
-			t = opencodeUnquote(t)
+		emit() // trailing prose after the final step-finish
+		// Only the message's closing row keeps a usage badge, matching the live
+		// stream (chunks carry none; the closing frame does).
+		for i := lastClaude - 1; i >= 0 && out[i].Role == "claude"; i-- {
+			out[i].Usage = nil
 		}
-		if t == "" {
-			continue // tool-only / empty turn: nothing to replay
-		}
-		msg := Message{ID: m.Info.ID, Role: role, Text: t, Ts: m.Info.Time.Created / 1000}
-		if role == "claude" && usage != nil && usage.Input+usage.CacheRead > 0 {
-			msg.Usage = usage
-		}
-		out = append(out, msg)
 	}
+	flushRun()
 	return out
+}
+
+// appendPartText adds one text part's prose to a segment builder, skipping
+// synthetic/ignored/empty parts and separating parts with a blank line.
+func appendPartText(text *strings.Builder, p opencodePart) {
+	if p.Type != "text" || p.Synthetic || p.Ignored || p.Text == "" {
+		return
+	}
+	if text.Len() > 0 {
+		text.WriteString("\n\n")
+	}
+	text.WriteString(p.Text)
 }
 
 // exportContext returns a session's current context size: the last step-finish's

@@ -146,7 +146,8 @@ type opencodeEvent struct {
 
 // parseOpencodeStream reads opencode's `--format json` JSONL until EOF, returning
 // the assembled reply text, the final step's token usage, and opencode's session
-// id (read from the stream) in TurnResult.SessionID. Text parts are concatenated
+// id (read from the stream) in TurnResult.SessionID, and TurnResult.Turns counted
+// from the stream's step-finish parts (one per model cycle). Text parts are concatenated
 // (synthetic/ignored ones skipped) and fanned out live via cb.OnText; tool parts
 // become cb.OnTool breadcrumbs. A tool that itself errors is only a breadcrumb —
 // opencode may recover — so it doesn't fail the turn; a top-level error event
@@ -192,6 +193,10 @@ func parseOpencodeStream(r io.Reader, cb TurnCallbacks) (TurnResult, error) {
 				cb.OnTool(ToolUse{Name: ev.Part.Tool, FilePath: strInput(ev.Part.State.Input, "filePath")})
 			}
 		case "step-finish":
+			// One step == one model request/response cycle, opencode's analog of
+			// Claude's `assistant` event — count it so the closing frame reports a
+			// real turn count instead of 0.
+			res.Turns++
 			// Each step reports its own tokens; the last step's are the turn's
 			// (its input is the full context this turn ran against).
 			res.Usage = Usage{
