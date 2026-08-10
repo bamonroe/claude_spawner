@@ -26,6 +26,7 @@ func claude() *Agent {
 			{Alias: "opus", Flag: "opus"},
 			{Alias: "sonnet", Flag: "sonnet"},
 			{Alias: "fable", Flag: "claude-fable-5", Spoken: []string{"fable five", "fable5"}},
+			{Alias: "haiku", Flag: "haiku", Spoken: []string{"haiku four five", "haiku 4.5"}},
 		},
 		build: func(a *Agent, s TurnSpec, m Model) []string {
 			args := []string{"-p", s.Prompt, "--output-format", "stream-json", "--verbose"}
