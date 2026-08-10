@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "open-the-claude-login-url-in-a-local-browser"
+title = "Open the Claude login URL in a local browser"
+description = "When the server emits the login URL, get the user in front of it. The probe (docs/scopes/claude-auth-login.md) found the OAuth redirect_uri is a hosted Anthropic callback page, NOT localhost — so no local listener or open port is needed and the browser does not have to be on the server's machine. That means: the web client can just open a new tab, and the Android client can fire a browser Intent (plus a copy-link fallback), and the user then pastes the displayed code back into the app. Opening a browser on the target host over SSH is therefore optional convenience, not a requirement."
+status = "finished"
+level = "task"
+category = "feature"
+created = 2026-08-10
+completed = 2026-08-10
+tags = ["auth", "client"]
+
+[[task]]
 id = "add-auth-status-login-websocket-messages-to-the-gateway"
 title = "Add auth status/login WebSocket messages to the gateway"
 description = "Extend the wire protocol for the login epic: inbound 'auth_status' (query a host/identity), 'auth_login' (start, with a method field: claudeai | console), 'auth_login_code' (submit a pasted code), 'auth_login_cancel', 'auth_logout'; outbound 'auth_status' (loggedIn, authMethod, email, subscriptionType, host), 'auth_login_url' (the OAuth URL to open), 'auth_login_result' (ok/error). Wire them in internal/gateway (see ops_*.go, messages.go) and mirror them in docs/protocol.md AND android net/Protocol.kt in the same change — the internal/docsync clientsync test fails the build if the two sides disagree."
