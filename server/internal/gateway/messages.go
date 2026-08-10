@@ -530,12 +530,23 @@ var spokenError = map[string]string{
 	"usage_failed":      "couldn't check your usage right now, bud.",
 	"compress_failed":   "the compress didn't go through, bud.",
 	"turn_failed":       "that turn failed, bud.",
+	"turn_failed_auth":  "that turn failed because claude isn't logged in on that host, bud.",
 	"transcribe_failed": "I didn't catch that — the transcription failed.",
 	"whisper_failed":    "the speech engine had a problem, bud.",
 	"discover_failed":   "couldn't scan for sessions, bud.",
 	"history_failed":    "couldn't load that session's history, bud.",
 	"not_implemented":   "voice isn't set up on the server, bud — send text instead.",
 	"auth_failed":       "couldn't sort out the claude login on that host, bud.",
+}
+
+// turnFailureCode names the error a failed turn reports. A credential failure gets
+// its own code so the client can offer the re-login flow inline instead of printing
+// a dead-end error; everything else is an ordinary turn_failed.
+func turnFailureCode(err error) string {
+	if session.IsAuthFailure(err) {
+		return "turn_failed_auth"
+	}
+	return "turn_failed"
 }
 
 func msgPong() map[string]any { return map[string]any{"type": "pong"} }

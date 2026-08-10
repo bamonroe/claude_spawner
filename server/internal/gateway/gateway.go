@@ -89,7 +89,7 @@ type Server struct {
 	restartMu      sync.Mutex
 	restartPending bool // a `build` finished: new image staged, container not yet bounced onto it
 
-	authMu sync.Mutex                    // guards logins
+	authMu sync.Mutex               // guards logins
 	logins map[string]*pendingLogin // in-flight `claude auth login`, keyed by host (one per host)
 
 	discoverMemo attachDiscovery // bounded, memoized on-disk session walk for attach resolution

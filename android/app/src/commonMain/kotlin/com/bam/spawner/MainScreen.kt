@@ -94,6 +94,9 @@ fun MainScreen(
     sidebarPinned: Boolean = false,
     onSidebarPinnedChange: (Boolean) -> Unit = { },
     transferButton: @Composable (onUploaded: (String) -> Unit) -> Unit = { },
+    /** Open the Claude login screen for a host — the inline offer after a turn dies on
+     *  expired credentials. No-op by default so hosts without the route opt out. */
+    onClaudeLogin: (String) -> Unit = { },
 ) {
     var pinned by remember { mutableStateOf(sidebarPinned) }
     val setPinned: (Boolean) -> Unit = { pinned = it; onSidebarPinnedChange(it) }
@@ -154,6 +157,7 @@ fun MainScreen(
     // Heads-ups about other sessions (finished background jobs). Tapping one opens that
     // session when we can still see it in the discovered list; otherwise it just dismisses.
     val notices by controller.notices.collectAsState()
+    val authStates by controller.authStates.collectAsState()
     val openNotice = { n: ServerMsg.Notice ->
         val d = discovered.firstOrNull { it.sessionId == n.sessionId }
         if (d != null) openSession(d) else controller.dismissNotice(n.sessionId)
@@ -259,6 +263,12 @@ fun MainScreen(
                 onOutputMenuOpened = onRefreshOutputs,
             )
             if (attached == null) DetachedBanner()
+            // A turn that died on expired credentials: nothing on that host will run
+            // until it's logged in again, so offer the flow here rather than making the
+            // user find it in Hosts settings.
+            authStates.filterValues { it.needsLogin && !it.loggedIn }.keys.forEach { h ->
+                ClaudeLoginNeededBanner(h, onLogin = { onClaudeLogin(h) })
+            }
             notices.forEach { n ->
                 NoticeBanner(n, onOpen = { openNotice(n) }, onDismiss = { controller.dismissNotice(n.sessionId) })
             }

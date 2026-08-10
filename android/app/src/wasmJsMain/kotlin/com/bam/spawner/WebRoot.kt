@@ -28,6 +28,9 @@ fun WebRoot() {
     val controller = remember { WebAppController(prefs) }
     var themeMode by remember { mutableStateOf(parseThemeMode(prefs.themeMode)) }
     var screen by remember { mutableStateOf("main") }
+    // Where "set_login:<host>" pops back to — Hosts when opened from settings, the chat
+    // when opened from a turn that failed on expired credentials.
+    var loginBack by remember { mutableStateOf("settings") }
     val connected by controller.connected.collectAsState()
     val mic by controller.micText.collectAsState()
     val audioOutput by controller.audioOutput.collectAsState()
@@ -38,7 +41,13 @@ fun WebRoot() {
     val reconnect = { controller.connect(prefs.url, prefs.token) }
     SpawnerTheme(themeMode) {
         Surface(Modifier.fillMaxSize()) {
-            when (screen) {
+            when {
+              screen.startsWith("set_login") -> ClaudeLoginSettings(
+                  controller,
+                  host = screen.substringAfter(':', ""),
+                  onBack = { screen = loginBack },
+              )
+              else -> when (screen) {
                 "settings" -> SettingsHub(onOpen = { screen = it }, onBack = { screen = "main" })
                 "set_server" -> ServerSettings(
                     prefs, controller,
@@ -46,7 +55,11 @@ fun WebRoot() {
                     onSttChanged = reconnect,
                     onBack = { screen = "settings" },
                 )
-                "set_hosts" -> HostsSettings(controller, onBack = { screen = "settings" })
+                "set_hosts" -> HostsSettings(
+                    controller,
+                    onLogin = { host -> loginBack = "set_hosts"; screen = "set_login:$host" },
+                    onBack = { screen = "settings" },
+                )
                 "set_identities" -> IdentitiesSettings(controller, onBack = { screen = "settings" })
                 "set_profiles" -> ProfilesSettings(controller, onBack = { screen = "settings" })
                 "set_providers" -> ProvidersSettings(controller, onBack = { screen = "settings" })
@@ -107,7 +120,9 @@ fun WebRoot() {
                     transferButton = { onUploaded ->
                         WebTransferButton(controller, enabled = connected, onUploaded = onUploaded)
                     },
+                    onClaudeLogin = { host -> loginBack = "main"; screen = "set_login:$host" },
                 )
+              }
             }
         }
     }

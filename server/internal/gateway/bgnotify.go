@@ -158,10 +158,11 @@ func (s *Server) startJobNotify(sess *session.Session, notes []string) bool {
 			}
 			// Leave PendingNotes intact — the next dictation still carries the update.
 			log.Printf("jobnotify[%s] error: %v", name, err)
-			if spoken := spokenError["turn_failed"]; spoken != "" {
+			code := turnFailureCode(err)
+			if spoken := spokenError[code]; spoken != "" {
 				j.emit(msgSay(spoken))
 			}
-			j.finish(stampTurn(msgError("turn_failed", err.Error()), turnID))
+			j.finish(stampTurn(msgError(code, err.Error()), turnID))
 			return
 		}
 		log.Printf("jobnotify[%s] reply: %q", name, logField(reply))

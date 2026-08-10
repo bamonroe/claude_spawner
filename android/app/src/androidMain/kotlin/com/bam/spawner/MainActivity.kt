@@ -228,6 +228,9 @@ private fun AppRoot(
     onThemeChange: (ThemeMode) -> Unit,
 ) {
     var screen by rememberSaveable { mutableStateOf("main") }
+    // Where "set_login:<host>" pops back to — Hosts when opened from settings, the chat
+    // when opened from a turn that failed on expired credentials.
+    var loginBack by rememberSaveable { mutableStateOf("settings") }
     // Reconnect re-sends hello (end token / stt / aliases).
     val reconnect = { controller.connect(settings.url, settings.token) }
     // Audio-hardware surface the shared MainScreen needs as plain values (it's kept off
@@ -240,9 +243,19 @@ private fun AppRoot(
     val audioInputs by controller.audioInputs.collectAsStateWithLifecycle()
     // System back: settings sub-pages pop to the hub; hub/browse pop to main.
     BackHandler(enabled = screen != "main") {
-        screen = if (screen.startsWith("set_")) "settings" else "main"
+        screen = when {
+            screen.startsWith("set_login") -> loginBack
+            screen.startsWith("set_") -> "settings"
+            else -> "main"
+        }
     }
-    when (screen) {
+    when {
+        screen.startsWith("set_login") -> ClaudeLoginSettings(
+            controller,
+            host = screen.substringAfter(':', ""),
+            onBack = { screen = loginBack },
+        )
+        else -> when (screen) {
         "settings" -> SettingsHub(onOpen = { screen = it }, onBack = { screen = "main" })
         "set_server" -> ServerSettings(
             settings, controller,
@@ -251,7 +264,11 @@ private fun AppRoot(
             onBack = { screen = "settings" },
             caSection = { ServerCaSection(settings, onChanged = reconnect) },
         )
-        "set_hosts" -> HostsSettings(controller, onBack = { screen = "settings" })
+        "set_hosts" -> HostsSettings(
+            controller,
+            onLogin = { host -> loginBack = "set_hosts"; screen = "set_login:$host" },
+            onBack = { screen = "settings" },
+        )
         "set_identities" -> IdentitiesSettings(controller, onBack = { screen = "settings" })
         "set_profiles" -> ProfilesSettings(controller, onBack = { screen = "settings" })
         "set_providers" -> ProvidersSettings(controller, onBack = { screen = "settings" })
@@ -330,7 +347,9 @@ private fun AppRoot(
             transferButton = { onUploaded ->
                 TransferButton(controller = controller, enabled = connected, onUploaded = onUploaded)
             },
+            onClaudeLogin = { host -> loginBack = "main"; screen = "set_login:$host" },
         )
+        }
     }
 }
 

@@ -747,6 +747,27 @@ Each session picks an **execution target** at spawn time, a durable per-session 
   the container env as host paths, keep `HOME` pointed at the host user's home, and sandbox sessions
   run on the host alongside host turns.
 
+### Logging Claude back in on a host
+
+A host's `claude` credentials expire, and when they do every turn on that host fails until someone
+logs it back in. You don't need a shell on the box for that — the whole `claude auth` flow is in the
+client, on both the app and the browser:
+
+- **Settings → Hosts** shows each host's Claude login on its row ("logged in as you@example.com,
+  max", or a red *not logged in*), with **Log in** / **Log in again** and **Log out** actions.
+- The **login screen** walks the flow: pick whether to bill the login to your **subscription** or
+  the **API console** (or keep whatever identity the host already had), then open the Anthropic URL
+  in a browser — or copy it to another device, since the callback is hosted, not localhost — approve
+  it, and paste the code back. The result reports success or the exact failure and refreshes the
+  status. Navigating away cancels an attempt in flight, because the URL dies with it.
+- **When a turn fails on expired credentials**, you don't have to go find that screen: the chat
+  shows a red *Claude is logged out on `<host>`* banner with a **Log in** button that opens it
+  directly. (The server tells these failures apart from ordinary ones and reports them as
+  `turn_failed_auth` — see [`docs/protocol.md`](./docs/protocol.md).)
+
+Login state belongs to the host, not to a connection, so the server broadcasts it: two clients
+watching the same host see the same status, and one finishing a login updates the other.
+
 ### The live deployment: a containerized, SSH-native server
 
 The **server runs in a Docker container** that builds the Go binary from source — this is the one

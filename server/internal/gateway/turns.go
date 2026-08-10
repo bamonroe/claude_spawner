@@ -118,10 +118,11 @@ func (s *Server) startTurn(sess *session.Session, text string, primeAsk, primeJo
 					log.Printf("turn[%s] persist after failed turn: %v", name, perr)
 				}
 			}
-			if spoken := spokenError["turn_failed"]; spoken != "" {
+			code := turnFailureCode(err)
+			if spoken := spokenError[code]; spoken != "" {
 				j.emit(msgSay(spoken)) // don't leave a voice user with a silent failure
 			}
-			j.finish(stampTurn(msgError("turn_failed", err.Error()), turnID))
+			j.finish(stampTurn(msgError(code, err.Error()), turnID))
 			return
 		}
 		log.Printf("turn[%s] reply: %q", name, logField(reply))

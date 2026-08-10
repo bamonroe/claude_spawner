@@ -99,6 +99,12 @@ class WebAppController(internal val prefs: Prefs) : AppController {
         override fun setPending(text: String) { _pending.value = text }
         override fun setMicStatus(text: String) { _micText.value = text }
         override fun setDiscoverError(text: String) { _discoverError.value = text }
+        // The host is whichever one that session runs on; "" (the configured target)
+        // is the right fallback, since that's the host an unknown session used too.
+        override fun claudeAuthFailed(sessionId: String) {
+            val h = _discovered.value.find { it.sessionId == sessionId }?.host ?: ""
+            auth.noteAuthFailure(h)
+        }
         override fun stopUsageLoading() { if (_usageLoading.value) _usageLoading.value = false }
         override fun touchDiscovered(id: String, busy: Boolean?) { this@WebAppController.touchDiscovered(id, busy) }
         override fun speak(text: String) { this@WebAppController.speak(text) }

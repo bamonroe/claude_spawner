@@ -73,6 +73,9 @@ class InboundRouter(
         fun setMicStatus(text: String)
         /** Surface a discover/session error string in the UI. */
         fun setDiscoverError(text: String)
+        /** A turn died on Claude credentials: mark the session's host as needing a
+         *  re-login so the UI can offer one inline. [sessionId] is "" when unknown. */
+        fun claudeAuthFailed(sessionId: String)
         /** Clear the "usage report loading" spinner if it is currently showing. */
         fun stopUsageLoading()
         /** Locally bump a discovered session's recency/busy cue (mutates the discovered
@@ -395,7 +398,12 @@ class InboundRouter(
         if (msg.code == "bad_message" && msg.message.contains("digest")) return
         // A failed turn ends it: clear the streamed/spoken turn state so a later
         // stray close for the session isn't misread as "streamed" (Android parity).
-        if (msg.code == "turn_failed") { host.turnCleared(); streamedSessions.clear(); spokenReplyCounts.clear() }
+        if (msg.code == "turn_failed" || msg.code == "turn_failed_auth") {
+            host.turnCleared(); streamedSessions.clear(); spokenReplyCounts.clear()
+        }
+        // Expired credentials aren't a per-turn accident — nothing on that host will run
+        // until it's logged in again, so flag it and let the UI offer the flow.
+        if (msg.code == "turn_failed_auth") host.claudeAuthFailed(msg.sessionId)
         host.setMicStatus("") // a transcribe_failed / not_implemented error ends the PTT clip; clear "transcribing…"
         host.stopUsageLoading()
         // Turn-terminal errors carry a session_id + turn id and can be redelivered

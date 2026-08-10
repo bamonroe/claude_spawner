@@ -30,6 +30,12 @@ data class AuthState(
     val awaitingCode: Boolean = false,
     /** The last failed login's error; cleared when a new attempt starts. */
     val lastError: String = "",
+    /**
+     * A turn on this host just failed on a credential problem (`turn_failed_auth`), so
+     * the UI should offer a re-login without waiting to be asked. Cleared by the next
+     * `auth_status` that says we're logged in, and by starting a login.
+     */
+    val needsLogin: Boolean = false,
 )
 
 /**
@@ -67,6 +73,7 @@ class AuthSync(private val send: (String) -> Unit) {
                 it.copy(
                     loggedIn = msg.loggedIn, authMethod = msg.authMethod, email = msg.email,
                     orgName = msg.orgName, subscriptionType = msg.subscriptionType, text = msg.text,
+                    needsLogin = it.needsLogin && !msg.loggedIn,
                 )
             }
             true
@@ -98,7 +105,10 @@ class AuthSync(private val send: (String) -> Unit) {
 
     fun startLogin(host: String = "", method: String = "") {
         update(host) {
-            it.copy(loginInFlight = true, loginUrl = "", loginMethod = method, awaitingCode = false, lastError = "")
+            it.copy(
+                loginInFlight = true, loginUrl = "", loginMethod = method,
+                awaitingCode = false, lastError = "", needsLogin = false,
+            )
         }
         send(Outbound.authLogin(host, method))
     }
@@ -114,6 +124,16 @@ class AuthSync(private val send: (String) -> Unit) {
     }
 
     fun logout(host: String = "") = send(Outbound.authLogout(host))
+
+    /**
+     * Record that a turn on [host] died on expired/missing credentials, and re-check the
+     * status so the offer the UI makes is based on the server's answer rather than our
+     * inference. The router calls this on `turn_failed_auth`.
+     */
+    fun noteAuthFailure(host: String = "") {
+        update(host) { it.copy(needsLogin = true) }
+        requestAuthStatus(host)
+    }
 
     private fun update(host: String, f: (AuthState) -> AuthState) {
         _states.value = _states.value + (host to f(_states.value[host] ?: AuthState()))

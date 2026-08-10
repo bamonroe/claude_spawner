@@ -336,6 +336,7 @@ wire-level / programmer-facing codes that only come from the app — `bad_messag
 | `rename_failed`    | rename could not be persisted                            |
 | `transcribe_failed`/`whisper_failed` | STT engine error                       |
 | `turn_failed`      | the dictation turn errored (non-success `result`)        |
+| `turn_failed_auth` | same as `turn_failed`, but the failure reads as a Claude credential problem on that host — turn-terminal in exactly the same way, so a client that doesn't know the code can treat it as `turn_failed`; one that does offers the re-login flow inline |
 | `compress_failed`  | the `compress` summarization turn errored                |
 | `usage_failed`     | running `/usage` to fetch the plan's usage report failed |
 | `restart_failed`   | `restart` requested but `SPAWNER_RESTART_CMD` is unset/failed to launch |
