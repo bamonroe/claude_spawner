@@ -51,6 +51,48 @@ interface AuthController {
     fun logout(host: String = "")
 }
 
+/**
+ * One short line describing who a host's `claude` is logged in as — the server's own
+ * speakable rendering when it sent one, else assembled from the parts. Shared so the
+ * login panel and the Hosts list can't word the same fact two different ways.
+ */
+fun authSummary(auth: AuthState): String =
+    if (auth.text.isNotEmpty()) auth.text
+    else if (auth.loggedIn) buildString {
+        append("Logged in")
+        if (auth.email.isNotEmpty()) append(" as ${auth.email}")
+        if (auth.subscriptionType.isNotEmpty()) append(" (${auth.subscriptionType})")
+        if (auth.orgName.isNotEmpty()) append(" — ${auth.orgName}")
+    }
+    else "Logged out."
+
+/**
+ * The inline offer shown in the chat when a turn on [host] failed because that host's
+ * `claude` is logged out — one tap into the same login screen Hosts settings opens.
+ */
+@Composable
+fun ClaudeLoginNeededBanner(host: String, onLogin: () -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                if (host.isEmpty()) "Claude is logged out — that turn couldn't run."
+                else "Claude is logged out on $host — that turn couldn't run.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = onLogin) { Text("Log in") }
+        }
+    }
+}
+
 /** A settings sub-screen wrapper around [ClaudeLoginPanel] for one host. */
 @Composable
 fun ClaudeLoginSettings(controller: AuthController, host: String = "", onBack: () -> Unit) {
@@ -95,14 +137,7 @@ fun ClaudeLoginPanel(controller: AuthController, host: String = "") {
 
     Text("Claude login", style = MaterialTheme.typography.titleMedium)
     Text(
-        if (auth.text.isNotEmpty()) auth.text
-        else if (auth.loggedIn) buildString {
-            append("Logged in")
-            if (auth.email.isNotEmpty()) append(" as ${auth.email}")
-            if (auth.subscriptionType.isNotEmpty()) append(" (${auth.subscriptionType})")
-            if (auth.orgName.isNotEmpty()) append(" — ${auth.orgName}")
-        }
-        else "Logged out.",
+        authSummary(auth),
         style = MaterialTheme.typography.bodyMedium,
         color = if (auth.loggedIn) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error,
     )

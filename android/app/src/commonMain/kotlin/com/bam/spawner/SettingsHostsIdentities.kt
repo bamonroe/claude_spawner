@@ -34,6 +34,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.bam.spawner.net.AuthState
 import com.bam.spawner.net.Host
 import com.bam.spawner.net.Identity
 import kotlinx.coroutines.flow.StateFlow
@@ -213,12 +214,20 @@ fun IdentitiesSettings(controller: HostsIdentitiesController, onBack: () -> Unit
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun HostsSettings(controller: HostsIdentitiesController, onBack: () -> Unit) {
+fun <C> HostsSettings(
+    controller: C,
+    onLogin: (String) -> Unit,
+    onBack: () -> Unit,
+) where C : HostsIdentitiesController, C : AuthController {
     val hosts by controller.hosts.collectAsState()
     val identities by controller.identities.collectAsState()
     val connected by controller.connected.collectAsState()
+    val authStates by controller.authStates.collectAsState()
     // Refresh the host + identity registries whenever we (re)connect while open.
     LaunchedEffect(connected) { if (connected) { controller.requestHosts(); controller.requestIdentities() } }
+    // …and each host's Claude login, so the rows can say who that host is logged in as
+    // without the user having to open every login screen to find out.
+    LaunchedEffect(connected, hosts) { if (connected) for (h in hosts) controller.requestAuthStatus(h.name) }
 
     // Editor state — empty name means "adding a new host"; loading a row edits it.
     var name by rememberSaveable { mutableStateOf("") }
@@ -259,7 +268,8 @@ fun HostsSettings(controller: HostsIdentitiesController, onBack: () -> Unit) {
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.padding(14.dp)) {
+                  Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(h.name, style = MaterialTheme.typography.titleMedium)
                         Text(
@@ -282,6 +292,26 @@ fun HostsSettings(controller: HostsIdentitiesController, onBack: () -> Unit) {
                         controller.deleteHost(h.name)
                         if (editing == h.name) { clear(); showForm = false }
                     }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                  }
+                  // The host's Claude login, with the way in to the login screen. A host
+                  // whose credentials have lapsed can't run a turn at all, so it belongs
+                  // on the row rather than buried a screen deeper.
+                  val auth = authStates[h.name] ?: AuthState()
+                  Row(verticalAlignment = Alignment.CenterVertically) {
+                      Text(
+                          "Claude: ${authSummary(auth)}",
+                          style = MaterialTheme.typography.bodySmall,
+                          color = if (auth.loggedIn) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.error,
+                          maxLines = 1, overflow = TextOverflow.Ellipsis,
+                          modifier = Modifier.weight(1f),
+                      )
+                      TextButton(onClick = { onLogin(h.name) }) {
+                          Text(if (auth.loggedIn) "Log in again" else "Log in")
+                      }
+                      if (auth.loggedIn) {
+                          TextButton(onClick = { controller.logout(h.name) }) { Text("Log out") }
+                      }
+                  }
                 }
             }
         }
