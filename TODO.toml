@@ -19,15 +19,3 @@ add_proposed_work = "Add proposed features and tests as new tasks rather than lo
 remove_dropped_items = "Remove dropped items with a one-line why (`scripts/todo.sh remove <id> --reason`)."
 finish_work = "When a task is fully finished (built, tested, documented), run `scripts/todo.sh done <id>` to move it to FINISHED.toml — in the same commit that completes the work."
 scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/KMP app + web client. The historical phase roadmap stays in README.md."
-
-[[task]]
-id = "re-login-to-claude-from-the-app-login-flow"
-title = "Re-login to Claude from the app (/login flow)"
-description = "Let the user re-authenticate Claude Code without touching the host shell. First-pass scoping found a non-TUI path: the CLI has 'claude auth login [--claudeai|--console|--sso|--email]', 'claude auth logout', and 'claude auth status --json' (returns loggedIn, authMethod, apiProvider, email, orgName, subscriptionType). So we drive 'claude auth', NOT the interactive /login TUI — that keeps the no-TUI-scraping rule intact. Flow: report status, let the user pick subscription vs console, start login, capture the emitted OAuth URL, open it in a browser locally, feed back a pasted code if required, then confirm with 'auth status --json'. Children: probe-claude-auth-login-non-interactive-behavior-in-the-sandbox, design-the-auth-login-driver-seam-in-internal-session, add-auth-status-login-websocket-messages-to-the-gateway, open-the-claude-login-url-in-a-local-browser, client-ui-for-the-re-login-flow, add-a-hey-buddy-log-in-command."
-status = "in-progress"
-level = "epic"
-category = "feature"
-urgency = "normal"
-order = 10
-created = 2026-08-10
-tags = ["auth", "session"]
