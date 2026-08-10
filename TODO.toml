@@ -23,11 +23,83 @@ scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/K
 [[task]]
 id = "re-login-to-claude-from-the-app-login-flow"
 title = "Re-login to Claude from the app (/login flow)"
-description = "Let the user re-authenticate Claude Code without touching the host shell. Drive 'claude' through its /login flow: run /login, surface the presented options (subscription vs API key) back to the client, and for the subscription path capture the emitted login URL and open it in a local browser on the user's machine so they can complete OAuth. Then confirm the session is authenticated. Breakdown needed: how to drive the interactive /login prompt (it is a TUI flow, not stream-json headless), where to hook it in internal/session, new WebSocket messages for 'login options' / 'login url' / 'login complete' (docs/protocol.md), a 'hey buddy' command to trigger it (docs/commands.md + Registry), client UI to show options and pick one, and opening the URL in a browser on the host over SSH."
-status = "active"
+description = "Let the user re-authenticate Claude Code without touching the host shell. First-pass scoping found a non-TUI path: the CLI has 'claude auth login [--claudeai|--console|--sso|--email]', 'claude auth logout', and 'claude auth status --json' (returns loggedIn, authMethod, apiProvider, email, orgName, subscriptionType). So we drive 'claude auth', NOT the interactive /login TUI — that keeps the no-TUI-scraping rule intact. Flow: report status, let the user pick subscription vs console, start login, capture the emitted OAuth URL, open it in a browser locally, feed back a pasted code if required, then confirm with 'auth status --json'. Children: probe-claude-auth-login-non-interactive-behavior-in-the-sandbox, design-the-auth-login-driver-seam-in-internal-session, add-auth-status-login-websocket-messages-to-the-gateway, open-the-claude-login-url-in-a-local-browser, client-ui-for-the-re-login-flow, add-a-hey-buddy-log-in-command."
+status = "in-progress"
 level = "epic"
 category = "feature"
 urgency = "normal"
 order = 10
 created = 2026-08-10
 tags = ["auth", "session"]
+
+[[task]]
+id = "probe-claude-auth-login-non-interactive-behavior-in-the-sandbox"
+title = "Probe 'claude auth login' non-interactive behavior in the sandbox"
+description = "Before wiring anything, determine empirically (in the sandbox container, NOT on the live host — it holds the credentials the user is working through) exactly how 'claude auth login --claudeai' behaves when driven programmatically: what it writes to stdout/stderr, whether the OAuth URL is printed as plain text we can regex, whether it tries to xdg-open a browser itself, what it reads on stdin (paste-code vs pure callback), the exit code and timing on success/abort, and the same for '--console'. Also confirm 'claude auth status --json' fields (loggedIn, authMethod, email, subscriptionType) as the authoritative post-login check, and what a PTY (vs plain pipe) changes. Output: a written note plus concrete atomic tasks for the driver."
+status = "active"
+level = "scope"
+category = "feature"
+urgency = "high"
+order = 20
+created = 2026-08-10
+tags = ["auth"]
+
+[[task]]
+id = "design-the-auth-login-driver-seam-in-internal-session"
+title = "Design the auth-login driver seam in internal/session"
+description = "Decide where a login flow lives alongside the existing turn Executor (host process vs container vs SSH to the target host — see session/executor.go, ssh_exec.go). It is a long-lived interactive process, not a turn, so it does not fit driver_turn.go: it needs its own supervised process, an output scanner that extracts the OAuth URL, a way to feed a pasted code back to stdin, cancellation/timeout, and a single-flight guard so two clients cannot race competing logins. It must run as the same user/home whose ~/.claude credentials the sessions actually use — so it is per host and per identity (session/identity.go, hosts.go). Depends on the sandbox probe. Produce the atomic implementation tasks."
+status = "active"
+level = "scope"
+category = "feature"
+urgency = "normal"
+order = 30
+created = 2026-08-10
+tags = ["auth", "session"]
+
+[[task]]
+id = "add-auth-status-login-websocket-messages-to-the-gateway"
+title = "Add auth status/login WebSocket messages to the gateway"
+description = "Extend the wire protocol for the login epic: inbound 'auth_status' (query a host/identity), 'auth_login' (start, with a method field: claudeai | console), 'auth_login_code' (submit a pasted code), 'auth_login_cancel', 'auth_logout'; outbound 'auth_status' (loggedIn, authMethod, email, subscriptionType, host), 'auth_login_url' (the OAuth URL to open), 'auth_login_result' (ok/error). Wire them in internal/gateway (see ops_*.go, messages.go) and mirror them in docs/protocol.md AND android net/Protocol.kt in the same change — the internal/docsync clientsync test fails the build if the two sides disagree."
+status = "active"
+level = "task"
+category = "feature"
+urgency = "normal"
+order = 40
+created = 2026-08-10
+tags = ["auth", "protocol"]
+
+[[task]]
+id = "open-the-claude-login-url-in-a-local-browser"
+title = "Open the Claude login URL in a local browser"
+description = "When the server emits auth_login_url, get the user in front of it. Two paths, both wanted: the web client opens the URL in a new tab directly, and the Android client hands it to a browser Intent (or shows a tappable link plus copy button in the login dialog). Also support the 'open it on the machine running the server' case by shelling xdg-open on the target host over the existing SSH exec path, since the OAuth callback may need to land on that host. Decide per-case rather than assuming one."
+status = "active"
+level = "task"
+category = "feature"
+urgency = "normal"
+order = 50
+created = 2026-08-10
+tags = ["auth", "client"]
+
+[[task]]
+id = "client-ui-for-the-re-login-flow"
+title = "Client UI for the re-login flow"
+description = "Design and build the shared Compose UI (see docs/web-client.md — one UI for app and browser): show current auth status per host (logged in as <email>, plan), a 'log in again' action, a chooser for subscription vs API console, then the URL step with open/copy, a paste-code field if the probe shows one is needed, progress and a clear success/failure result that refreshes auth status. Include what happens when a turn fails because credentials expired — that error should offer this flow inline."
+status = "active"
+level = "scope"
+category = "feature"
+urgency = "normal"
+order = 60
+created = 2026-08-10
+tags = ["auth", "ui"]
+
+[[task]]
+id = "add-a-hey-buddy-log-in-command"
+title = "Add a 'hey buddy' log-in command"
+description = "Add a voice command that starts the re-login flow (e.g. 'hey buddy, log in to claude' / 'hey buddy, auth status'), following the Registry→docs/commands.json→APK pipeline in docs/commands.md — add it to command.Registry, regenerate with 'go run ./cmd/gencommands', document in docs/commands.md. Spoken reply reads back auth status; starting a login speaks the instruction to check the phone/browser for the link, since a URL cannot be usefully spoken."
+status = "active"
+level = "task"
+category = "feature"
+urgency = "low"
+order = 70
+created = 2026-08-10
+tags = ["auth", "voice"]
