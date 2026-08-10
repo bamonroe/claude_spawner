@@ -81,6 +81,10 @@ var Registry = []Command{
 		"Set the target host (used for new sessions and shell commands) or the default directory; both persist across restarts", "set target bam"},
 	{Get, "get", []string{"get target", "what is the directory"},
 		"Speak the current target host or default directory", "get target"},
+	{AuthStatus, "auth status", []string{"auth status", "am i logged in", "claude login status"},
+		"Speak whether the target host's Claude is logged in, and as whom", "auth status"},
+	{AuthLogin, "log in to claude", []string{"log in to claude", "log claude in", "re-login to claude"},
+		"Start the Claude re-login on the target host; the sign-in link opens in the app, since a URL can't be spoken", "log in to claude"},
 	{Restart, "restart the server", []string{"restart the server", "rebuild the server", "reboot the server", "restart spawner"},
 		"Rebuild and restart the spawner server itself", "restart the server"},
 }

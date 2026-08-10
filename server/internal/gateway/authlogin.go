@@ -302,3 +302,34 @@ func (c *conn) doAuthLogout(hostName string) {
 		c.srv.broadcast(msgAuthStatus(host, st))
 	}()
 }
+
+// The voice entry points. They are thin wrappers over the message handlers above
+// because the flow is identical — the only difference is that a spoken command has
+// no UI to read the answer off, so it also has to *say* something. The sign-in URL
+// itself is never spoken: it's unusable as speech, so the voice reply points at the
+// panel the `auth_login_url` message already opens in the app.
+func (c *conn) doAuthStatusVoice() {
+	host := c.authHost("")
+	if c.srv.ssh == nil {
+		c.send(msgSay("ssh is disabled, so I can't check the login."))
+		return
+	}
+	go func() {
+		st, err := session.CheckAuthStatus(c.ctx, c.srv.ssh, host, "")
+		if err != nil {
+			c.send(msgSay("couldn't check the login: " + err.Error()))
+			return
+		}
+		c.srv.broadcast(msgAuthStatus(host, st))
+		c.send(msgSay(host + " is " + st.Describe() + "."))
+	}()
+}
+
+func (c *conn) doAuthLoginVoice() {
+	if c.srv.ssh == nil {
+		c.send(msgSay("ssh is disabled, so I can't log in."))
+		return
+	}
+	c.send(msgSay("starting the claude login on " + c.authHost("") + ". check the app for the sign-in link."))
+	c.doAuthLogin("", "")
+}

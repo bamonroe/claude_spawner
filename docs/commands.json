@@ -17,6 +17,15 @@
       "description": "Attach to a session by name"
     },
     {
+      "title": "auth status",
+      "aliases": [
+        "auth status",
+        "am i logged in",
+        "claude login status"
+      ],
+      "description": "Speak whether the target host's Claude is logged in, and as whom"
+    },
+    {
       "title": "cancel",
       "aliases": [
         "cancel",
@@ -118,6 +127,15 @@
         "which models"
       ],
       "description": "List the models the attached session's AI offers"
+    },
+    {
+      "title": "log in to claude",
+      "aliases": [
+        "log in to claude",
+        "log claude in",
+        "re-login to claude"
+      ],
+      "description": "Start the Claude re-login on the target host; the sign-in link opens in the app, since a URL can't be spoken"
     },
     {
       "title": "read last",

@@ -36,6 +36,8 @@ const (
 	ListJobs    Kind = "list_jobs"    // list the attached session's detached background jobs
 	KillJob     Kind = "kill_job"     // kill one of the attached session's background jobs by number
 	JobStatus   Kind = "job_status"   // report the attached session's background-job summary
+	AuthStatus  Kind = "auth_status"  // speak whether the target host's claude is logged in, and as whom
+	AuthLogin   Kind = "auth_login"   // start the claude re-login flow on the target host
 	Restart     Kind = "restart"      // restart/rebuild the spawner server (SPAWNER_RESTART_CMD)
 	Set         Kind = "set"          // set a shared setting ("target", "directory") by voice
 	Get         Kind = "get"          // speak the current value of a shared setting

@@ -31,15 +31,3 @@ urgency = "normal"
 order = 10
 created = 2026-08-10
 tags = ["auth", "session"]
-
-[[task]]
-id = "add-a-hey-buddy-log-in-command"
-title = "Add a 'hey buddy' log-in command"
-description = "Add a voice command that starts the re-login flow (e.g. 'hey buddy, log in to claude' / 'hey buddy, auth status'), following the Registry→docs/commands.json→APK pipeline in docs/commands.md — add it to command.Registry, regenerate with 'go run ./cmd/gencommands', document in docs/commands.md. Spoken reply reads back auth status; starting a login speaks the instruction to check the phone/browser for the link, since a URL cannot be usefully spoken."
-status = "active"
-level = "task"
-category = "feature"
-urgency = "low"
-order = 70
-created = 2026-08-10
-tags = ["auth", "voice"]

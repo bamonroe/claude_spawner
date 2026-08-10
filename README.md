@@ -764,6 +764,9 @@ client, on both the app and the browser:
   shows a red *Claude is logged out on `<host>`* banner with a **Log in** button that opens it
   directly. (The server tells these failures apart from ordinary ones and reports them as
   `turn_failed_auth` — see [`docs/protocol.md`](./docs/protocol.md).)
+- **By voice**, "hey buddy, am I logged in" reads the target host's status back aloud, and "hey
+  buddy, log in to claude" starts the login there. A sign-in URL can't be spoken, so the spoken
+  reply just tells you to check the app — the login panel opens with the link in it as usual.
 
 Login state belongs to the host, not to a connection, so the server broadcasts it: two clients
 watching the same host see the same status, and one finishing a login updates the other.

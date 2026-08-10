@@ -69,6 +69,10 @@ var parsers = []func(parseCtx) (Intent, bool){
 	parseListJobs,
 	parseKillJob,
 	parseJobStatus,
+	// Before parseStatus/parseRestart: "auth status" is about Claude's login, not
+	// the session, and "log claude in" must not read as anything else.
+	parseAuthStatus,
+	parseAuthLogin,
 	parseRestart,
 	parseKill,
 	parseAttach,
@@ -262,6 +266,25 @@ func parseKillJob(c parseCtx) (Intent, bool) {
 	if ((c.first == "kill" || c.first == "stop" || c.first == "cancel") && contains(c.t, "job") && modelIndex(c.words) > 0) ||
 		contains(c.t, "kill job", "stop job", "cancel job", "kill background job", "kill the job number") {
 		return Intent{Kind: KillJob, Count: modelIndex(c.words)}, true
+	}
+	return Intent{}, false
+}
+
+// Claude's own login on the target host: the read ("am i logged in") and the
+// write ("log in to claude"). Speech turns "log in" into "login" about half the
+// time, so both spellings match.
+func parseAuthStatus(c parseCtx) (Intent, bool) {
+	if leadsWith(c.t, "auth status", "authentication status", "claude login status", "login status") ||
+		contains(c.t, "am i logged in", "are we logged in", "is claude logged in", "who am i logged in as") {
+		return Intent{Kind: AuthStatus}, true
+	}
+	return Intent{}, false
+}
+
+func parseAuthLogin(c parseCtx) (Intent, bool) {
+	if contains(c.t, "log in to claude", "login to claude", "log into claude", "log claude in",
+		"re-login to claude", "relogin to claude", "log in again", "login again", "claude login") {
+		return Intent{Kind: AuthLogin}, true
 	}
 	return Intent{}, false
 }

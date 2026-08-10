@@ -95,6 +95,10 @@ func (c *conn) runCommand(intent command.Intent) bool {
 		c.doSet(intent.Arg, intent.Value)
 	case command.Get:
 		c.doGet(intent.Arg)
+	case command.AuthStatus:
+		c.doAuthStatusVoice()
+	case command.AuthLogin:
+		c.doAuthLoginVoice()
 	case command.Restart:
 		c.doRestart("") // voice "restart" = full rebuild (empty = rebuild)
 	default:

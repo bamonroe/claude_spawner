@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "add-a-hey-buddy-log-in-command"
+title = "Add a 'hey buddy' log-in command"
+description = "Add a voice command that starts the re-login flow (e.g. 'hey buddy, log in to claude' / 'hey buddy, auth status'), following the Registry→docs/commands.json→APK pipeline in docs/commands.md — add it to command.Registry, regenerate with 'go run ./cmd/gencommands', document in docs/commands.md. Spoken reply reads back auth status; starting a login speaks the instruction to check the phone/browser for the link, since a URL cannot be usefully spoken."
+status = "finished"
+level = "task"
+category = "feature"
+created = 2026-08-10
+completed = 2026-08-10
+tags = ["auth", "voice"]
+
+[[task]]
 id = "document-the-re-login-flow-in-readme-md"
 title = "Document the re-login flow in README.md"
 description = "User-facing documentation for re-logging into Claude: what the flow does, subscription vs API console, that the OAuth callback is hosted by Anthropic (no local port, so the link can be completed on the phone), and that the pasted code goes back through the app. Link docs/scopes/claude-auth-login.md for the mechanics rather than restating them."
