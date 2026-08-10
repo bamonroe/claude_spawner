@@ -532,6 +532,35 @@ networking can't reach the host as `localhost` — that's a
 deployment where you'd delete the `localhost` entry and register the host (and any others) as
 explicit remotes instead.
 
+### Re-authenticating a host: `claude auth login` needs a PTY (`internal/session/authlogin.go`)
+
+Logging a host's `claude` back in is the one place we run the CLI **under a PTY**, and it is a
+deliberate exception to the no-PTY rule the turn path follows (`cancelableCommand` requests none so
+stream-json stdout stays clean). The reason is measured, not stylistic: `claude auth login` reads its
+"Paste code here if prompted >" from the terminal, so with plain pipes the process ignores whatever
+is written to stdin and hangs forever. The full probe — subcommands, output shape, exit codes — is in
+[`docs/scopes/claude-auth-login.md`](scopes/claude-auth-login.md).
+
+`AuthLogin` is the supervisor. Its lifecycle is linear and human-paced: `StartAuthLogin` opens a
+long-lived SSH channel, requests a `dumb` PTY with echo off, and runs `cd "$HOME" && exec claude auth
+login --claudeai|--console`; `URL` blocks until the OAuth URL appears; `SubmitCode` writes exactly one
+pasted code plus a carriage return; `Wait` returns the verdict (exit 0 = authenticated, otherwise the
+transcript's last line, which is the CLI's `Login failed: …`). Three consequences worth keeping:
+
+- **Which identity gets logged in is decided by `$HOME` on the target host**, nothing else — so
+  picking the identity means picking the host entry, not overriding env here.
+- **The URL is bound to that process.** Each invocation mints a fresh `code_challenge`, so the
+  process must stay alive from URL to code, and starting a second login invalidates the first URL.
+- **Nothing local is involved in the callback** — the `redirect_uri` is a hosted page, so the browser
+  completing the flow can be the user's phone. No port is opened, no listener runs.
+
+Under a PTY the terminal merges stderr into stdout and wraps the URL in an OSC-8 hyperlink (so it
+appears twice, surrounded by escape bytes); the driver strips ANSI/OSC escapes before matching and
+publishes the first URL only. Because stderr is merged there is no room for the pgid sentinel the
+turn path uses, so cancellation is a SIGKILL plus channel close (`setsid` is *not* used — it would
+detach the controlling terminal and break the prompt). Every attempt is bounded by
+`DefaultAuthLoginTimeout`, since the CLI itself would wait at the paste prompt forever.
+
 ### Timers never read the host: event-driven refresh, cached reads
 
 Because every read is an SSH round trip drawing from a per-host channel budget the live turn stream

@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "implement-a-pty-backed-auth-login-process-in-internal-session"
+title = "Implement a PTY-backed auth login process in internal/session"
+description = "Per docs/scopes/claude-auth-login.md: add a supervised login process alongside the turn Executor. Allocate a PTY (plain pipes cannot answer the paste-code prompt — the process ignores piped stdin and hangs), run 'claude auth login --claudeai|--console' with the HOME/user of the target identity on the target host, scan output for the OAuth URL after stripping ANSI/OSC-8 escapes (under a PTY the URL is emitted twice inside a hyperlink escape), expose the URL to the caller, accept exactly one pasted code written to the PTY, and finish on process exit — exit 0 is success, exit 1 with 'Login failed: …' is failure. Include an overall timeout and cancellation, since the process otherwise waits forever."
+status = "finished"
+level = "task"
+category = "feature"
+created = 2026-08-10
+completed = 2026-08-10
+tags = ["auth", "session"]
+
+[[task]]
 id = "design-the-auth-login-driver-seam-in-internal-session"
 title = "Design the auth-login driver seam in internal/session"
 description = "Decide where a login flow lives alongside the existing turn Executor (host process vs container vs SSH to the target host — see session/executor.go, ssh_exec.go). It is a long-lived interactive process, not a turn, so it does not fit driver_turn.go: it needs its own supervised process, an output scanner that extracts the OAuth URL, a way to feed a pasted code back to stdin, cancellation/timeout, and a single-flight guard so two clients cannot race competing logins. It must run as the same user/home whose ~/.claude credentials the sessions actually use — so it is per host and per identity (session/identity.go, hosts.go). Depends on the sandbox probe. Produce the atomic implementation tasks."
