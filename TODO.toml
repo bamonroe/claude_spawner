@@ -19,3 +19,15 @@ add_proposed_work = "Add proposed features and tests as new tasks rather than lo
 remove_dropped_items = "Remove dropped items with a one-line why (`scripts/todo.sh remove <id> --reason`)."
 finish_work = "When a task is fully finished (built, tested, documented), run `scripts/todo.sh done <id>` to move it to FINISHED.toml — in the same commit that completes the work."
 scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/KMP app + web client. The historical phase roadmap stays in README.md."
+
+[[task]]
+id = "re-login-to-claude-from-the-app-login-flow"
+title = "Re-login to Claude from the app (/login flow)"
+description = "Let the user re-authenticate Claude Code without touching the host shell. Drive 'claude' through its /login flow: run /login, surface the presented options (subscription vs API key) back to the client, and for the subscription path capture the emitted login URL and open it in a local browser on the user's machine so they can complete OAuth. Then confirm the session is authenticated. Breakdown needed: how to drive the interactive /login prompt (it is a TUI flow, not stream-json headless), where to hook it in internal/session, new WebSocket messages for 'login options' / 'login url' / 'login complete' (docs/protocol.md), a 'hey buddy' command to trigger it (docs/commands.md + Registry), client UI to show options and pick one, and opening the URL in a browser on the host over SSH."
+status = "active"
+level = "epic"
+category = "feature"
+urgency = "normal"
+order = 10
+created = 2026-08-10
+tags = ["auth", "session"]
