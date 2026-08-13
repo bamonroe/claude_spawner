@@ -49,6 +49,14 @@ type Driver struct {
 	// voice-enumerable model subset). Nil is fine: every read falls back to the
 	// backend's compiled defaults (the store's methods are nil-safe).
 	Providers *agent.SettingsStore
+	// lazyMu guards the fill-in of Agents/Profiles/Providers. Those three are
+	// populated at construction by NewDriver/main, but a Driver built as a literal
+	// (tests, older callers) leaves them nil and the accessors below default them on
+	// first use — and first use is concurrent: two clients connecting at the same
+	// moment both authenticate through ProfileRegistry, and the nil-check-then-assign
+	// is a genuine data race (-race caught it). The lock covers only the fill-in;
+	// once a field is set, every reader goes through the same accessor and sees it.
+	lazyMu sync.Mutex
 	// Home is the {{.Home}} template value — the login user's home on the
 	// executing host. GlobalVars are the server-wide {{.Vars.X}} values a profile's
 	// own vars overlay. Both feed profile templating in ProfileFor.
@@ -177,6 +185,14 @@ func (d *Driver) SandboxEnabled() bool {
 // registry when unset so a Driver built as a literal (tests, minimal callers)
 // still resolves a session's agent.
 func (d *Driver) agents() *agent.Registry {
+	d.lazyMu.Lock()
+	defer d.lazyMu.Unlock()
+	return d.agentsLocked()
+}
+
+// agentsLocked is agents() for callers that already hold lazyMu (the mutex is not
+// reentrant, and ProviderSettings needs the registry to build its store).
+func (d *Driver) agentsLocked() *agent.Registry {
 	if d.Agents == nil {
 		d.Agents = agent.Default()
 	}
@@ -209,6 +225,8 @@ func (d *Driver) Registry() *agent.Registry { return d.agents() }
 // ProfileRegistry returns the execution-profile registry, creating a minimal
 // default-only registry for tests and older callers that build Driver literals.
 func (d *Driver) ProfileRegistry() *ProfileRegistry {
+	d.lazyMu.Lock()
+	defer d.lazyMu.Unlock()
 	if d.Profiles == nil {
 		d.Profiles, _ = NewProfileRegistry(ExecProfile{Name: "bare-metal", Target: TargetHost, Default: true})
 	}
@@ -220,8 +238,10 @@ func (d *Driver) ProfileRegistry() *ProfileRegistry {
 // callers that build a Driver literal. The store's read methods are nil-safe, but
 // mutating handlers (provider_put) need a real store, so this never returns nil.
 func (d *Driver) ProviderSettings() *agent.SettingsStore {
+	d.lazyMu.Lock()
+	defer d.lazyMu.Unlock()
 	if d.Providers == nil {
-		d.Providers, _ = agent.OpenSettingsStore("", d.agents())
+		d.Providers, _ = agent.OpenSettingsStore("", d.agentsLocked())
 	}
 	return d.Providers
 }
