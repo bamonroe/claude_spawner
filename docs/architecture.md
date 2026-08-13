@@ -167,6 +167,17 @@ false positive. `fn` runs on the mutating goroutine with **no store lock held**,
 mutator's path: it must not block or call back into the store — the intended body is a
 non-blocking wake of a debounced broadcaster.
 
+The gateway is that broadcaster (`gateway/sessionwatch.go`). `Server.watchSessionList`, started in
+`New`, subscribes with a non-blocking channel wake and runs one loop goroutine that waits out a
+short coalescing window (`sessionPushDebounce`) — a spawn touches the store more than once, and one
+logical change should be one frame — then broadcasts a `discovered` frame to every connected
+client. The rows are built by `Server.discoveredViews`, the same function that answers a `discover`
+request, but the push reads `discoverCachedSnapshot`: the **memoized** walk only, never kicking a
+disk scan, so a registry edit can't turn into I/O. A cold memo just means the frame goes out
+`partial` (registered rows only), which the client already treats as do-not-prune. Nothing changed
+on the Kotlin side — both the sidebar and the radial menu collect the one `discovered` StateFlow
+the controller assigns from any incoming frame, solicited or not.
+
 Related: per-launch scratch does **not** live on the record. The resolved `*ExecProfile` is an
 explicit parameter of `Executor.Start`/`SandboxLifecycle.Ensure` — it used to be stashed on the
 shared `Session`, where a turn and the job reconciler launching at once overwrote each other's

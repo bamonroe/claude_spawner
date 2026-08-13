@@ -31,20 +31,3 @@ urgency = "normal"
 order = 10
 created = 2026-08-13
 tags = ["android", "mic", "orientation"]
-
-[[task]]
-id = "broadcast-the-session-list-to-every-client-when-it-changes"
-title = "Broadcast the session list to every client when it changes"
-description = """
-Depends on [give-session-store-a-change-notification-hook].
-
-Today msgSessionList (ops_session.go:79) and msgDiscovered (ops_discover.go:110) are only ever c.send'd back to the connection that asked — there is no broadcast path for session state, unlike hosts.go which already broadcasts host_list to every client on change. The Kotlin side is already fully reactive: both the sidebar and the radial menu collect the same controller.discovered StateFlow (MainScreen.kt:126,208) and VoiceControllerMessages/WebAppControllerMessages assign _discovered.value straight from any incoming discovered frame, gated on nothing. So an unsolicited push already lands on both surfaces with no client change needed.
-
-Work: subscribe the gateway to the store change hook at startup and broadcast a fresh discovered frame to every connected conn. Use the registered-rows path only — do not kick a disk walk per change; reuse the cached/last scan for the adoptable rows, or send partial:true, which the client already treats as do-not-prune. Coalesce bursts (a spawn touches the store more than once) behind a short debounce so one logical change is one frame. Then document it in docs/protocol.md: discovered is no longer response-only, it is also a server push emitted whenever the session list changes; note it may be partial. Verify a session spawned from one client appears in a second client's sidebar and radial menu with no refresh tap."""
-status = "active"
-level = "task"
-category = "feature"
-urgency = "high"
-order = 40
-created = 2026-08-13
-tags = ["sessions", "server", "protocol", "push"]

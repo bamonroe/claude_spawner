@@ -311,7 +311,10 @@ ones you reach for, or empty it entirely. (Commands that take a spoken argument 
 `spawn` — can't be one-tap tray buttons.) Open the **sessions drawer** with the ☰ menu or by swiping in from
 the left edge (just inside the edge — the very edge is Android's back gesture). The session list
 **auto-refreshes each time the drawer opens**, and you can **pull down on the list** (or tap
-**Refresh**) to re-scan at any time. See [`docs/commands.md`](docs/commands.md).
+**Refresh**) to re-scan at any time. You rarely need to: the server **pushes the session list to
+every connected client whenever it changes**, so a session you spawn, rename, re-model or delete on
+the phone appears (or disappears) in the browser's sidebar and radial menu within a moment, with no
+refresh tap on that device. See [`docs/commands.md`](docs/commands.md).
 Swiping right-to-left on the chat jumps back to the previous focused session immediately; the app
 then silently syncs that focus to the server so the next dictation and other clients agree.
 

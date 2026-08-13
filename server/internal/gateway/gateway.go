@@ -207,6 +207,9 @@ func New(cfg *config.Config, store *session.Store, hosts *session.HostStore, ids
 	// Server-owned sweeper for transcript purges owed by deletes made while a host
 	// was unreachable.
 	go s.purgeRetryLoop()
+	// Push the session list to every client whenever it changes, so a spawn/rename/
+	// delete on one device lands on the others without a refresh.
+	s.watchSessionList()
 	return s
 }
 

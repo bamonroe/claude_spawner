@@ -103,6 +103,19 @@ func (s *Server) discoverSnapshot() ([]session.Discovered, bool) {
 	return list, ok
 }
 
+// discoverCachedSnapshot is discoverSnapshot without the walk: it reads whatever
+// the memo already holds and never starts (or waits on) a scan. Unsolicited
+// pushes use it — a server-driven broadcast fires on every session-list change,
+// and paying for a disk walk each time would turn a registry edit into I/O. A
+// cold memo reports ok=false, so the push goes out as `partial` (registered rows
+// only) and the client keeps its adoptable rows rather than pruning them.
+func (s *Server) discoverCachedSnapshot() ([]session.Discovered, bool) {
+	d := &s.discoverMemo
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.list, !d.at.IsZero()
+}
+
 // refreshAttachDiscovery performs the one in-flight walk and publishes it. A
 // failed walk still clears `ready` (so the next caller can retry) but leaves the
 // previous list and its timestamp alone, so a transient host outage doesn't

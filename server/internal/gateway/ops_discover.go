@@ -47,8 +47,17 @@ func (c *conn) doDiscoverFresh() {
 // getting nothing.
 func (c *conn) serveDiscover() {
 	found, ok := c.srv.discoverSnapshot()
-	active := c.srv.tmuxMgr.ClaudeDirs(c.ctx)
-	registered := c.srv.store.List()
+	c.send(msgDiscovered(c.srv.discoveredViews(c.ctx, found), !ok))
+}
+
+// discoveredViews builds the rows of a `discovered` frame from the registry plus
+// `found` (the on-disk walk). It is connection-independent so the same list can be
+// answered to one client (serveDiscover) or pushed to all of them (the session-list
+// watcher) — the only per-connection thing about a discovered frame was ever which
+// socket it went down.
+func (s *Server) discoveredViews(ctx context.Context, found []session.Discovered) []discoveredView {
+	active := s.tmuxMgr.ClaudeDirs(ctx)
+	registered := s.store.List()
 	// Last-active per session id AND per dir. Registered rows match by their OWN
 	// transcript ids first — the per-dir fallback alone gave a dir-mate's (or a
 	// rotated-away) session LastActive 0 or its neighbor's time, sinking or
@@ -69,25 +78,25 @@ func (c *conn) serveDiscover() {
 	// collapse, so multiple sessions in the same dir are each individually visible
 	// and separately renamable/deletable (this is what stops sessions hiding).
 	for _, rec := range registered {
-		s := rec.Snapshot() // one consistent row per record, not a torn live read
-		regDirs[s.Dir] = true
+		r := rec.Snapshot() // one consistent row per record, not a torn live read
+		regDirs[r.Dir] = true
 		// Newest activity across every id this session has run under (a clear/
 		// compress rotates the live id but the old transcript keeps the newest
 		// mtime until the next turn lands).
 		var last int64
-		for _, id := range s.TranscriptIDs() {
+		for _, id := range r.TranscriptIDs() {
 			if t := lastByID[id]; t > last {
 				last = t
 			}
 		}
 		if last == 0 {
-			last = lastByDir[s.Dir]
+			last = lastByDir[r.Dir]
 		}
 		views = append(views, discoveredView{
-			Name: s.Name, Dir: s.Dir, SessionID: s.SessionID,
-			LastActive: last, Active: active[s.Dir], Registered: true,
-			Busy: c.srv.isBusy(s.SessionID), Target: sandboxTarget(s), Host: s.Host,
-			Agent: s.Agent, Model: s.Model, Profile: s.Profile,
+			Name: r.Name, Dir: r.Dir, SessionID: r.SessionID,
+			LastActive: last, Active: active[r.Dir], Registered: true,
+			Busy: s.isBusy(r.SessionID), Target: sandboxTarget(r), Host: r.Host,
+			Agent: r.Agent, Model: r.Model, Profile: r.Profile,
 		})
 	}
 	// Unregistered sessions found on disk — one adoptable row per directory. The
@@ -107,7 +116,7 @@ func (c *conn) serveDiscover() {
 			Host: session.LocalHost,
 		})
 	}
-	c.send(msgDiscovered(views, !ok))
+	return views
 }
 
 // doRenameDiscovered gives a discovered session a custom name. It resolves the
