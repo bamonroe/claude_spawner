@@ -14,6 +14,20 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "give-session-store-a-change-notification-hook"
+title = "Give session.Store a change-notification hook"
+description = """
+Audit result: every session-list mutation site (dialog.go voice spawn, browse.go picker spawn, ops_session.go kill/rename/model, ops_discover.go adopt/delete, ops_usage.go model change, turns.go/dictate.go per-turn Put) writes straight to session.Store with no notification. Nothing tells other connections the list changed, which is why the sidebar and radial menu are stale until a manual refresh.
+
+Fix at the unifying interface rather than at each callsite: add an observer/subscription hook on session.Store that fires from inside Insert/Put/Delete/Rename/ForgetID, so any present or future mutation is covered by construction. The hook must carry enough to let subscribers filter no-op churn: Put is called on every turn (turns.go, dictate.go) and most of those writes do not change any list-visible field (name, dir, host, target, agent, model, profile, busy). Compare the previous record against the new one and only signal when a list-visible field actually differs, so the broadcast layer is not spammed once per turn. Keep it non-blocking (never hold the store lock while calling out) and unit-test that each mutation fires exactly once and that a no-op Put fires nothing."""
+status = "finished"
+level = "task"
+category = "refactor"
+created = 2026-08-13
+completed = 2026-08-13
+tags = ["sessions", "server", "push"]
+
+[[task]]
 id = "sessions-sidebar-and-radial-menu-don-t-update-without-a-manual-refresh"
 title = "Sessions sidebar and radial menu don't update without a manual refresh"
 description = "New sessions don't show up in the sessions sidebar or the sessions radial menu until the sidebar's refresh button is clicked. Observed after creating new sessions. The user suspects the real problem is broader: how session-state messages are pushed from the server to clients in the first place — i.e. the client may be relying on request/response refreshes rather than the server proactively broadcasting session list changes to every connected client, and any push that does exist may not fire on all the events that change the list (spawn, exit, rename, attach/detach), or may not reach all clients/surfaces.\\n\\nScope this out before writing code: audit which server events mutate the session list, which (if any) outbound WebSocket messages announce those changes, whether they're broadcast to all connected clients or only the originator, and how the Kotlin client's sidebar and radial menu consume them versus polling/manual refresh. Then add concrete tasks for the fix — ideally making live session-list state an invariant of the push channel rather than patching each surface. Touches docs/protocol.md if a message is added or changed."

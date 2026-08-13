@@ -38,6 +38,10 @@ type Store struct {
 	// delete, the job hub) resolve it in O(1) and unambiguously.
 	byName map[string]*Session
 	byID   map[string]*Session
+	// watch is the change-notification hook: every mutation below calls notify
+	// once it has released the store lock, and subscribers hear about it only if
+	// the list-visible projection actually moved (see storewatch.go).
+	watch watch
 }
 
 // OpenStore loads (or initializes) the registry at path.
@@ -94,6 +98,10 @@ func OpenStore(path string) (*Store, error) {
 			return nil, err
 		}
 	}
+	// Remember what we loaded with, so the first mutation's notify compares
+	// against the real registry instead of "empty" and wakes subscribers for a
+	// change that never happened.
+	s.seedWatch()
 	go s.writeLoop()
 	return s, nil
 }
@@ -290,7 +298,9 @@ func (s *Store) Insert(rec *Session) (*Session, error) {
 		s.byID[id] = rec
 	}
 	s.mu.Unlock()
-	return rec, s.flush()
+	err := s.flush()
+	s.notify()
+	return rec, err
 }
 
 // Put updates a session (use Insert to register a new one — Put does no name
@@ -317,7 +327,9 @@ func (s *Store) Put(rec *Session) error {
 		s.byID[id] = rec
 	}
 	s.mu.Unlock()
-	return s.flush()
+	err := s.flush()
+	s.notify() // no-op for the per-turn Puts that change nothing list-visible
+	return err
 }
 
 // Delete removes a session and persists the registry, purging EVERY id-index
@@ -334,7 +346,9 @@ func (s *Store) Delete(name string) error {
 	}
 	delete(s.byName, name)
 	s.mu.Unlock()
-	return s.flush()
+	err := s.flush()
+	s.notify()
+	return err
 }
 
 // Rename changes a session's name (its lookup key), keeping the same durable
@@ -354,7 +368,9 @@ func (s *Store) Rename(old, newName string) error {
 	rec.Mutate(func(r *Session) { r.Name = newName })
 	s.byName[newName] = rec
 	s.mu.Unlock()
-	return s.flush()
+	err := s.flush()
+	s.notify()
+	return err
 }
 
 // ForgetID drops a stale session_id from the id index — used after a compact/
@@ -365,6 +381,10 @@ func (s *Store) ForgetID(oldID string) error {
 	s.mu.Lock()
 	delete(s.byID, oldID)
 	s.mu.Unlock()
+	// Index-only: the record's own fields are untouched, so this fires only if the
+	// caller had already rotated SessionID on the record (clear/compress) — which
+	// IS list-visible, since rows are keyed by it.
+	s.notify()
 	return nil
 }
 

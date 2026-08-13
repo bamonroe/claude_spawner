@@ -33,21 +33,6 @@ created = 2026-08-13
 tags = ["android", "mic", "orientation"]
 
 [[task]]
-id = "give-session-store-a-change-notification-hook"
-title = "Give session.Store a change-notification hook"
-description = """
-Audit result: every session-list mutation site (dialog.go voice spawn, browse.go picker spawn, ops_session.go kill/rename/model, ops_discover.go adopt/delete, ops_usage.go model change, turns.go/dictate.go per-turn Put) writes straight to session.Store with no notification. Nothing tells other connections the list changed, which is why the sidebar and radial menu are stale until a manual refresh.
-
-Fix at the unifying interface rather than at each callsite: add an observer/subscription hook on session.Store that fires from inside Insert/Put/Delete/Rename/ForgetID, so any present or future mutation is covered by construction. The hook must carry enough to let subscribers filter no-op churn: Put is called on every turn (turns.go, dictate.go) and most of those writes do not change any list-visible field (name, dir, host, target, agent, model, profile, busy). Compare the previous record against the new one and only signal when a list-visible field actually differs, so the broadcast layer is not spammed once per turn. Keep it non-blocking (never hold the store lock while calling out) and unit-test that each mutation fires exactly once and that a no-op Put fires nothing."""
-status = "active"
-level = "task"
-category = "refactor"
-urgency = "high"
-order = 30
-created = 2026-08-13
-tags = ["sessions", "server", "push"]
-
-[[task]]
 id = "broadcast-the-session-list-to-every-client-when-it-changes"
 title = "Broadcast the session list to every client when it changes"
 description = """

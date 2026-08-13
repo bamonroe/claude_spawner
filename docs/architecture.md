@@ -148,6 +148,25 @@ So each record carries its own lock (`Session.mu`, lazily created) and three sea
   `PriorIDs`/`Jobs` append. A reflection-driven test (`record_lock_test.go`) fails if a newly added
   slice field isn't cloned, so the invariant can't quietly rot.
 
+### The store's change hook: `Store.Subscribe`
+
+Every session-list mutation used to write straight to the store and tell nobody, so a session
+spawned, renamed, re-modelled or killed on one connection left every other client's sidebar and
+radial menu stale until a manual refresh. The notification therefore lives **inside the store**
+rather than at each callsite: `Insert`/`Put`/`Delete`/`Rename`/`ForgetID` all call `notify` once
+they've released the store lock, so any future mutation is covered by construction
+(`storewatch.go`).
+
+`Store.Subscribe(fn) (cancel func())` registers a listener. The signal is **field-aware**: the
+store keeps the last *list projection* (`listRow` — name, dir, session_id, host, target, agent,
+model, profile: exactly what `sessionView`/`discoveredView` render) and fires only when that
+projection actually differs. This matters because `Put` runs on **every turn** and almost none of
+those writes touch a list-visible field — a naive hook would wake the broadcaster once per turn.
+`OpenStore` seeds the projection from what it loaded, so the first mutation after boot isn't a
+false positive. `fn` runs on the mutating goroutine with **no store lock held**, but still on the
+mutator's path: it must not block or call back into the store — the intended body is a
+non-blocking wake of a debounced broadcaster.
+
 Related: per-launch scratch does **not** live on the record. The resolved `*ExecProfile` is an
 explicit parameter of `Executor.Start`/`SandboxLifecycle.Ensure` — it used to be stashed on the
 shared `Session`, where a turn and the job reconciler launching at once overwrote each other's
