@@ -271,6 +271,13 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
     internal val _voiceState = MutableStateFlow(VoiceState.OFF)
     override val voiceState: StateFlow<VoiceState> = _voiceState.asStateFlow()
 
+    // Held here, not in the UI, so a locked mic survives Activity recreation (rotation).
+    override val micLock = MicLock(
+        startCapture = { startTalking() },
+        stopCapture = { stopTalking() },
+        cancelCapture = { cancelTalking() },
+    )
+
     internal val _speechGate = MutableStateFlow<ServerMsg.SpeechGate?>(null)
     override val speechGate: StateFlow<ServerMsg.SpeechGate?> = _speechGate.asStateFlow()
 

@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "rotating-the-phone-with-mic-lock-open-closes-the-mic-and-sends-the-message"
+title = "Rotating the phone with mic lock open closes the mic and sends the message"
+description = "When the device is rotated while the mic is locked open (lock-mic / hands-free capture), the orientation change appears to tear down and recreate the activity, which closes the mic and submits whatever has been captured so far as a message. Expected: an orientation change should leave a locked-open mic recording, with no send. Likely an activity-recreation issue on configuration change — the recorder/lock state isn't retained across it. Reported by the user on the Pixel 8a."
+status = "finished"
+level = "scope"
+category = "bug"
+created = 2026-08-13
+completed = 2026-08-13
+tags = ["android", "mic", "orientation"]
+
+[[task]]
 id = "broadcast-the-session-list-to-every-client-when-it-changes"
 title = "Broadcast the session list to every client when it changes"
 description = """

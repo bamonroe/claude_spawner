@@ -19,15 +19,3 @@ add_proposed_work = "Add proposed features and tests as new tasks rather than lo
 remove_dropped_items = "Remove dropped items with a one-line why (`scripts/todo.sh remove <id> --reason`)."
 finish_work = "When a task is fully finished (built, tested, documented), run `scripts/todo.sh done <id>` to move it to FINISHED.toml — in the same commit that completes the work."
 scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/KMP app + web client. The historical phase roadmap stays in README.md."
-
-[[task]]
-id = "rotating-the-phone-with-mic-lock-open-closes-the-mic-and-sends-the-message"
-title = "Rotating the phone with mic lock open closes the mic and sends the message"
-description = "When the device is rotated while the mic is locked open (lock-mic / hands-free capture), the orientation change appears to tear down and recreate the activity, which closes the mic and submits whatever has been captured so far as a message. Expected: an orientation change should leave a locked-open mic recording, with no send. Likely an activity-recreation issue on configuration change — the recorder/lock state isn't retained across it. Reported by the user on the Pixel 8a."
-status = "active"
-level = "scope"
-category = "bug"
-urgency = "normal"
-order = 10
-created = 2026-08-13
-tags = ["android", "mic", "orientation"]

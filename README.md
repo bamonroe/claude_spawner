@@ -283,6 +283,11 @@ clip and sends it, **switching sessions** ends it first so it lands in the sessi
 into, and **losing the connection** or **turning hands-free on** drops the clip (it could not be
 delivered as recorded). While locked, hold-to-talk is disabled so the two paths can't fight.
 
+**Rotating the phone doesn't end the clip.** The lock belongs to the recorder, not to the screen, so
+turning the device (or any other change that makes Android rebuild the activity — theme, font size)
+leaves the mic recording and sends nothing; the palette closes, but the red **mic locked** line and
+the red mic button come back with it and either one still sends.
+
 **The ring shows which sessions want you.** A palette slot turns **orange** under exactly the same
 rule as the sidebar's session cards: that session is thinking right now, or it's holding output you
 haven't seen yet (the session you're attached to is never orange — you're already looking at it).

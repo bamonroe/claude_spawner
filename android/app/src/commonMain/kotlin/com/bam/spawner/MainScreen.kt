@@ -183,14 +183,15 @@ fun MainScreen(
     var paletteAt by remember { mutableStateOf<Offset?>(null) }
     // Mic lock: the palette's centre button holds the ordinary tap-to-speak capture
     // open, so you can talk without keeping a finger down. Same path as a hold — it
-    // just doesn't end until you release the lock. Not hands-free: no wake word, no
-    // VAD, one clip that ends when the lock does.
-    var micLocked by remember { mutableStateOf(false) }
+    // just doesn't end until you release the lock. The state lives on the controller
+    // ([MicLock]), alongside the recorder it belongs to, so rotating the phone can't
+    // lose it — the screen only reads and drives it.
+    val micLocked by controller.micLock.locked.collectAsState()
     // Release the lock and send what's been captured so far. Safe to call when unlocked.
-    val releaseMicLock: () -> Unit = { if (micLocked) { micLocked = false; onTalkStop() } }
+    val releaseMicLock: () -> Unit = { controller.micLock.release() }
     // Drop the lock and throw the clip away (used when the capture can no longer be
     // delivered as recorded: the socket dropped, or hands-free is taking the mic).
-    val abandonMicLock: () -> Unit = { if (micLocked) { micLocked = false; onTalkCancel() } }
+    val abandonMicLock: () -> Unit = { controller.micLock.abandon() }
     // The lock outlives the palette (closing the ring leaves it recording) but never
     // outlives the screen being visible: leaving the app ends the clip and sends it.
     PlatformBackgroundEffect { releaseMicLock() }
@@ -199,7 +200,13 @@ fun MainScreen(
     // in the session it was started in (the slot path stops before it attaches; this
     // catches every other route to a new focus — sidebar, notice, voice command).
     LaunchedEffect(connected) { if (!connected) abandonMicLock() }
-    LaunchedEffect(attachedId) { releaseMicLock() }
+    // Only a real change of focus counts. A fresh composition over an unchanged session —
+    // the Activity being recreated on rotation — must leave the lock recording, so the
+    // last-seen id is remembered across that recreation rather than re-derived.
+    var lastAttachedId by rememberSaveable { mutableStateOf(attachedId) }
+    LaunchedEffect(attachedId) {
+        if (attachedId != lastAttachedId) { lastAttachedId = attachedId; releaseMicLock() }
+    }
 
     // The sessions sidebar. Reused verbatim by both layouts — [onNavigated] closes the
     // drawer in the narrow layout (a no-op in the wide one, which pins it open).
@@ -469,7 +476,7 @@ fun MainScreen(
                   // as the send button; every other action closes it.
                   when (action) {
                       RadialActions.MIC_LOCK ->
-                          if (connected && !handsFree) { micLocked = true; onTalkStart() }
+                          if (connected && !handsFree) controller.micLock.lock()
                           else paletteOpen = false
                       RadialActions.NEW_SESSION -> { onNewSession(); paletteOpen = false }
                       RadialActions.SWAP -> { releaseMicLock(); controller.swap(); paletteOpen = false }

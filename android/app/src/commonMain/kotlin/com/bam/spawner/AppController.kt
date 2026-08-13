@@ -81,6 +81,9 @@ interface AppController : HostsIdentitiesController, AuthController, ProfilesCon
     val speechGate: StateFlow<ServerMsg.SpeechGate?>
     val speaking: StateFlow<Boolean>
     val activity: StateFlow<String>
+    // The mic held open by the radial palette (see [MicLock]). Owned by the controller so
+    // the lock — and the recording under it — survives an Activity being recreated.
+    val micLock: MicLock
 
     // --- Usage / rate limits -------------------------------------------------
     val lastTurnUsage: StateFlow<TurnUsageInfo?>
