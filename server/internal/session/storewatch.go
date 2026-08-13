@@ -106,12 +106,17 @@ func (s *Store) seedWatch() {
 
 // notify fires subscribers if — and only if — the list projection changed since
 // the last time they were told. Call it from a mutation AFTER releasing the
-// store lock. The compare-and-swap of the remembered projection happens under
-// watch.mu, so two concurrent mutations produce exactly one notification each of
-// the states they land on, never a lost or duplicated wake.
+// store lock. The projection is READ INSIDE watch.mu, not before it: snapshotting
+// outside let two concurrent mutations swap out of order (the older snapshot
+// landing last), leaving `rows` describing a state the store had already moved
+// past — which then fired a spurious wake on the next no-op write. Reading and
+// swapping in one critical section makes the remembered projection monotonic.
+// Taking watch.mu then the store's read lock is the only order in the package
+// (mutators always release the store lock before calling here), so it can't
+// deadlock, and subscribers are called after the unlock.
 func (s *Store) notify() {
-	rows := s.listRows()
 	s.watch.mu.Lock()
+	rows := s.listRows()
 	if slices.Equal(s.watch.rows, rows) {
 		s.watch.mu.Unlock()
 		return
