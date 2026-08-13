@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "sessions-sidebar-and-radial-menu-don-t-update-without-a-manual-refresh"
+title = "Sessions sidebar and radial menu don't update without a manual refresh"
+description = "New sessions don't show up in the sessions sidebar or the sessions radial menu until the sidebar's refresh button is clicked. Observed after creating new sessions. The user suspects the real problem is broader: how session-state messages are pushed from the server to clients in the first place — i.e. the client may be relying on request/response refreshes rather than the server proactively broadcasting session list changes to every connected client, and any push that does exist may not fire on all the events that change the list (spawn, exit, rename, attach/detach), or may not reach all clients/surfaces.\\n\\nScope this out before writing code: audit which server events mutate the session list, which (if any) outbound WebSocket messages announce those changes, whether they're broadcast to all connected clients or only the originator, and how the Kotlin client's sidebar and radial menu consume them versus polling/manual refresh. Then add concrete tasks for the fix — ideally making live session-list state an invariant of the push channel rather than patching each surface. Touches docs/protocol.md if a message is added or changed."
+status = "finished"
+level = "scope"
+category = "bug"
+created = 2026-08-13
+completed = 2026-08-13
+tags = ["sessions", "protocol", "ui"]
+
+[[task]]
 id = "expose-claude-effort-as-selectable-model-entries"
 title = "Expose Claude --effort as selectable model entries"
 description = "claude CLI 2.1.220 has --effort <level>. The agent registry already supports per-model Args lists (Codex uses them for gpt-5.5 high/low reasoning presets), so effort can be exposed as catalogue entries like opus-high / opus-low with --effort baked in, with no other code changes. Pick which levels to surface and their spoken aliases."
