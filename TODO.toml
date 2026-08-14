@@ -19,15 +19,3 @@ add_proposed_work = "Add proposed features and tests as new tasks rather than lo
 remove_dropped_items = "Remove dropped items with a one-line why (`scripts/todo.sh remove <id> --reason`)."
 finish_work = "When a task is fully finished (built, tested, documented), run `scripts/todo.sh done <id>` to move it to FINISHED.toml — in the same commit that completes the work."
 scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/KMP app + web client. The historical phase roadmap stays in README.md."
-
-[[task]]
-id = "one-off-cleanup-purge-leftover-usage-probe-transcripts-under-claude-projects-home-bam"
-title = "One-off cleanup: purge leftover /usage probe transcripts under ~/.claude/projects/-home-bam"
-description = "Every /usage probe since the reaper broke left a transcript in /home/bam/.claude/projects/-home-bam (cwd is driver.UsageDir = $HOME, set in server/main.go:109), which discovery re-surfaces as the phantom \"bam\" session named after the dir basename. Five files as of 2026-08-13. After the sh -c fix lands, delete the leftovers on the host (they are pure /usage probe garbage - each holds one \"/usage\" queue-operation and nothing else; verify that before removing) and confirm the \"bam\" row stays gone across a discover sweep. Consider also whether UsageDir should be $HOME at all: any probe leak there is guaranteed to look like a real session. A dedicated dir outside the scan roots would make the phantom impossible rather than merely reaped."
-status = "active"
-level = "task"
-category = "chore"
-urgency = "normal"
-order = 40
-created = 2026-08-13
-tags = ["cleanup"]

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/bam/claude_spawner/server/internal/agent"
@@ -161,11 +162,14 @@ func (d *Driver) Usage(ctx context.Context) (string, error) {
 	args = append(args, d.ClaudeExtraArgs...)
 	// Account-global (no session_id/dir), so always run on the host — never inside
 	// a per-session sandbox. UsageDir must be a jail-allowed root in broker mode;
-	// fall back to a temp dir for native installs (no jail).
-	dir := d.UsageDir
-	if dir == "" {
-		dir = os.TempDir()
+	// fall back to a temp dir for native installs (no jail). The probe runs in its
+	// own subdirectory of that base, which is what makes a leaked probe transcript
+	// unmistakable rather than merely reaped — see ensureUsageProbeDir.
+	base := d.UsageDir
+	if base == "" {
+		base = os.TempDir()
 	}
+	dir := d.ensureUsageProbeDir(ctx, base)
 	// Reap the probe's own transcript regardless of how the run turns out, so it
 	// never lingers in discovery. Only this exact session_id is removed — a real
 	// session sharing UsageDir keeps its own transcript. WithoutCancel so cleanup
@@ -192,6 +196,54 @@ func (d *Driver) Usage(ctx context.Context) (string, error) {
 		return "", perr
 	}
 	return res.Reply, nil
+}
+
+// usageProbeSubdir is the dedicated working directory the /usage probe runs in,
+// created beneath Driver.UsageDir. The probe's transcript lands in
+// ~/.claude/projects under an encoding of its cwd, and discovery surfaces every
+// transcript it finds there — so with the probe running straight in $HOME, any
+// transcript that outlived its reap came back as a phantom session named after
+// the home directory's basename, indistinguishable from a real one.
+//
+// Its own directory makes the leak IDENTIFIABLE rather than merely rare:
+// isUsageProbeDir recognizes it by cwd and discovery drops it, so a probe
+// transcript can never masquerade as a session even if the reap fails outright.
+// The reap in Driver.Usage still runs — this is the second line, not a
+// replacement for the first.
+const usageProbeSubdir = ".spawner-usage"
+
+// isUsageProbeDir reports whether a discovered transcript's working directory is
+// a /usage probe dir. Suffix match rather than equality against UsageDir: this
+// same check runs over transcripts discovered on ANY host, whose home directory
+// (and therefore whose UsageDir) this process doesn't know. The path separator is
+// the remote's, i.e. always POSIX.
+func isUsageProbeDir(dir string) bool {
+	return strings.HasSuffix(dir, "/"+usageProbeSubdir)
+}
+
+// ensureUsageProbeDir creates the probe's own directory beneath base ON THE HOST
+// (the probe runs there over SSH, so the server container's own filesystem is the
+// wrong one to create it in) and returns it.
+//
+// A failure falls back to base, which is exactly today's behavior: /usage keeps
+// working and only loses the discovery-proof isolation for that run. Making the
+// probe hard-depend on the mkdir would trade a cosmetic phantom for a broken
+// feature.
+func (d *Driver) ensureUsageProbeDir(ctx context.Context, base string) string {
+	probe := filepath.Join(base, usageProbeSubdir)
+	if pool := d.hostPool(); pool != nil {
+		if err := pool.MakeDir(ctx, LocalHost, probe); err != nil {
+			log.Printf("usage: create probe dir %s: %v (falling back to %s)", probe, err, base)
+			return base
+		}
+		return probe
+	}
+	// No SSH pool means the test-only HostExecutor: the host IS this process.
+	if err := os.MkdirAll(probe, 0o755); err != nil {
+		log.Printf("usage: create probe dir %s: %v (falling back to %s)", probe, err, base)
+		return base
+	}
+	return probe
 }
 
 // stderrCauseMax caps how much captured stderr is appended to a turn error. The

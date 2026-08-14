@@ -529,6 +529,19 @@ exec layer therefore owns the invariant rather than each callsite: the one-shot 
 `posixCommand` (`sh -c <quoted>`, in `ssh_fs.go`, covering `SSHPool.Run` and `WriteFile`) and the
 streaming path gets the same from `cancelableCommand`'s `setsid sh -c`.
 
+The same phantom had a second source, closed structurally: the account-global **`/usage` probe** is a
+real `claude -p "/usage"` run, so it leaves a transcript under `~/.claude/projects` like any session,
+and discovery offers every transcript it finds there. `Driver.Usage` reaps its own probe transcript,
+but a reap that fails (as it did on the zsh host) left a session rooted at the probe's working
+directory — `$HOME`, so it surfaced as a plausible-looking row named after the home directory's
+basename. The probe now runs in a **dedicated subdirectory**, `usageProbeSubdir` (`.spawner-usage`)
+under `Driver.UsageDir`, created on the host before the run; `discoverSessions` recognizes that cwd
+(`isUsageProbeDir`, a suffix match — the check runs over any host's transcripts, whose `$HOME` this
+process doesn't know) and drops it. A leaked probe transcript is therefore *identifiable* rather than
+merely rare: it can never masquerade as a session even if the reap fails outright. If the directory
+can't be created the probe falls back to the base dir, keeping `/usage` working at the cost of that
+run's isolation.
+
 Dialing is guarded by a **negative dial cache** in the pool. A failed dial marks that host's pool
 entry down for a backoff window (30 s, doubling per consecutive failure to a 5-minute cap, reset on
 the first success); every caller inside the window gets an immediate error naming the host and the

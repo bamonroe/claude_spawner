@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "one-off-cleanup-purge-leftover-usage-probe-transcripts-under-claude-projects-home-bam"
+title = "One-off cleanup: purge leftover /usage probe transcripts under ~/.claude/projects/-home-bam"
+description = "Every /usage probe since the reaper broke left a transcript in /home/bam/.claude/projects/-home-bam (cwd is driver.UsageDir = $HOME, set in server/main.go:109), which discovery re-surfaces as the phantom \"bam\" session named after the dir basename. Five files as of 2026-08-13. After the sh -c fix lands, delete the leftovers on the host (they are pure /usage probe garbage - each holds one \"/usage\" queue-operation and nothing else; verify that before removing) and confirm the \"bam\" row stays gone across a discover sweep. Consider also whether UsageDir should be $HOME at all: any probe leak there is guaranteed to look like a real session. A dedicated dir outside the scan roots would make the phantom impossible rather than merely reaped."
+status = "finished"
+level = "task"
+category = "chore"
+created = 2026-08-13
+completed = 2026-08-13
+tags = ["cleanup"]
+
+[[task]]
 id = "regression-test-remote-delete-purges-under-a-zsh-login-shell"
 title = "Regression test: remote delete purges under a zsh login shell"
 description = "Guard the zsh-nomatch class of bug. Two layers: (1) a unit test that the SSH exec layer wraps commands so an unmatched glob is inert - assert the command string handed to the transport is sh -c wrapped (or run it through a real zsh and assert the file is gone). (2) a live/sandbox test that seeds a transcript with NO sidecar and NO per-session state dirs, calls DeleteSessionByIDs, and asserts the transcript is actually gone on disk - the old code returned n=1 while deleting nothing, so assert the filesystem, never the count. Also assert deleteByIDsRemote reports a count only for ids it truly removed."

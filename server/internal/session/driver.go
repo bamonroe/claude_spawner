@@ -68,8 +68,9 @@ type Driver struct {
 	// appended to every Claude turn and the /usage probe, for trimming the per-turn
 	// context (e.g. --disable-slash-commands). Nil is the no-op default.
 	ClaudeExtraArgs []string
-	// UsageDir is the working directory for the account-global /usage check. It has
-	// no session on disk, so any directory works; empty falls back to os.TempDir().
+	// UsageDir is the BASE directory for the account-global /usage check; the probe
+	// actually runs in usageProbeSubdir beneath it (see Driver.Usage). It has no
+	// session on disk, so any directory works; empty falls back to os.TempDir().
 	UsageDir string
 	// RestartCmd is the shell command (run via `sh -c`, detached) that rebuilds and
 	// relaunches the server for the app's "restart" button. Empty disables restart.

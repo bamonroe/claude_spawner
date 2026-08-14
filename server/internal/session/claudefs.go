@@ -544,6 +544,11 @@ func (fs claudeFS) discoverSessions(ctx context.Context) ([]Discovered, error) {
 		if dir == "" {
 			continue
 		}
+		// A /usage probe's transcript is not a session and must never be offered as
+		// one, however it survived — see usageProbeSubdir.
+		if isUsageProbeDir(dir) {
+			continue
+		}
 		seen[id] = true
 		out = append(out, Discovered{SessionID: id, Dir: dir, LastActive: ref.mod.Unix()})
 	}
