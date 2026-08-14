@@ -19,3 +19,56 @@ add_proposed_work = "Add proposed features and tests as new tasks rather than lo
 remove_dropped_items = "Remove dropped items with a one-line why (`scripts/todo.sh remove <id> --reason`)."
 finish_work = "When a task is fully finished (built, tested, documented), run `scripts/todo.sh done <id>` to move it to FINISHED.toml — in the same commit that completes the work."
 scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/KMP app + web client. The historical phase roadmap stays in README.md."
+
+[[task]]
+id = "natural-language-command-understanding-for-hey-buddy"
+title = "Natural-language command understanding for 'hey buddy'"
+description = """
+Today command.Parse is a strict, deliberately-precise grammar: a wake-prefixed utterance that doesn't match a registered phrasing returns Unknown and falls through to dictation (when attached) or the 'didn't catch that' nudge (when detached). That makes the voice remote a memorized-phrase interface — the user has to know the exact wording, and Whisper mangling one word ('attached to bam', 'kill the session named bam') silently turns a control command into a message typed at Claude.
+
+Goal: an intent-resolution layer behind the strict grammar. Parse stays the fast path and the source of truth for what commands exist (command.Registry); when it returns Unknown on a wake-prefixed utterance, a resolver maps the free-form speech onto a registered Kind plus its arguments, with a confidence threshold, an explicit spoken confirmation for destructive intents (kill, clear, restart, abort), and a clean give-up that still falls through to dictation. The registry is already the single source of truth generated into docs/commands.json and the app, so the resolver must be derived from it, never a second hand-written list.
+
+Open design questions for the child scopes: deterministic near-miss matching before any model call; which backend does the one-shot classification (internal/agent already drives claude/codex/ollama headless) and whether the latency fits the voice loop; where the seam lives (internal/command vs gateway); how it interacts with the spawn dialog and chained utterances."""
+status = "active"
+level = "epic"
+category = "feature"
+urgency = "normal"
+order = 10
+created = 2026-08-14
+tags = ["voice", "commands", "epic"]
+
+[[task]]
+id = "scope-design-the-intent-resolver-seam-behind-command-parse"
+title = "Scope: design the intent-resolver seam behind command.Parse"
+description = "Investigate and produce concrete tasks for where the natural-language fallback hooks in. Questions to answer in the code: does the resolver live in internal/command (pure, testable, no I/O) with the model call injected as an interface, or in the gateway next to dispatch? Both dispatch and the hands-free commitMessage path call runCommand, so the fallback must sit in one place both reach. How does it interact with the spawn dialog (an active dialog owns the utterance), chained utterances, and the cancel-wins rule? What is the give-up path — dictate the original text unchanged when attached, so a false negative costs nothing. Define the resolver interface, the confidence/confirmation policy for destructive kinds, and the ordering versus the shell token and scratch mode."
+status = "active"
+level = "scope"
+category = "feature"
+urgency = "normal"
+order = 30
+created = 2026-08-14
+tags = ["voice", "commands"]
+
+[[task]]
+id = "scope-deterministic-near-miss-matching-before-any-model-call"
+title = "Scope: deterministic near-miss matching before any model call"
+description = "Before spending a model call (and its latency) on every unrecognized utterance, find out how much is recoverable deterministically. Whisper misses are mostly small: an inflected verb ('attached to bam'), a filler word ('kill the session named bam'), a homophone, or a stray article. Investigate a cheap normalization/edit-distance pass over command.Registry aliases — with the same anti-false-positive discipline Parse already documents, since loose matching would swallow real dictation. Produce tasks for whatever survives that scrutiny, and a test table of real near-misses (see the logging task) proving dictation like 'list the files in this module' still flows through untouched."
+status = "active"
+level = "scope"
+category = "feature"
+urgency = "normal"
+order = 40
+created = 2026-08-14
+tags = ["voice", "commands"]
+
+[[task]]
+id = "scope-probe-one-shot-llm-intent-classification-latency-and-cost"
+title = "Scope: probe one-shot LLM intent classification latency and cost"
+description = "The resolver's model call sits inside the voice loop, so it only works if it's fast. internal/agent already drives claude, codex, ollama and antigravity headless — probe a one-shot classification prompt (utterance in, registered Kind plus args out, built from command.Registry) against a cheap fast model (haiku via claude -p, and a small local ollama model) and measure real round-trip latency from the host and the sandbox. Decide the backend, the timeout, and whether the call is worth making at all versus deterministic matching alone. Produce tasks with the measured numbers."
+status = "active"
+level = "scope"
+category = "feature"
+urgency = "normal"
+order = 50
+created = 2026-08-14
+tags = ["voice", "commands"]
