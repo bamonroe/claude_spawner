@@ -21,18 +21,6 @@ finish_work = "When a task is fully finished (built, tested, documented), run `s
 scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/KMP app + web client. The historical phase roadmap stays in README.md."
 
 [[task]]
-id = "run-remote-ssh-commands-under-sh-c-so-globs-are-posix"
-title = "Run remote SSH commands under sh -c so globs are POSIX"
-description = "Root cause of the recurring phantom session (confirmed 2026-08-13). The host user login shell is zsh, and sshd runs every command through it. claudeFS.deleteByIDsRemote (server/internal/session/claudefs.go:683) builds `rm -rf \"$HOME/.claude/projects/\"*/\"$id.jsonl\" \"$HOME/.claude/projects/\"*/\"$id\" <state globs>` on the documented assumption that \"an unmatched glob stays literal\". That is sh semantics; zsh instead aborts the WHOLE command with \"no matches found\" the moment ANY pattern misses. A probe transcript has no sidecar dir and no per-session state dirs, so those globs always miss and the rm never runs at all — while the existence loop still echoes the id, so the caller is told n=1 deleted. Reproduced: under zsh the transcript survives, under sh it is removed. This silently breaks EVERY remote delete, not just the /usage reaper: user-initiated session deletes and the purge queue take the same path, which is why phantom rows keep coming back after deletion. Deep fix at the unifying interface: make POSIX shell semantics an invariant of the SSH exec layer - wrap the command handed to sess.Run/Start in SSHPool.runRemote (and the streaming path, server/internal/session/ssh_fs.go:168 / ssh_channels.go) as sh -c <quoted cmd>, so no callsite has to think about the remote login shell. Audit the streaming/turn path for quoting regressions before landing. Do not patch the one rm callsite."
-status = "active"
-level = "task"
-category = "bug"
-urgency = "critical"
-order = 20
-created = 2026-08-13
-tags = ["ssh", "delete", "phantom"]
-
-[[task]]
 id = "regression-test-remote-delete-purges-under-a-zsh-login-shell"
 title = "Regression test: remote delete purges under a zsh login shell"
 description = "Guard the zsh-nomatch class of bug. Two layers: (1) a unit test that the SSH exec layer wraps commands so an unmatched glob is inert - assert the command string handed to the transport is sh -c wrapped (or run it through a real zsh and assert the file is gone). (2) a live/sandbox test that seeds a transcript with NO sidecar and NO per-session state dirs, calls DeleteSessionByIDs, and asserts the transcript is actually gone on disk - the old code returned n=1 while deleting nothing, so assert the filesystem, never the count. Also assert deleteByIDsRemote reports a count only for ids it truly removed."

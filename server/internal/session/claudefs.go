@@ -653,8 +653,9 @@ func (fs claudeFS) deleteByIDs(ctx context.Context, ids []string) (int, error) {
 // that, for every id, reports whether a transcript existed and then removes the
 // transcript, its sibling sidecar dir, and every per-session state dir. The globs
 // stand in for the opaque project-dir encoding, so no separate lookup is needed;
-// an unmatched glob stays literal and `rm -rf` on it is a no-op. Every id is
-// UUID-validated before it reaches the command.
+// an unmatched glob stays literal and `rm -rf` on it is a no-op — sh semantics the
+// exec layer guarantees regardless of the remote login shell (see posixCommand).
+// Every id is UUID-validated before it reaches the command.
 func (fs claudeFS) deleteByIDsRemote(ctx context.Context, ids []string) (int, error) {
 	var safe []string
 	for _, id := range ids {

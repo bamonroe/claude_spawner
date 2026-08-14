@@ -518,6 +518,17 @@ field, **`Session.Host`** — orthogonal to the host/sandbox target. The **app o
 registry** (Settings → Hosts, persisted server-side as `hosts.json`); `Session.Host` names an entry
 there, or a bare hostname the pool dials literally with the `SPAWNER_SSH_*` defaults.
 
+**Every remote command runs under POSIX `sh`, whatever the account's login shell is.** sshd hands
+each command to the user's login shell, and a **zsh** login shell is not `sh`: its `NOMATCH` default
+aborts the *entire* command line with "no matches found" the moment any glob misses, where `sh`
+leaves the pattern literal. Commands here are written to `sh` semantics — `rm -rf` over globs that
+may match nothing, `for p in …*/…` existence probes, `for e in *` directory listings — so on a zsh
+host they silently ran *nothing*. That broke every remote session delete: the transcript survived
+while the caller was told it was purged, which is where phantom sessions kept coming back from. The
+exec layer therefore owns the invariant rather than each callsite: the one-shot path wraps in
+`posixCommand` (`sh -c <quoted>`, in `ssh_fs.go`, covering `SSHPool.Run` and `WriteFile`) and the
+streaming path gets the same from `cancelableCommand`'s `setsid sh -c`.
+
 Dialing is guarded by a **negative dial cache** in the pool. A failed dial marks that host's pool
 entry down for a backoff window (30 s, doubling per consecutive failure to a 5-minute cap, reset on
 the first success); every caller inside the window gets an immediate error naming the host and the

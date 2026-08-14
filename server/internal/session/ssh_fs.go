@@ -28,12 +28,11 @@ type DirEntry struct {
 func (p *SSHPool) ListDir(ctx context.Context, host, dir string) ([]DirEntry, error) {
 	// The */ glob lists only subdirectories and skips dotfiles; for each, print
 	// "<repo> <name>" where <repo> is 1 when it has a .git entry. A cd failure (dir
-	// gone) yields an empty listing rather than an error. Run under sh -c: the login
-	// shell may be zsh, whose NOMATCH aborts the whole command with exit 1 when */
-	// matches nothing (a dir with only files/dotfiles), which POSIX sh leaves literal
-	// (and the [ -d ] guard then skips) — otherwise such a folder fails to browse.
+	// gone) yields an empty listing rather than an error. The unmatched-glob case (a
+	// dir holding only files/dotfiles) relies on sh leaving */ literal so the [ -d ]
+	// guard skips it — guaranteed by posixCommand, see Run.
 	script := "cd " + shellQuote(dir) + ` 2>/dev/null || exit 0; for d in */; do [ -d "$d" ] || continue; n=${d%/}; if [ -e "$n/.git" ]; then printf '1 %s\n' "$n"; else printf '0 %s\n' "$n"; fi; done`
-	out, err := p.Run(ctx, host, "sh -c "+shellQuote(script))
+	out, err := p.Run(ctx, host, script)
 	if err != nil {
 		return nil, err
 	}
@@ -59,10 +58,10 @@ func (p *SSHPool) ListDir(ctx context.Context, host, dir string) ([]DirEntry, er
 func (p *SSHPool) ListAll(ctx context.Context, host, dir string) ([]DirEntry, error) {
 	// For each non-hidden entry print a 2-char tag then the name: "d1"/"d0" for a
 	// directory (1 = holds a .git), "f0" for a regular file. A cd failure yields an
-	// empty listing rather than an error. Run under sh -c so a zsh login shell's
-	// NOMATCH can't abort an empty directory's listing with exit 1 (see ListDir).
+	// empty listing rather than an error. An empty directory leaves * literal under
+	// sh and the [ -d ]/[ -f ] guards skip it — guaranteed by posixCommand, see Run.
 	script := "cd " + shellQuote(dir) + ` 2>/dev/null || exit 0; for e in *; do if [ -d "$e" ]; then if [ -e "$e/.git" ]; then printf 'd1 %s\n' "$e"; else printf 'd0 %s\n' "$e"; fi; elif [ -f "$e" ]; then printf 'f0 %s\n' "$e"; fi; done`
-	out, err := p.Run(ctx, host, "sh -c "+shellQuote(script))
+	out, err := p.Run(ctx, host, script)
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +148,7 @@ func (p *SSHPool) writeRemote(ctx context.Context, host, path string, data []byt
 	var stderr bytes.Buffer
 	sess.Stderr = &stderr
 	dir := filepath.Dir(path)
-	if err := sess.Run("mkdir -p " + shellQuote(dir) + " && cat > " + shellQuote(path)); err != nil {
+	if err := sess.Run(posixCommand("mkdir -p " + shellQuote(dir) + " && cat > " + shellQuote(path))); err != nil {
 		// sess.Run's ExitError is just "status N" — fold in the remote command's
 		// stderr (e.g. "Permission denied", "Not a directory") so an upload failure
 		// reports why, not an opaque status code.
@@ -163,7 +162,8 @@ func (p *SSHPool) writeRemote(ctx context.Context, host, path string, data []byt
 
 // Run executes a short command on host over the pooled connection and returns its
 // stdout. For the browser's filesystem probes (list/stat/mkdir) — turns stream via
-// SSHExecutor. Re-dials once if the cached connection has gone stale, mirroring
+// SSHExecutor. cmd is POSIX sh, whatever the account's login shell is (see
+// posixCommand). Re-dials once if the cached connection has gone stale, mirroring
 // SSHExecutor.Start.
 func (p *SSHPool) Run(ctx context.Context, host, cmd string) ([]byte, error) {
 	out, conn, err := p.runRemote(ctx, host, cmd)
@@ -204,9 +204,20 @@ func (p *SSHPool) runRemote(ctx context.Context, host, cmd string) ([]byte, *poo
 	defer sess.Close()
 	stop := context.AfterFunc(ctx, func() { _ = sess.Signal(ssh.SIGKILL); _ = sess.Close() })
 	defer stop()
-	out, err := sess.Output(cmd)
+	out, err := sess.Output(posixCommand(cmd))
 	return out, conn, err
 }
+
+// posixCommand wraps cmd so the remote host runs it under POSIX sh no matter which
+// login shell the account uses. sshd hands every command to that login shell, and a
+// zsh login shell is not sh: its NOMATCH default aborts the ENTIRE command line with
+// "no matches found" the moment any glob misses, where sh leaves the pattern literal.
+// Every command this package builds is written to sh semantics — `rm -rf` over globs
+// that may match nothing, `for p in …*/…` existence probes, `for e in *` listings —
+// so an unmatched glob under zsh silently ran nothing at all (it broke every remote
+// session delete: the transcript survived while the caller was told it was purged).
+// Making sh the invariant here means no callsite has to know the remote's shell.
+func posixCommand(cmd string) string { return "sh -c " + shellQuote(cmd) }
 
 // joinRemote joins a POSIX absolute dir and a child name without doubling the slash
 // at the filesystem root.

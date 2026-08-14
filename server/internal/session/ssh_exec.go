@@ -148,7 +148,9 @@ const sshPGIDSentinel = "__spawner_pgid__ "
 // on stderr and then execs into inner, so claude replaces the shell keeping the same
 // pgid and every tool child it spawns inherits it. A cancel then kills -pgid to take
 // the group down together. No PTY is requested, so the stream-json stdout stays
-// clean (the pgid rides stderr).
+// clean (the pgid rides stderr). The `sh -c` here is also what gives the streaming
+// path the POSIX-shell invariant the one-shot path gets from posixCommand: inner is
+// parsed by sh, never by the account's login shell.
 func cancelableCommand(inner string) string {
 	return "setsid sh -c " + shellQuote("echo "+sshPGIDSentinel+"$$ 1>&2; "+inner)
 }
