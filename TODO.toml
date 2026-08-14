@@ -21,23 +21,37 @@ finish_work = "When a task is fully finished (built, tested, documented), run `s
 scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/KMP app + web client. The historical phase roadmap stays in README.md."
 
 [[task]]
-id = "scope-the-bam-session-keeps-reappearing-after-deletion"
-title = "Scope: the \"bam\" session keeps reappearing after deletion"
-description = """
-A session named "bam" reappears in the session list repeatedly, no matter how often the user deletes it. This class of bug has recurred through the project (see finished [fix-phantom-data-session-keeps-reappearing], where the account-global /usage probe ran claude with cwd = SpawnRoots[0] and left a transcript that discovery kept re-surfacing; also [phase-1-server-discovery-rename-delete-became-per-session-id] and the unregistered-row delete-by-dir fix). Working this item means investigating, not coding: find the actual producer, then add the atomic tasks.
-
-Lines to investigate:
-1. Who writes a transcript under the "bam" dir? Audit every server-side path that runs a backend CLI with a cwd that is not an explicit user session: the usage/quota probe, any warm-up or capability probe, model/agent detection, the bgjob runner, and any RunOnTarget call that inherits a default cwd (likely $HOME = /home/bam, which would explain the name). Each such run must pass an explicit --session-id and reap its transcript, exactly as the /usage probe fix did.
-2. Discovery vs. registry: confirm whether the row comes back as a registered store record or as an unregistered discovered row. Delete only drops the store record for registered rows; an on-disk transcript in a scanned dir is re-surfaced on the next discover sweep. Check the SpawnRoots / scan roots for whether the home dir is being scanned at all, and whether it should be.
-3. Delete completeness: verify DeleteSessionAll / deleteByIDs / DeleteSessionsForDir actually purge every derived path for this row (sidecar, state, file-history, session-env) on the right host — a partial purge leaves a fragment discovery re-reads.
-4. Tombstone/LWW: check whether the delete tombstone covers this id and whether a stale client or a second host can resurrect the record through a settings/registry sync.
-5. Multi-host: determine which host the row claims (bam is also a host name here). A dir-based row that exists on more than one host may be deleted on one and re-discovered from the other.
-
-Deliverable: a short statement of the confirmed root cause plus concrete task items (a fix task, a regression test task, and a one-off cleanup task for any leftover on-disk transcripts)."""
+id = "run-remote-ssh-commands-under-sh-c-so-globs-are-posix"
+title = "Run remote SSH commands under sh -c so globs are POSIX"
+description = "Root cause of the recurring phantom session (confirmed 2026-08-13). The host user login shell is zsh, and sshd runs every command through it. claudeFS.deleteByIDsRemote (server/internal/session/claudefs.go:683) builds `rm -rf \"$HOME/.claude/projects/\"*/\"$id.jsonl\" \"$HOME/.claude/projects/\"*/\"$id\" <state globs>` on the documented assumption that \"an unmatched glob stays literal\". That is sh semantics; zsh instead aborts the WHOLE command with \"no matches found\" the moment ANY pattern misses. A probe transcript has no sidecar dir and no per-session state dirs, so those globs always miss and the rm never runs at all — while the existence loop still echoes the id, so the caller is told n=1 deleted. Reproduced: under zsh the transcript survives, under sh it is removed. This silently breaks EVERY remote delete, not just the /usage reaper: user-initiated session deletes and the purge queue take the same path, which is why phantom rows keep coming back after deletion. Deep fix at the unifying interface: make POSIX shell semantics an invariant of the SSH exec layer - wrap the command handed to sess.Run/Start in SSHPool.runRemote (and the streaming path, server/internal/session/ssh_fs.go:168 / ssh_channels.go) as sh -c <quoted cmd>, so no callsite has to think about the remote login shell. Audit the streaming/turn path for quoting regressions before landing. Do not patch the one rm callsite."
 status = "active"
-level = "scope"
+level = "task"
 category = "bug"
-urgency = "high"
-order = 10
+urgency = "critical"
+order = 20
 created = 2026-08-13
-tags = ["session-list", "discovery", "phantom-session"]
+tags = ["ssh", "delete", "phantom"]
+
+[[task]]
+id = "regression-test-remote-delete-purges-under-a-zsh-login-shell"
+title = "Regression test: remote delete purges under a zsh login shell"
+description = "Guard the zsh-nomatch class of bug. Two layers: (1) a unit test that the SSH exec layer wraps commands so an unmatched glob is inert - assert the command string handed to the transport is sh -c wrapped (or run it through a real zsh and assert the file is gone). (2) a live/sandbox test that seeds a transcript with NO sidecar and NO per-session state dirs, calls DeleteSessionByIDs, and asserts the transcript is actually gone on disk - the old code returned n=1 while deleting nothing, so assert the filesystem, never the count. Also assert deleteByIDsRemote reports a count only for ids it truly removed."
+status = "active"
+level = "task"
+category = "test"
+urgency = "high"
+order = 30
+created = 2026-08-13
+tags = ["ssh", "delete"]
+
+[[task]]
+id = "one-off-cleanup-purge-leftover-usage-probe-transcripts-under-claude-projects-home-bam"
+title = "One-off cleanup: purge leftover /usage probe transcripts under ~/.claude/projects/-home-bam"
+description = "Every /usage probe since the reaper broke left a transcript in /home/bam/.claude/projects/-home-bam (cwd is driver.UsageDir = $HOME, set in server/main.go:109), which discovery re-surfaces as the phantom \"bam\" session named after the dir basename. Five files as of 2026-08-13. After the sh -c fix lands, delete the leftovers on the host (they are pure /usage probe garbage - each holds one \"/usage\" queue-operation and nothing else; verify that before removing) and confirm the \"bam\" row stays gone across a discover sweep. Consider also whether UsageDir should be $HOME at all: any probe leak there is guaranteed to look like a real session. A dedicated dir outside the scan roots would make the phantom impossible rather than merely reaped."
+status = "active"
+level = "task"
+category = "chore"
+urgency = "normal"
+order = 40
+created = 2026-08-13
+tags = ["cleanup"]

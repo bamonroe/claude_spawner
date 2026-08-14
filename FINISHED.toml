@@ -14,6 +14,27 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "scope-the-bam-session-keeps-reappearing-after-deletion"
+title = "Scope: the \"bam\" session keeps reappearing after deletion"
+description = """
+A session named "bam" reappears in the session list repeatedly, no matter how often the user deletes it. This class of bug has recurred through the project (see finished [fix-phantom-data-session-keeps-reappearing], where the account-global /usage probe ran claude with cwd = SpawnRoots[0] and left a transcript that discovery kept re-surfacing; also [phase-1-server-discovery-rename-delete-became-per-session-id] and the unregistered-row delete-by-dir fix). Working this item means investigating, not coding: find the actual producer, then add the atomic tasks.
+
+Lines to investigate:
+1. Who writes a transcript under the "bam" dir? Audit every server-side path that runs a backend CLI with a cwd that is not an explicit user session: the usage/quota probe, any warm-up or capability probe, model/agent detection, the bgjob runner, and any RunOnTarget call that inherits a default cwd (likely $HOME = /home/bam, which would explain the name). Each such run must pass an explicit --session-id and reap its transcript, exactly as the /usage probe fix did.
+2. Discovery vs. registry: confirm whether the row comes back as a registered store record or as an unregistered discovered row. Delete only drops the store record for registered rows; an on-disk transcript in a scanned dir is re-surfaced on the next discover sweep. Check the SpawnRoots / scan roots for whether the home dir is being scanned at all, and whether it should be.
+3. Delete completeness: verify DeleteSessionAll / deleteByIDs / DeleteSessionsForDir actually purge every derived path for this row (sidecar, state, file-history, session-env) on the right host — a partial purge leaves a fragment discovery re-reads.
+4. Tombstone/LWW: check whether the delete tombstone covers this id and whether a stale client or a second host can resurrect the record through a settings/registry sync.
+5. Multi-host: determine which host the row claims (bam is also a host name here). A dir-based row that exists on more than one host may be deleted on one and re-discovered from the other.
+
+Deliverable: a short statement of the confirmed root cause plus concrete task items (a fix task, a regression test task, and a one-off cleanup task for any leftover on-disk transcripts)."""
+status = "finished"
+level = "scope"
+category = "bug"
+created = 2026-08-13
+completed = 2026-08-13
+tags = ["session-list", "discovery", "phantom-session"]
+
+[[task]]
 id = "rotating-the-phone-with-mic-lock-open-closes-the-mic-and-sends-the-message"
 title = "Rotating the phone with mic lock open closes the mic and sends the message"
 description = "When the device is rotated while the mic is locked open (lock-mic / hands-free capture), the orientation change appears to tear down and recreate the activity, which closes the mic and submits whatever has been captured so far as a message. Expected: an orientation change should leave a locked-open mic recording, with no send. Likely an activity-recreation issue on configuration change — the recorder/lock state isn't retained across it. Reported by the user on the Pixel 8a."
