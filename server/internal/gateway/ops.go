@@ -1,6 +1,8 @@
 package gateway
 
 import (
+	"log"
+
 	"github.com/bam/claude_spawner/server/internal/command"
 )
 
@@ -102,6 +104,17 @@ func (c *conn) runCommand(intent command.Intent) bool {
 	case command.Restart:
 		c.doRestart("") // voice "restart" = full rebuild (empty = rebuild)
 	default:
+		// A miss: the utterance was addressed to the buddy (wake word present, or
+		// detached safe mode where the whole utterance is a command) but the grammar
+		// couldn't classify it, so it becomes dictation, a nudge, or — in a chained
+		// utterance — nothing at all. Every dispatch path funnels through here, so
+		// this one line captures the whole corpus of real near-misses; it's what the
+		// natural-language-understanding work is designed against.
+		// Scratch mode is the exception: there the user is deliberately speaking
+		// non-commands to hear what Whisper heard, so every utterance is a "miss".
+		if intent.Text != "" && !c.scratch {
+			log.Printf("command: unrecognized utterance %q (attached=%v)", intent.Text, c.attached != nil)
+		}
 		return false
 	}
 	return true

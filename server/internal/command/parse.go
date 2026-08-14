@@ -28,12 +28,15 @@ func Parse(text string) Intent {
 	}
 	pc := parseCtx{t: t, words: words, first: first, n: n, word2: word2}
 
+	// Text is stamped here, on whichever helper matched, rather than inside each of
+	// the ~30 helpers — one place, so it can never be forgotten by a new one.
 	for _, fn := range parsers {
 		if intent, ok := fn(pc); ok {
+			intent.Text = t
 			return intent
 		}
 	}
-	return Intent{Kind: Unknown}
+	return Intent{Kind: Unknown, Text: t}
 }
 
 // parseCtx bundles the precomputed pieces of a normalized utterance that every

@@ -29,7 +29,7 @@ Today command.Parse is a strict, deliberately-precise grammar: a wake-prefixed u
 Goal: an intent-resolution layer behind the strict grammar. Parse stays the fast path and the source of truth for what commands exist (command.Registry); when it returns Unknown on a wake-prefixed utterance, a resolver maps the free-form speech onto a registered Kind plus its arguments, with a confidence threshold, an explicit spoken confirmation for destructive intents (kill, clear, restart, abort), and a clean give-up that still falls through to dictation. The registry is already the single source of truth generated into docs/commands.json and the app, so the resolver must be derived from it, never a second hand-written list.
 
 Open design questions for the child scopes: deterministic near-miss matching before any model call; which backend does the one-shot classification (internal/agent already drives claude/codex/ollama headless) and whether the latency fits the voice loop; where the seam lives (internal/command vs gateway); how it interacts with the spawn dialog and chained utterances."""
-status = "active"
+status = "in-progress"
 level = "epic"
 category = "feature"
 urgency = "normal"

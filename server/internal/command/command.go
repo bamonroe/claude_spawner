@@ -63,6 +63,12 @@ type Intent struct {
 	// target to bam" -> "bam"). Arg holds the canonical setting key for both
 	// Set and Get.
 	Value string
+	// Text is the normalized utterance this intent was parsed from. Parse always
+	// fills it, so "what did the user actually say" travels WITH the intent
+	// instead of each call site threading its own copy — which is what lets a
+	// single place (gateway.runCommand) report an utterance the grammar missed,
+	// no matter which of the three dispatch paths produced it.
+	Text string
 }
 
 // wakePhrases is the DEFAULT wake token — the canonical "hey buddy" first, then

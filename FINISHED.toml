@@ -14,6 +14,20 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "log-wake-prefixed-utterances-the-grammar-doesn-t-recognize"
+title = "Log wake-prefixed utterances the grammar doesn't recognize"
+description = """
+First step of the natural-language-command epic: we have no data on how users actually phrase commands, because a wake-prefixed utterance that Parse can't classify is silently dictated (attached) or answered with the 'didn't catch that' nudge (detached) and then forgotten.
+
+Emit one log line in conn.dispatch (server/internal/gateway/ops.go) whenever the wake word was present and command.Parse returned Unknown, recording the normalized wake-stripped text and whether it was dictated or nudged. That gives a real corpus of near-misses to design the resolver against and to seed its test table."""
+status = "finished"
+level = "task"
+category = "feature"
+created = 2026-08-14
+completed = 2026-08-14
+tags = ["voice", "commands"]
+
+[[task]]
 id = "one-off-cleanup-purge-leftover-usage-probe-transcripts-under-claude-projects-home-bam"
 title = "One-off cleanup: purge leftover /usage probe transcripts under ~/.claude/projects/-home-bam"
 description = "Every /usage probe since the reaper broke left a transcript in /home/bam/.claude/projects/-home-bam (cwd is driver.UsageDir = $HOME, set in server/main.go:109), which discovery re-surfaces as the phantom \"bam\" session named after the dir basename. Five files as of 2026-08-13. After the sh -c fix lands, delete the leftovers on the host (they are pure /usage probe garbage - each holds one \"/usage\" queue-operation and nothing else; verify that before removing) and confirm the \"bam\" row stays gone across a discover sweep. Consider also whether UsageDir should be $HOME at all: any probe leak there is guaranteed to look like a real session. A dedicated dir outside the scan roots would make the phantom impossible rather than merely reaped."

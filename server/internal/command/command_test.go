@@ -455,3 +455,23 @@ func TestParse(t *testing.T) {
 		}
 	}
 }
+
+// Every intent carries the normalized utterance it was parsed from — including
+// an Unknown one, which is what lets the gateway report near-misses (the corpus
+// the natural-language-understanding work is designed against).
+func TestParseStampsSourceText(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"List sessions.", "list sessions"},
+		{"kill session claude-claude.", "kill session claude-claude"},
+		{"the weather is nice", "the weather is nice"},
+		{"attached to bam", "attached to bam"}, // a real near-miss: Unknown, but recorded
+	}
+	for _, c := range cases {
+		if got := Parse(c.in); got.Text != c.want {
+			t.Errorf("Parse(%q).Text = %q, want %q", c.in, got.Text, c.want)
+		}
+	}
+	if got := Parse("   "); got.Text != "" {
+		t.Errorf("Parse(blank).Text = %q, want empty", got.Text)
+	}
+}
