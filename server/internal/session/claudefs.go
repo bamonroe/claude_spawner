@@ -671,21 +671,7 @@ func (fs claudeFS) deleteByIDsRemote(ctx context.Context, ids []string) (int, er
 			fs.forgetPath(id) // the paths are about to stop existing
 		}
 	}()
-	var state strings.Builder
-	for _, sub := range perSessionStateDirs {
-		state.WriteString(` "$HOME/.claude/` + sub + `/$id"`)
-	}
-	// The trailing `exit 0` is load-bearing. The existence probe is `[ -e "$p" ] &&
-	// echo`, whose status when nothing matched is 1, and that was the last command
-	// the loop ran — so a purge of ALREADY-ABSENT files, the successful outcome,
-	// reported failure. A deferred purge could therefore never resolve: it retried
-	// on the 6-minute ticker forever, and (before shouldRedial) each attempt dropped
-	// the host's pooled connection, killing any turn streaming on it.
-	cmd := `for id in ` + strings.Join(safe, " ") + `; do ` +
-		`for p in "$HOME/.claude/projects/"*/"$id.jsonl"; do [ -e "$p" ] && echo "$id"; done; ` +
-		`rm -rf "$HOME/.claude/projects/"*/"$id.jsonl" "$HOME/.claude/projects/"*/"$id"` + state.String() + `; ` +
-		`done; exit 0`
-	out, err := fs.remote.output(ctx, cmd)
+	out, err := fs.remote.output(ctx, deleteByIDsCommand(safe))
 	if err != nil {
 		return 0, err
 	}
@@ -696,6 +682,30 @@ func (fs claudeFS) deleteByIDsRemote(ctx context.Context, ids []string) (int, er
 		}
 	}
 	return n, nil
+}
+
+// deleteByIDsCommand builds the one shell command deleteByIDsRemote runs: per id,
+// echo the id if its transcript exists, then remove the transcript, its sibling
+// sidecar dir, and every per-session state dir. Split out from the caller so the
+// regression test can run the real command through a real zsh and a real sh (see
+// remote_delete_test.go) — the shell semantics ARE the thing under test. ids must
+// already be UUID-validated; they interpolate unquoted.
+//
+// The trailing `exit 0` is load-bearing. The existence probe is `[ -e "$p" ] &&
+// echo`, whose status when nothing matched is 1, and that was the last command the
+// loop ran — so a purge of ALREADY-ABSENT files, the successful outcome, reported
+// failure. A deferred purge could therefore never resolve: it retried on the
+// 6-minute ticker forever, and (before shouldRedial) each attempt dropped the
+// host's pooled connection, killing any turn streaming on it.
+func deleteByIDsCommand(ids []string) string {
+	var state strings.Builder
+	for _, sub := range perSessionStateDirs {
+		state.WriteString(` "$HOME/.claude/` + sub + `/$id"`)
+	}
+	return `for id in ` + strings.Join(ids, " ") + `; do ` +
+		`for p in "$HOME/.claude/projects/"*/"$id.jsonl"; do [ -e "$p" ] && echo "$id"; done; ` +
+		`rm -rf "$HOME/.claude/projects/"*/"$id.jsonl" "$HOME/.claude/projects/"*/"$id"` + state.String() + `; ` +
+		`done; exit 0`
 }
 
 // deleteForDir fully purges EVERY session whose working directory is dir (legacy
