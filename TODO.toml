@@ -57,18 +57,6 @@ created = 2026-08-14
 tags = ["voice", "commands"]
 
 [[task]]
-id = "hoist-levenshtein-fuzzyequal-into-a-shared-fuzzy-package"
-title = "Hoist Levenshtein/FuzzyEqual into a shared fuzzy package"
-description = "Prerequisite for scoring spoken-token matches. projects.Levenshtein and projects.FuzzyEqual (server/internal/projects/projects.go:259-300) are the repo's only edit-distance helpers, but they live in the projects package, which command must not depend on (projects imports session/filesystem concerns; command is the leaf grammar package). Move both into a small neutral package — internal/fuzzy — with no dependencies, and update projects, session and shellresolve call sites to use it. Keep the existing semantics exactly: Levenshtein over runes, FuzzyEqual tolerating d<=1 for words of 3 or fewer chars and d<=2 beyond. Add the whole-phrase helper the token layer needs while the package is fresh: a distance over a joined phrase string, so 'hey buddha' (two words) and a collapsed 'heybuddy' (one word) both score against the same canonical 'hey buddy'. No behavior change anywhere; this is a pure move plus one new function, tested in place."
-status = "active"
-level = "task"
-category = "refactor"
-urgency = "normal"
-order = 40
-created = 2026-08-16
-tags = ["voice", "spoken-tokens"]
-
-[[task]]
 id = "score-spoken-token-matches-in-phrasesat-observe-only-and-log-near-misses"
 title = "Score spoken-token matches in phrasesAt, observe-only, and log near misses"
 description = "The deep fix goes at the one primitive: command.phrasesAt / phraseAt (server/internal/command/command.go, ~line 294) is the single place every spoken token is matched. StripWakeWith, SplitWakeWith, SplitWakeAllWith, SplitOn and stripShell all funnel through it, so wake, end, shell and speech-gate tokens all inherit whatever it does — change it once and every token type gets tolerance, instead of growing spoken.Token alias lists forever.\\n\\nStep one is to make it SCORE without letting the score decide. Rework phrasesAt to compute, for each candidate phrase at words[i], a whole-phrase match score using the internal/fuzzy helper (normalized edit distance over the joined phrase, so a two-word mishearing and a collapsed single word are scored the same way) and return the consumed length plus a confidence. Behavior must stay identical in this task: only an EXACT match still consumes words, exactly as today. A near-threshold non-exact match logs instead — 'spoken: near miss for token %q: heard %q (score %.2f)' — mirroring the unrecognized-utterance log from 56496a2.\\n\\nThat log is the point of this task. A missed wake is currently recorded nowhere, so the false-negative side of the scope has zero data; scoring in observe mode produces exactly the corpus needed to pick thresholds, and — because only near-wake transcripts clear the logging bar — it does that without recording ordinary dictation. Run it live for a while before the next task; the thresholds there must come from this log, not from invented examples."

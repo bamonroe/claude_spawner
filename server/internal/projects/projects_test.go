@@ -69,25 +69,6 @@ func names(dirs []Dir) []string {
 	return out
 }
 
-func TestFuzzy(t *testing.T) {
-	if d := Levenshtein("get", "git"); d != 1 {
-		t.Errorf("Levenshtein(get,git) = %d, want 1", d)
-	}
-	for _, c := range []struct {
-		a, b string
-		want bool
-	}{
-		{"get", "git", true},
-		{"personel", "personal", true},
-		{"git", "data", false},
-		{"cat", "dog", false},
-	} {
-		if got := FuzzyEqual(c.a, c.b); got != c.want {
-			t.Errorf("FuzzyEqual(%q,%q) = %v, want %v", c.a, c.b, got, c.want)
-		}
-	}
-}
-
 func TestTokenizeCamel(t *testing.T) {
 	got := tokenize("colorConverter-v2")
 	want := []string{"color", "converter", "v2"}

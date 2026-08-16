@@ -4,7 +4,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/bam/claude_spawner/server/internal/projects"
+	"github.com/bam/claude_spawner/server/internal/fuzzy"
 )
 
 // normalizeSpoken folds a spoken phrase to the form aliases are matched in:
@@ -109,7 +109,7 @@ func SuggestShellCommands(utterance string, catalogue []*ShellCommand, n int) []
 		}
 		head := strings.Join(words[:k], " ")
 		aliasNorm := strings.Join(alias, " ")
-		d := projects.Levenshtein(head, aliasNorm)
+		d := fuzzy.Levenshtein(head, aliasNorm)
 		// Tolerate roughly a third of the alias being misheard, minimum one edit.
 		limit := len(aliasNorm) / 3
 		if limit < 1 {

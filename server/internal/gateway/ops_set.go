@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/bam/claude_spawner/server/internal/projects"
+	"github.com/bam/claude_spawner/server/internal/fuzzy"
 	"github.com/bam/claude_spawner/server/internal/session"
 )
 
@@ -125,7 +125,7 @@ func (c *conn) resolveHostName(spoken string) (string, bool) {
 		}
 	}
 	for _, n := range names {
-		if projects.FuzzyEqual(n, want) {
+		if fuzzy.Equal(n, want) {
 			return n, true
 		}
 	}

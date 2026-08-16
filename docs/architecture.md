@@ -869,6 +869,7 @@ uppercase letters by voice. Acceptable; documented in `docs/commands.md`.
   internal/command/registry.go  Command registry (single source of truth) + RegistryJSON
   internal/transcribe/          Transcriber interface: WhisperCPP (CLI) + RemoteWhisper (HTTP)
   internal/projects/projects.go spoken-path term tokenizing + fuzzy ranking (Terms/Rank) for the resolver
+  internal/fuzzy/fuzzy.go       dependency-free edit distance: Levenshtein, Equal (per-word), PhraseDistance
   internal/tmux/tmux.go         detect a live interactive `claude` in a pane (ClaudeDirs)
   internal/usage/               per-turn token cost tracking + Estimator (server-global usage %)
   internal/config/config.go     env config + spawn-path validation
