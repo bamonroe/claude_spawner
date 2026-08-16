@@ -14,6 +14,22 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "scope-better-handling-of-spoken-token-false-positives-and-negatives"
+title = "Scope: better handling of spoken-token false positives and negatives"
+description = """
+The dedicated wake-word model path is a dead end — the LiveKit/ONNX detectors the user trained scored worse than the Whisper fallback, so Whisper transcript matching is the real detector and should be treated as such. But spoken-token matching (wake, end, speak) is still EXACT: command.phraseAt compares lowercased, punctuation-trimmed words against the catalogue's phrase set, so recognition is only as good as the hand-maintained alias list in spoken.Token. That produces both failure modes. False negatives: Whisper emits a variant nobody listed ('hey buddha', 'hey bunny', a swallowed 'hey') and the utterance silently becomes dictation typed at Claude, or a 'didn't catch that' when detached. False positives: the small single-word alias set ('everybody', 'heybuddy') is ordinary English, so mid-dictation words strip a wake and hijack a sentence; the end token can commit a turn early the same way.
+
+Note the asymmetry to fix at the seam: the rest of the system already matches spoken input fuzzily — projects.Levenshtein/FuzzyEqual back project-name matching and session/shellresolve alias matching, and the spawn dialog fuzzy-resolves each path segment against the real filesystem. Only the token layer is strict. The candidate deep fix is to make phrasesAt itself score a phrase match (edit distance and/or a phonetic key, over the whole phrase not per word) with a confidence value, so every token type inherits tolerance from one place instead of growing alias lists.
+
+Investigate and produce concrete tasks for: (1) what the miss corpus actually looks like — 56496a2 logs wake-prefixed utterances the grammar couldn't classify, but a MISSED wake is logged nowhere, so the false-negative side has no data; scope a way to capture near-wake transcripts without recording ordinary dictation. (2) Whether scoring belongs in phrasesAt with a per-token threshold on spoken.Token (which has a Model field but no threshold), and how the threshold differs for a two-word wake versus a single-word alias. (3) Whether Whisper's own signals (segment confidence/logprob, the vocabBias initial prompt) can gate a marginal match instead of a bare string distance. (4) The asymmetric cost policy: a false positive mid-dictation is loud and destructive, a false negative is merely annoying, so the wake token can afford to be looser than the end token — decide per token type. (5) Whether a marginal match should ask ('did you mean hey buddy?') rather than silently deciding."""
+status = "finished"
+level = "scope"
+category = "feature"
+created = 2026-08-16
+completed = 2026-08-16
+tags = ["voice", "stt"]
+
+[[task]]
 id = "log-wake-prefixed-utterances-the-grammar-doesn-t-recognize"
 title = "Log wake-prefixed utterances the grammar doesn't recognize"
 description = """

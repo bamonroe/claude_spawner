@@ -24,9 +24,9 @@ scope = "Both halves of claude_spawner live here: the Go server and the Kotlin/K
 id = "natural-language-command-understanding-for-hey-buddy"
 title = "Natural-language command understanding for 'hey buddy'"
 description = """
-Two layers can fail to understand speech, and the epic now tracks one scope for each.
+Two layers can fail to understand speech; the token layer is now broken down, the command layer still has one open scope.
 
-TOKEN layer — whether the utterance is recognized as addressed to the assistant at all. The dedicated wake-word model path is abandoned: the trained LiveKit/ONNX detectors scored worse than the Whisper fallback, so Whisper transcript matching IS the detector. But token matching is still exact-word against a hand-maintained alias list, which produces both false negatives (an unlisted variant becomes dictation typed at Claude) and false positives (single-word aliases hijack a sentence mid-dictation). See the spoken-token scope.
+TOKEN layer — whether the utterance is recognized as addressed to the assistant at all. The dedicated wake-word model path is abandoned: the trained LiveKit/ONNX detectors scored worse than the Whisper fallback, so Whisper transcript matching IS the detector. Its scope is done and produced four ordered tasks: hoist the edit-distance helpers into a neutral internal/fuzzy package; score matches in command.phrasesAt observe-only and log near misses to build the missing false-negative corpus; enable tolerant matching with per-action thresholds (wake loose, end and shell tight, single-word aliases exact-only); and a low-priority probe of whether Whisper's avg_logprob can gate a marginal match. They run in that order — the thresholds must be tuned from the logged corpus, not invented.
 
 COMMAND layer — whether a recognized utterance maps onto a registered Kind. Parse is a strict grammar over command.Registry; Unknown falls through to dictation when attached, or the 'didn't catch that' nudge when detached. Much of what this originally assumed was missing has since shipped — fuzzy project and shell-alias matching, per-segment path resolution, many phrasings per Kind — so the remaining work is an EVALUATION against the real miss corpus (56496a2 logs every unclassified wake-prefixed utterance), not a committed resolver build. See the evaluation scope; 'the deterministic pass is enough' is a valid outcome.
 
@@ -57,18 +57,49 @@ created = 2026-08-14
 tags = ["voice", "commands"]
 
 [[task]]
-id = "scope-better-handling-of-spoken-token-false-positives-and-negatives"
-title = "Scope: better handling of spoken-token false positives and negatives"
-description = """
-The dedicated wake-word model path is a dead end — the LiveKit/ONNX detectors the user trained scored worse than the Whisper fallback, so Whisper transcript matching is the real detector and should be treated as such. But spoken-token matching (wake, end, speak) is still EXACT: command.phraseAt compares lowercased, punctuation-trimmed words against the catalogue's phrase set, so recognition is only as good as the hand-maintained alias list in spoken.Token. That produces both failure modes. False negatives: Whisper emits a variant nobody listed ('hey buddha', 'hey bunny', a swallowed 'hey') and the utterance silently becomes dictation typed at Claude, or a 'didn't catch that' when detached. False positives: the small single-word alias set ('everybody', 'heybuddy') is ordinary English, so mid-dictation words strip a wake and hijack a sentence; the end token can commit a turn early the same way.
-
-Note the asymmetry to fix at the seam: the rest of the system already matches spoken input fuzzily — projects.Levenshtein/FuzzyEqual back project-name matching and session/shellresolve alias matching, and the spawn dialog fuzzy-resolves each path segment against the real filesystem. Only the token layer is strict. The candidate deep fix is to make phrasesAt itself score a phrase match (edit distance and/or a phonetic key, over the whole phrase not per word) with a confidence value, so every token type inherits tolerance from one place instead of growing alias lists.
-
-Investigate and produce concrete tasks for: (1) what the miss corpus actually looks like — 56496a2 logs wake-prefixed utterances the grammar couldn't classify, but a MISSED wake is logged nowhere, so the false-negative side has no data; scope a way to capture near-wake transcripts without recording ordinary dictation. (2) Whether scoring belongs in phrasesAt with a per-token threshold on spoken.Token (which has a Model field but no threshold), and how the threshold differs for a two-word wake versus a single-word alias. (3) Whether Whisper's own signals (segment confidence/logprob, the vocabBias initial prompt) can gate a marginal match instead of a bare string distance. (4) The asymmetric cost policy: a false positive mid-dictation is loud and destructive, a false negative is merely annoying, so the wake token can afford to be looser than the end token — decide per token type. (5) Whether a marginal match should ask ('did you mean hey buddy?') rather than silently deciding."""
+id = "hoist-levenshtein-fuzzyequal-into-a-shared-fuzzy-package"
+title = "Hoist Levenshtein/FuzzyEqual into a shared fuzzy package"
+description = "Prerequisite for scoring spoken-token matches. projects.Levenshtein and projects.FuzzyEqual (server/internal/projects/projects.go:259-300) are the repo's only edit-distance helpers, but they live in the projects package, which command must not depend on (projects imports session/filesystem concerns; command is the leaf grammar package). Move both into a small neutral package — internal/fuzzy — with no dependencies, and update projects, session and shellresolve call sites to use it. Keep the existing semantics exactly: Levenshtein over runes, FuzzyEqual tolerating d<=1 for words of 3 or fewer chars and d<=2 beyond. Add the whole-phrase helper the token layer needs while the package is fresh: a distance over a joined phrase string, so 'hey buddha' (two words) and a collapsed 'heybuddy' (one word) both score against the same canonical 'hey buddy'. No behavior change anywhere; this is a pure move plus one new function, tested in place."
 status = "active"
-level = "scope"
+level = "task"
+category = "refactor"
+urgency = "normal"
+order = 40
+created = 2026-08-16
+tags = ["voice", "spoken-tokens"]
+
+[[task]]
+id = "score-spoken-token-matches-in-phrasesat-observe-only-and-log-near-misses"
+title = "Score spoken-token matches in phrasesAt, observe-only, and log near misses"
+description = "The deep fix goes at the one primitive: command.phrasesAt / phraseAt (server/internal/command/command.go, ~line 294) is the single place every spoken token is matched. StripWakeWith, SplitWakeWith, SplitWakeAllWith, SplitOn and stripShell all funnel through it, so wake, end, shell and speech-gate tokens all inherit whatever it does — change it once and every token type gets tolerance, instead of growing spoken.Token alias lists forever.\\n\\nStep one is to make it SCORE without letting the score decide. Rework phrasesAt to compute, for each candidate phrase at words[i], a whole-phrase match score using the internal/fuzzy helper (normalized edit distance over the joined phrase, so a two-word mishearing and a collapsed single word are scored the same way) and return the consumed length plus a confidence. Behavior must stay identical in this task: only an EXACT match still consumes words, exactly as today. A near-threshold non-exact match logs instead — 'spoken: near miss for token %q: heard %q (score %.2f)' — mirroring the unrecognized-utterance log from 56496a2.\\n\\nThat log is the point of this task. A missed wake is currently recorded nowhere, so the false-negative side of the scope has zero data; scoring in observe mode produces exactly the corpus needed to pick thresholds, and — because only near-wake transcripts clear the logging bar — it does that without recording ordinary dictation. Run it live for a while before the next task; the thresholds there must come from this log, not from invented examples."
+status = "active"
+level = "task"
 category = "feature"
 urgency = "normal"
-order = 20
+order = 50
 created = 2026-08-16
-tags = ["voice", "stt"]
+tags = ["voice", "spoken-tokens"]
+
+[[task]]
+id = "enable-tolerant-token-matching-with-per-action-thresholds"
+title = "Enable tolerant token matching with per-action thresholds"
+description = "Turn on what the observe-only scorer measured: let a near-threshold match consume words, with the threshold set per ACTION rather than globally, because the cost of being wrong is wildly asymmetric.\\n\\nWake (spoken.ActionWake) can afford to be loose — a false positive mid-dictation strips a wake and hijacks a sentence, but a false negative silently types a command at Claude, and the observed corpus says which happens more. End (ActionEnd) must stay tight: a false positive commits the turn early and truncates the user mid-sentence, which is unrecoverable. Shell (ActionShell) must be tightest — a false positive RUNS a configured shell command. Speech gate (ActionSpeechGate) can be loose; failing open is its documented fail-safe.\\n\\nTwo rules the thresholds must respect regardless of tuning: (1) an exact match always wins over a fuzzy one, and the longest match still wins among equals, so a one-word alias can never shadow 'hey buddy'; (2) SINGLE-WORD phrases stay exact-only. The single-word aliases ('everybody', 'heybuddy') are ordinary English, so fuzzy-matching them would match half the dictionary — the tolerance exists to retire the need for those aliases, not to widen them.\\n\\nDecide and record two things in the same pass. First, where thresholds live: per-action constants in the command package (cheap, no wire change) versus a threshold field on spoken.Token (user-tunable, but it costs a Token struct change, a protocol change, the Kotlin catalogue UI, and a docsync drift-test update). Default to the constants unless the corpus shows the right value is per-phrase. Second, the marginal-match policy: do NOT ask 'did you mean hey buddy?' — the give-up path is already free (fall through to dictation unchanged), and a confirmation prompt in the middle of dictation is worse than either failure mode. Note that decision in docs/commands.md so it isn't re-litigated.\\n\\nBuild the test table from the logged near-miss corpus, and include real dictation that must NOT match as negative cases."
+status = "active"
+level = "task"
+category = "feature"
+urgency = "normal"
+order = 60
+created = 2026-08-16
+tags = ["voice", "spoken-tokens"]
+
+[[task]]
+id = "probe-whether-whisper-confidence-can-gate-a-marginal-token-match"
+title = "Probe whether Whisper confidence can gate a marginal token match"
+description = "Independent of the edit-distance work, and cheap to kill. The question from the scope: can Whisper's own signals gate a marginal phrase match better than a bare string distance?\\n\\nWhat's actually there today: transcribe.Transcriber (server/internal/transcribe/transcribe.go) returns only (string, error), and the remote client asks the whisper server for response_format=json (server/internal/transcribe/remote.go:68), which carries the text and nothing else. Whisper's verbose_json would return per-segment avg_logprob and no_speech_prob — so the signal exists at the server but is discarded at the seam.\\n\\nThe probe: switch remote.go to verbose_json, capture avg_logprob alongside the text for a run of real utterances, and check whether it actually separates a genuine 'hey buddy' misheard as 'hey buddha' from an ordinary sentence that merely scores close. If it doesn't separate them, stop here and drop this — that is the likely outcome and a fine one.\\n\\nOnly if it does separate them: widening Transcriber past a bare string is a real interface change touching both implementations (the WhisperCPP CLI path has no equivalent field and would need a zero-confidence answer), so the result type must carry confidence as optional and every consumer must behave identically when it is absent. Note also the cheaper adjacent lever the scope raised: gateway.vocabBias already feeds the live wake phrases into the initial prompt, so a miss may be fixable by biasing decoding rather than by post-hoc scoring — check whether the observed misses were even in the bias set."
+status = "active"
+level = "task"
+category = "feature"
+urgency = "low"
+order = 70
+created = 2026-08-16
+tags = ["voice", "spoken-tokens", "stt"]
