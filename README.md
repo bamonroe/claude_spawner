@@ -683,6 +683,19 @@ small **"Backend · model"** badge (the backend name is dropped for the default 
 single-backend setup just shows the model), and the title bar shows the attached session's badge next
 to the context meter.
 
+### Markdown in replies
+
+Claude's replies are rendered as markdown in the chat, not as raw text: headings, **bold**/*italic*,
+`inline code`, fenced code blocks, bullet and numbered lists, links, and **GFM pipe tables**. Tables
+are laid out as a real grid — each column takes the width of its widest cell, the header row is
+tinted and bold, and `:--`/`:-:`/`--:` in the separator row set that column's alignment. When the
+natural table is wider than the bubble, columns shrink proportionally (never below half an even
+share) and long cells wrap, so nothing is clipped or pushed off-screen.
+
+The renderer is a small dependency-free parser in `ui/MarkdownText.kt`, shared by the Android and
+browser clients. Speech is unaffected: the spoken form still goes through `tts/Markdown.kt`, which
+flattens the markup (including table pipes) so the engine never reads punctuation aloud.
+
 ### Token & usage displays
 
 All screen-only (nothing spoken), so hands-free dictation is unaffected. The numbers come straight

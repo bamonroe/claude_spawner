@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "render-markdown-tables-in-the-chat-as-real-tables"
+title = "Render markdown tables in the chat as real tables"
+description = "Claude's replies often contain GFM pipe tables, but the Compose markdown renderer (ui/MarkdownText.kt) had no table case, so the rows fell through to the paragraph branch and were joined with spaces — garbled pipes collapsed onto single lines. Added an MdTable block: parser detects a pipe-bearing header line whose successor is a separator row with a matching cell count (so prose containing a pipe followed by a --- rule isn't misread as a one-column table), reads :--/:-:/--: alignments, handles escaped \\| and missing outer pipes, and tolerates ragged rows. Rendered by a single custom Layout that sizes each column to its widest cell, shrinks proportionally (floor = half an even share) when wider than the bubble, and places the header tint and 1dp grid lines from the measured row heights. Unit-tested in MarkdownTableTest; documented in README."
+status = "finished"
+level = "task"
+category = "bug"
+created = 2026-08-17
+completed = 2026-08-17
+tags = []
+
+[[task]]
 id = "hoist-levenshtein-fuzzyequal-into-a-shared-fuzzy-package"
 title = "Hoist Levenshtein/FuzzyEqual into a shared fuzzy package"
 description = "Prerequisite for scoring spoken-token matches. projects.Levenshtein and projects.FuzzyEqual (server/internal/projects/projects.go:259-300) are the repo's only edit-distance helpers, but they live in the projects package, which command must not depend on (projects imports session/filesystem concerns; command is the leaf grammar package). Move both into a small neutral package — internal/fuzzy — with no dependencies, and update projects, session and shellresolve call sites to use it. Keep the existing semantics exactly: Levenshtein over runes, FuzzyEqual tolerating d<=1 for words of 3 or fewer chars and d<=2 beyond. Add the whole-phrase helper the token layer needs while the package is fresh: a distance over a joined phrase string, so 'hey buddha' (two words) and a collapsed 'heybuddy' (one word) both score against the same canonical 'hey buddy'. No behavior change anywhere; this is a pure move plus one new function, tested in place."
