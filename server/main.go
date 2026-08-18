@@ -295,7 +295,7 @@ func main() {
 	// The static assets are public (JS/Wasm); the sensitive surface stays behind the
 	// token-authenticated "/ws" handshake.
 	if cfg.WebDir != "" {
-		mux.Handle("/", http.FileServer(http.Dir(cfg.WebDir)))
+		mux.Handle("/", noCache(http.FileServer(http.Dir(cfg.WebDir))))
 		log.Printf("serving web client from %s at /", cfg.WebDir)
 	}
 
@@ -364,4 +364,21 @@ func main() {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	_ = srv.Shutdown(shutdownCtx)
 	shutdownCancel()
+}
+
+// noCache makes the browser revalidate the web bundle on every load.
+//
+// The Compose/Wasm bundle ships under fixed names (index.html, spawnerweb.js,
+// spawnerweb.wasm) that change content but never change URL, and http.FileServer
+// sends only Last-Modified — no Cache-Control. Browsers then apply *heuristic*
+// freshness (~10% of the asset's age), so a tab that loaded the client days ago
+// keeps executing the old wasm long after a deploy: the fix is in the image and
+// on the phone, but the browser client silently runs last week's code. "no-cache"
+// means "revalidate", not "don't store" — the conditional request still 304s, so
+// an unchanged 7 MB wasm costs one round trip rather than a re-download.
+func noCache(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache")
+		h.ServeHTTP(w, r)
+	})
 }

@@ -903,10 +903,18 @@ SPAWNER_TOKEN=devsecret SPAWNER_ADDR=:8080 \
 ```
 
 In the **containerized deploy** the bundle isn't mounted — it's **baked into the image** at
-`/srv/web` (with `SPAWNER_WEB_DIR=/srv/web`). `deploy/rebuild-container.sh` stages the Gradle output
-into the image build context, so a `rebuild` press of the restart button ships the current client;
-a `bounce` won't. Rebuild the bundle out-of-band (the `:app:wasmJsBrowserDistribution` task above)
-whenever the UI changes, then rebuild the container to publish it.
+`/srv/web` (with `SPAWNER_WEB_DIR=/srv/web`). `deploy/rebuild-container.sh` **builds** the bundle
+itself (in a throwaway Gradle container, so no host JDK is needed) and stages it into the image
+build context, so a `rebuild` press of the restart button always ships the current client; a
+`bounce` won't. The build is unconditional and incremental — near-free when the Kotlin hasn't
+changed, and it's what stops the browser client from silently lagging the APK, since both render the
+same `commonMain` composables and an APK build alone would leave the web bundle behind.
+
+The server sends `Cache-Control: no-cache` for those assets. They ship under fixed names
+(`index.html`, `spawnerweb.js`, `spawnerweb.wasm`) whose contents change every deploy, so without it
+browsers apply heuristic freshness and a long-lived tab keeps executing an old `.wasm` — a fix that's
+live on the phone appearing "broken on the web". `no-cache` means revalidate, not don't-store: an
+unchanged bundle still 304s.
 
 The bundle defaults its WebSocket to the **same origin** it was served from (`/ws`, `wss://` when the
 page is https), so a server-hosted client connects with no setup — you only edit the URL/token under

@@ -68,28 +68,35 @@ if [ "$DO_BUILD" -eq 0 ]; then
 else
   echo "==> build image (spawner-server only)"
   # Stage the web bundle into the image build context so it bakes into the image
-  # (served at SPAWNER_WEB_DIR=/srv/web) — no host mount. Developers rebuild the bundle
-  # out-of-band with `:app:wasmJsBrowserDistribution` when the UI changes and a rebuild
-  # packages whatever is currently built — but on a fresh clone (no bundle yet) we build
-  # it here once, in a throwaway Gradle container, so the very first deploy ships the
-  # web client with no host JDK and no manual step. A failed bundle build is a warning,
-  # not fatal: the server is still useful without the browser client. Preserve
-  # the tracked .gitkeep so the (gitignored) dir always exists for the Dockerfile COPY.
+  # (served at SPAWNER_WEB_DIR=/srv/web) — no host mount. The bundle is built HERE, on
+  # every image build, in a throwaway Gradle container: no host JDK, no manual step, and
+  # — the reason this isn't conditional on the bundle being missing — no way for the
+  # browser client to fall behind the APK. The shared Compose UI lives in commonMain, so
+  # a chat/UI fix ships to the phone the moment someone builds an APK; if the deploy only
+  # packaged "whatever bundle happens to be lying in build/dist", the same fix could sit
+  # unbuilt for the web for weeks and look like a web-only regression. Gradle is
+  # incremental, so this is near-free when the Kotlin hasn't changed. A failed bundle
+  # build is a warning, not fatal: any previously built bundle is still staged (and
+  # flagged as possibly stale), and the server is useful without the browser client.
+  # Preserve the tracked .gitkeep so the (gitignored) dir always exists for the COPY.
+  #
+  # It writes android/app/build/, the same build dir an APK build uses — so don't run
+  # this concurrently with one (see the Gradle-cache contention note in README.md).
   WEB_SRC="$REPO/android/app/build/dist/wasmJs/productionExecutable"
-  if [ ! -d "$WEB_SRC" ] || [ -z "$(ls -A "$WEB_SRC" 2>/dev/null)" ]; then
-    echo "==> web bundle missing — building it in a container (one-time on a fresh clone; takes minutes)"
-    # A dedicated Gradle home, NOT ~/.gradle: mounting the host's would leak its
-    # gradle.properties (e.g. an org.gradle.java.home pointing at a host-only JDK) into
-    # the container and break the build. Pre-create it: Docker would make it root-owned.
-    GRADLE_CACHE="$HOME/.cache/claude_spawner-gradle"
-    mkdir -p "$GRADLE_CACHE"
-    # Mount the whole repo, not just android/: the build reads the repo-root
-    # docs/commands.json (rootProject.file("../docs/commands.json")).
-    docker run --rm --user "$(id -u):$(id -g)" \
-      -e HOME=/gradlehome -e GRADLE_USER_HOME=/gradlehome \
-      -v "$REPO:/project" -v "$GRADLE_CACHE:/gradlehome" \
-      -w /project/android gradle:8.10.2-jdk17 gradle :app:wasmJsBrowserDistribution --no-daemon \
-      || echo "==> WARNING: web bundle build failed — continuing; image will serve no web client"
+  echo "==> building the web bundle in a container (incremental; minutes on a fresh clone)"
+  # A dedicated Gradle home, NOT ~/.gradle: mounting the host's would leak its
+  # gradle.properties (e.g. an org.gradle.java.home pointing at a host-only JDK) into
+  # the container and break the build. Pre-create it: Docker would make it root-owned.
+  GRADLE_CACHE="$HOME/.cache/claude_spawner-gradle"
+  mkdir -p "$GRADLE_CACHE"
+  # Mount the whole repo, not just android/: the build reads the repo-root
+  # docs/commands.json (rootProject.file("../docs/commands.json")).
+  if ! docker run --rm --user "$(id -u):$(id -g)" \
+    -e HOME=/gradlehome -e GRADLE_USER_HOME=/gradlehome \
+    -v "$REPO:/project" -v "$GRADLE_CACHE:/gradlehome" \
+    -w /project/android gradle:8.10.2-jdk17 gradle :app:wasmJsBrowserDistribution --no-daemon
+  then
+    echo "==> WARNING: web bundle build failed — staging the previous bundle if there is one (it may be STALE)"
   fi
   mkdir -p server/webdist
   find server/webdist -mindepth 1 ! -name .gitkeep -delete
