@@ -121,3 +121,15 @@ urgency = "normal"
 order = 90
 created = 2026-08-18
 tags = ["whisper", "stt", "hallucination", "fuzzy"]
+
+[[task]]
+id = "confirm-markdown-tables-render-in-the-browser-client"
+title = "Confirm markdown tables render in the browser client"
+description = "The table renderer (MdTable/MdTableView in commonMain) is verified present in the LIVE web bundle served at /srv/web, so the browser client already has the code; the working theory for the user seeing no tables is a heuristically-cached pre-fix spawnerweb.wasm, now fixed by the Cache-Control: no-cache header. After the next server rebuild, hard-reload the web client and check a reply containing a GFM table. If it STILL renders as garbled pipes with a fresh bundle, the cause is a Kotlin/Wasm (skiko) rendering difference in MdTableView's custom Layout — most likely Text.maxIntrinsicWidth measurement — not the parser, which is pure Kotlin and covered by MarkdownTableTest."
+status = "active"
+level = "task"
+category = "bug"
+urgency = "low"
+order = 100
+created = 2026-08-18
+tags = []
