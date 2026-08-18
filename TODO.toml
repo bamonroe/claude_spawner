@@ -91,3 +91,33 @@ urgency = "low"
 order = 70
 created = 2026-08-16
 tags = ["voice", "spoken-tokens", "stt"]
+
+[[task]]
+id = "send-max-context-0-to-whisper-server-the-no-context-field-is-ignored"
+title = "Send max_context=0 to whisper-server (the no_context field is ignored)"
+description = """
+The July 14 no-context hallucination fix never took effect on the remote path. internal/transcribe/remote.go writes a multipart field 'no_context=true', but the whisper.cpp v1.9.1 whisper-server binary has no such request field (verified: 'no_context' does not appear in the binary; 'max_context' and 'suppress_nst' do). So decoding runs with max-context -1 — full text carry-forward across 30s windows — which is exactly what sustains a repetition loop on long clips. Live example, 2026-08-18 13:06:51, a 113.2s clip ended with the 'guard about undefined utility at 0 prize' sentence repeated.
+
+Fix: send max_context=0 instead of (or alongside) no_context in remote.go, and update the comment so it no longer claims the field is 'harmless if ignored'. No whisper image rebuild needed. Belt-and-braces follow-up (separate, user-driven): bake -mc 0 into the entrypoints of the three whisper Dockerfiles in /data/speech_services, which needs a speech-whisper image rebuild and would cut STT mid-conversation."""
+status = "active"
+level = "task"
+category = "bug"
+urgency = "high"
+order = 80
+created = 2026-08-18
+tags = ["whisper", "stt", "hallucination"]
+
+[[task]]
+id = "make-collapserepeats-catch-near-duplicate-sentences-via-internal-fuzzy"
+title = "Make collapseRepeats catch near-duplicate sentences via internal/fuzzy"
+description = """
+collapseRepeats() in internal/transcribe/transcribe.go only drops sentences whose normalized text is byte-equal to the immediately preceding one, so whisper's repetition loops survive whenever the repeat is paraphrased or separated by an intervening sentence. Real miss from the 2026-08-18 13:06:51 log: '...And then there needs to be, and then there is a guard about undefined utility at 0 prize, and that is blocked. That guard only exists for the C++. And then there needs to be a guard about undefined utility at 0 prize, and that guard only exists for the C++.' — a near-duplicate spanning two sentences, invisible to exact matching.
+
+Fix: use the edit-distance helper in internal/fuzzy (hoisted in 44107c0) to collapse sentences that are within a similarity threshold, and compare against a small window of recent sentences rather than only the previous one. Keep it conservative — normal speech must survive; add unit tests covering the log example above plus negative cases (legitimately similar consecutive sentences that must NOT collapse)."""
+status = "active"
+level = "task"
+category = "bug"
+urgency = "normal"
+order = 90
+created = 2026-08-18
+tags = ["whisper", "stt", "hallucination", "fuzzy"]
