@@ -108,7 +108,7 @@ var wakePhrases = [][]string{
 var commandVocab = []string{
 	"spawn", "attach", "detach", "list", "kill", "status", "cancel",
 	"stop", "abort", "help", "read last", "replay", "clear", "compress", "compact",
-	"usage", "rename", "session", "project", "model", "models", "codex", "opencode",
+	"usage", "rename", "session", "project", "model", "models", "codex", "opencode", "pickle",
 	"scratch", "summary", "job", "jobs", "restart", "rebuild", "server",
 	"called", "named", "profile", "swap",
 	"set", "target", "directory", "host", "folder",
@@ -403,6 +403,7 @@ var spawnAgentWords = map[string]string{
 	"ollama":   "ollama",
 	"opencode": "ollama", // legacy name for the local Ollama-backed opencode provider.
 	"zen":      "zen",
+	"pickle":   "pickle",
 }
 
 // extractSpawnAgent pulls an inline backend choice out of a spawn utterance and

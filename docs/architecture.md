@@ -247,7 +247,7 @@ and parse it — so the server drives more than `claude`.
   **fallback**: a backend may also declare **live discovery** (`DiscoverArgs` + `ParseModels`) —
   a command whose stdout lists the models it can *currently* run — and when a probe succeeds the
   discovered catalogue **shadows** `Models` everywhere it's read (`Agent.Catalog`, guarded for the
-  runtime refresh). So a backend fronting an external model store (opencode → Ollama or Zen) reports its
+  runtime refresh). So a backend fronting an external model store (opencode → Ollama, Zen, or Pickle) reports its
   real list with no rebuild, while backends with a fixed set (Claude, Codex) just carry `Models`. It
   also has a per-backend **arg builder**
   (`Agent.Args(TurnSpec)`) that emits that backend's exact command line, its own **stream parser**
@@ -279,13 +279,14 @@ An unstarted placeholder joins `AliasIDs` (addressable, but names no transcript,
 `TranscriptIDs`); an id that already ran turns joins `PriorIDs`. Model availability
 can be **plan-dependent** (on a ChatGPT-account Codex, only `gpt-5.5` is `-m`-selectable, so its
 alternates are reasoning-effort presets); the registry is the single place that catalogue lives.
-*Ollama* and *Zen* are both opencode-backed (`opencode run` / `run -s <id>`, `--format json` JSONL):
+*Ollama*, *Zen*, and *Pickle* are opencode-backed (`opencode run` / `run -s <id>`, `--format json` JSONL):
 like Codex they **self-assign** a session id (a `ses_…` id on every event), and `--auto` is the
 skip-permissions equivalent. Ollama advertises the local `ollama/*` catalogue served by the provider
 block in the host user's `~/.config/opencode/opencode.jsonc` (pointed at the local Ollama server).
 Zen advertises OpenCode Zen's subscription catalogue, whose opencode model ids use the `opencode/*`
-prefix. Both use **live model discovery**: `DiscoverArgs` runs `opencode models ollama` or
-`opencode models opencode` on the host and `ParseModels` strips the provider prefix into the model
+prefix. Pickle advertises the `pickle/*` catalogue from the opencode `pickle` provider. All three
+use **live model discovery**: `DiscoverArgs` runs `opencode models ollama`, `opencode models
+opencode`, or `opencode models pickle` on the host and `ParseModels` strips the provider prefix into the model
 alias, so whatever opencode is configured to run appears in the app automatically. Pulling or adding
 models and wiring them into opencode remains the user's job — the server treats opencode as the
 source of truth for what's runnable. `Driver.RefreshModels` runs the probes over the SSH pool at boot
@@ -461,7 +462,7 @@ wiring**, and nothing in the gateway, executors, or clients changes:
    its `ParseTurn` (stream → `TurnResult`, fanning live events out via `TurnCallbacks`). Add parser
    tests beside it (`parse_test.go` has the pattern, with real captured event shapes).
    - **Optional — live model discovery.** If the backend fronts an external, user-managed model set
-     (like opencode → Ollama or Zen) rather than a fixed catalogue, declare `DiscoverArgs` (the argv whose
+     (like opencode → Ollama, Zen, or Pickle) rather than a fixed catalogue, declare `DiscoverArgs` (the argv whose
      stdout lists runnable models) and `ParseModels` (stdout → `[]Model`). `Driver.RefreshModels`
      runs it over the host SSH pool and installs the result via `Agent.SetDiscovered`; `Models` stays
      as the fallback when a probe fails. Keep discovered aliases in the same scheme as the fallback

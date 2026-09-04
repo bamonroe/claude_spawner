@@ -285,6 +285,7 @@ func Default() *Registry {
 	r.register(codex())
 	r.register(ollama())
 	r.register(zen())
+	r.register(pickle())
 	r.register(antigravity())
 	return r
 }

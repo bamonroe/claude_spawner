@@ -8,9 +8,9 @@ import (
 )
 
 // opencode CLI-backed providers: registry entries, per-turn command line, and
-// the `opencode run --format json` event parser. Ollama and Zen share the same
-// opencode runner and transcript layout; they differ only in the provider/model
-// prefix passed to opencode and the discovery probe.
+// the `opencode run --format json` event parser. Ollama, Zen, and Pickle share
+// the same opencode runner and transcript layout; they differ only in the
+// provider/model prefix passed to opencode and the discovery probe.
 
 // ollama builds the local Ollama provider exposed through opencode. The legacy
 // "opencode" id remains an alias so older sessions and provider overrides still
@@ -44,6 +44,24 @@ func zen() *Agent {
 			{Alias: "claude-sonnet-4-5", Flag: "opencode/claude-sonnet-4-5", Spoken: []string{"sonnet", "sonnet four five", "claude sonnet"}},
 			{Alias: "gemini-3.1-pro", Flag: "opencode/gemini-3.1-pro", Spoken: []string{"gemini pro", "pro"}},
 			{Alias: "qwen3.7-plus", Flag: "opencode/qwen3.7-plus", Spoken: []string{"qwen plus"}},
+		},
+	})
+}
+
+// pickle builds the Pickle-hosted opencode provider. It is another remote
+// catalogue exposed through opencode, but under the `pickle/*` model prefix.
+func pickle() *Agent {
+	return opencodeProvider(opencodeProviderSpec{
+		ID:           "pickle",
+		Name:         "Pickle",
+		Provider:     "pickle",
+		DefaultModel: "qwen3.5:9b",
+		Models: []Model{
+			{Alias: "qwen3.5:9b", Flag: "pickle/qwen3.5:9b", Spoken: []string{"qwen", "qwen three five", "qwen 3.5"}},
+			{Alias: "qwen3:30b-a3b", Flag: "pickle/qwen3:30b-a3b", Spoken: []string{"qwen thirty", "qwen three thirty"}},
+			{Alias: "qwen3:8b", Flag: "pickle/qwen3:8b", Spoken: []string{"qwen eight", "qwen three eight"}},
+			{Alias: "llama3.1:8b", Flag: "pickle/llama3.1:8b", Spoken: []string{"llama", "llama three", "llama 3.1"}},
+			{Alias: "deepseek-coder-v2:16b", Flag: "pickle/deepseek-coder-v2:16b", Spoken: []string{"deepseek coder", "coder"}},
 		},
 	})
 }

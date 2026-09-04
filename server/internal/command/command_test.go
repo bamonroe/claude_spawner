@@ -389,6 +389,8 @@ func TestParseSpawn(t *testing.T) {
 		{"spawn a session on codex", false, "", "codex", "", ""},
 		{"spawn a session on ollama", false, "", "ollama", "", ""},
 		{"spawn a zen session", false, "", "zen", "", ""},
+		{"spawn a pickle session", false, "", "pickle", "", ""},
+		{"spawn a session on pickle", false, "", "pickle", "", ""},
 		{"spawn a new codex project in data askii", true, "data askii", "codex", "", ""},
 		// "codex" in path position (not a selector) stays part of the location.
 		{"spawn a session in data codex work", false, "data codex work", "", "", ""},

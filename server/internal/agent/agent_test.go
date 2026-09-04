@@ -34,6 +34,9 @@ func TestDefaultRegistryHasClaude(t *testing.T) {
 	if _, ok := r.Get("zen"); !ok {
 		t.Fatal("zen not registered")
 	}
+	if _, ok := r.Get("pickle"); !ok {
+		t.Fatal("pickle not registered")
+	}
 }
 
 func TestModelResolution(t *testing.T) {
@@ -82,6 +85,25 @@ func TestCodexArgs(t *testing.T) {
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("codex resume args\n got %v\nwant %v", got, want)
+	}
+}
+
+func TestPickleOpencodeArgs(t *testing.T) {
+	p, ok := Default().Get("pickle")
+	if !ok {
+		t.Fatal("pickle not registered")
+	}
+	if p.Bin != "opencode" {
+		t.Errorf("pickle Bin = %q, want opencode", p.Bin)
+	}
+	if !p.SelfAssignsID {
+		t.Error("pickle uses opencode sessions, so SelfAssignsID should be true")
+	}
+
+	got := p.Args(TurnSpec{Prompt: "-rf danger", SessionID: "ses_abc", Resume: true, Model: "qwen3.5:9b", Bypass: true})
+	want := []string{"run", "-s", "ses_abc", "--format", "json", "--auto", "-m", "pickle/qwen3.5:9b", "--", "-rf danger"}
+	if !slices.Equal(got, want) {
+		t.Errorf("pickle args\n got %v\nwant %v", got, want)
 	}
 }
 

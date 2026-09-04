@@ -74,3 +74,17 @@ func TestZenProviderDiscovery(t *testing.T) {
 		t.Fatalf("zen models parsed wrong: %+v", got)
 	}
 }
+
+func TestPickleProviderDiscovery(t *testing.T) {
+	p := pickle()
+	if p.ID != "pickle" || p.Name != "Pickle" {
+		t.Fatalf("pickle identity = id %q name %q", p.ID, p.Name)
+	}
+	if len(p.DiscoverArgs) != 2 || p.DiscoverArgs[0] != "models" || p.DiscoverArgs[1] != "pickle" {
+		t.Fatalf("pickle discovery args = %v, want models pickle", p.DiscoverArgs)
+	}
+	got := parseOpencodeModels([]byte("pickle/qwen3.5:9b\npickle/deepseek-coder-v2:16b\n"))
+	if len(got) != 2 || got[0].Alias != "qwen3.5:9b" || got[0].Flag != "pickle/qwen3.5:9b" {
+		t.Fatalf("pickle models parsed wrong: %+v", got)
+	}
+}

@@ -617,7 +617,7 @@ picker drops its entries and any headset selection falls back (Output → Earpie
 ### Choosing the AI backend and its model
 
 The server drives more than one headless AI. Each **backend** is an entry in an AI registry that
-declares how to invoke it and how to read its output, so they share one interface; four ship today:
+declares how to invoke it and how to read its output, so they share one interface; these ship today:
 
 - **Claude Code** (the default) — `claude` headless in stream-json mode.
 - **Codex** (OpenAI's CLI) — `codex exec`; the server captures Codex's own session id and resumes
@@ -646,6 +646,11 @@ declares how to invoke it and how to read its output, so they share one interfac
   json`, but uses OpenCode Zen's `opencode/*` model catalogue instead of local Ollama. Connect Zen in
   opencode first, then the server discovers it with `opencode models opencode`; if discovery fails,
   the picker keeps a small built-in Zen fallback list.
+- **Pickle** (the `pickle` provider through opencode) — runs through the same opencode path as
+  Ollama and Zen, but discovers and runs the `pickle/*` catalogue with `opencode models pickle` and
+  `opencode run -m pickle/<model>`. It uses the shared opencode session database/history replay;
+  set the same `SPAWNER_SSH_OPENCODE_BIN` or `SPAWNER_SANDBOX_OPENCODE_BIN` if the binary is not on
+  the target's `PATH`.
 - **Antigravity** (Google's Gemini-powered `agy` CLI) — `agy --prompt` in its non-interactive
   "print" mode, with `--output-format stream-json` for the machine-readable event stream (a real
   flag, just missing from `agy --help`). It offers the Gemini 3.x models (Pro and Flash, plus hosted
@@ -659,7 +664,7 @@ declares how to invoke it and how to read its output, so they share one interfac
   session shows token counts per turn but no cache-warm indicator and no context-remaining badge.
 
 Pick the backend when you spawn — by **voice**, "hey buddy, spawn a codex session", "…on
-ollama", or "…on zen" creates that backend's session; a plain spawn uses Claude. The older spoken
+ollama", "…on zen", or "…on pickle" creates that backend's session; a plain spawn uses Claude. The older spoken
 "opencode" selector still maps to Ollama. In the **visual New-session picker** (the app or
 the browser client), a backend chip row (shown when more than one backend is available) and a model
 chip row let you choose both before starting. The new session is stamped with that backend and its
@@ -673,7 +678,7 @@ the spawner picks for you, plus a short catalogue you can switch between by voic
   `opus-low` / `opus-high` / `opus-max`, which run opus at that `--effort` level — deeper thinking
   for slower turns; Codex on a ChatGPT-account plan: `gpt-5.5`
   and its low/high reasoning presets — the account decides which model ids are selectable; Ollama
-  and Zen: whatever opencode is configured to run, discovered live and named by model id).
+  Zen, and Pickle: whatever opencode is configured to run, discovered live and named by model id).
 - **"hey buddy, use model 2"** — switches to that numbered model (say the number — "two" or "2").
   Selecting by **number** is deliberate: it sidesteps having to pronounce awkward model names. The
   choice is durable on the session and takes effect on your next message.
