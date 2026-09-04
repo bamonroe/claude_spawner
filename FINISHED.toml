@@ -14,6 +14,20 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "send-max-context-0-to-whisper-server-the-no-context-field-is-ignored"
+title = "Send max_context=0 to whisper-server (the no_context field is ignored)"
+description = """
+The July 14 no-context hallucination fix never took effect on the remote path. internal/transcribe/remote.go writes a multipart field 'no_context=true', but the whisper.cpp v1.9.1 whisper-server binary has no such request field (verified: 'no_context' does not appear in the binary; 'max_context' and 'suppress_nst' do). So decoding runs with max-context -1 — full text carry-forward across 30s windows — which is exactly what sustains a repetition loop on long clips. Live example, 2026-08-18 13:06:51, a 113.2s clip ended with the 'guard about undefined utility at 0 prize' sentence repeated.
+
+Fix: send max_context=0 instead of (or alongside) no_context in remote.go, and update the comment so it no longer claims the field is 'harmless if ignored'. No whisper image rebuild needed. Belt-and-braces follow-up (separate, user-driven): bake -mc 0 into the entrypoints of the three whisper Dockerfiles in /data/speech_services, which needs a speech-whisper image rebuild and would cut STT mid-conversation."""
+status = "finished"
+level = "task"
+category = "bug"
+created = 2026-08-18
+completed = 2026-09-04
+tags = ["whisper", "stt", "hallucination"]
+
+[[task]]
 id = "render-markdown-tables-in-the-chat-as-real-tables"
 title = "Render markdown tables in the chat as real tables"
 description = "Claude's replies often contain GFM pipe tables, but the Compose markdown renderer (ui/MarkdownText.kt) had no table case, so the rows fell through to the paragraph branch and were joined with spaces — garbled pipes collapsed onto single lines. Added an MdTable block: parser detects a pipe-bearing header line whose successor is a separator row with a matching cell count (so prose containing a pipe followed by a --- rule isn't misread as a one-column table), reads :--/:-:/--: alignments, handles escaped \\| and missing outer pipes, and tolerates ragged rows. Rendered by a single custom Layout that sizes each column to its widest cell, shrinks proportionally (floor = half an even share) when wider than the bubble, and places the header tint and 1dp grid lines from the measured row heights. Unit-tested in MarkdownTableTest; documented in README."
