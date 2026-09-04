@@ -38,7 +38,7 @@ you don't need it for most turns. High-level "what it is" and the behavioral rul
   streams captured (VAD-gated) audio; the server returns a transcript and applies the wake/command
   grammar to it. **Repetition-loop guard** (`internal/transcribe`): Whisper hallucinates by
   looping a phrase on long/low-energy clips ("X. X. X. …"). Two mitigations, both in `transcribe`:
-  the decoder runs with **no-context** (CLI `-nc`; remote `no_context=true`) so a window can't seed
+   the decoder runs with **no-context** (CLI `-nc`; remote `max_context=0`, plus legacy `no_context`) so a window can't seed
   the next with its own hallucinated tail, and `clean()` runs `collapseRepeats()`, which drops
   back-to-back duplicate sentences and 3+ repeats of a short phrase before the text hits the
   wake/command seam.

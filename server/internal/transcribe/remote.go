@@ -67,10 +67,12 @@ func (w *RemoteWhisper) Transcribe(ctx context.Context, wav []byte, opt Options)
 	}
 	_ = mw.WriteField("response_format", "json")
 	_ = mw.WriteField("temperature", "0.0")
-	// Don't condition each window on the previous one — that carry-forward is
-	// what sustains a repetition hallucination across a long clip. Harmless if
-	// the server build ignores the field; collapseRepeats() is the text-level
-	// backstop for loops within a single window.
+	// Don't condition each window on the previous one — that carry-forward
+	// (default max-context -1) sustains a repetition hallucination across a
+	// long clip. The effective lever is max_context=0; no_context predates
+	// whisper-server's schema and was never honored, sent for older servers.
+	// collapseRepeats() remains the text-level backstop within one window.
+	_ = mw.WriteField("max_context", "0")
 	_ = mw.WriteField("no_context", "true")
 	if opt.Prompt != "" {
 		_ = mw.WriteField("prompt", opt.Prompt) // whisper.cpp server: initial-prompt bias
