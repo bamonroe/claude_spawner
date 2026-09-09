@@ -101,6 +101,10 @@ class LocalTts(private val speaker: Speaker) {
             if (epoch.get() != mine || speaker.isMuted()) return@execute
             val rate = engine.sampleRate()
             var begun = false
+            // Loudest sample the model produced. Anything over 1.0 is hard-clipped
+            // by the 16-bit conversion, which sounds like distortion on the loud
+            // syllables — a different fault from underrun, so it's measured apart.
+            var clipPeak = 0f
             // Deliberately an explicit Function1 object, not a lambda. sherpa's JNI
             // resolves the callback by looking up `invoke([F)Ljava/lang/Integer;` on
             // the object's class; Kotlin 2.x compiles lambdas to invokedynamic, and
@@ -110,7 +114,10 @@ class LocalTts(private val speaker: Speaker) {
             val onSamples = object : Function1<FloatArray, Int> {
                 override fun invoke(samples: FloatArray): Int {
                     if (epoch.get() != mine || speaker.isMuted()) return 0
-                    if (!begun) { speaker.streamBegin(rate); begun = true }
+                    if (!begun) { speaker.streamBegin(rate, PREROLL_MS); begun = true }
+                    var peak = 0f
+                    for (s in samples) { val a = kotlin.math.abs(s); if (a > peak) peak = a }
+                    if (peak > clipPeak) clipPeak = peak
                     speaker.streamWrite(toPcm16(samples))
                     return 1
                 }
@@ -123,6 +130,7 @@ class LocalTts(private val speaker: Speaker) {
                 Log.w(TAG, "synthesis failed", e)
             }
             if (begun) {
+                if (clipPeak > 1f) Log.w(TAG, "output clipped: peak ${"%.2f".format(clipPeak)}")
                 if (epoch.get() == mine) speaker.streamEnd() else speaker.streamStop()
             } else if (epoch.get() == mine && !speaker.isMuted()) {
                 // Loaded but produced nothing (a broken model, or text espeak
@@ -200,6 +208,13 @@ class LocalTts(private val speaker: Speaker) {
         // Phones this app targets are big.LITTLE with 4 performance cores; 2 is
         // the point where Kokoro stops scaling and starts fighting the recorder.
         const val THREADS = 2
+
+        // Head start handed to the AudioTrack before playback begins. Kokoro
+        // synthesizes at roughly real time on a phone, so without this the track
+        // plays out as fast as the model fills it and every scheduling hiccup is
+        // an underrun. 600 ms costs that much extra latency to first word and
+        // buys a margin the model can actually fall behind within.
+        const val PREROLL_MS = 600
 
         /** sherpa's float samples (-1..1) → the 16-bit little-endian mono PCM Speaker wants. */
         fun toPcm16(samples: FloatArray): ByteArray {

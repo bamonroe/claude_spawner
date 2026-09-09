@@ -7,6 +7,7 @@ import android.media.AudioManager
 import android.media.AudioTrack
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.util.Log
 import java.util.Locale
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.atomic.AtomicInteger
@@ -120,7 +121,7 @@ class Speaker(context: Context) {
     // voice barge-in works while it talks), the media speaker otherwise.
 
     private sealed interface StreamEvt {
-        class Begin(val sampleRate: Int) : StreamEvt
+        class Begin(val sampleRate: Int, val prerollMs: Int) : StreamEvt
         class Data(val bytes: ByteArray) : StreamEvt
         data object End : StreamEvt
     }
@@ -133,18 +134,29 @@ class Speaker(context: Context) {
     @Volatile private var streamDirty = false // barge-in flushed the track: rebuild on next Begin
     @Volatile private var streamBumped = false // this stream counted itself in `outstanding`
     private var streamFramesWritten = 0L
+    private var streamPrerollFrames = 0L // hold playback until this much is buffered
+    private var streamStarted = false    // play() has been called for this utterance
 
     /**
-     * An utterance's audio stream is starting. [sampleRate] is a property of the
-     * *stream*, not of this class: the server sends 24 kHz PCM, local Kokoro is
-     * 24 kHz, and Piper voices are 22.05 or 16 kHz. Each source reports its own
-     * rate and the track is rebuilt whenever it changes, so a new engine can
-     * never play back at the wrong speed.
+     * An utterance's audio stream is starting. Both parameters are properties of
+     * the *stream*, not of this class, because the producers differ wildly:
+     *
+     * [sampleRate] — the server sends 24 kHz PCM, local Kokoro is 24 kHz, and
+     * Piper voices are 22.05 or 16 kHz. The track is rebuilt whenever it changes,
+     * so a new engine can never play back at the wrong speed.
+     *
+     * [prerollMs] — how much audio to buffer before playback starts. The server
+     * synthesizes far faster than real time, so its audio arrives in a burst and
+     * needs none. An on-device engine runs at roughly real time, so starting on
+     * the first chunk leaves the track permanently a hair from empty: every
+     * scheduling hiccup becomes an underrun, which is audible as crackle and
+     * grit *underneath* otherwise-correct speech. Buffering a fraction of a
+     * second first gives synthesis the head start it needs to stay ahead.
      */
-    fun streamBegin(sampleRate: Int = STREAM_RATE) {
+    fun streamBegin(sampleRate: Int = STREAM_RATE, prerollMs: Int = 0) {
         if (muted) return
         ensureStreamWorker()
-        streamQueue.offer(StreamEvt.Begin(sampleRate))
+        streamQueue.offer(StreamEvt.Begin(sampleRate, prerollMs))
     }
 
     /** One binary frame of the current utterance's PCM. */
@@ -181,12 +193,17 @@ class Speaker(context: Context) {
                 }
                 runCatching {
                     when (evt) {
-                        is StreamEvt.Begin -> streamBeginOnWorker(evt.sampleRate)
+                        is StreamEvt.Begin -> streamBeginOnWorker(evt.sampleRate, evt.prerollMs)
                         is StreamEvt.Data -> {
                             val t = streamTrack
                             if (t != null && !streamDirty) {
                                 val n = t.write(evt.bytes, 0, evt.bytes.size)
                                 if (n > 0) streamFramesWritten += n / 2 // 16-bit mono: 2 bytes/frame
+                                // Enough buffered to survive a slow producer: go.
+                                if (!streamStarted && streamFramesWritten >= streamPrerollFrames) {
+                                    streamStarted = true
+                                    runCatching { t.play() }
+                                }
                             }
                         }
                         is StreamEvt.End -> streamEndOnWorker()
@@ -198,7 +215,7 @@ class Speaker(context: Context) {
 
     // Worker-only: (re)build the track when first used, when the route (media vs
     // comms) changed, or after a barge-in flush, then start playback.
-    private fun streamBeginOnWorker(rate: Int) {
+    private fun streamBeginOnWorker(rate: Int, prerollMs: Int) {
         val usage = if (commMode) AudioAttributes.USAGE_VOICE_COMMUNICATION else AudioAttributes.USAGE_MEDIA
         if (streamTrack == null || streamTrackUsage != usage || streamTrackRate != rate || streamDirty) {
             runCatching { streamTrack?.release() }
@@ -216,7 +233,11 @@ class Speaker(context: Context) {
                         .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                         .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                         .build(),
-                    maxOf(minBuf, rate) /* ≥ half a second buffered */,
+                    // 16-bit mono: rate*2 bytes = 1 second, so this holds ~2s. It must
+                    // comfortably exceed the largest preroll — write() blocks once the
+                    // buffer is full, and with playback still held back that would
+                    // deadlock the worker instead of starting.
+                    maxOf(minBuf, rate * 4),
                     AudioTrack.MODE_STREAM, AudioManager.AUDIO_SESSION_ID_GENERATE,
                 )
             } catch (_: Exception) {
@@ -227,8 +248,13 @@ class Speaker(context: Context) {
             streamDirty = false
         }
         streamFramesWritten = 0
+        streamPrerollFrames = rate.toLong() * prerollMs / 1000
+        streamStarted = false
         val t = streamTrack ?: return
-        runCatching { t.play() }
+        // Playback is deliberately NOT started here — the first Data event that
+        // reaches the preroll starts it (and End starts it regardless, so an
+        // utterance shorter than the preroll still plays).
+        if (streamPrerollFrames <= 0) { streamStarted = true; runCatching { t.play() } }
         if (!streamBumped) { streamBumped = true; bump(1) } // drives onSpeakingChanged like spoken TTS
     }
 
@@ -237,6 +263,8 @@ class Speaker(context: Context) {
     private fun streamEndOnWorker() {
         val t = streamTrack
         if (t != null && !streamDirty) {
+            // Utterance ended before the preroll filled — play what there is.
+            if (!streamStarted) { streamStarted = true; runCatching { t.play() } }
             val rate = if (streamTrackRate > 0) streamTrackRate else STREAM_RATE
             val deadline = System.nanoTime() +
                 ((streamFramesWritten * 1000L / rate) + 1000L) * 1_000_000L
@@ -245,6 +273,11 @@ class Speaker(context: Context) {
                 if (head >= streamFramesWritten || t.playState != AudioTrack.PLAYSTATE_PLAYING) break
                 try { Thread.sleep(40) } catch (_: InterruptedException) { break }
             }
+            // The one number that says whether the track ever ran dry. Non-zero
+            // means playback outpaced the producer and the grit you hear is
+            // underrun, not the model — which is otherwise guesswork by ear.
+            val underruns = runCatching { t.underrunCount }.getOrDefault(0)
+            if (underruns > 0) Log.w(TAG, "stream underran $underruns time(s)")
             runCatching { t.stop() }
         }
         if (streamBumped) { streamBumped = false; bump(-1) }
@@ -440,6 +473,8 @@ class Speaker(context: Context) {
         tts.shutdown()
     }
 }
+
+private const val TAG = "Speaker"
 
 // The server's `pcm` speak format: raw 24 kHz 16-bit little-endian mono
 // (docs/protocol.md) — the default for streamBegin(). Local engines pass their
