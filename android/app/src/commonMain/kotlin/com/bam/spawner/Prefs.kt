@@ -75,14 +75,23 @@ interface Prefs {
      *  turn's final summary is always spoken. 0 = pure summary-only (the default).
      *  Per-turn count that resets each turn; no effect when summary-only is off. */
     var speakInitialReplies: Int
-    /** Speak with the server's Kokoro voice (synthesized server-side, streamed
-     *  down as audio) instead of on-device TTS. Only takes effect when the
-     *  server offers TTS (hello_ok `tts`); on-device speech remains the
-     *  automatic fallback (and handles any speak the server refuses). */
-    var serverTts: Boolean
+    /** Which speech-synthesis engine speaks: "server" (Kokoro on the server,
+     *  streamed down as PCM) | "android" (`android.speech.tts`) | "kokoro" |
+     *  "piper" (both synthesized on this device via sherpa-onnx). See
+     *  [com.bam.spawner.tts.TtsEngine]. Whatever is chosen, the device's own
+     *  voice remains the automatic fallback when that engine can't speak — the
+     *  server is offline or refuses, or a local model isn't installed. */
+    var ttsEngine: String
     /** The chosen Kokoro voice for server TTS ("" = the server default). Client-local:
      *  it rides each speak request's voice field; nothing is stored server-side. */
     var ttsVoice: String
+    /** The chosen voice for the *local* Kokoro engine — a name from
+     *  [com.bam.spawner.tts.TtsCatalogue.KOKORO_VOICES], resolved to sherpa's
+     *  integer speaker id at synthesis time. */
+    var kokoroVoice: String
+    /** Which Piper voice model the local Piper engine speaks with (a
+     *  [com.bam.spawner.tts.TtsModel] id — for Piper the model *is* the voice). */
+    var piperModel: String
     /** Spoken word that commits a hands-free message ("beep" by default). */
     var endToken: String
     /** Custom wake word(s), comma-separated for several misheard variants,
@@ -233,6 +242,11 @@ interface Prefs {
         const val DEFAULT_CACHE_WARM_TIMER = true
         const val DEFAULT_AUTO_COMPRESS_THRESHOLD_K = 100
         const val DEFAULT_AUDIO_OUTPUT = "earpiece"
+        // Server Kokoro stays the default: it needs no download and is the
+        // fastest to first sound. The local engines are opt-in from settings.
+        const val DEFAULT_TTS_ENGINE = "server"
+        const val DEFAULT_KOKORO_VOICE = "af_sarah"
+        const val DEFAULT_PIPER_MODEL = "vits-piper-en_US-kristin-medium-int8"
         const val DEFAULT_MIC_SOURCE = "phone"
         const val DEFAULT_END_TOKEN = "beep"
         const val DEFAULT_WAKE_SERVICE = "whisper"

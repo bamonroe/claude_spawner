@@ -45,7 +45,7 @@ internal data class MicProfile(val commMode: Boolean, val source: Int, val aec: 
 // Apply an output: MUTE suppresses TTS (no device routing); anything else
 // unmutes and routes the device. Returns whether it took effect.
 internal fun VoiceController.applyAudioOutput(out: AudioOutput): Boolean =
-    if (out == AudioOutput.MUTE) { cancelServerSpeech(); speaker.setMuted(true); true }
+    if (out == AudioOutput.MUTE) { cancelStreamingSpeech(); speaker.setMuted(true); true }
     else { speaker.setMuted(false); audioRouter.setOutput(out) }
 
 internal suspend fun VoiceController.applyAudioOutputVerified(out: AudioOutput): Boolean {
@@ -379,7 +379,7 @@ internal fun VoiceController.startTalking() {
         return
     }
     if (hfOn) return // hands-free owns the mic
-    cancelServerSpeech()
+    cancelStreamingSpeech()
     speaker.stop() // barge-in
     if (!recorder.start()) {
         _mic.value = "⚠️ mic unavailable"

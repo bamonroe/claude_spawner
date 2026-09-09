@@ -1,5 +1,7 @@
 package com.bam.spawner
 
+import com.bam.spawner.tts.TtsEngine
+
 import android.content.Context
 import java.io.File
 import java.security.cert.CertificateFactory
@@ -121,10 +123,26 @@ class SettingsStore(context: Context) : Prefs {
         get() = prefs.getInt("speak_initial_replies", Prefs.DEFAULT_SPEAK_INITIAL_REPLIES)
         set(v) = prefs.edit().putInt("speak_initial_replies", v).apply()
 
-    /** Server-side Kokoro voice vs on-device TTS (default on; falls back automatically). */
-    override var serverTts: Boolean
-        get() = prefs.getBoolean("server_tts", true)
-        set(v) = prefs.edit().putBoolean("server_tts", v).apply()
+    /** Which engine speaks: server Kokoro | android | local kokoro | local piper.
+     *  Migrated from the old boolean `server_tts`: an installed app that had the
+     *  server voice switched off keeps speaking with the device voice. */
+    override var ttsEngine: String
+        get() = prefs.getString("tts_engine", null)
+            ?: if (prefs.contains("server_tts") && !prefs.getBoolean("server_tts", true))
+                TtsEngine.ANDROID else Prefs.DEFAULT_TTS_ENGINE
+        set(v) = prefs.edit().putString("tts_engine", v).apply()
+
+    /** Chosen voice for the on-device Kokoro engine (a name from the catalogue). */
+    override var kokoroVoice: String
+        get() = prefs.getString("kokoro_voice", Prefs.DEFAULT_KOKORO_VOICE)
+            ?: Prefs.DEFAULT_KOKORO_VOICE
+        set(v) = prefs.edit().putString("kokoro_voice", v).apply()
+
+    /** Chosen Piper voice model id (for Piper the model is the voice). */
+    override var piperModel: String
+        get() = prefs.getString("piper_model", Prefs.DEFAULT_PIPER_MODEL)
+            ?: Prefs.DEFAULT_PIPER_MODEL
+        set(v) = prefs.edit().putString("piper_model", v).apply()
 
     /** Chosen Kokoro voice ("" = the server default); rides each speak request. */
     override var ttsVoice: String

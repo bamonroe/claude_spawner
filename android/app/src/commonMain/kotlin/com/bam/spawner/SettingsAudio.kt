@@ -168,53 +168,8 @@ fun AudioSettings(
                 modifier = Modifier.fillMaxWidth(),
             )
         }
-        var serverTts by remember { mutableStateOf(settings.serverTts) }
-        val ttsAvailable by controller.serverTtsAvailable.collectAsState()
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("Server voice", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    if (ttsAvailable)
-                        "Speak with the server's Kokoro voice, streamed to this device. Off (or on any failure) the device's own voice is used."
-                    else
-                        "This server doesn't offer speech synthesis — the device's own voice is used.",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
-                )
-            }
-            Switch(
-                checked = serverTts, enabled = ttsAvailable,
-                onCheckedChange = { serverTts = it; settings.serverTts = it },
-            )
-        }
-        // The Kokoro voice picker (server-relayed catalogue; empty until the server
-        // offers TTS). Client-local: the choice rides each speak request; picking a
-        // voice speaks a short preview in it.
-        val ttsVoices by controller.ttsVoices.collectAsState()
-        val ttsVoiceDefault by controller.ttsVoiceDefault.collectAsState()
-        if (ttsAvailable && ttsVoices.isNotEmpty()) {
-            var voice by remember { mutableStateOf(settings.ttsVoice) }
-            var voicesOpen by remember { mutableStateOf(false) }
-            Box {
-                OutlinedButton(onClick = { voicesOpen = true }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Voice: ${voice.ifBlank { "server default ($ttsVoiceDefault)" }} ▾")
-                }
-                DropdownMenu(expanded = voicesOpen, onDismissRequest = { voicesOpen = false }) {
-                    DropdownMenuItem(
-                        text = { Text("server default ($ttsVoiceDefault)") },
-                        onClick = {
-                            voice = ""; settings.ttsVoice = ""; voicesOpen = false
-                            controller.previewTtsVoice("")
-                        },
-                    )
-                    ttsVoices.forEach { v ->
-                        DropdownMenuItem(text = { Text(v) }, onClick = {
-                            voice = v; settings.ttsVoice = v; voicesOpen = false
-                            controller.previewTtsVoice(v) // hear it right away
-                        })
-                    }
-                }
-            }
-        }
+        HorizontalDivider()
+        TtsEngineSection(settings, controller)
 
         HorizontalDivider()
         Text("Transcription models", style = MaterialTheme.typography.titleMedium)

@@ -1,5 +1,6 @@
 package com.bam.spawner
 
+import com.bam.spawner.tts.TtsModelState
 import com.bam.spawner.audio.AudioOutput
 import com.bam.spawner.net.patchRow
 import com.bam.spawner.net.AgentInfo
@@ -256,6 +257,15 @@ class WebAppController(internal val prefs: Prefs) : AppController {
     override val ttsVoices: StateFlow<List<String>> = _ttsVoices.asStateFlow()
     internal val _ttsVoiceDefault = MutableStateFlow("")
     override val ttsVoiceDefault: StateFlow<String> = _ttsVoiceDefault.asStateFlow()
+
+    // On-device synthesis is sherpa-onnx (a native library), so the browser can't
+    // offer it: the settings section hides those engines rather than stubbing them
+    // into something that silently never speaks.
+    override val localTtsSupported = false
+    override val localTtsModels: StateFlow<Map<String, TtsModelState>> =
+        MutableStateFlow<Map<String, TtsModelState>>(emptyMap()).asStateFlow()
+    override fun installLocalTtsModel(id: String) {}
+    override fun removeLocalTtsModel(id: String) {}
 
     // Server-TTS speak bookkeeping (single-threaded on the JS main loop, so no
     // locking): id -> stripped text of each in-flight speak, kept for the

@@ -234,7 +234,7 @@ internal fun VoiceController.onMessage(msg: ServerMsg) {
         is ServerMsg.Pending -> onPending(msg)
         is ServerMsg.Calibration -> onCalibrationSample(msg.text)
         is ServerMsg.StopSpeaking -> {
-            cancelServerSpeech()
+            cancelStreamingSpeech()
             speaker.stop()
         }
         is ServerMsg.SpeakAudio -> onSpeakAudio(msg)

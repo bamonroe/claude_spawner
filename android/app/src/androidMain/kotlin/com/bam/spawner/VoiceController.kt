@@ -19,7 +19,10 @@ import com.bam.spawner.net.DiscoveredInfo
 import com.bam.spawner.net.patchRow
 import com.bam.spawner.net.SpawnerClient
 import com.bam.spawner.tts.Markdown
+import com.bam.spawner.tts.LocalTts
 import com.bam.spawner.tts.Speaker
+import com.bam.spawner.tts.TtsModelState
+import com.bam.spawner.tts.TtsModelStore
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CoroutineScope
@@ -65,6 +68,9 @@ data class CalibrationState(
 class VoiceController(context: Context, internal val settings: SettingsStore) : AppController {
     internal val app = context.applicationContext
     internal val speaker = Speaker(app)
+    // On-device synthesis (sherpa-onnx) and the model bundles it needs. Both are
+    // inert until the user picks a local engine in Settings › Audio.
+    internal val localTts = LocalTts(speaker)
     internal val recorder = OpusRecorder(app)
     internal val notifier = Notifier(app)
     internal var client: SpawnerClient? = null
@@ -188,7 +194,7 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
             }
         }
         override fun bargeInIfAttached(id: String) {
-            if (id == _attachedId.value) { cancelServerSpeech(); speaker.stop() }
+            if (id == _attachedId.value) { cancelStreamingSpeech(); speaker.stop() }
         }
         override fun showNotice(notice: ServerMsg.Notice) = noticeStore.add(notice)
     })
@@ -365,6 +371,17 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
     override val ttsVoices: StateFlow<List<String>> = _ttsVoices.asStateFlow()
     internal val _ttsVoiceDefault = MutableStateFlow("")
     override val ttsVoiceDefault: StateFlow<String> = _ttsVoiceDefault.asStateFlow()
+
+    // --- On-device TTS models -------------------------------------------------
+    internal val ttsModels = TtsModelStore(app, scope)
+    override val localTtsSupported = true
+    override val localTtsModels: StateFlow<Map<String, TtsModelState>> = ttsModels.states
+    override fun installLocalTtsModel(id: String) = ttsModels.install(id)
+    override fun removeLocalTtsModel(id: String) {
+        // Unload first: the engine may be holding the very files we're deleting.
+        if (ttsModels.isInstalled(id)) localTts.unload()
+        ttsModels.remove(id)
+    }
 
     // --- Server-TTS (Kokoro) speak bookkeeping --------------------------------
     // Everything the net thread and the UI thread both touch sits under speakLock.
@@ -740,7 +757,7 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
     private fun onConnected(up: Boolean) {
         _connected.value = up
         _status.value = if (up) "connected" else "reconnecting…"
-        if (!up) cancelServerSpeech() // a dropped socket orphans any in-flight speak streams
+        if (!up) cancelStreamingSpeech() // a dropped socket orphans any in-flight speak streams
         if (!up) persist(router.currentId) // flush the visible session to disk so it's available offline
         if (!up) {
             // Every in-flight history request died with the socket. Drop the markers, or

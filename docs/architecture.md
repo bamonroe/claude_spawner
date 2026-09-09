@@ -840,6 +840,40 @@ defaults — those defaults live with the whisper image in the `/data/speech_ser
 Known limitation: STT output is all-lowercase, so sessions can't be created in directories with
 uppercase letters by voice. Acceptable; documented in `docs/commands.md`.
 
+## Speech synthesis is a client-side choice (four engines, one playback path)
+
+Unlike transcription, which the server owns, **which engine speaks is decided on the device**. The
+protocol carries no notion of it: only the server engine sends `speak`/`speak_audio`/`speak_end`,
+and the other three never touch the wire. Adding an engine therefore doesn't change
+`docs/protocol.md`. The user-facing list of engines and their trade-offs lives in `README.md`
+("Choosing a speech engine"); what matters structurally is the seam:
+
+- **One PCM sink.** `tts/Speaker.kt` owns a `MODE_STREAM` `AudioTrack` fed by
+  `streamBegin(sampleRate)` / `streamWrite` / `streamEnd` / `streamStop`. Both the server (which
+  streams 24 kHz PCM down the socket) and the on-device engines push into *that same* path, so
+  audio routing, muting, barge-in and the speaking indicator are implemented once and cannot
+  diverge per engine. The sample rate is a property of the **stream**, not a constant — local Piper
+  voices are 22.05 or 16 kHz — and the track is rebuilt whenever it changes.
+- **One router.** `VoiceControllerSpeech.kt`'s `speakText` dispatches on `Prefs.ttsEngine`, and
+  every branch degrades to `android.speech.tts` when its engine can't speak (server offline or
+  refusing, local model absent or failed to load). That fallback is what makes the setting safe to
+  flip mid-conversation.
+- **One cancel.** `cancelStreamingSpeech()` silences every streaming engine; callers ("stop
+  talking now" — barge-in, mute, disconnect, detach) never learn which engine is live, which is
+  precisely the knowledge that would rot when the next engine is added.
+- **On-device engines are sherpa-onnx.** `tts/LocalTts.kt` wraps `OfflineTts` for both Kokoro and
+  Piper — they differ only in which config struct is filled, so one class covers both. It
+  synthesizes on a single worker thread (utterances serialize, as on the server) and streams
+  sentence-by-sentence via sherpa's sample callback; returning 0 from that callback is how barge-in
+  aborts generation instead of waiting out the reply. The model directory's files are
+  **discovered** by scanning (`*.onnx`, `tokens.txt`, `voices.bin`, `espeak-ng-data/`) rather than
+  named, because upstream renames them between releases and per quantization.
+- **Models are fetched, not shipped.** `tts/TtsModelStore.kt` streams the `.tar.bz2` bundle from the
+  k2-fsa release and unpacks it in one pass into `filesDir/tts/<id>/`; a marker file written only
+  after the unpack completes *is* the definition of "installed", so a killed download refetches
+  instead of loading a truncated model. The sherpa AAR itself is fetched into `android/app/libs/` by
+  the `fetchSherpaOnnx` Gradle task (it isn't published to Maven Central) and is gitignored.
+
 ## Repository layout
 
 ```

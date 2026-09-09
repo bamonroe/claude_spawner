@@ -7,6 +7,7 @@ import com.bam.spawner.net.Codecs
 import com.bam.spawner.net.Outbound
 import com.bam.spawner.net.ServerMsg
 import com.bam.spawner.tts.Markdown
+import com.bam.spawner.tts.TtsEngine
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.io.encoding.Base64
@@ -127,7 +128,7 @@ internal fun WebAppController.speak(text: String, voice: String) {
     if (_audioOutput.value == AudioOutput.MUTE) return
     val spoken = Markdown.toSpeech(text)
     if (spoken.isBlank()) return
-    if (prefs.serverTts && _serverTtsAvailable.value && _connected.value) {
+    if (prefs.ttsEngine == TtsEngine.SERVER && _serverTtsAvailable.value && _connected.value) {
         val id = "s${++speakSeq}"
         speakTexts[id] = spoken
         // Runaway guard; the server refuses past 32 queued anyway.

@@ -120,7 +120,7 @@ class Speaker(context: Context) {
     // voice barge-in works while it talks), the media speaker otherwise.
 
     private sealed interface StreamEvt {
-        data object Begin : StreamEvt
+        class Begin(val sampleRate: Int) : StreamEvt
         class Data(val bytes: ByteArray) : StreamEvt
         data object End : StreamEvt
     }
@@ -129,15 +129,22 @@ class Speaker(context: Context) {
     @Volatile private var streamWorker: Thread? = null
     private var streamTrack: AudioTrack? = null // worker-thread-owned
     private var streamTrackUsage = -1
+    private var streamTrackRate = 0 // sample rate the current track was built for
     @Volatile private var streamDirty = false // barge-in flushed the track: rebuild on next Begin
     @Volatile private var streamBumped = false // this stream counted itself in `outstanding`
     private var streamFramesWritten = 0L
 
-    /** An utterance's audio stream is starting (speak_audio arrived). */
-    fun streamBegin() {
+    /**
+     * An utterance's audio stream is starting. [sampleRate] is a property of the
+     * *stream*, not of this class: the server sends 24 kHz PCM, local Kokoro is
+     * 24 kHz, and Piper voices are 22.05 or 16 kHz. Each source reports its own
+     * rate and the track is rebuilt whenever it changes, so a new engine can
+     * never play back at the wrong speed.
+     */
+    fun streamBegin(sampleRate: Int = STREAM_RATE) {
         if (muted) return
         ensureStreamWorker()
-        streamQueue.offer(StreamEvt.Begin)
+        streamQueue.offer(StreamEvt.Begin(sampleRate))
     }
 
     /** One binary frame of the current utterance's PCM. */
@@ -174,7 +181,7 @@ class Speaker(context: Context) {
                 }
                 runCatching {
                     when (evt) {
-                        is StreamEvt.Begin -> streamBeginOnWorker()
+                        is StreamEvt.Begin -> streamBeginOnWorker(evt.sampleRate)
                         is StreamEvt.Data -> {
                             val t = streamTrack
                             if (t != null && !streamDirty) {
@@ -191,13 +198,13 @@ class Speaker(context: Context) {
 
     // Worker-only: (re)build the track when first used, when the route (media vs
     // comms) changed, or after a barge-in flush, then start playback.
-    private fun streamBeginOnWorker() {
+    private fun streamBeginOnWorker(rate: Int) {
         val usage = if (commMode) AudioAttributes.USAGE_VOICE_COMMUNICATION else AudioAttributes.USAGE_MEDIA
-        if (streamTrack == null || streamTrackUsage != usage || streamDirty) {
+        if (streamTrack == null || streamTrackUsage != usage || streamTrackRate != rate || streamDirty) {
             runCatching { streamTrack?.release() }
             streamTrack = try {
                 val minBuf = AudioTrack.getMinBufferSize(
-                    STREAM_RATE, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT,
+                    rate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT,
                 )
                 AudioTrack(
                     AudioAttributes.Builder()
@@ -205,17 +212,18 @@ class Speaker(context: Context) {
                         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                         .build(),
                     AudioFormat.Builder()
-                        .setSampleRate(STREAM_RATE)
+                        .setSampleRate(rate)
                         .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                         .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                         .build(),
-                    maxOf(minBuf, STREAM_RATE) /* ≥ half a second buffered */,
+                    maxOf(minBuf, rate) /* ≥ half a second buffered */,
                     AudioTrack.MODE_STREAM, AudioManager.AUDIO_SESSION_ID_GENERATE,
                 )
             } catch (_: Exception) {
                 null
             }
             streamTrackUsage = if (streamTrack != null) usage else -1
+            streamTrackRate = if (streamTrack != null) rate else 0
             streamDirty = false
         }
         streamFramesWritten = 0
@@ -229,8 +237,9 @@ class Speaker(context: Context) {
     private fun streamEndOnWorker() {
         val t = streamTrack
         if (t != null && !streamDirty) {
+            val rate = if (streamTrackRate > 0) streamTrackRate else STREAM_RATE
             val deadline = System.nanoTime() +
-                ((streamFramesWritten * 1000L / STREAM_RATE) + 1000L) * 1_000_000L
+                ((streamFramesWritten * 1000L / rate) + 1000L) * 1_000_000L
             while (System.nanoTime() < deadline) {
                 val head = runCatching { t.playbackHeadPosition.toLong() and 0xffffffffL }.getOrNull() ?: break
                 if (head >= streamFramesWritten || t.playState != AudioTrack.PLAYSTATE_PLAYING) break
@@ -432,8 +441,10 @@ class Speaker(context: Context) {
     }
 }
 
-// Kokoro's `pcm` speak format: raw 24 kHz 16-bit little-endian mono (docs/protocol.md).
-private const val STREAM_RATE = 24000
+// The server's `pcm` speak format: raw 24 kHz 16-bit little-endian mono
+// (docs/protocol.md) — the default for streamBegin(). Local engines pass their
+// own rate instead; nothing else assumes this value.
+internal const val STREAM_RATE = 24000
 private const val BEEP_RATE = 44100
 private const val BEEP_MS = 200L
 private const val BEEP_FREQ = 420.0    // low and round — warm, not shrill

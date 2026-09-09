@@ -109,9 +109,18 @@ class WebPrefs : Prefs {
     override var speakInitialReplies: Int
         get() = int("speak_initial_replies", Prefs.DEFAULT_SPEAK_INITIAL_REPLIES)
         set(v) = putInt("speak_initial_replies", v)
-    override var serverTts: Boolean
-        get() = bool("server_tts", true)
-        set(v) = putBool("server_tts", v)
+    // The browser can't run the local engines, so it only ever stores "server"
+    // or "android" (which maps to the Web Speech API) — but the property is on
+    // Prefs, so it exists here too.
+    override var ttsEngine: String
+        get() = str("tts_engine", Prefs.DEFAULT_TTS_ENGINE).ifBlank { Prefs.DEFAULT_TTS_ENGINE }
+        set(v) = putStr("tts_engine", v)
+    override var kokoroVoice: String
+        get() = str("kokoro_voice", Prefs.DEFAULT_KOKORO_VOICE)
+        set(v) = putStr("kokoro_voice", v)
+    override var piperModel: String
+        get() = str("piper_model", Prefs.DEFAULT_PIPER_MODEL)
+        set(v) = putStr("piper_model", v)
     override var ttsVoice: String
         get() = str("tts_voice", "")
         set(v) = putStr("tts_voice", v)

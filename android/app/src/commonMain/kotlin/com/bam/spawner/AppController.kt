@@ -7,6 +7,7 @@ import com.bam.spawner.net.RateLimitInfo
 import com.bam.spawner.net.ServerMsg
 import com.bam.spawner.net.TokenUsage
 import com.bam.spawner.net.UsageReport
+import com.bam.spawner.tts.TtsModelState
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -121,6 +122,16 @@ interface AppController : HostsIdentitiesController, AuthController, ProfilesCon
     // reply; both empty until the server offers TTS) — feeds the voice picker.
     val ttsVoices: StateFlow<List<String>>
     val ttsVoiceDefault: StateFlow<String>
+    // Whether this platform can synthesize speech on-device via sherpa-onnx
+    // (Android yes, browser no) — gates the local Kokoro/Piper engine choices.
+    val localTtsSupported: Boolean
+    // Install state of every downloadable local-TTS model, keyed by model id
+    // (see TtsCatalogue). Empty on platforms without local TTS.
+    val localTtsModels: StateFlow<Map<String, TtsModelState>>
+    /** Download and unpack a local-TTS model (no-op if already installed or in flight). */
+    fun installLocalTtsModel(id: String)
+    /** Delete an installed local-TTS model's files, freeing the disk. */
+    fun removeLocalTtsModel(id: String)
     val ask: StateFlow<List<AskQuestion>?>
     // AI backend registry (`agents` message: the backends + models the new-session
     // picker offers) comes from [ProvidersController]; execution profiles (`profiles`

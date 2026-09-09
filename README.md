@@ -489,13 +489,45 @@ The beep is a low, round sine tone with a smooth envelope —
 deliberately unlike a sharp notification chime — and in hands-free mode it plays through the
 echo-cancelled voice path so the open mic doesn't hear it.
 
-### Server voice: Kokoro speech synthesis streamed to the device
+### Choosing a speech engine
+
+**Audio › Text to speech** picks which of four engines reads replies aloud. They're all one tap
+apart on purpose, so the same reply can be heard through each and compared:
+
+| Engine | Where it runs | Download | Notes |
+|---|---|---|---|
+| **Server Kokoro** | the server's Kokoro container | — | the default; needs a live connection |
+| **Android** | `android.speech.tts` | — | always available, fastest to first sound |
+| **Local Kokoro** | this phone, via sherpa-onnx | 103 MB | same voices as the server, works offline |
+| **Local Piper** | this phone, via sherpa-onnx | ~21 MB per voice | much faster and smaller than Kokoro, less natural |
+
+Whatever is selected, **the Android engine is the fallback** — the server being down, a model not
+downloaded, or a synthesis failure degrades to the device voice rather than to silence, so no choice
+here can leave the app mute. The browser client only offers the first two: the local engines are a
+native library it can't load.
+
+The two local engines download their models on demand from the settings screen (the phone keeps
+them under the app's private storage; **Delete** frees the space). A model is only marked installed
+once it has fully unpacked, so an interrupted download refetches rather than loading a truncated
+model. Local Kokoro's eleven voices all arrive with the one model — a Kokoro voice is a small
+embedding inside the bundle, not a separate download — so switching between them is instant. Piper
+works the other way round: each voice *is* its own small model, so a Piper voice can only be
+selected once it's been downloaded.
+
+Expect on-device synthesis to be slower to finish than the server: Kokoro runs at roughly real-time
+on a phone. Speech still *starts* quickly, because sherpa emits audio sentence by sentence and the
+app plays each one as it arrives. Piper is several times faster than Kokoro on the same hardware,
+which is the main reason to try it. All four engines feed the same playback path, so audio routing
+(earpiece/speaker/Bluetooth), muting, barge-in and the speaking indicator behave identically no
+matter which is speaking.
+
+#### Server voice: Kokoro speech synthesis streamed to the device
 
 When the server is configured with a resident Kokoro TTS server (`SPAWNER_TTS_URL`; the `kokoro`
 service in the `/data/speech_services` stack), replies can be spoken with a **neural server-side
 voice** instead of the
-device's built-in text-to-speech. The decision stays on the client — the **Server voice** switch on
-the **Audio** settings page (on by default, active only when the connected server offers TTS): for
+device's built-in text-to-speech. The decision stays on the client — the **Server Kokoro** choice on
+the **Audio** settings page (the default, active only when the connected server offers TTS): for
 each reply the app sends the text up as a `speak` request, the server synthesizes it with Kokoro and
 streams the audio straight back down the WebSocket, and the app plays it as it arrives. Nothing is
 synthesized for muted or summary-only-beeping clients, since they never ask. If the server refuses
@@ -507,7 +539,7 @@ clip via Web Audio (the phone streams raw PCM) — and on-device speech remains 
 `SPAWNER_TTS_URL` is unset.
 
 Kokoro ships dozens of voices, and each device picks its own: a **Voice** dropdown under the Server
-voice switch lists the server's catalogue (relayed live from Kokoro), with the `SPAWNER_TTS_VOICE`
+Kokoro choice lists the server's catalogue (relayed live from Kokoro), with the `SPAWNER_TTS_VOICE`
 default as the first entry. Picking a voice speaks a short preview in it, and the choice rides each
 synthesis request from that device — nothing is stored server-side, so your phone and your browser
 can sound different.

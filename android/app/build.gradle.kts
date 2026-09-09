@@ -1,5 +1,6 @@
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.net.URI
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.TimeZone
@@ -12,6 +13,13 @@ plugins {
 }
 
 val ktorVersion = "3.0.3"
+
+// sherpa-onnx supplies the on-device TTS engines (local Kokoro / local Piper).
+// It publishes an AAR on its GitHub releases and *not* to Maven Central, so the
+// build fetches it into app/libs on demand rather than the 49 MB binary living
+// in git. See fetchSherpaOnnx below.
+val sherpaVersion = "1.13.7"
+val sherpaAar = layout.projectDirectory.file("libs/sherpa-onnx-$sherpaVersion.aar")
 
 // App version, defined once and reused for both the Android manifest and the generated
 // BuildInfo stamp (see generateBuildInfo below).
@@ -73,6 +81,12 @@ kotlin {
             implementation(compose.uiTooling)
             // Ktor OkHttp engine (Android transport; brings okhttp transitively).
             implementation("io.ktor:ktor-client-okhttp:$ktorVersion")
+            // On-device speech synthesis: sherpa-onnx runs the Kokoro and Piper
+            // ONNX models (see LocalTts). Fetched into libs/ by fetchSherpaOnnx.
+            implementation(files(sherpaAar))
+            // The model bundles are .tar.bz2 and the JDK can't read bzip2; this is
+            // the decompressor + tar reader TtsModelStore unpacks them with.
+            implementation("org.apache.commons:commons-compress:1.27.1")
         }
         wasmJsMain.dependencies {
             // Ktor Js engine → the browser's native WebSocket.
@@ -96,6 +110,13 @@ android {
         targetSdk = 35
         versionCode = appVersionCode
         versionName = appVersionName
+
+        ndk {
+            // sherpa-onnx ships native libs for four ABIs and each costs ~15 MB of
+            // APK. Keep the two that are actually used here: arm64 for the phone,
+            // x86_64 for the Docker emulator we verify on.
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
     }
 
     // Kotlin Multiplatform maps its `androidMain` kotlin source set to the Android `main`
@@ -131,6 +152,32 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 }
+
+// sherpa-onnx's Android AAR is published only on GitHub releases, so fetch it into
+// app/libs the first time it's needed. Keeping it out of git means the repo stays
+// small; keeping it in a versioned filename means bumping sherpaVersion re-fetches
+// rather than silently reusing the old binary.
+val fetchSherpaOnnx by tasks.registering {
+    description = "Download the sherpa-onnx Android AAR (on-device TTS) into app/libs."
+    val out = sherpaAar.asFile
+    outputs.file(out)
+    onlyIf { !out.exists() }
+    doLast {
+        val url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/" +
+            "v$sherpaVersion/sherpa-onnx-$sherpaVersion.aar"
+        logger.lifecycle("fetching $url")
+        out.parentFile.mkdirs()
+        val tmp = File(out.parentFile, out.name + ".part")
+        URI(url).toURL().openStream().use { input ->
+            tmp.outputStream().use { input.copyTo(it) }
+        }
+        // Only publish the final name once the whole file landed, so an interrupted
+        // build can't leave a truncated AAR that then fails to link.
+        tmp.renameTo(out)
+    }
+}
+
+tasks.matching { it.name == "preBuild" }.configureEach { dependsOn(fetchSherpaOnnx) }
 
 // generateCommands turns the shared docs/commands.json (emitted from the server's
 // authoritative command registry) into a Kotlin COMMANDS list, so the app's

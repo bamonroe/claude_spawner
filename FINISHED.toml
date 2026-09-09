@@ -14,6 +14,17 @@ source = "TODO.toml"
 order = "newest first"
 
 [[task]]
+id = "on-device-tts-engines-server-kokoro-android-local-kokoro-local-piper-picker"
+title = "On-device TTS engines: server Kokoro / Android / local Kokoro / local Piper picker"
+description = "Settings > Audio > Text to speech lets the user pick which of four engines reads replies aloud, so the options can be A/B'd on the same reply. Replaces the old serverTts boolean with a ttsEngine string pref (migrated). Local Kokoro and local Piper run on-device via sherpa-onnx (AAR fetched into app/libs by the fetchSherpaOnnx Gradle task; not on Maven Central), with model bundles downloaded on demand from the k2-fsa tts-models release into filesDir and unpacked from tar.bz2 via commons-compress. All engines feed the same Speaker PCM stream path (streamBegin now takes a sample rate, since Piper is 22.05kHz and Kokoro 24kHz), share one cancelStreamingSpeech barge-in, and fall back to android.speech.tts whenever the chosen engine can't speak. Verified on the emulator: all four render, Piper model downloads/unpacks/loads and synthesizes without crashing. Documented in README.md and docs/architecture.md."
+status = "finished"
+level = "task"
+category = "feature"
+created = 2026-09-09
+completed = 2026-09-09
+tags = []
+
+[[task]]
 id = "send-max-context-0-to-whisper-server-the-no-context-field-is-ignored"
 title = "Send max_context=0 to whisper-server (the no_context field is ignored)"
 description = """
