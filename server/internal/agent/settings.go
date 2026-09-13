@@ -135,15 +135,24 @@ func (s *SettingsStore) get(id string) *Settings {
 }
 
 // DefaultModel is the model alias a fresh spawn should stamp for ag: the user's
-// override when set and valid, else the backend's compiled DefaultModel. Nil-safe.
+// override when set and valid in the current catalogue, else the backend's
+// default when present, else the first discovered model. Nil-safe.
 func (s *SettingsStore) DefaultModel(ag *Agent) string {
 	if s != nil {
 		s.mu.RLock()
 		st := s.byID[ag.ID]
 		s.mu.RUnlock()
 		if st != nil && st.DefaultModel != "" {
-			return st.DefaultModel
+			if _, ok := hasModel(ag, st.DefaultModel); ok {
+				return st.DefaultModel
+			}
 		}
+	}
+	if _, ok := hasModel(ag, ag.DefaultModel); ok {
+		return ag.DefaultModel
+	}
+	if catalog := ag.Catalog(); len(catalog) > 0 {
+		return catalog[0].Alias
 	}
 	return ag.DefaultModel
 }

@@ -249,7 +249,8 @@ and parse it — so the server drives more than `claude`.
   a command whose stdout lists the models it can *currently* run — and when a probe succeeds the
   discovered catalogue **shadows** `Models` everywhere it's read (`Agent.Catalog`, guarded for the
   runtime refresh). So a backend fronting an external model store (opencode → Ollama, Zen, or Pickle) reports its
-  real list with no rebuild, while backends with a fixed set (Claude, Codex) just carry `Models`. It
+  real list with no rebuild, Codex reports the signed-in CLI's model catalogue, and backends with a fixed
+  set (Claude) just carry `Models`. It
   also has a per-backend **arg builder**
   (`Agent.Args(TurnSpec)`) that emits that backend's exact command line, its own **stream parser**
   (`Agent.ParseTurn`, normalizing the backend's output to the shared `TurnResult` — reply, usage,
@@ -278,8 +279,10 @@ handed that placeholder to the app (session list, `attached`), so if it stopped 
 first reattach after the first turn would miss the registry and be refused as an unknown session.
 An unstarted placeholder joins `AliasIDs` (addressable, but names no transcript, so it stays out of
 `TranscriptIDs`); an id that already ran turns joins `PriorIDs`. Model availability
-can be **plan-dependent** (on a ChatGPT-account Codex, only `gpt-5.5` is `-m`-selectable, so its
-alternates are reasoning-effort presets); the registry is the single place that catalogue lives.
+can be **plan-dependent**, so Codex supports live model discovery with `codex debug models`; each
+visible model is exposed once directly and once per supported reasoning effort
+(`model_reasoning_effort=low` / `medium` / `high` / `xhigh` / `max` / `ultra`, as advertised by the
+CLI). The compiled registry is only the fallback catalogue when discovery fails.
 *Ollama*, *Zen*, and *Pickle* are opencode-backed (`opencode run` / `run -s <id>`, `--format json` JSONL):
 like Codex they **self-assign** a session id (a `ses_…` id on every event), and `--auto` is the
 skip-permissions equivalent. Ollama advertises the local `ollama/*` catalogue served by the provider

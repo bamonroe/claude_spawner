@@ -33,6 +33,19 @@ func TestSettingsDefaultsWhenUnset(t *testing.T) {
 	}
 }
 
+func TestSettingsDefaultFallsBackToDiscoveredCatalog(t *testing.T) {
+	ag := &Agent{ID: "codex", Name: "Codex", DefaultModel: "gpt-6-astra", Models: []Model{
+		{Alias: "gpt-6-astra"}, {Alias: "gpt-5.6-sol"},
+	}}
+	s := &SettingsStore{byID: map[string]*Settings{
+		"codex": {Agent: "codex", DefaultModel: "gpt-5.5"},
+	}}
+	ag.SetDiscovered([]Model{{Alias: "gpt-5.6-terra"}, {Alias: "gpt-5.6-luna"}})
+	if got := s.DefaultModel(ag); got != "gpt-5.6-terra" {
+		t.Fatalf("default after discovered catalogue = %q, want first discovered model", got)
+	}
+}
+
 func TestSettingsPutOverridesDefaultAndVoice(t *testing.T) {
 	reg := testReg()
 	path := filepath.Join(t.TempDir(), "providers.json")

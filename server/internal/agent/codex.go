@@ -15,10 +15,10 @@ import (
 // from the first output event) rather than accepting a caller-supplied one, so
 // the first turn omits any id and the session driver captures thread_id from the
 // stream. Resume replays via `codex exec resume <id>`. The working directory is
-// set by the Executor (the process cwd), so no -C is needed. On this account the
-// supported model is gpt-5.5; the alternates are reasoning-effort presets on it
-// (plan-independent), which is why ordinal selection ("use model 2") matters —
-// the labels are awkward to say.
+// set by the Executor (the process cwd), so no -C is needed. Codex model
+// availability is account- and rollout-dependent, so the backend discovers the
+// host CLI's live catalogue with `codex debug models`; the compiled list below
+// is only the fallback when that probe is unavailable.
 func codex() *Agent {
 	return &Agent{
 		ID:            "codex",
@@ -26,12 +26,16 @@ func codex() *Agent {
 		Bin:           "codex",
 		Transcript:    TranscriptCodex,
 		SelfAssignsID: true,
-		DefaultModel:  "gpt-5.5",
-		Models: []Model{
-			{Alias: "gpt-5.5", Flag: "gpt-5.5", Spoken: []string{"five five", "gpt five five", "standard"}},
-			{Alias: "gpt-5.5-high", Args: []string{"-m", "gpt-5.5", "-c", "model_reasoning_effort=high"}, Spoken: []string{"high", "high reasoning", "thorough"}},
-			{Alias: "gpt-5.5-low", Args: []string{"-m", "gpt-5.5", "-c", "model_reasoning_effort=low"}, Spoken: []string{"low", "low reasoning", "fast"}},
-		},
+		DefaultModel:  "gpt-6-astra",
+		Models: codexModels([]codexModelSpec{
+			{Slug: "gpt-6-astra", Efforts: []string{"low", "medium", "high", "xhigh", "max", "ultra"}},
+			{Slug: "gpt-5.6-sol", Efforts: []string{"low", "medium", "high", "xhigh", "max", "ultra"}},
+			{Slug: "gpt-5.6-terra", Efforts: []string{"low", "medium", "high", "xhigh", "max", "ultra"}},
+			{Slug: "gpt-5.6-luna", Efforts: []string{"low", "medium", "high", "xhigh", "max"}},
+			{Slug: "gpt-5.5", Efforts: []string{"low", "medium", "high", "xhigh"}},
+		}),
+		DiscoverArgs: []string{"debug", "models"},
+		ParseModels:  parseCodexModels,
 		build: func(a *Agent, s TurnSpec, m Model) []string {
 			args := []string{"exec"}
 			if s.Resume {
@@ -53,6 +57,86 @@ func codex() *Agent {
 		},
 		ParseTurn: parseCodexStream,
 	}
+}
+
+type codexModelSpec struct {
+	Slug    string
+	Efforts []string
+}
+
+func codexModels(specs []codexModelSpec) []Model {
+	var out []Model
+	for _, spec := range specs {
+		out = append(out, Model{
+			Alias:  spec.Slug,
+			Flag:   spec.Slug,
+			Spoken: codexModelSpoken(spec.Slug),
+		})
+		for _, effort := range spec.Efforts {
+			out = append(out, Model{
+				Alias:  spec.Slug + "-" + effort,
+				Args:   []string{"-m", spec.Slug, "-c", "model_reasoning_effort=" + effort},
+				Spoken: codexEffortSpoken(spec.Slug, effort),
+			})
+		}
+	}
+	return out
+}
+
+func codexModelSpoken(slug string) []string {
+	switch slug {
+	case "gpt-6-astra":
+		return []string{"astra", "six astra", "gpt six astra"}
+	case "gpt-5.6-sol":
+		return []string{"sol", "five six sol", "gpt five six sol"}
+	case "gpt-5.6-terra":
+		return []string{"terra", "five six terra", "gpt five six terra"}
+	case "gpt-5.6-luna":
+		return []string{"luna", "five six luna", "gpt five six luna"}
+	case "gpt-5.5":
+		return []string{"five five", "gpt five five"}
+	default:
+		return nil
+	}
+}
+
+func codexEffortSpoken(slug, effort string) []string {
+	base := strings.TrimPrefix(slug, "gpt-")
+	base = strings.ReplaceAll(base, "-", " ")
+	base = strings.ReplaceAll(base, ".", " ")
+	label := strings.ReplaceAll(effort, "xhigh", "extra high")
+	return []string{base + " " + label, label + " " + base}
+}
+
+type codexModelsJSON struct {
+	Models []struct {
+		Slug                     string `json:"slug"`
+		Visibility               string `json:"visibility"`
+		SupportedReasoningLevels []struct {
+			Effort string `json:"effort"`
+		} `json:"supported_reasoning_levels"`
+	} `json:"models"`
+}
+
+func parseCodexModels(stdout []byte) []Model {
+	var payload codexModelsJSON
+	if err := json.Unmarshal(stdout, &payload); err != nil {
+		return nil
+	}
+	specs := make([]codexModelSpec, 0, len(payload.Models))
+	for _, raw := range payload.Models {
+		if raw.Slug == "" || raw.Visibility != "list" {
+			continue
+		}
+		var efforts []string
+		for _, level := range raw.SupportedReasoningLevels {
+			if level.Effort != "" {
+				efforts = append(efforts, level.Effort)
+			}
+		}
+		specs = append(specs, codexModelSpec{Slug: raw.Slug, Efforts: efforts})
+	}
+	return codexModels(specs)
 }
 
 // codexEvent is the subset of Codex CLI's `codex exec --json` JSONL we consume.

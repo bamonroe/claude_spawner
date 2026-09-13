@@ -66,25 +66,50 @@ func TestCodexArgs(t *testing.T) {
 	if c.Bin != "codex" {
 		t.Errorf("codex Bin = %q, want codex", c.Bin)
 	}
+	if !c.CanDiscover() {
+		t.Fatal("codex should discover the host CLI model catalogue")
+	}
 
 	// First turn, default model: no id, model pinned, prompt after `--`.
-	got := c.Args(TurnSpec{Prompt: "fix it", SessionID: "ignored", Resume: false, Model: "gpt-5.5", Bypass: true})
+	got := c.Args(TurnSpec{Prompt: "fix it", SessionID: "ignored", Resume: false, Model: "gpt-6-astra", Bypass: true})
 	want := []string{
 		"exec", "--json", "--skip-git-repo-check",
-		"--dangerously-bypass-approvals-and-sandbox", "-m", "gpt-5.5", "--", "fix it",
+		"--dangerously-bypass-approvals-and-sandbox", "-m", "gpt-6-astra", "--", "fix it",
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("codex first-turn args\n got %v\nwant %v", got, want)
 	}
 
 	// Resume turn carries the id after `resume`; reasoning preset expands to -c args.
-	got = c.Args(TurnSpec{Prompt: "-rf danger", SessionID: "thread-abc", Resume: true, Model: "gpt-5.5-high"})
+	got = c.Args(TurnSpec{Prompt: "-rf danger", SessionID: "thread-abc", Resume: true, Model: "gpt-5.6-sol-ultra"})
 	want = []string{
 		"exec", "resume", "thread-abc", "--json", "--skip-git-repo-check",
-		"-m", "gpt-5.5", "-c", "model_reasoning_effort=high", "--", "-rf danger",
+		"-m", "gpt-5.6-sol", "-c", "model_reasoning_effort=ultra", "--", "-rf danger",
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("codex resume args\n got %v\nwant %v", got, want)
+	}
+}
+
+func TestParseCodexModels(t *testing.T) {
+	got := parseCodexModels([]byte(`{
+		"models": [
+			{"slug": "gpt-6-astra", "visibility": "list", "supported_reasoning_levels": [{"effort": "low"}, {"effort": "ultra"}]},
+			{"slug": "gpt-reserve", "visibility": "hide", "supported_reasoning_levels": [{"effort": "high"}]},
+			{"slug": "gpt-5.6-luna", "visibility": "list", "supported_reasoning_levels": [{"effort": "medium"}, {"effort": "max"}]}
+		]
+	}`))
+	if len(got) != 6 {
+		t.Fatalf("parseCodexModels length = %d, want 6: %+v", len(got), got)
+	}
+	wantAliases := []string{"gpt-6-astra", "gpt-6-astra-low", "gpt-6-astra-ultra", "gpt-5.6-luna", "gpt-5.6-luna-medium"}
+	for i, alias := range wantAliases {
+		if got[i].Alias != alias {
+			t.Fatalf("model %d alias = %q, want %q", i, got[i].Alias, alias)
+		}
+	}
+	if !slices.Equal(got[2].Args, []string{"-m", "gpt-6-astra", "-c", "model_reasoning_effort=ultra"}) {
+		t.Fatalf("ultra args = %v", got[2].Args)
 	}
 }
 

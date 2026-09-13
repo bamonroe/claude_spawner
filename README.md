@@ -655,7 +655,11 @@ declares how to invoke it and how to read its output, so they share one interfac
 - **Codex** (OpenAI's CLI) — `codex exec`; the server captures Codex's own session id and resumes
   it turn to turn. Needs `codex` installed and logged in (`codex login`); host turns run over SSH, so
   set `SPAWNER_SSH_CODEX_BIN` if `codex` isn't on the host's `PATH` (and `SPAWNER_SANDBOX_CODEX_BIN`
-  for the sandbox target, analogous to the per-target Claude binaries).
+  for the sandbox target, analogous to the per-target Claude binaries). Its models are discovered
+  from the installed Codex CLI (`codex debug models`) at startup and when clients connect; each
+  visible model is offered directly and with every reasoning effort the CLI advertises. If discovery
+  fails, the server falls back to a compiled catalogue for Astra, 5.6 Sol, 5.6 Terra, 5.6 Luna, and
+  5.5.
 - **Ollama** (through opencode) — `opencode run --format json`; like Codex it captures
   opencode's own `ses_…` session id and resumes it turn to turn. Its models are the `ollama/*`
   catalogue, so **runs stay entirely on-box** against local weights — no cloud round-trip. Needs
@@ -708,9 +712,10 @@ the spawner picks for you, plus a short catalogue you can switch between by voic
 - **"hey buddy, list models"** — speaks the attached session's backend catalogue, numbered, marking
   the current one (Claude: `opus` / `sonnet` / `fable` / `haiku`, plus the effort presets
   `opus-low` / `opus-high` / `opus-max`, which run opus at that `--effort` level — deeper thinking
-  for slower turns; Codex on a ChatGPT-account plan: `gpt-5.5`
-  and its low/high reasoning presets — the account decides which model ids are selectable; Ollama
-  Zen, and Pickle: whatever opencode is configured to run, discovered live and named by model id).
+  for slower turns; Codex: the CLI's visible catalogue, currently including `gpt-6-astra`,
+  `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, and `gpt-5.5` when available, plus every advertised
+  reasoning effort such as `-low`, `-medium`, `-high`, `-xhigh`, `-max`, and `-ultra`; Ollama, Zen,
+  and Pickle: whatever opencode is configured to run, discovered live and named by model id).
 - **"hey buddy, use model 2"** — switches to that numbered model (say the number — "two" or "2").
   Selecting by **number** is deliberate: it sidesteps having to pronounce awkward model names. The
   choice is durable on the session and takes effect on your next message.
