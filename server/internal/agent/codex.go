@@ -149,12 +149,16 @@ type codexEvent struct {
 		Text    string `json:"text"`    // reply prose on agent_message
 		Message string `json:"message"` // error text on an error item
 	} `json:"item"`
+	// On turn.completed. InputTokens is the WHOLE prompt Codex sent and is
+	// inclusive of CachedInputTokens (the cached prefix) — unlike Claude, whose
+	// input_tokens excludes its cache counters. Usage.Input must carry only the
+	// fresh remainder (see the Usage invariant in turn.go).
 	Usage struct {
 		InputTokens         int `json:"input_tokens"`
 		CachedInputTokens   int `json:"cached_input_tokens"`
 		OutputTokens        int `json:"output_tokens"`
 		ReasoningOutputToks int `json:"reasoning_output_tokens"`
-	} `json:"usage"` // on turn.completed
+	} `json:"usage"`
 	Message string `json:"message"` // on a top-level error event
 	Error   struct {
 		Message string `json:"message"`
@@ -208,8 +212,17 @@ func parseCodexStream(r io.Reader, cb TurnCallbacks) (TurnResult, error) {
 				}
 			}
 		case "turn.completed":
+			// Subtract the cached prefix out of the input count: Codex reports it
+			// inclusively, and Usage requires the fields be disjoint. Without this the
+			// cached prefix — nearly the whole context on a resumed turn — is counted
+			// twice, and the context badge / auto-compress monitor see a session at
+			// roughly double its true size.
+			fresh := ev.Usage.InputTokens - ev.Usage.CachedInputTokens
+			if fresh < 0 {
+				fresh = 0
+			}
 			res.Usage = Usage{
-				Input:      ev.Usage.InputTokens,
+				Input:      fresh,
 				Output:     ev.Usage.OutputTokens + ev.Usage.ReasoningOutputToks,
 				CacheRead:  ev.Usage.CachedInputTokens,
 				CacheWrite: 0, // Codex reports no separate cache-write count

@@ -73,8 +73,12 @@ func TestParseCodexStream(t *testing.T) {
 	if res.SessionID != "019f4971-0a8c-74a0-a384-d833e64fd77e" {
 		t.Errorf("SessionID = %q", res.SessionID)
 	}
-	// Output folds in reasoning tokens (7+3); cached maps to CacheRead.
-	if want := (Usage{Input: 100, Output: 10, CacheRead: 40}); res.Usage != want {
+	// Output folds in reasoning tokens (7+3); cached maps to CacheRead. Codex's
+	// input_tokens is INCLUSIVE of cached_input_tokens, so Input is the fresh
+	// remainder (100-40) — the Usage fields must stay disjoint or the context
+	// badge double-counts the cached prefix and auto-compress fires at half the
+	// real size.
+	if want := (Usage{Input: 60, Output: 10, CacheRead: 40}); res.Usage != want {
 		t.Errorf("usage = %+v, want %+v", res.Usage, want)
 	}
 	if want := []string{"done"}; strings.Join(texts, "|") != strings.Join(want, "|") {

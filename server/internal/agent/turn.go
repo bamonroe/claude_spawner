@@ -22,6 +22,15 @@ type ToolUse struct {
 // the cache — the signal behind the app's cache-warm indicator. The zero value
 // means the turn reported no usage. The json tags are the on-wire names sent to
 // the app (see the `output` message in docs/protocol.md).
+//
+// INVARIANT — the four fields are DISJOINT: Input counts only the fresh
+// (uncached) prompt, so Input+CacheWrite+CacheRead is the whole prompt and
+// Input+CacheRead is the session's context occupancy (what the app's context
+// badge and the auto-compress monitor both measure). A backend that reports an
+// input count *inclusive* of its cached prefix (Codex does) must subtract it in
+// its parser — otherwise the cached prefix is counted twice and a long session
+// appears to be double its real size, tripping compression at half the
+// threshold.
 type Usage struct {
 	Input      int `json:"input"`       // fresh input tokens
 	Output     int `json:"output"`      // output tokens (incl. reasoning, where reported)
