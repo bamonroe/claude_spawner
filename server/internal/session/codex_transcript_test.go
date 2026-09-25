@@ -65,6 +65,65 @@ func TestCodexReadTranscript(t *testing.T) {
 	}
 }
 
+// A rollout in Codex's CURRENT schema: prose arrives as `item_completed` events
+// wrapping a typed item (UserMessage/AgentMessage) rather than the legacy flat
+// user_message/agent_message, non-message items are steps we don't replay, and
+// the AgentMessage carries its own durable msg_… id. Captured from a live
+// rollout (codex 0.155.0).
+const codexRolloutItems = `{"type":"session_meta","timestamp":"2026-09-25T13:29:45.136Z","payload":{"session_id":"01a0d8c1-f570-7d03-b290-6ced1de26de2","cwd":"/tmp"}}
+{"type":"event_msg","timestamp":"2026-09-25T13:29:46.000Z","payload":{"type":"task_started"}}
+{"type":"event_msg","timestamp":"2026-09-25T13:29:47.000Z","payload":{"type":"item_completed","item":{"type":"UserMessage","id":"01a0d8c1-fb1c-7372-96cc-b96fd6f25c78","content":[{"type":"text","text":"Reply with exactly the word: pong"}]}}}
+{"type":"event_msg","timestamp":"2026-09-25T13:29:48.000Z","payload":{"type":"item_completed","item":{"type":"Reasoning","id":"rs_0889","summary_text":[],"raw_content":[]}}}
+{"type":"event_msg","timestamp":"2026-09-25T13:29:49.000Z","payload":{"type":"item_completed","item":{"type":"AgentMessage","id":"msg_pong_a","content":[{"type":"Text","text":"pong"}]}}}
+{"type":"response_item","timestamp":"2026-09-25T13:29:49.500Z","payload":{"type":"message","role":"assistant","id":"msg_pong_a","content":[{"type":"output_text","text":"pong"}]}}
+{"type":"event_msg","timestamp":"2026-09-25T13:29:50.000Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":12259,"cached_input_tokens":4992,"output_tokens":5,"reasoning_output_tokens":0}}}}
+{"type":"event_msg","timestamp":"2026-09-25T13:30:00.000Z","payload":{"type":"item_completed","item":{"type":"CommandExecution","id":"exec-1","command":["ls"]}}}
+{"type":"event_msg","timestamp":"2026-09-25T13:30:01.000Z","payload":{"type":"item_completed","item":{"type":"UserMessage","id":"01a0d8c1-ffff","content":[{"type":"text","text":"What word did you just say?"}]}}}
+{"type":"event_msg","timestamp":"2026-09-25T13:30:02.000Z","payload":{"type":"item_completed","item":{"type":"AgentMessage","id":"msg_pong_b","content":[{"type":"Text","text":"pong"}]}}}
+{"type":"event_msg","timestamp":"2026-09-25T13:30:03.000Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":14328,"cached_input_tokens":4992,"output_tokens":6,"reasoning_output_tokens":2}}}}
+`
+
+// TestCodexReadTranscriptItemEvents is TestCodexReadTranscript against Codex's
+// current rollout schema. Without it a codex session replays as ZERO rows: the
+// app shows an empty history on reattach and any reply the user didn't catch
+// live is gone. Steps (Reasoning, CommandExecution) stay out of the replay, and
+// each claude row keeps the usage badge and the durable id it needs to reconcile.
+func TestCodexReadTranscriptItemEvents(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "rollout.jsonl")
+	if err := os.WriteFile(path, []byte(codexRolloutItems), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fs := codexFS{}
+	msgs, err := fs.readTranscript(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []struct {
+		role, text, id string
+	}{
+		{"user", "Reply with exactly the word: pong", ""},
+		{"claude", "pong", "msg_pong_a"},
+		{"user", "What word did you just say?", ""},
+		{"claude", "pong", "msg_pong_b"},
+	}
+	if len(msgs) != len(want) {
+		t.Fatalf("got %d messages, want %d: %+v", len(msgs), len(want), msgs)
+	}
+	for i, w := range want {
+		if msgs[i].Role != w.role || msgs[i].Text != w.text || msgs[i].Index != i || msgs[i].ID != w.id {
+			t.Errorf("msg %d = %+v, want role=%s text=%q index=%d id=%q", i, msgs[i], w.role, w.text, i, w.id)
+		}
+	}
+	// The badge still lands on the claude row the turn's token_count follows.
+	if u := msgs[1].Usage; u == nil || *u != (Usage{Input: 7267, Output: 5, CacheRead: 4992}) {
+		t.Errorf("claude[1] usage = %+v, want {7267 5 0 4992}", u)
+	}
+	if u := msgs[3].Usage; u == nil || *u != (Usage{Input: 9336, Output: 8, CacheRead: 4992}) {
+		t.Errorf("claude[3] usage = %+v, want {9336 8 0 4992}", u)
+	}
+}
+
 // TestCodexLastContextUsage confirms the snapshot is the newest turn's
 // last_token_usage (current context occupancy), not the running total.
 func TestCodexLastContextUsage(t *testing.T) {

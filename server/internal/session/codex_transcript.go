@@ -13,9 +13,11 @@ import (
 // "rollout" JSONL under ~/.codex/sessions/YYYY/MM/DD/rollout-<ts>-<thread_id>.jsonl
 // (the thread_id — Codex's session id — is the trailing UUID in the filename), in
 // a schema unrelated to Claude's transcript OR to Codex's live `codex exec --json`
-// stream: conversation prose arrives as `event_msg` lines of type `user_message`
-// and `agent_message`, and context size as `token_count` lines. This reads that
-// persisted schema; the live stream is handled by parseCodexStream.
+// stream: conversation prose arrives as `event_msg` lines — `item_completed`
+// wrapping a typed item on current Codex, `user_message`/`agent_message` on older
+// rollouts (both are read; see codexEventPayload) — and context size as
+// `token_count` lines. This reads that persisted schema; the live stream is
+// handled by parseCodexStream.
 //
 // It embeds claudeFS purely to reuse the backend-neutral file primitives
 // (stat/open/isMissing/cacheKey and the local-vs-SSH split) — only where the
@@ -118,15 +120,39 @@ type codexRolloutLine struct {
 
 // codexEventPayload is the subset of an `event_msg` payload we read: the prose of
 // user/agent messages and the token accounting of a completed turn.
+//
+// Codex has TWO generations of the prose event and rollouts of both still sit on
+// disk, so we read either. The legacy shape is a `user_message`/`agent_message`
+// event whose prose is the flat `message` string. Current Codex instead emits one
+// `item_completed` per conversation item, carrying a typed `item` — the prose in
+// `content[].text` and, for both roles, the item's durable id. The two never
+// appear in the same rollout (a given Codex version writes one or the other), so
+// reading both cannot double-count a message.
 type codexEventPayload struct {
-	Type    string `json:"type"`    // "user_message" | "agent_message" | "token_count" | ...
-	Message string `json:"message"` // prose on user_message / agent_message
-	Info    struct {
+	Type    string `json:"type"`    // "user_message" | "agent_message" | "item_completed" | "token_count" | ...
+	Message string `json:"message"` // prose on the legacy user_message / agent_message
+	Item    struct {
+		Type    string `json:"type"` // "UserMessage" | "AgentMessage" | "Reasoning" | "CommandExecution" | ...
+		ID      string `json:"id"`   // durable item id (msg_… on an AgentMessage)
+		Content []struct {
+			Text string `json:"text"`
+		} `json:"content"`
+	} `json:"item"` // on item_completed
+	Info struct {
 		// LastTokenUsage is the just-completed turn's usage — the full prompt Codex
 		// sent that turn, i.e. the current context occupancy (TotalTokenUsage is a
 		// running sum across turns, which is not what a context meter wants).
 		LastTokenUsage codexTokenUsage `json:"last_token_usage"`
 	} `json:"info"` // on token_count
+}
+
+// itemText concatenates an item_completed item's content fragments into its prose.
+func (p codexEventPayload) itemText() string {
+	var b strings.Builder
+	for _, c := range p.Item.Content {
+		b.WriteString(c.Text)
+	}
+	return b.String()
 }
 
 // codexResponseItem is the subset of a `response_item` payload we read: the
@@ -181,10 +207,11 @@ func (u codexTokenUsage) usage() Usage {
 }
 
 // readTranscript parses a Codex rollout JSONL into ordered user/claude prose
-// messages, attaching each turn's token_count usage to its agent_message so the
+// messages, attaching each turn's token_count usage to its agent message so the
 // per-message context badge survives a reattach, and pinning each claude row's
-// durable msg_… id (lifted off the paired assistant response_item) so history
-// rows reconcile across a re-index. Empty path / missing file yields an empty
+// durable msg_… id (carried on the item itself, or lifted off the paired
+// assistant response_item on legacy rollouts) so history rows reconcile across a
+// re-index. Empty path / missing file yields an empty
 // slice (no error), matching claudeFS.readTranscript. Overrides the embedded
 // claudeFS parser (which expects Claude's schema).
 func (fs codexFS) readTranscript(ctx context.Context, path string) ([]Message, error) {
@@ -234,18 +261,23 @@ func (p *codexParse) line(raw []byte) {
 		}
 		switch ev.Type {
 		case "user_message", "agent_message":
+			// Legacy prose event (pre-item_completed rollouts).
 			role := "user"
 			if ev.Type == "agent_message" {
 				role = "claude"
 			}
-			if strings.TrimSpace(ev.Message) == "" {
-				return
+			p.appendProse(role, ev.Message, "", l.Timestamp)
+		case "item_completed":
+			// Current prose event. Only the two message items are conversation; the
+			// rest (Reasoning, CommandExecution, FileChange, …) are steps we don't
+			// replay. The AgentMessage's id IS the durable msg_… id the response_item
+			// branch below used to supply, so pin it straight from the item.
+			switch ev.Item.Type {
+			case "UserMessage":
+				p.appendProse("user", ev.itemText(), "", l.Timestamp)
+			case "AgentMessage":
+				p.appendProse("claude", ev.itemText(), ev.Item.ID, l.Timestamp)
 			}
-			p.msgs = append(p.msgs, Message{Index: p.idx, Role: role, Text: ev.Message, Ts: parseTs(l.Timestamp)})
-			if role == "claude" {
-				p.lastClaude = len(p.msgs) - 1
-			}
-			p.idx++
 		case "token_count":
 			// The turn's usage lands after its agent_message; badge that message.
 			if p.lastClaude >= 0 {
@@ -256,10 +288,12 @@ func (p *codexParse) line(raw []byte) {
 			}
 		}
 	case "response_item":
-		// Each assistant response_item immediately follows its agent_message twin
-		// and carries the durable msg_… id that twin lacks. Pin it to the pending
-		// claude row when the prose matches — the id-empty guard keeps a
-		// skipped/empty agent_message from stealing the previous row's id.
+		// Legacy rollouts only: each assistant response_item immediately follows its
+		// agent_message twin and carries the durable msg_… id that twin lacks. Pin it
+		// to the pending claude row when the prose matches — the id-empty guard keeps
+		// a skipped/empty agent_message from stealing the previous row's id, and also
+		// makes this a no-op on current rollouts, where the item already brought its
+		// own id.
 		var ri codexResponseItem
 		if json.Unmarshal(l.Payload, &ri) != nil || ri.Type != "message" || ri.Role != "assistant" || ri.ID == "" {
 			return
@@ -268,6 +302,21 @@ func (p *codexParse) line(raw []byte) {
 			p.msgs[p.lastClaude].ID = ri.ID
 		}
 	}
+}
+
+// appendProse adds one conversation row, ignoring an empty one. id is the row's
+// durable Codex id where the event carries it ("" leaves it for the response_item
+// branch to pin). A claude row becomes the pending one that a following
+// token_count badges and a following response_item can identify.
+func (p *codexParse) appendProse(role, text, id, ts string) {
+	if strings.TrimSpace(text) == "" {
+		return
+	}
+	p.msgs = append(p.msgs, Message{Index: p.idx, Role: role, Text: text, ID: id, Ts: parseTs(ts)})
+	if role == "claude" {
+		p.lastClaude = len(p.msgs) - 1
+	}
+	p.idx++
 }
 
 // lastUsageInFile scans one rollout for the last token_count line, returning its
