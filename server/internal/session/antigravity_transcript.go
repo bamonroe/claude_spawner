@@ -224,3 +224,6 @@ func agyBrainDirFromPath(path string) string {
 func (fs antigravityFS) chainSig(ctx context.Context, ids []string) (string, bool) {
 	return statChainSig(ctx, fs.claudeFS, fs.findByID, ids)
 }
+
+// parserVersion of the antigravity brain-transcript parser (see transcriptReader).
+func (fs antigravityFS) parserVersion() int { return 1 }

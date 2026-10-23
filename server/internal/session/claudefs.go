@@ -831,3 +831,6 @@ func statChainSig(ctx context.Context, fs claudeFS, resolve func(context.Context
 func (fs claudeFS) chainSig(ctx context.Context, ids []string) (string, bool) {
 	return statChainSig(ctx, fs, fs.findByID, ids)
 }
+
+// parserVersion of the Claude transcript parser (see transcriptReader).
+func (fs claudeFS) parserVersion() int { return 1 }

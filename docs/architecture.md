@@ -382,6 +382,13 @@ seam rather than at the call sites:
   in version order, so the lost-update bug that forced the old under-the-lock write can't recur.
   Losing the last few milliseconds of entries to a crash is fine: both caches are accelerators whose
   entries recompute. `Sync()` (tests only) blocks until what's been recorded is on disk.
+- **A signature names the parser, not just the bytes.** Because these caches outlive the process, a
+  stat-only signature would let a parser fix go unseen by every transcript that hasn't been written
+  since — exactly how codex sessions kept replaying as empty after the `item_completed` schema fix:
+  the old parser's zero-row digest stayed pinned to each idle rollout's unchanged stat. Every
+  `transcriptReader` therefore declares a `parserVersion`, and `Driver.chainSig` stamps it into every
+  signature (`p<N>:…`). **Bump a reader's `parserVersion` whenever its output for an unchanged file
+  changes**; the stale entries then simply miss and recompute.
 - **Parse only what was appended.** These transcripts are append-only, so the message parse is
   *resumable* (`claudeParse`): messages so far, the byte offset they cover, and the still-open
   dictation's turn rollup. A later read re-reads only the new bytes — plus a small overlap of the

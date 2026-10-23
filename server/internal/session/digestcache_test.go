@@ -246,3 +246,46 @@ func TestStatChainSigHandlesADeterministicPathThatDoesNotExist(t *testing.T) {
 		t.Fatal("the signature must change once the transcript appears")
 	}
 }
+
+// A digest persisted by an older PARSER must not be served for a transcript whose
+// bytes haven't changed since. This is the codex history-loss bug: the pre-
+// item_completed codex parser read every current rollout as zero rows and the
+// durable cache pinned that empty digest to the rollout's (unchanged) stat, so
+// even a fixed server kept telling the app an idle codex session was empty.
+func TestDisplayDigestIgnoresDigestFromAnOlderParser(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	id := "01a16933-ad72-7ff3-a484-f00c116c8457"
+	dir := filepath.Join(home, ".codex", "sessions", "2026", "10", "23")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"UserMessage","content":[{"text":"hi"}]}}}` + "\n" +
+		`{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","id":"msg_1","content":[{"text":"hello"}]}}}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "rollout-2026-10-23T10-39-17-"+id+".jsonl"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	d := NewDriver()
+	d.SigTTL(0)
+	digests := OpenDigestCache("")
+	d.SetDigests(digests)
+	rec := &Session{Name: "apple", Agent: "codex", SessionID: id}
+
+	// Seed what the old binary persisted: an empty digest under the bare, unstamped
+	// signature of these very bytes.
+	bare, ok := codexFS{}.chainSig(context.Background(), []string{id})
+	if !ok {
+		t.Fatal("expected a usable signature")
+	}
+	emptyCount, emptyHash := HistoryDigest(nil)
+	digests.Put(id, "codex@"+bare, emptyCount, emptyHash)
+
+	count, _, cached, err := d.DisplayDigest(context.Background(), rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cached || count != 2 {
+		t.Fatalf("DisplayDigest = (count %d, cached %v), want a recomputed 2 rows", count, cached)
+	}
+}

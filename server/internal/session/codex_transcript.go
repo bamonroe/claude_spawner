@@ -372,3 +372,8 @@ func (fs codexFS) lastUsageInFile(ctx context.Context, path string) *ContextSnap
 func (fs codexFS) chainSig(ctx context.Context, ids []string) (string, bool) {
 	return statChainSig(ctx, fs.claudeFS, fs.findByID, ids)
 }
+
+// parserVersion: 2 = reads the item_completed prose events. Version 1 read only
+// the legacy user_message/agent_message events and parsed every current rollout
+// as ZERO rows — digests it persisted for those rollouts must not survive.
+func (fs codexFS) parserVersion() int { return 2 }

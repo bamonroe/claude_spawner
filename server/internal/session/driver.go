@@ -585,6 +585,15 @@ type transcriptReader interface {
 	// re-parsing (see DigestCache). ok=false means this backend can't describe the
 	// chain without doing the expensive read anyway — the caller then recomputes.
 	chainSig(ctx context.Context, ids []string) (sig string, ok bool)
+	// parserVersion names the reader's PARSE of the bytes chainSig describes.
+	// Driver.chainSig stamps it into every signature, because chainSig alone only
+	// proves the files haven't changed — not that the code reading them hasn't.
+	// The digest and usage caches outlive the process, so without the stamp a
+	// parser fix is invisible to every transcript that hasn't been written since:
+	// the old parser's result keeps being served under the unchanged signature.
+	// Bump it whenever the parser's output for an unchanged file changes. Declare
+	// it on every reader — a promoted claudeFS version would silently stand in.
+	parserVersion() int
 }
 
 // transcriptReaderFor selects the on-disk reader for a session's backend (agent
@@ -817,7 +826,7 @@ func (d *Driver) SigTTL(ttl time.Duration) {
 // one stat walk instead of each re-statting the chain.
 func (d *Driver) chainSig(ctx context.Context, agentID, host string, ids []string) (string, bool) {
 	if d.sigTTL <= 0 {
-		return d.transcriptReaderFor(agentID, host).chainSig(ctx, ids)
+		return d.readerSig(ctx, agentID, host, ids)
 	}
 	key := agentID + "\x00" + host + "\x00" + strings.Join(ids, "\x00")
 	now := time.Now()
@@ -827,7 +836,7 @@ func (d *Driver) chainSig(ctx context.Context, agentID, host string, ids []strin
 		return e.sig, e.ok
 	}
 	d.sigMu.Unlock()
-	sig, ok := d.transcriptReaderFor(agentID, host).chainSig(ctx, ids)
+	sig, ok := d.readerSig(ctx, agentID, host, ids)
 	d.sigMu.Lock()
 	if d.sigMemo == nil {
 		d.sigMemo = make(map[string]sigMemoEntry)
@@ -843,6 +852,17 @@ func (d *Driver) chainSig(ctx context.Context, agentID, host string, ids []strin
 	d.sigMemo[key] = sigMemoEntry{sig: sig, ok: ok, at: now}
 	d.sigMu.Unlock()
 	return sig, ok
+}
+
+// readerSig is the backend reader's chainSig stamped with its parserVersion, so
+// a signature describes both the bytes on disk and the code that parses them.
+func (d *Driver) readerSig(ctx context.Context, agentID, host string, ids []string) (string, bool) {
+	r := d.transcriptReaderFor(agentID, host)
+	sig, ok := r.chainSig(ctx, ids)
+	if !ok {
+		return "", false
+	}
+	return fmt.Sprintf("p%d:%s", r.parserVersion(), sig), true
 }
 
 // displayChainParts stats every transcript ReadDisplayHistory would read — each

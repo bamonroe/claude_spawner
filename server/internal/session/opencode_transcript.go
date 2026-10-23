@@ -420,6 +420,9 @@ func (fs opencodeFS) chainSig(ctx context.Context, ids []string) (string, bool) 
 	return fmt.Sprintf("%sids:%s", sig, strings.Join(ids, ",")), true
 }
 
+// parserVersion of the opencode export parser (see transcriptReader).
+func (fs opencodeFS) parserVersion() int { return 1 }
+
 // storeSig is the id-independent half of chainSig: the signature of the opencode
 // store itself. Split out because the export memo keys on it too — it is the one
 // cheap "has any opencode session changed?" signal, and both callers should pay
