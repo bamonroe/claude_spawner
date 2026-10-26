@@ -148,7 +148,11 @@ func (p *SSHPool) writeRemote(ctx context.Context, host, path string, data []byt
 	var stderr bytes.Buffer
 	sess.Stderr = &stderr
 	dir := filepath.Dir(path)
-	if err := sess.Run(posixCommand("mkdir -p " + shellQuote(dir) + " && cat > " + shellQuote(path))); err != nil {
+	cmd := posixCommand("mkdir -p " + shellQuote(dir) + " && cat > " + shellQuote(path))
+	if err := checkExecCommand(cmd); err != nil {
+		return conn, err
+	}
+	if err := sess.Run(cmd); err != nil {
 		// sess.Run's ExitError is just "status N" — fold in the remote command's
 		// stderr (e.g. "Permission denied", "Not a directory") so an upload failure
 		// reports why, not an opaque status code.
@@ -204,7 +208,11 @@ func (p *SSHPool) runRemote(ctx context.Context, host, cmd string) ([]byte, *poo
 	defer sess.Close()
 	stop := context.AfterFunc(ctx, func() { _ = sess.Signal(ssh.SIGKILL); _ = sess.Close() })
 	defer stop()
-	out, err := sess.Output(posixCommand(cmd))
+	cmd = posixCommand(cmd)
+	if err := checkExecCommand(cmd); err != nil {
+		return nil, conn, err
+	}
+	out, err := sess.Output(cmd)
 	return out, conn, err
 }
 

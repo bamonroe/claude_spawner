@@ -28,6 +28,9 @@ func TestShouldRedial(t *testing.T) {
 	if shouldRedial(fmt.Errorf("wrapped: %w", &ssh.ExitError{})) {
 		t.Error("a wrapped exit status must still not re-dial")
 	}
+	if shouldRedial(fmt.Errorf("start: %w", errExecNUL)) {
+		t.Error("a locally refused NUL command never touched the link — must not re-dial")
+	}
 	if !shouldRedial(errors.New("connection reset by peer")) {
 		t.Error("a transport error must earn a re-dial")
 	}
@@ -228,5 +231,23 @@ func TestReapIdleClosesOnlyIdleExtraConnections(t *testing.T) {
 	defer e.mu.Unlock()
 	if len(e.conns) != 1 || e.conns[0] != primary {
 		t.Fatalf("a quiet host must converge to its one primary connection, got %d", len(e.conns))
+	}
+}
+
+// TestNULNeverReachesExec pins the fix for a crash dump in a job's log tail
+// killing the shared connection: OpenSSH drops the whole link on an exec request
+// containing NUL, so quoting strips it and the exec gate refuses any survivor.
+func TestNULNeverReachesExec(t *testing.T) {
+	if got := shellQuote("dump \x00succeeded"); got != "'dump succeeded'" {
+		t.Errorf("shellQuote kept NUL: %q", got)
+	}
+	if got := shellQuote("\x00"); got != "''" {
+		t.Errorf("all-NUL arg should quote as empty: %q", got)
+	}
+	if err := checkExecCommand(cancelableCommand("claude -p " + shellQuote("a\x00b"))); err != nil {
+		t.Errorf("quoted command should pass the gate: %v", err)
+	}
+	if err := checkExecCommand("echo a\x00b"); !errors.Is(err, errExecNUL) {
+		t.Errorf("raw NUL must be refused, got %v", err)
 	}
 }

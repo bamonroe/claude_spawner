@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -168,7 +169,7 @@ func isRemoteExitErr(err error) bool {
 // It lives here, next to the budget, so the policy is a property of the pool
 // rather than a condition each of Run/WriteFile/Stream has to restate correctly.
 func shouldRedial(err error) bool {
-	return err != nil && !isChannelOpenErr(err) && !isRemoteExitErr(err)
+	return err != nil && !isChannelOpenErr(err) && !isRemoteExitErr(err) && !errors.Is(err, errExecNUL)
 }
 
 // channelBudget is one pooled connection's channel allowance: a counting
@@ -398,11 +399,33 @@ func (p *SSHPool) openChannel(ctx context.Context, host string, longLived bool) 
 	sess, err := client.NewSession()
 	if err != nil {
 		release()
-		return nil, client, nil, fmt.Errorf("%w: %v", errChannelOpen, err)
+		// Only the peer's explicit refusal means "busy". Anything else — io.EOF
+		// above all — is the transport already gone, and must stay a re-dialable
+		// error so the dead connection is evicted instead of cached forever.
+		var refused *ssh.OpenChannelError
+		if errors.As(err, &refused) {
+			return nil, client, nil, fmt.Errorf("%w: %v", errChannelOpen, err)
+		}
+		return nil, client, nil, fmt.Errorf("open channel: %w", err)
 	}
 	// Count the channel against the connection so an eviction can defer its close
 	// until this operation is done — see pooledConn.
 	client.hold()
 	var once sync.Once
 	return sess, client, func() { once.Do(func() { client.done(); release() }) }, nil
+}
+
+// errExecNUL marks a command refused locally because it contains a NUL byte.
+var errExecNUL = errors.New("ssh: command contains a NUL byte")
+
+// checkExecCommand is the last gate before a command goes out as an SSH exec
+// request. OpenSSH treats a NUL inside that string as a malformed packet and
+// drops the entire connection, killing every other channel multiplexed on it, so
+// a bad command must fail on its own here instead. shellQuote already strips NUL
+// from quoted text; this catches anything assembled without it.
+func checkExecCommand(cmd string) error {
+	if strings.IndexByte(cmd, 0) >= 0 {
+		return errExecNUL
+	}
+	return nil
 }

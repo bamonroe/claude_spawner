@@ -95,7 +95,13 @@ func (p *SSHPool) streamRemote(ctx context.Context, host, inner string) (Proc, *
 		release()
 		return nil, client, err
 	}
-	if err := sess.Start(cancelableCommand(inner)); err != nil {
+	cmd := cancelableCommand(inner)
+	if err := checkExecCommand(cmd); err != nil {
+		_ = sess.Close()
+		release()
+		return nil, client, err
+	}
+	if err := sess.Start(cmd); err != nil {
 		_ = sess.Close()
 		release()
 		return nil, client, fmt.Errorf("start remote command: %w", err)
@@ -260,7 +266,18 @@ func shellEnvCommand(env []string, cmd string) string {
 // shellQuote wraps s in single quotes for POSIX sh, escaping embedded single
 // quotes as the standard '\” sequence, so arbitrary text survives the remote shell
 // unchanged.
+//
+// The one byte that cannot survive is NUL, and it is dropped here. An argv entry
+// is a C string, so no process could ever receive it; worse, an SSH exec request
+// carrying one is rejected by OpenSSH as a malformed packet ("session_exec_req:
+// parse packet: invalid format") and sshd tears down the WHOLE connection — every
+// other turn and probe multiplexed on it dies with EOF. Quoted text comes from
+// places we don't control (a background job's log tail, fed into a notify prompt,
+// was the one that bit: a crash dump with embedded NULs killed the shared link on
+// every 12 s retry), so the quoting layer is where it is neutralised. See also
+// checkExecCommand, the backstop for anything that bypasses this.
 func shellQuote(s string) string {
+	s = strings.ReplaceAll(s, "\x00", "")
 	if s == "" {
 		return "''"
 	}

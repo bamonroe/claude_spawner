@@ -159,6 +159,9 @@ func StartAuthLogin(ctx context.Context, pool *SSHPool, host, bin string, mode A
 	// only one channel of output to read — and no room for the pgid sentinel trick
 	// SSHExecutor uses. Cancellation therefore closes the channel instead (see below).
 	cmd := "cd \"$HOME\" && exec " + shellQuote(bin) + " auth login " + flag
+	if err := checkExecCommand(cmd); err != nil {
+		return fail(fmt.Errorf("auth login: %w", err))
+	}
 	if err := sess.Start(cmd); err != nil {
 		return fail(fmt.Errorf("auth login: start: %w", err))
 	}
