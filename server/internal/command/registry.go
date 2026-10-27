@@ -42,7 +42,7 @@ var Registry = []Command{
 	{List, "list", []string{"list sessions", "what sessions"},
 		"List your sessions", "list sessions"},
 	{Status, "status", []string{"status", "what's it doing"},
-		"What the attached session is doing", "status"},
+		"What the attached session is doing, its cached tokens, and whether the cache is warm", "status"},
 	{Kill, "kill", []string{"kill session <name>"},
 		"Delete a session by name", "kill session bam"},
 	{ReadLast, "read last", []string{"read last", "read last 3", "replay last", "say that again", "repeat that"},

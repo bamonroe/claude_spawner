@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
+	"unicode"
 
 	"github.com/bam/claude_spawner/server/internal/session"
 )
@@ -562,13 +565,110 @@ func (c *conn) doRenameCurrent(newName string) {
 	}
 }
 
+// doStatus is the spoken "status" voice command: what the attached session is
+// doing right now (the running turn's latest activity, or how long it's been
+// idle), how many tokens its prompt cache holds, and whether that cache is still
+// warm. Zero I/O — it reads the job hub and the last known context usage (the
+// same snapshot auto-compress consumes; attach and every turn refresh it).
 func (c *conn) doStatus() {
 	if c.attached == nil {
 		c.send(msgSay("you're not attached to anything."))
 		return
 	}
 	att := c.attached.Snapshot()
-	c.send(msgSay("you're attached to " + att.Name + " in " + att.Dir + "."))
+	var running bool
+	var since time.Time
+	var activity string
+	c.srv.jobsMu.Lock()
+	j := c.srv.jobs[att.SessionID]
+	c.srv.jobsMu.Unlock()
+	if j != nil {
+		running, since, activity = j.turnState()
+	}
+	cx := c.srv.driver.CachedSessionContextUsage(c.attached)
+	c.send(msgSay(statusText(att.Name, running, since, activity, cx, time.Now())))
+}
+
+// statusText renders the spoken status line. running/since/activity describe an
+// in-flight turn; cx is the session's last known context usage (nil if none).
+func statusText(name string, running bool, since time.Time, activity string, cx *session.ContextSnapshot, now time.Time) string {
+	var b strings.Builder
+	switch {
+	case running:
+		b.WriteString(name + " is working")
+		if a := spokenActivity(activity); a != "" {
+			b.WriteString(" — " + a)
+		}
+		if !since.IsZero() {
+			b.WriteString(", for " + spokenDuration(now.Sub(since)))
+		}
+		b.WriteString(".")
+	case cx != nil && cx.At != 0:
+		b.WriteString(name + " is idle; its last turn finished " + spokenDuration(now.Sub(time.Unix(cx.At, 0))) + " ago.")
+	default:
+		b.WriteString(name + " is idle.")
+	}
+	if cx == nil {
+		b.WriteString(" No cached context yet.")
+		return b.String()
+	}
+	// The cache after a turn holds the whole prefix it read or wrote; Input is the
+	// uncached tail, so it isn't part of what the next turn reuses.
+	b.WriteString(" " + spokenTokens(cx.Usage.CacheRead+cx.Usage.CacheWrite) + " cached; ")
+	switch {
+	case running:
+		b.WriteString("the cache is warm.")
+	case cx.At == 0:
+		b.WriteString("I can't tell if the cache is warm.")
+	default:
+		if left := warmCacheWindow - now.Sub(time.Unix(cx.At, 0)); left > 0 {
+			b.WriteString("the cache is warm for another " + spokenDuration(left) + ".")
+		} else {
+			b.WriteString("the cache went cold " + spokenDuration(-left) + " ago.")
+		}
+	}
+	return b.String()
+}
+
+// spokenActivity turns an `activity` breadcrumb ("⚙️ running a command…") into
+// plain words for TTS: leading emoji/markers and the trailing ellipsis dropped.
+func spokenActivity(a string) string {
+	a = strings.TrimLeftFunc(a, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) })
+	return strings.TrimRight(a, "…. ")
+}
+
+// spokenDuration renders d coarsely for speech: seconds under a minute, minutes
+// under an hour, then hours.
+func spokenDuration(d time.Duration) string {
+	unit := func(n int, word string) string {
+		if n == 1 {
+			return "1 " + word
+		}
+		return strconv.Itoa(n) + " " + word + "s"
+	}
+	switch {
+	case d < time.Minute:
+		return unit(int(d/time.Second), "second")
+	case d < time.Hour:
+		return unit(int(d/time.Minute), "minute")
+	default:
+		return unit(int(d/time.Hour), "hour")
+	}
+}
+
+// spokenTokens renders a token count for speech: exact under a thousand, then
+// whole thousands, then millions to one decimal.
+func spokenTokens(n int) string {
+	switch {
+	case n == 1:
+		return "1 token"
+	case n < 1000:
+		return strconv.Itoa(n) + " tokens"
+	case n < 1_000_000:
+		return strconv.Itoa((n+500)/1000) + " thousand tokens"
+	default:
+		return strconv.FormatFloat(float64(n)/1e6, 'f', 1, 64) + " million tokens"
+	}
 }
 
 // dictate runs one Claude turn for the attached session as a background job that

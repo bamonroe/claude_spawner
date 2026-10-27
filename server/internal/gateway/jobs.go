@@ -110,6 +110,11 @@ type sessionJob struct {
 	sinks   map[*conn]func(any) bool // every attached connection's sink
 	cancel  context.CancelFunc       // aborts the running turn's claude child
 	aborted bool                     // set when the current turn was cancelled on request
+	// turnStart and activity are what "hey buddy, status" reports about a running
+	// turn: when it began and the latest `activity` breadcrumb it emitted (thinking /
+	// running a command / editing a file). Reset at each turn's start.
+	turnStart time.Time
+	activity  string
 	// turnFrames holds the CURRENT in-flight turn's streamed `output` frames so a
 	// connection that attaches or reconnects mid-turn can be replayed everything the
 	// turn has produced so far — the in-flight steps aren't in the on-disk transcript
@@ -224,6 +229,14 @@ func (j *sessionJob) isRunning() bool {
 	return j.running
 }
 
+// turnState reports whether a turn is running and, if so, when it started and
+// its latest activity breadcrumb ("" before the first one).
+func (j *sessionJob) turnState() (running bool, since time.Time, activity string) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.running, j.turnStart, j.activity
+}
+
 // hasSink reports whether at least one connection is currently attached to the
 // hub. The idle job-notify ticker checks this before driving an autonomous "your
 // job finished" turn — with nobody listening there's no one to tell out loud, so
@@ -262,6 +275,9 @@ func (j *sessionJob) broadcastExcept(origin *conn, msg any) {
 func (j *sessionJob) emit(msg map[string]any) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
+	if j.running && msg["type"] == "activity" {
+		j.activity, _ = msg["text"].(string)
+	}
 	// Record streamed reply prose for mid-turn attach/reconnect catch-up (bindJob
 	// replays it). Only `output` frames carry chat content; ephemeral activity /
 	// pending / rate-limit frames aren't worth replaying.
@@ -372,6 +388,7 @@ func (j *sessionJob) beginTurn(cancel context.CancelFunc) {
 	j.running = true
 	j.aborted = false
 	j.cancel = cancel
+	j.turnStart, j.activity = time.Now(), ""
 	j.turnFrames = nil // fresh replay buffer for this turn's streamed output
 	j.turnSeq = 0      // …and a fresh per-turn seq space, with every watermark cleared
 	j.replayedTo = nil

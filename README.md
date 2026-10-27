@@ -61,7 +61,10 @@ All prefixed with **"hey buddy"**:
   unreachable, the delete still completes **immediately**: the session goes away now, and the
   leftover remote files are swept up automatically the next time that host is back online.
 - `rename to <name>` / `call this <name>` — rename the session you're attached to
-- `what's the status` / `what's it doing`
+- `what's the status` / `what's it doing` — what the attached session is doing right now (the
+  running turn's current step and how long it's been going, or how long it's been idle), how many
+  tokens its prompt cache holds, and whether that cache is still warm (it stays warm ~5 minutes
+  after a turn) or has gone cold
 - `read last` / `read last 3` — re-read Claude's recent replies aloud
 - `clear the context` — start Claude fresh **without** losing your history (see below)
 - `compress the context` — like `clear`, but carries a **summary** forward (see below)

@@ -201,7 +201,7 @@
         "status",
         "what's it doing"
       ],
-      "description": "What the attached session is doing"
+      "description": "What the attached session is doing, its cached tokens, and whether the cache is warm"
     },
     {
       "title": "stop",
