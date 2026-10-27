@@ -86,6 +86,21 @@ type inbound struct {
 	Method                string                `json:"method"`                  // on `auth_login`: which billing identity to authenticate — "claudeai" (subscription) | "console" (API); "" = reuse whatever the host is already on
 	Code                  string                `json:"code"`                    // on `auth_login_code`: the code pasted out of the browser after approving the OAuth URL
 	Value                 string                `json:"value"`                   // on `setting_put`: the setting's value, always a string (bool as "true"/"false", int as decimal)
+	AppVersion            string                `json:"app_version"`             // on `hello`: the client build's version name, stamped on archived clips
+	Device                string                `json:"device"`                  // on `hello`: human-readable device model (e.g. "Google Pixel 8a"), stamped on archived clips
+	Platform              string                `json:"platform"`                // on `hello`: "android" | "web", stamped on archived clips
+	Location              *wakeLocation         `json:"location"`                // on `wake`: the device's last position fix at the start of the clip (nil = none / no permission)
+}
+
+// wakeLocation is the optional position fix a client attaches to `wake`. It is
+// never acted on — only stamped on the clip's capture metadata for the archive.
+type wakeLocation struct {
+	Lat       float64  `json:"lat"`
+	Lon       float64  `json:"lon"`
+	AltM      *float64 `json:"alt_m"`      // metres above WGS84; nil = unknown
+	AccuracyM *float64 `json:"accuracy_m"` // horizontal accuracy radius in metres; nil = unknown
+	FixAt     int64    `json:"fix_at"`     // when the fix was taken, unix MILLISECONDS
+	Provider  string   `json:"provider"`   // location provider, e.g. "gps" | "network" | "fused"
 }
 
 // msgAgents advertises the AI backend registry to the app so the visual

@@ -26,6 +26,9 @@ func (c *conn) authenticate() bool {
 	// authenticate always returns true, so HandleWS's deferred unregister pairs.
 	c.srv.register(c)
 	c.clientID = in.ClientID
+	c.platform = strings.TrimSpace(in.Platform)
+	c.appVersion = strings.TrimSpace(in.AppVersion)
+	c.device = strings.TrimSpace(in.Device)
 	c.brief = in.Brief
 	c.interactive = in.Interactive
 	// Auto-compress is no longer clobbered from hello — it's a synced setting now,

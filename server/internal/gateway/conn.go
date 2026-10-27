@@ -52,6 +52,12 @@ type conn struct {
 	ctx      context.Context
 	clientID string // stable per-app id from hello, for resume
 
+	// Client identity from hello, stamped on every whisper request's capture
+	// metadata (see capture.go). Empty from older clients.
+	platform   string // "android" | "web"
+	appVersion string
+	device     string
+
 	wmu    sync.Mutex // guards writes (job goroutines also write) AND closed
 	closed bool       // set once the connection is gone (guards job delivery)
 
@@ -80,12 +86,16 @@ type conn struct {
 	prevSessionID string           // session_id of the session attached just before this one — the "swap" target (survives renames)
 	dlg           *dialog          // non-nil while a dialog is in progress
 
-	collecting     bool   // between `wake` and `audio_end`
-	audio          []byte // accumulated audio for the current utterance
-	audioCodec     string // "ogg_opus" (compressed) or "pcm16" (raw)
-	audioSessionID string // app-declared target session for the current audio clip
-	gated          bool   // current utterance is hands-free (VAD-gated → accumulate)
-	calibrate      bool   // current utterance is an end-token calibration sample
+	collecting     bool                 // between `wake` and `audio_end`
+	audio          []byte               // accumulated audio for the current utterance
+	audioCodec     string               // "ogg_opus" (compressed) or "pcm16" (raw)
+	audioSessionID string               // app-declared target session for the current audio clip
+	gated          bool                 // current utterance is hands-free (VAD-gated → accumulate)
+	calibrate      bool                 // current utterance is an end-token calibration sample
+	clipWakeAt     time.Time            // when the current clip's `wake` arrived
+	clipEndAt      time.Time            // when its `audio_end` arrived
+	clipLocation   *transcribe.Location // device position fix sent with the current clip's `wake` (nil = none)
+	handsFreeUtt   *utterance           // capture identity of the hands-free utterance being buffered (nil = none yet); see capture.go
 
 	buffer          []string          // hands-free rough draft (per-chunk fast transcripts, for detection)
 	audioPCM        []byte            // hands-free raw PCM of all chunks, re-transcribed as one on commit

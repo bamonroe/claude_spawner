@@ -92,14 +92,14 @@ func TestGateFrontDoor(t *testing.T) {
 	stt := &stubTranscriber{text: "just people talking nearby"}
 	cn := &conn{ctx: context.Background(), dictationGate: true,
 		srv: &Server{stt: stt, tokens: gateTokens(t)}}
-	cn.gatedChunk([]byte{1, 2, 3, 4})
+	cn.gatedChunk([]byte{1, 2, 3, 4}, false)
 	if len(cn.audioPCM) != 0 || len(cn.buffer) != 0 || cn.gateOpen {
 		t.Fatalf("closed gate retained state: pcm=%d buffer=%v open=%v", len(cn.audioPCM), cn.buffer, cn.gateOpen)
 	}
 	// Same connection, now the clip carries the gate phrase: the gate opens and the
 	// straddling clip's audio is kept whole.
 	stt.text = "take a note fix the bug"
-	if opened, _ := cn.openGate([]byte{1, 2}); !opened {
+	if opened, _ := cn.openGate([]byte{1, 2}, false); !opened {
 		t.Fatal("gate phrase did not open the gate")
 	}
 	if !cn.gateOpen {
@@ -114,7 +114,7 @@ func TestGateClosedSkipsWhisperWithDetector(t *testing.T) {
 	cn := &conn{ctx: context.Background(), dictationGate: true, wakeService: "detector",
 		srv: &Server{stt: stt, tokens: gateTokens(t), wakeThreshold: 0.5,
 			detector: stubDetector{scores: detect.Scores{gateModelKey: 0.01}}}}
-	cn.gatedChunk([]byte{1, 2, 3, 4})
+	cn.gatedChunk([]byte{1, 2, 3, 4}, false)
 	if stt.calls != 0 {
 		t.Fatalf("closed gate called whisper %d times, want 0", stt.calls)
 	}
@@ -123,7 +123,7 @@ func TestGateClosedSkipsWhisperWithDetector(t *testing.T) {
 	}
 	// Detector fires → gate opens, still without a Whisper pass to decide it.
 	cn.srv.detector = stubDetector{scores: detect.Scores{gateModelKey: 0.99}}
-	if opened, _ := cn.openGate([]byte{1, 2}); !opened || !cn.gateOpen {
+	if opened, _ := cn.openGate([]byte{1, 2}, false); !opened || !cn.gateOpen {
 		t.Fatal("detector above threshold did not open the gate")
 	}
 }
@@ -138,7 +138,7 @@ func TestGateIdleTimeoutRecloses(t *testing.T) {
 	cn.gateOpenedAt = time.Now().Add(-2 * gateIdleTimeout)
 	cn.audioPCM = []byte{9, 9}
 	cn.buffer = []string{"stale"}
-	cn.gatedChunk([]byte{1, 2, 3, 4}) // clearBuffer sends msgPending — needs a ws, so stop before that
+	cn.gatedChunk([]byte{1, 2, 3, 4}, false) // clearBuffer sends msgPending — needs a ws, so stop before that
 	if cn.gateOpen || len(cn.audioPCM) != 0 || len(cn.buffer) != 0 {
 		t.Fatalf("idle gate not re-closed: open=%v pcm=%d buffer=%v", cn.gateOpen, len(cn.audioPCM), cn.buffer)
 	}
@@ -158,7 +158,7 @@ func TestGateAndEndSharePhrase(t *testing.T) {
 
 	// Opening clip: gate opens, and the leading "pickle" must NOT read as the end
 	// token — nothing commits yet.
-	cn.gatedChunk([]byte{1, 2, 3, 4})
+	cn.gatedChunk([]byte{1, 2, 3, 4}, false)
 	if !cn.gateOpen {
 		t.Fatal("shared phrase did not open the gate")
 	}

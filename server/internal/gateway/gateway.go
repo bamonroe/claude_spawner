@@ -578,11 +578,13 @@ var wireHandlers = map[string]func(c *conn, in inbound){
 	"auto_compress": func(c *conn, in inbound) {
 		c.srv.setAutoCompress(in.WarmCompress, in.AutoCompress, in.AutoCompressThreshold)
 	},
-	"restart":       func(c *conn, in inbound) { c.doRestart(in.Mode) },
-	"speak":         func(c *conn, in inbound) { c.handleSpeak(in.ID, in.Text, in.Voice, in.Format) },
-	"speak_stop":    func(c *conn, in inbound) { c.handleSpeakStop() },
-	"tts_voices":    func(c *conn, in inbound) { c.handleTTSVoices() },
-	"wake":          func(c *conn, in inbound) { c.startAudio(in.Codec, in.HandsFree, in.Calibrate, in.SessionID) },
+	"restart":    func(c *conn, in inbound) { c.doRestart(in.Mode) },
+	"speak":      func(c *conn, in inbound) { c.handleSpeak(in.ID, in.Text, in.Voice, in.Format) },
+	"speak_stop": func(c *conn, in inbound) { c.handleSpeakStop() },
+	"tts_voices": func(c *conn, in inbound) { c.handleTTSVoices() },
+	"wake": func(c *conn, in inbound) {
+		c.startAudio(in.Codec, in.HandsFree, in.Calibrate, in.SessionID, in.Location.toCapture())
+	},
 	"commit":        func(c *conn, in inbound) { c.commitMessage() }, // silence-timeout commit of the hands-free buffer
 	"discard_draft": func(c *conn, in inbound) { c.clearBuffer() },   // drop the uncommitted hands-free draft
 	"history": func(c *conn, in inbound) {

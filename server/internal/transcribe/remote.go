@@ -47,7 +47,9 @@ func LoadRemoteModel(ctx context.Context, url, modelPath string) error {
 // RemoteWhisper transcribes by POSTing the WAV to a resident whisper.cpp server
 // (its /inference endpoint), instead of forking whisper-cli per utterance. The
 // server keeps the model loaded, so there's no per-call reload — same model,
-// same accuracy, far less latency. One model per server, so Options is ignored.
+// same accuracy, far less latency. One model per server, so Options.Mode/Model
+// are ignored; Options.Capture rides along as `capture_*` form fields, which the
+// voice-capture proxy in front of whisper embeds in each archived clip.
 type RemoteWhisper struct {
 	// URL is the whisper server base, e.g. "http://localhost:8572" (WhisperX).
 	URL string
@@ -76,6 +78,10 @@ func (w *RemoteWhisper) Transcribe(ctx context.Context, wav []byte, opt Options)
 	_ = mw.WriteField("no_context", "true")
 	if opt.Prompt != "" {
 		_ = mw.WriteField("prompt", opt.Prompt) // whisper.cpp server: initial-prompt bias
+	}
+	// Provenance for the archiving proxy; whisper-server ignores unknown fields.
+	for _, kv := range opt.Capture.FormFields(wav) {
+		_ = mw.WriteField(kv[0], kv[1])
 	}
 	mw.Close()
 
@@ -109,6 +115,6 @@ func (w *RemoteWhisper) Transcribe(ctx context.Context, wav []byte, opt Options)
 		return "", fmt.Errorf("whisper server bad json: %w (%s)", err, strings.TrimSpace(string(data)))
 	}
 	text := clean(out.Text)
-	log.Printf("whisper(remote): %.1fs clip -> %q", float64(len(wav))/32000.0, text)
+	log.Printf("whisper(remote): %.1fs clip -> %q", WAVDuration(wav), text)
 	return text, nil
 }

@@ -24,7 +24,10 @@ const gateIdleTimeout = 90 * time.Second
 // transcript bubble, no accurate pass — so ambient chatter costs nothing and
 // never reaches the app. OPEN (from the gate phrase to the end token): exactly
 // the behaviour below. Gate off ⇒ always open, i.e. today's pipeline.
-func (c *conn) gatedChunk(pcm []byte) {
+//
+// denoised reports whether pcm was scrubbed by the denoise sidecar (capture
+// metadata only).
+func (c *conn) gatedChunk(pcm []byte, denoised bool) {
 	justOpened, opening := false, "" // opening = the fast transcript openGate already paid for
 	if c.gateActive() {
 		if c.gateOpen && time.Since(c.gateOpenedAt) > gateIdleTimeout {
@@ -33,8 +36,9 @@ func (c *conn) gatedChunk(pcm []byte) {
 		}
 		if !c.gateOpen {
 			var opened bool
-			if opened, opening = c.openGate(pcm); !opened {
-				return // pre-gate speech: scored and dropped, nothing retained
+			if opened, opening = c.openGate(pcm, denoised); !opened {
+				c.handsFreeUtt = nil // a dropped pre-gate clip is its own utterance
+				return               // pre-gate speech: scored and dropped, nothing retained
 			}
 			justOpened = true
 		}
@@ -44,9 +48,11 @@ func (c *conn) gatedChunk(pcm []byte) {
 	if target != c.bufferSessionID && (len(c.audioPCM) > 0 || len(c.buffer) > 0) {
 		c.buffer = nil
 		c.audioPCM = nil
+		c.handsFreeUtt = nil // the discarded buffer's utterance ends here; this clip starts a new one
 		c.send(msgPending(""))
 	}
 	c.bufferSessionID = target
+	utt := c.handsFreeUtterance(pcm, denoised)
 
 	if len(c.audioPCM)+len(pcm) <= maxHandsFreePCM {
 		c.audioPCM = append(c.audioPCM, pcm...)
@@ -73,7 +79,7 @@ func (c *conn) gatedChunk(pcm []byte) {
 	chunk := opening
 	if chunk == "" {
 		var err error
-		chunk, err = c.fastTranscriber().Transcribe(c.ctx, transcribe.PCM16WAV(pcm, audioSampleRate, audioChannels),
+		chunk, err = c.transcribeClip(utt, transcribe.CapturePartial, true, pcm, denoised,
 			transcribe.Options{Mode: "fixed", Model: "tiny", Prompt: c.detectBias()})
 		if err != nil {
 			chunk = ""
@@ -128,14 +134,19 @@ func (c *conn) gatedChunk(pcm []byte) {
 // It returns the fast transcript it computed (empty on the detector path, which
 // never transcribes) so the caller can reuse it as the opening clip's draft
 // instead of running the same tiny pass a second time.
-func (c *conn) openGate(pcm []byte) (opened bool, text string) {
+//
+// The gate check is stamped as the first request of a fresh hands-free utterance:
+// if the clip opens the gate, the partials and final that follow continue it; if
+// not, gatedChunk drops the utterance with the clip.
+func (c *conn) openGate(pcm []byte, denoised bool) (opened bool, text string) {
 	if fired, ok := c.detectorFired(pcm, c.gateModels()); ok {
 		if fired {
 			c.armGate()
 		}
 		return fired, "" // the detector spoke — no Whisper pass at all
 	}
-	text, err := c.fastTranscriber().Transcribe(c.ctx, transcribe.PCM16WAV(pcm, audioSampleRate, audioChannels),
+	c.handsFreeUtt = nil
+	text, err := c.transcribeClip(c.handsFreeUtterance(pcm, denoised), transcribe.CaptureGateCheck, true, pcm, denoised,
 		transcribe.Options{Mode: "fixed", Model: "tiny", Prompt: c.detectBias()})
 	if err != nil {
 		return false, ""
@@ -233,20 +244,25 @@ func (c *conn) commitMessage() {
 	audio := c.audioPCM
 	sessionID := c.bufferSessionID
 	gated := c.gateOpen
+	utt := c.handsFreeUtt
 	c.setGate(false) // every commit re-closes the gate: one utterance per opening
 	c.buffer = nil
 	c.audioPCM = nil
 	c.bufferSessionID = ""
+	c.handsFreeUtt = nil
 	c.send(msgPending(""))
 	if len(audio) == 0 {
 		return
+	}
+	if utt == nil { // defensive: audio buffered without a capture identity
+		utt = c.newUtterance(audio, false)
 	}
 
 	// The accurate re-transcribe below can take a beat; tell the app it's underway
 	// so hands-free shows "transcribing…" rather than flashing back to "listening".
 	c.send(msgTranscribing())
 
-	full, err := c.transcriber().Transcribe(c.ctx, transcribe.PCM16WAV(audio, audioSampleRate, audioChannels),
+	full, err := c.transcribeClip(utt, transcribe.CaptureFinal, false, audio, utt.denoised,
 		transcribe.Options{Mode: c.sttMode, Model: c.sttModel, Prompt: c.vocabBias()})
 	if err != nil {
 		c.fail("transcribe_failed", err.Error())
@@ -401,6 +417,7 @@ func (c *conn) vocabBias() string {
 func (c *conn) clearBuffer() {
 	c.buffer = nil
 	c.audioPCM = nil
+	c.handsFreeUtt = nil
 	c.setGate(false)
 	c.send(msgPending(""))
 }

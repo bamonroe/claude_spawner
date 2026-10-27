@@ -104,6 +104,10 @@ type Config struct {
 	// background noise from each clip before Whisper; empty disables it (clips go
 	// to Whisper unfiltered).
 	DenoiseURL string
+	// CaptureArtist names the speaker on every whisper request's capture metadata
+	// (the `capture_artist` form field the voice-capture archiving proxy embeds in
+	// each archived WAV). Empty omits the field.
+	CaptureArtist string
 	// TTSURL points at a resident Kokoro TTS server (Kokoro-FastAPI's base URL,
 	// e.g. http://localhost:8880). When set, the server offers speech synthesis
 	// to clients; empty disables it (clients fall back to on-device TTS).
@@ -234,6 +238,7 @@ func Load() (*Config, error) {
 		WakewordURL:          os.Getenv("SPAWNER_WAKEWORD_URL"),
 		EagerNotify:          envBool("SPAWNER_EAGER_NOTIFY"),
 		DenoiseURL:           os.Getenv("SPAWNER_DENOISE_URL"),
+		CaptureArtist:        strings.TrimSpace(os.Getenv("SPAWNER_CAPTURE_ARTIST")),
 		TTSURL:               os.Getenv("SPAWNER_TTS_URL"),
 		TTSVoice:             env("SPAWNER_TTS_VOICE", "af_heart"),
 		TTSFormat:            env("SPAWNER_TTS_FORMAT", "opus"),

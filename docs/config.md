@@ -109,6 +109,10 @@ just a pointer to this file.)
   re-transcribe. The client's `denoise_atten_db` caps the attenuation (DeepFilterNet `atten_lim_db`;
   lower is gentler, `<=0`/unset = full). Empty disables it (clips transcribed unfiltered); any
   sidecar failure falls back to the original clip rather than failing the turn.
+- Clip capture metadata: `SPAWNER_CAPTURE_ARTIST` (empty; the speaker's name, sent as the
+  `capture_artist` field on every whisper request so the `voice-capture` archiving proxy in
+  `/data/speech_services` can embed it in each archived WAV — see `docs/architecture.md`, *Clip
+  capture metadata*. Empty omits the field; the deployed env sets it to `Brian Monroe`).
 - Server-side TTS (the Kokoro epic, see `TODO.toml`): `SPAWNER_TTS_URL` (base URL of the resident
   Kokoro-FastAPI server, e.g. `http://localhost:8880` — the `kokoro` compose service; empty
   disables server TTS and clients use on-device speech), `SPAWNER_TTS_VOICE` (`af_heart`; default

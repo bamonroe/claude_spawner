@@ -4,6 +4,7 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/bam/claude_spawner/server/internal/transcribe"
 )
@@ -36,7 +37,9 @@ const (
 // compressed default) or "pcm16" (raw); empty means pcm16. handsFree marks a
 // VAD-gated clip so the server can drop background speech (no wake word, outside
 // the follow-up window) instead of acting on it.
-func (c *conn) startAudio(codec string, handsFree, calibrate bool, sessionID string) {
+// loc is the device's position fix sent with `wake` (nil = none), kept only for
+// the clip's capture metadata.
+func (c *conn) startAudio(codec string, handsFree, calibrate bool, sessionID string, loc *transcribe.Location) {
 	switch codec {
 	case "":
 		codec = codecPCM16
@@ -55,6 +58,8 @@ func (c *conn) startAudio(codec string, handsFree, calibrate bool, sessionID str
 	c.audio = c.audio[:0]
 	c.audioCodec = codec
 	c.audioSessionID = strings.TrimSpace(sessionID)
+	c.clipWakeAt = time.Now()
+	c.clipLocation = loc
 }
 
 // handleAudioFrame appends a binary PCM frame to the current utterance.
@@ -74,6 +79,7 @@ func (c *conn) endAudio() {
 		return
 	}
 	c.collecting = false
+	c.clipEndAt = time.Now()
 	if c.transcriber() == nil {
 		c.fail("not_implemented", "audio transcription is disabled")
 		return
@@ -104,18 +110,19 @@ func (c *conn) endAudio() {
 	// token detector, and the accurate commit re-transcribe (all reuse this pcm /
 	// the buffer built from it). On any sidecar failure we fall back to the
 	// original audio rather than fail the turn.
+	denoised := false
 	if c.denoise && c.srv.denoiser != nil {
 		if dn, derr := c.srv.denoiser.Denoise(c.ctx, pcm, c.denoiseAttenDb); derr != nil {
 			log.Printf("denoise: %v (using original clip)", derr)
 		} else {
-			pcm = dn
+			pcm, denoised = dn, true
 		}
 	}
 
 	// Calibration: transcribe with the fast (detection) model and just report
 	// what it heard — this measures exactly what end-token detection sees.
 	if c.calibrate {
-		text, _ := c.fastTranscriber().Transcribe(c.ctx, transcribe.PCM16WAV(pcm, audioSampleRate, audioChannels),
+		text, _ := c.transcribeClip(c.newUtterance(pcm, denoised), transcribe.CaptureCalibration, true, pcm, denoised,
 			transcribe.Options{Mode: "fixed", Model: "tiny", Prompt: c.detectBias()})
 		c.send(msgCalibration(text))
 		return
@@ -124,12 +131,12 @@ func (c *conn) endAudio() {
 	// Hands-free: keep the audio and only fast-transcribe for the draft + end
 	// token — the whole message is re-transcribed accurately on commit.
 	if c.gated {
-		c.gatedChunk(pcm)
+		c.gatedChunk(pcm, denoised)
 		return
 	}
 
 	// Push-to-talk / typed audio: transcribe now with the chosen model, dispatch.
-	text, err := c.transcriber().Transcribe(c.ctx, transcribe.PCM16WAV(pcm, audioSampleRate, audioChannels),
+	text, err := c.transcribeClip(c.newUtterance(pcm, denoised), transcribe.CaptureFinal, false, pcm, denoised,
 		transcribe.Options{Mode: c.sttMode, Model: c.sttModel, Prompt: c.vocabBias()})
 	if err != nil {
 		c.fail("transcribe_failed", err.Error())

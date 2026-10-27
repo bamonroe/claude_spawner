@@ -843,6 +843,50 @@ disabled unless a model/URL is configured; when disabled the audio path returns 
 but text utterances still work. Swapping to faster-whisper or a cloud API (e.g. Groq
 large-v3-turbo) stays a one-file change behind the `Transcriber` interface.
 
+### Clip capture metadata
+
+The resident whisper servers sit behind **`voice-capture`**, a Rust proxy in `/data/speech_services`
+that archives every `/inference` request's WAV + transcript, embedding any `capture_*` multipart
+form fields as WAV metadata. The spawner stamps **every** whisper request with them — the cheap live
+passes as well as the transcript it acts on — so the archive can compare the snippets against the
+final transcript of the same utterance.
+
+The seam is structural: `transcribe.Options.Capture` (a typed `transcribe.Capture`, `capture.go`).
+`RemoteWhisper` serializes it into form fields (whisper itself ignores unknown fields); `WhisperCPP`
+ignores it. In the gateway, every transcription goes through one door, `conn.transcribeClip`
+(`internal/gateway/capture.go`), which picks the accurate or fast server and builds the capture
+from per-connection state (from `hello`) plus the **utterance** the clip belongs to — so no call
+site can send an unstamped request. Kinds per call site:
+
+| `capture_kind` | where | what |
+|---|---|---|
+| `final` | `endAudio` (push-to-talk), `commitMessage` (hands-free commit) | the transcript that is acted on; hands-free re-transcribes the whole buffered utterance on the accurate server |
+| `partial` | `gatedChunk` | one hands-free clip's fast pass — feeds the live draft and the end-token string-match |
+| `gatecheck` | `openGate` | a fast pass made only to listen for the speech-gate phrase while the gate is shut |
+| `calibration` | `endAudio` (`calibrate`) | the end-token calibration probe |
+
+An **utterance** is one push-to-talk or calibration clip, or — hands-free — every VAD-gated clip from
+the first one buffered until the commit (or until the buffer is discarded: `clearBuffer`, the gate
+idle timeout, a session-target change). A shut-gate clip that doesn't open the gate is its own
+one-request utterance; the clip that does open it starts the utterance the following partials and
+final continue. All requests of an utterance share `capture_utterance` (a UUID) with `capture_seq`
+counting 1, 2, 3… in request order.
+
+Fields (empty ones omitted; booleans always sent): `capture_source` (`claude_spawner`),
+`capture_kind`, `capture_utterance`, `capture_seq`, `capture_artist` (`SPAWNER_CAPTURE_ARTIST`),
+`capture_recorded_at` (RFC 3339 with offset — when the utterance's first clip began: its `wake`
+arrival, or `audio_end` minus the clip's duration when the client only sends `wake` on release),
+`capture_lat`/`capture_lon`/`capture_alt_m`/`capture_accuracy_m`/`capture_location_at`/
+`capture_location_provider` (from `wake` `location`; the utterance keeps its first clip's fix),
+`capture_client_id`/`capture_platform`/`capture_app_version`/`capture_device` (from `hello`),
+`capture_session_id`/`capture_session_name`/`capture_session_cwd`/`capture_host` (the clip's
+`session_id` target, else the attached session; `host` is `local` for the local machine),
+`capture_codec`, `capture_hands_free`, `capture_denoised` (this audio went through the denoise
+sidecar — for a final, every clip of it did), `capture_stt_role` (`accurate` | `fast`: the server the
+request went to — the fast pass reports `accurate` when no fast server is configured),
+`capture_stt_model` (the model loaded on that server), and `capture_duration_s` (measured from the
+WAV actually sent).
+
 Whisper hallucinates on silence (it fills quiet stretches with looped YouTube-outro phrases), so
 the resident server images run with **Silero VAD + non-speech-token suppression** as entrypoint
 defaults — those defaults live with the whisper image in the `/data/speech_services` stack.

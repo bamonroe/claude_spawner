@@ -191,6 +191,17 @@ covers push-to-talk, the hands-free draft, the end-token detector and the final 
 alike; if the denoiser ever errors the server quietly falls back to the original clip rather than
 dropping the turn.
 
+**Every clip is archived with its context.** The whisper servers sit behind the `voice-capture`
+proxy (in `/data/speech_services`), which keeps every clip it transcribes. The spawner labels each
+one — not only the final transcript but every live hands-free snippet, the speech-gate checks and
+calibration probes — with who spoke (`SPAWNER_CAPTURE_ARTIST`), when the utterance started, where the
+phone was (its last location fix, if the app has location permission), which app build and device
+sent it, which session it was meant for, the codec, whether hands-free and denoise were on, and which
+whisper server and model heard it. All the requests made for one utterance share an utterance id and
+a running sequence number, so you can line the rough live snippets up against the final transcript of
+the same speech — the raw material for tuning the end token, the gate and model choice. The full
+field list is in `docs/architecture.md` (*Clip capture metadata*).
+
 **When the end token misfires.** If "beep" isn't caught and the clip keeps growing, whatever you
 say next still lands in the same message — so you can just keep issuing commands: the server splits
 a committed message on **every** "hey buddy" and runs them in order ("hey buddy list, hey buddy

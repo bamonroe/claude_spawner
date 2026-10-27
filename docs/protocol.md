@@ -34,8 +34,8 @@ Every JSON message has a `type`. Optional `id` correlates request/response. `ts`
 
 | type            | payload                                  | meaning                                       |
 |-----------------|------------------------------------------|-----------------------------------------------|
-| `hello`         | `token`, `client_id`                     | auth handshake (plus the optional flags listed below the table) |
-| `wake`          | `{ "codec": "ogg_opus", "hands_free?": false, "calibrate?": false, "session_id?": "<uuid>" }` | audio capture starts; binary audio frames will follow. `session_id` is the app's currently focused session and, when present, is the dictation target for this clip / hands-free buffer (validated by the server; omitted = legacy per-connection attached session). |
+| `hello`         | `token`, `client_id`, `app_version?`, `device?`, `platform?` | auth handshake (plus the optional flags listed below the table). `app_version` (the client build's version name), `device` (human-readable device model, e.g. "Google Pixel 8a") and `platform` (`android` \| `web`) identify the client; they are only stamped on archived audio clips (see *Clip capture metadata* below) |
+| `wake`          | `{ "codec": "ogg_opus", "hands_free?": false, "calibrate?": false, "session_id?": "<uuid>", "location?": { "lat": 0.0, "lon": 0.0, "alt_m?": 0.0, "accuracy_m?": 0.0, "fix_at": <unix ms>, "provider": "fused" } }` | audio capture starts; binary audio frames will follow. `session_id` is the app's currently focused session and, when present, is the dictation target for this clip / hands-free buffer (validated by the server; omitted = legacy per-connection attached session). `location` is the device's last position fix (`lat`/`lon` degrees, `alt_m` metres, `accuracy_m` metres, `fix_at` unix **milliseconds**, `provider` e.g. `gps`/`network`/`fused`); optional, never acted on — only stamped on the archived clip. Omit it when there's no fix or no permission |
 | *(binary)*      | raw PCM/Opus frames                       | audio chunk (between `wake` and `audio_end`)  |
 | `audio_end`     | `{}`                                      | end of utterance; server finalizes transcript |
 | `utterance`     | `{ "text": "<what the user said>", "session_id?": "<uuid>" }` | **the text seam** — a complete utterance as text (post-STT or typed). `session_id`, when present, is the app's focused session and is validated/used as the dictation target before falling back to legacy per-connection attachment. |
@@ -165,6 +165,14 @@ would just burn tokens; a `clear` (context rotation) re-primes it. The server se
 `pending {text}` as the buffer grows (empty `text` clears the draft). The app may also send
 `{"type":"commit"}` to force-commit the buffer (used by the optional client-side silence timeout);
 it's a no-op if the buffer is empty.
+
+**Clip capture metadata.** Every whisper request the server makes for a clip — not just the
+transcript it acts on — carries provenance as `capture_*` multipart form fields, which the
+`voice-capture` archiving proxy in front of whisper (`/data/speech_services`) embeds in each archived
+WAV. This is server→whisper, not part of the WebSocket protocol; the wire only supplies its inputs
+(`hello` `app_version`/`device`/`platform`/`client_id`, `wake` `location`/`codec`/`hands_free`/
+`session_id`). The field list and the utterance/seq semantics are documented with the data path in
+`docs/architecture.md` (*Clip capture metadata*).
 
 The app records **Ogg/Opus** (MediaRecorder) and sends the whole encoded clip on release — ~10×
 smaller than raw PCM (a 10 s clip is ~25 KB vs ~320 KB), which matters on capped cellular. The

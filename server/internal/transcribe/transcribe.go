@@ -29,6 +29,10 @@ type Options struct {
 	// Prompt biases decoding toward these words (whisper's initial-prompt / vocab
 	// hint) — e.g. session and project names, which STT otherwise mangles.
 	Prompt string
+	// Capture is the request's provenance metadata (utterance id, kind, device,
+	// location, session, …). Transcribers that front an archive send it along
+	// (RemoteWhisper → `capture_*` form fields); the rest ignore it. nil = none.
+	Capture *Capture
 }
 
 // Transcriber converts a WAV clip into text.
