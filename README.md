@@ -202,6 +202,27 @@ a running sequence number, so you can line the rough live snippets up against th
 the same speech — the raw material for tuning the end token, the gate and model choice. The full
 field list is in `docs/architecture.md` (*Clip capture metadata*).
 
+**Tagging recordings with location (Android).** The location comes from the app's **Settings ›
+Audio › Tag recordings with location** switch, which is **on by default**. On first launch, after the
+microphone prompt, the app explains what the location is for and then shows Android's location
+prompt. **Approximate** is enough, and the app never asks for background ("all the time") location.
+If you decline, the switch turns off and the app won't ask again at launch. Turning the switch back
+on asks again; if Android has stopped showing the prompt, allow location under *App info ›
+Permissions › Location*. With the switch on and the permission granted, every recording (push-to-talk,
+each hands-free utterance, calibration probes) carries the phone's most recent fix: latitude and
+longitude, altitude and accuracy when known, the provider, and the time the fix was taken. A fix can
+be minutes old, but it is never passed off as newer than it is.
+
+The app uses only low-power location from Android's `LocationManager` (no Google Play Services). It
+reads the last-known fixes, listens passively, and, while hands-free is listening, asks the network
+and fused providers for an update about once a minute. It never turns on GPS just for this. A
+recording never waits for a fix: with no fix available, or with the switch off or the permission
+denied, the clip simply goes without one. While location is granted, the hands-free notification
+service also declares the `location` foreground-service type, so fixes keep arriving with the screen
+off. If Android refuses that type, the service runs on the microphone alone rather than crashing.
+Each connection also reports the app version, the device model and Android version, and the
+platform, so archived clips record which build and phone made them.
+
 **When the end token misfires.** If "beep" isn't caught and the clip keeps growing, whatever you
 say next still lands in the same message — so you can just keep issuing commands: the server splits
 a committed message on **every** "hey buddy" and runs them in order ("hey buddy list, hey buddy
@@ -1014,7 +1035,9 @@ Whisper over the same socket (the `pcm16` codec — no Opus/ffmpeg needed), exac
 push-to-talk. Replies are **read aloud** — with the server's Kokoro voice when it offers TTS (see
 "Server voice" above), else the browser's built-in `SpeechSynthesis` — and the stop button (or the
 "stop" barge-in) halts playback. The mic needs a **secure context** (https or localhost) and
-microphone permission.
+microphone permission. Browser clips are archived like the phone's, labelled with platform `web` and
+the browser's user agent, but they never carry a location: the web client doesn't ask for
+geolocation.
 
 **Hands-free (always-listening) works in the browser too**: swipe the mic button up to switch it on
 and the client keeps the mic open, running a Web-Audio voice-activity detector that mirrors the

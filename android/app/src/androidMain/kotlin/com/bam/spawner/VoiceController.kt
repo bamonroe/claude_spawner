@@ -73,6 +73,9 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
     internal val localTts = LocalTts(speaker)
     internal val recorder = OpusRecorder(app)
     internal val notifier = Notifier(app)
+    /** Cached most-recent location fix, tagged onto each `wake` when the user opted in
+     *  (Settings › Audio). Runs low-power updates only while hands-free listens. */
+    internal val location = com.bam.spawner.location.LocationTracker(app)
     internal var client: SpawnerClient? = null
 
     /** True while the app UI is in the foreground; drives whether a finished turn
@@ -505,6 +508,7 @@ class VoiceController(context: Context, internal val settings: SettingsStore) : 
             settings.aliasMap(),
             settings.brief, settings.interactive,
             settings.warmCompress, settings.autoCompress, settings.autoCompressThreshold,
+            androidClientInfo(app),
         )
         // Pick up a CA pushed over adb (hands-off), then trust it for this wss server.
         settings.autoImportPushedCa()

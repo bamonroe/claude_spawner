@@ -47,6 +47,9 @@ fun AudioSettings(
     onSttChanged: () -> Unit,
     onBack: () -> Unit,
     micMeter: @Composable (Double) -> Unit = {},
+    // Platform-only trailing section — Android's "Tag recordings with location"
+    // switch + permission flow. The web client sends no location, so passes nothing.
+    locationSection: @Composable () -> Unit = {},
 ) {
     var threshold by remember { mutableStateOf(settings.vadThreshold.toFloat()) }
 
@@ -193,6 +196,7 @@ fun AudioSettings(
                 + "detection. Quick shows \"none\" when the server has no fast whisper server.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
         )
+        locationSection()
     }
 }
 

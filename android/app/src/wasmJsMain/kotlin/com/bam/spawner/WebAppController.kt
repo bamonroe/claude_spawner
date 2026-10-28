@@ -333,6 +333,7 @@ class WebAppController(internal val prefs: Prefs) : AppController {
             prefs.aliasMap(),
             prefs.brief, prefs.interactive,
             prefs.warmCompress, prefs.autoCompress, prefs.autoCompressThreshold,
+            webClientInfo(),
         )
         client = SpawnerClient(
             url = url, token = token, clientId = prefs.clientId, hello = hello,

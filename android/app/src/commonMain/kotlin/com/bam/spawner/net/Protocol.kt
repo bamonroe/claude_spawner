@@ -618,6 +618,39 @@ data class HelloConfig(
     val warmCompress: Boolean,
     val autoCompress: Boolean,
     val autoCompressThreshold: Int,
+    /** Which build/device/platform is connecting — stamped onto archived voice clips. */
+    val client: ClientInfo,
+)
+
+/**
+ * Identifies the connecting client in the hello handshake (`app_version`, `device`,
+ * `platform`). The server records it alongside every archived voice clip. Each
+ * platform builds its own: `androidClientInfo` / `webClientInfo`.
+ */
+data class ClientInfo(
+    /** e.g. "0.1.0 (512) abc1234" — versionName (versionCode) and the build commit. */
+    val appVersion: String,
+    /** e.g. "Google Pixel 8a, Android 16"; the browser's user agent on the web. */
+    val device: String,
+    /** "android" | "web". */
+    val platform: String,
+)
+
+/**
+ * The device's most recent location fix, attached to a `wake` so the archived clip
+ * can be found by where it was recorded. [fixAt] is when the fix was taken (unix ms),
+ * not when the clip was — a stale fix is sent honestly rather than withheld.
+ */
+data class GeoFix(
+    val lat: Double,
+    val lon: Double,
+    /** Altitude in metres; null when the provider gave none. */
+    val altM: Double? = null,
+    /** Horizontal accuracy radius in metres; null when unknown. */
+    val accuracyM: Double? = null,
+    val fixAt: Long,
+    /** The location provider that produced the fix ("gps", "network", "fused", …). */
+    val provider: String,
 )
 
 /**
@@ -641,6 +674,8 @@ object Outbound {
     // the catalogues the app currently holds.
     fun hello(token: String, clientId: String, cfg: HelloConfig, digests: CatalogueDigests = CatalogueDigests()) = buildJsonObject {
         put("type", "hello"); put("token", token); put("client_id", clientId)
+        put("app_version", cfg.client.appVersion); put("device", cfg.client.device)
+        put("platform", cfg.client.platform)
         put("end_token", cfg.endToken); put("wake_token", cfg.wakeToken)
         put("speak_token", cfg.speakToken); put("dictation_gate", cfg.dictationGate)
         put("wake_service", cfg.wakeService)
@@ -692,11 +727,22 @@ object Outbound {
     fun speakStop() = buildJsonObject { put("type", "speak_stop") }.toString()
     // Ask for Kokoro's voice catalogue (the audio-settings voice picker).
     fun ttsVoices() = buildJsonObject { put("type", "tts_voices") }.toString()
-    fun wake(codec: String, handsFree: Boolean = false, calibrate: Boolean = false, sessionId: String = "") =
+    // `location` is the latest fix when the user opted into tagging recordings with
+    // it; the whole object is omitted when there is none (and always on the web).
+    fun wake(
+        codec: String, handsFree: Boolean = false, calibrate: Boolean = false, sessionId: String = "",
+        location: GeoFix? = null,
+    ) =
         buildJsonObject {
             put("type", "wake"); put("codec", codec)
             put("hands_free", handsFree); put("calibrate", calibrate)
             if (sessionId.isNotEmpty()) put("session_id", sessionId)
+            if (location != null) putJsonObject("location") {
+                put("lat", location.lat); put("lon", location.lon)
+                location.altM?.let { put("alt_m", it) }
+                location.accuracyM?.let { put("accuracy_m", it) }
+                put("fix_at", location.fixAt); put("provider", location.provider)
+            }
         }.toString()
     fun audioEnd() = buildJsonObject { put("type", "audio_end") }.toString()
     fun commit() = buildJsonObject { put("type", "commit") }.toString() // silence-timeout commit

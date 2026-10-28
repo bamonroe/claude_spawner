@@ -181,7 +181,20 @@ internal fun VoiceController.startHandsFree(): Boolean {
     _voiceState.value = VoiceState.LISTENING
     _mic.value = "🟢 listening for \"hey buddy\"…"
     if (headsetMicOn) scope.launch { verifyHeadsetMic() }
+    if (settings.tagLocation) location.start()
     return true
+}
+
+/** The fix to tag the next `wake` with: the cached/last-known one when the user opted
+ *  in and granted the permission, else null (the field is then omitted). Never waits. */
+internal fun VoiceController.wakeLocation(): com.bam.spawner.net.GeoFix? =
+    if (settings.tagLocation) location.current() else null
+
+/** Re-apply the location toggle / a fresh permission grant: run the low-power updates
+ *  only while hands-free listens and tagging is on. The caller (the Activity) also
+ *  re-promotes the foreground service so it picks up the `location` type. */
+internal fun VoiceController.onLocationSettingChanged() {
+    if (hfOn && settings.tagLocation) location.start() else location.stop()
 }
 
 /** Re-apply VAD settings / audio route live (restart the recorder) if hands-free
@@ -249,6 +262,7 @@ internal fun VoiceController.onAudioRouteChanged() {
 
 internal fun VoiceController.stopHandsFree() {
     hfOn = false
+    location.stop()
     speaker.setCommMode(false) // back to the regular media speaker
     handsFree?.stop()
     handsFree = null
@@ -303,7 +317,7 @@ internal fun VoiceController.startCalibration(rounds: Int = 10) {
     val token = settings.endToken
     val rec = HandsFreeRecorder(app, vadConfig(), onSpeechStart = {}, onUtterance = { clip ->
         client?.let { c ->
-            c.send(Outbound.wake(HandsFreeRecorder.CODEC, calibrate = true))
+            c.send(Outbound.wake(HandsFreeRecorder.CODEC, calibrate = true, location = wakeLocation()))
             c.sendAudio(clip)
             c.send(Outbound.audioEnd())
         }
@@ -362,7 +376,7 @@ internal fun VoiceController.onHandsFreeSpeechStart() {
 // Called on the capture thread with a finished Opus clip; send it like PTT.
 internal fun VoiceController.onHandsFreeUtterance(clip: ByteArray) {
     val c = client ?: return
-    c.send(Outbound.wake(HandsFreeRecorder.CODEC, handsFree = true, sessionId = _attachedId.value))
+    c.send(Outbound.wake(HandsFreeRecorder.CODEC, handsFree = true, sessionId = _attachedId.value, location = wakeLocation()))
     c.sendAudio(clip)
     c.send(Outbound.audioEnd())
     scheduleSilenceCommit() // start the quiet-timeout after this utterance
@@ -386,7 +400,7 @@ internal fun VoiceController.startTalking() {
         return
     }
     recording = true
-    c.send(Outbound.wake(OpusRecorder.CODEC, sessionId = _attachedId.value))
+    c.send(Outbound.wake(OpusRecorder.CODEC, sessionId = _attachedId.value, location = wakeLocation()))
     _mic.value = "🎙️ recording…"
 }
 

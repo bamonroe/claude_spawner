@@ -21,6 +21,14 @@ The client is one Gradle module (`android/app`) with three source sets:
 - **`wasmJsMain`** — browser-only: `WebAppController` (the browser `AppController`), `WebAudio.kt`
   (mic + SpeechSynthesis + server-TTS playback via Web Audio), `WebPrefs` (localStorage backend), `WebTransfer.kt` (file pick/save),
   `WebRoot.kt` (entry point).
+- **Client identity / location seam.** `hello` carries a `ClientInfo` (`app_version`, `device`,
+  `platform`) and `wake` an optional `GeoFix`, both defined in `net/Protocol.kt`. Each platform
+  builds its own `ClientInfo` next to `platformName()`: `androidClientInfo(context)` reads the
+  installed package version and `Build`, and `webClientInfo()` sends `platform` `"web"` with the
+  `BuildInfo` stamp and `navigator.userAgent`. The browser never sends a `location`, by design (no
+  geolocation prompt). The fix and its settings switch exist only in `androidMain`
+  (`location/LocationTracker`, `LocationSection.kt`), which reaches the shared Audio screen through
+  its `locationSection` slot.
 
 The compile gate for **both** targets (run before any commit that touches shared code) needs
 JDK 17 or newer on `JAVA_HOME` (the Gradle 8.x wrapper handles the rest):

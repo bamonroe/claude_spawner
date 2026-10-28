@@ -103,6 +103,20 @@ class SettingsStore(context: Context) : Prefs {
         get() = prefs.getString("mic_source", Prefs.DEFAULT_MIC_SOURCE) ?: Prefs.DEFAULT_MIC_SOURCE
         set(v) = prefs.edit().putString("mic_source", v).apply()
 
+    /** Tag each recording (`wake`) with the phone's latest location fix so archived
+     *  clips can be found by where they were recorded. Android-only (the web client
+     *  never sends a location), so it lives here rather than on [Prefs]. Default on;
+     *  it only takes effect once the location permission is granted. */
+    var tagLocation: Boolean
+        get() = prefs.getBoolean("tag_location", true)
+        set(v) = prefs.edit().putBoolean("tag_location", v).apply()
+
+    /** Whether the first-run location rationale has been shown, so launch doesn't nag
+     *  again after a decline (turning the setting back on asks again). */
+    var locationPrompted: Boolean
+        get() = prefs.getBoolean("location_prompted", false)
+        set(v) = prefs.edit().putBoolean("location_prompted", v).apply()
+
     /** Ask Claude for brief, TTS-friendly replies (appended as a prompt hint). */
     override var brief: Boolean
         get() = prefs.getBoolean("brief", false)

@@ -171,11 +171,15 @@ class MainActivity : ComponentActivity() {
                 // Surface provides the correct on-background content color (so text is
                 // light in dark mode, dark in light mode).
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                    // First launch: ask (with a rationale) for the location used to tag
+                    // recordings — the setting defaults on. Asked once; see LocationSection.
+                    LocationStartupPrompt(settings, onChanged = ::onLocationChanged)
                     AppRoot(
                         controller, settings, mode,
                         onToggleHandsFree = ::setHandsFree,
                         onSelectAudioOutput = ::selectAudioOutput,
                         onSelectAudioInput = ::selectAudioInput,
+                        onLocationChanged = ::onLocationChanged,
                     ) { newMode ->
                         settings.themeMode = newMode.name.lowercase()
                         mode = newMode
@@ -209,6 +213,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** The location toggle flipped or its permission was just granted/denied: re-run the
+     *  tracker, and re-promote a running hands-free service so its foreground type
+     *  gains (or drops) `location` — background fixes need that type. */
+    private fun onLocationChanged() {
+        controller.onLocationSettingChanged()
+        if (settings.handsFree && hasMic()) startHandsFreeService()
+    }
+
     private fun hasMic() =
         ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
@@ -225,6 +237,7 @@ private fun AppRoot(
     onToggleHandsFree: (Boolean) -> Unit,
     onSelectAudioOutput: (AudioOutput) -> Unit,
     onSelectAudioInput: (AudioInput) -> Unit,
+    onLocationChanged: () -> Unit,
     onThemeChange: (ThemeMode) -> Unit,
 ) {
     var screen by rememberSaveable { mutableStateOf("main") }
@@ -313,6 +326,7 @@ private fun AppRoot(
                 Text("Mic level", style = MaterialTheme.typography.titleMedium)
                 LevelMeterBar(level, threshold)
             },
+            locationSection = { LocationSection(settings, onChanged = onLocationChanged) },
         )
         "browse" -> BrowseScreen(
             controller = controller,

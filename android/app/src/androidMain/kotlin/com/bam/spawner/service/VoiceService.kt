@@ -9,6 +9,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import com.bam.spawner.Spawner
+import com.bam.spawner.platformLog
 import com.bam.spawner.startHandsFree
 import com.bam.spawner.stopHandsFree
 
@@ -21,6 +22,8 @@ import com.bam.spawner.stopHandsFree
 class VoiceService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
+    // Re-sent by the Activity after a location grant/toggle: startForegroundCompat
+    // re-promotes with the current types and startHandsFree is a no-op when running.
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForegroundCompat()
         Spawner.controller(this).startHandsFree()
@@ -47,7 +50,22 @@ class VoiceService : Service() {
             .setOngoing(true)
             .build()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+            val mic = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            // The `location` type is what lets the low-power location updates keep
+            // arriving while backgrounded/screen-off. Android 14+ throws a
+            // SecurityException if it's claimed without the permission (or from a
+            // background start), so add it only when tagging is on and granted, and
+            // fall back to microphone-only rather than ever crashing the service.
+            val ctrl = Spawner.controller(this)
+            if (ctrl.settings.tagLocation && ctrl.location.hasPermission()) {
+                try {
+                    startForeground(1, notification, mic or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+                    return
+                } catch (e: SecurityException) {
+                    platformLog("voice service: location FGS type refused, mic only: ${e.message}")
+                }
+            }
+            startForeground(1, notification, mic)
         } else {
             startForeground(1, notification)
         }

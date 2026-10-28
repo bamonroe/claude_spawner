@@ -6,6 +6,12 @@
     <!-- Foreground service for always-listening wake word / active session. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <!-- Optional: tag recordings with where they were made (Settings › Audio). The
+         `location` FGS type keeps low-power fixes arriving while hands-free runs in the
+         background; it's only claimed at runtime once the permission is granted. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Route the spoken (TTS) audio to a connected Bluetooth headset. -->
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
@@ -33,6 +39,6 @@
         <service
             android:name=".service.VoiceService"
             android:exported="false"
-            android:foregroundServiceType="microphone" />
+            android:foregroundServiceType="microphone|location" />
     </application>
 </manifest>
